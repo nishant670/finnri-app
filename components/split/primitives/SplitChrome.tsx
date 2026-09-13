@@ -73,9 +73,21 @@ export function SearchField({
 export function SegmentedSections({
   activeSection,
   onChange,
+  activityBadge = false,
 }: {
   activeSection: ActiveSection;
   onChange: (section: ActiveSection) => void;
+  /**
+   * "Somebody else did something you have not seen", not "something happened".
+   *
+   * The distinction is the whole design of this dot. Activity records every
+   * expense, friend and group the user has ever made themselves, so a dot fed
+   * by the feed would light on the first launch and stay lit for the life of
+   * the account — a permanent unread marker is the same as no marker. What
+   * feeds it instead is the reader's unread *split notifications*, which are
+   * only ever written about them by another member and which reading clears.
+   */
+  activityBadge?: boolean;
 }) {
   return (
     <Segments
@@ -83,7 +95,7 @@ export function SegmentedSections({
       options={[
         { key: 'groups', label: 'Groups', icon: 'account-group-outline' },
         { key: 'friends', label: 'Friends', icon: 'account-outline' },
-        { key: 'activity', label: 'Activity', icon: 'history' },
+        { key: 'activity', label: 'Activity', icon: 'history', badge: activityBadge },
       ]}
       onChange={onChange}
       contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: 0 }}

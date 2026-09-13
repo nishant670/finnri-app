@@ -23,6 +23,12 @@ import { confirmSubscriptionOccurrence, revertSubscriptionOccurrence } from '@/l
 type Filter = 'all' | 'unread' | 'read';
 
 const iconForType = (type: string): keyof typeof MaterialCommunityIcons.glyphMap => {
+  // Before the generic `created`/`deleted` matches below, which
+  // `split.settlement.*` would otherwise never reach.
+  if (type === 'split.settlement.denied') return 'close-circle-outline';
+  if (type === 'split.settlement.confirmed') return 'check-circle-outline';
+  if (type.startsWith('split.settlement')) return 'hand-coin-outline';
+  if (type.startsWith('split.')) return 'account-group-outline';
   if (type.includes('budget')) return 'chart-donut';
   if (type.includes('subscription')) return 'calendar-sync-outline';
   if (type.includes('created')) return 'plus-circle-outline';
@@ -128,6 +134,14 @@ export default function NotificationsScreen() {
 
     const splitGroupMatch = notification.action_url?.match(/^\/split\/groups\/(\d+)$/);
     if (splitGroupMatch) {
+      router.push('/(tabs)/split');
+      return;
+    }
+
+    // A settlement has no screen of its own. Both sides of the decision belong
+    // on Splits: the prompt to confirm or deny sits at the top of it, and the
+    // outcome is a row in its activity feed.
+    if (/^\/split\/settlements\/\d+$/.test(notification.action_url ?? '')) {
       router.push('/(tabs)/split');
       return;
     }

@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { AppHeader } from '@/components/navigation/AppHeader';
@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/themed-text';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { sortSplitBills, splitBillSortLabel, type SplitBillSort } from '@/lib/split-bill-sort';
 import type { SplitBill, SplitFriend } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -32,10 +33,20 @@ export function GroupDetailModal({
   onOpenExpense,
   onOpenAction,
   onOpenSettings,
+  billSort,
+  onOpenSort,
 }: {
   summary: SplitGroupSummary | null;
   friendById: Map<number, SplitFriend>;
   currentUserName: string;
+  /**
+   * Owned by the screen above rather than here. The preference is app-wide, and
+   * the sheet that changes it has to be a sibling of this modal rather than a
+   * child — see SplitScreen, where every other sheet these screens open is
+   * mounted for the same reason.
+   */
+  billSort: SplitBillSort;
+  onOpenSort: () => void;
   onClose: () => void;
   onAddExpense: (groupId: number) => void;
   onManageMembers: (summary: SplitGroupSummary) => void;
@@ -47,6 +58,9 @@ export function GroupDetailModal({
   const theme = useThemeTokens().colors;
   const [groupSearchVisible, setGroupSearchVisible] = useState(false);
   const [groupSearchQuery, setGroupSearchQuery] = useState('');
+  const bills = summary?.bills;
+  const sortedBills = useMemo(() => sortSplitBills(bills ?? [], billSort), [bills, billSort]);
+
   if (!summary) return null;
 
   // The roster, not `memberIds`: those are the owner's own friend rows, so on
@@ -57,7 +71,7 @@ export function GroupDetailModal({
   const canAddExpense = summary.group.viewer_can_add_expense !== false;
   const normalizedGroupSearch = groupSearchQuery.trim().toLowerCase();
   const filteredBills = normalizedGroupSearch
-    ? summary.bills.filter((bill) => {
+    ? sortedBills.filter((bill) => {
         const participantNames = readBillForViewer(bill, friendById, currentUserName)
           .people.map((person) => person.name)
           .join(' ');
@@ -72,7 +86,7 @@ export function GroupDetailModal({
           .toLowerCase()
           .includes(normalizedGroupSearch);
       })
-    : summary.bills;
+    : sortedBills;
   const overallCopy =
     summary.netBalance === 0
       ? summary.billCount > 0
@@ -314,6 +328,26 @@ export function GroupDetailModal({
             ) : null}
 
             <View className="mt-6">
+              {/*
+               * The list was date-descending with no way out of it, which
+               * answers "what happened recently" and nothing else — a group
+               * settling up wants the big items first, and an expense somebody
+               * edited today sits wherever its own date put it. The control
+               * only earns its place once there is more than one row to order.
+               */}
+              {summary.bills.length > 1 ? (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Sort expenses. Currently ${splitBillSortLabel(billSort)}`}
+                  onPress={onOpenSort}
+                  className="mb-4 min-h-11 flex-row items-center justify-end gap-2 self-end rounded-full border px-4"
+                  style={{ borderColor: theme.border, backgroundColor: theme.card }}>
+                  <MaterialCommunityIcons name="sort-variant" size={18} color={theme.accent} />
+                  <TText className="text-sm" style={{ color: theme.accent, fontFamily: Fonts.title }}>
+                    {splitBillSortLabel(billSort)}
+                  </TText>
+                </Pressable>
+              ) : null}
               {filteredBills.length > 0 ? (
                 filteredBills.map((bill) => (
                   <GroupExpenseRow

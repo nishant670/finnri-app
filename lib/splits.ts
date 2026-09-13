@@ -253,6 +253,18 @@ export type SplitBill = {
   updated_at?: string;
 };
 
+/**
+ * Whether the other side agrees a recorded payment happened.
+ *
+ * A settlement is one person's word about money that moved outside Finnri, and
+ * it rewrites both ledgers. `pending` still counts in every balance — the
+ * payment is being asserted to have happened, and a ledger that waited for a
+ * tap would disagree with the money — and a denial reverses it. A settlement
+ * against a friend who has no Finnri account is born `confirmed`: there is
+ * nobody to ask, and leaving it pending would be a prompt that never arrives.
+ */
+export type SplitSettlementStatus = 'pending' | 'confirmed' | 'denied';
+
 export type SplitSettlement = {
   id: number;
   user_id: number;
@@ -262,6 +274,12 @@ export type SplitSettlement = {
   direction: SettlementDirection;
   date: string;
   notes?: string;
+  status?: SplitSettlementStatus;
+  counterparty_user_id?: number | null;
+  responded_at?: string | null;
+  /** Response-only, on a settlement somebody else recorded about the reader. */
+  recorded_by_name?: string;
+  group_name?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -287,6 +305,8 @@ export type SplitActivityItem = {
   friend_id?: number | null;
   friend?: SplitFriend | null;
   direction?: SettlementDirection;
+  /** On settlement rows only: whether the other side has agreed to it yet. */
+  status?: SplitSettlementStatus;
   /**
    * Who recorded this, when it was not the caller — named the way the caller
    * names them. Present only on items from a shared group.
@@ -773,6 +793,59 @@ export const deleteSplitBill = async (token: string, billId: number): Promise<vo
   }
 };
 
+const normalizeSettlement = (settlement: SplitSettlement): SplitSettlement => ({
+  ...settlement,
+  amount: Number(settlement.amount),
+  status: settlement.status ?? 'confirmed',
+});
+
+/**
+ * Settlements somebody else recorded that the reader has to confirm or deny.
+ *
+ * Its own call rather than a filter on the settlements list: that list is rows
+ * the reader *wrote*, and every row here was written by somebody else about
+ * them. Failure returns an empty list — a decision prompt that cannot load is a
+ * missing prompt, never a broken Splits screen.
+ */
+export const fetchPendingSplitSettlements = async (
+  token: string
+): Promise<SplitSettlement[]> => {
+  const response = await fetch(`${API_BASE_URL}/v1/split/settlements/pending`, {
+    headers: authHeaders(token),
+  });
+  if (!response.ok) {
+    throw await readSplitError(response, 'Unable to load settlement requests right now.');
+  }
+  const payload: unknown = await response.json();
+  const settlements = (payload as { settlements?: SplitSettlement[] })?.settlements;
+  return Array.isArray(settlements) ? settlements.map(normalizeSettlement) : [];
+};
+
+/**
+ * Answer a settlement recorded against the reader.
+ *
+ * A 409 means somebody — another device, the same tap twice — already answered
+ * it. That is not a failure the user needs to read about; the caller refreshes
+ * and the prompt is simply gone.
+ */
+export const decideSplitSettlement = async (
+  token: string,
+  settlementId: number,
+  decision: 'confirm' | 'deny'
+): Promise<SplitSettlement | null> => {
+  const response = await fetch(
+    `${API_BASE_URL}/v1/split/settlements/${settlementId}/${decision}`,
+    { method: 'POST', headers: authHeaders(token) }
+  );
+  if (response.status === 409 || response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw await readSplitError(response, 'Unable to record that decision right now.');
+  }
+  return normalizeSettlement((await response.json()) as SplitSettlement);
+};
+
 export const fetchSplitSettlements = async (token: string): Promise<SplitSettlement[]> => {
   const response = await fetch(`${API_BASE_URL}/v1/split/settlements`, {
     headers: authHeaders(token),
@@ -784,10 +857,7 @@ export const fetchSplitSettlements = async (token: string): Promise<SplitSettlem
   if (!Array.isArray(payload)) {
     throw new Error('The settlements response was invalid.');
   }
-  return (payload as SplitSettlement[]).map((settlement) => ({
-    ...settlement,
-    amount: Number(settlement.amount),
-  }));
+  return (payload as SplitSettlement[]).map(normalizeSettlement);
 };
 
 export const fetchSplitActivity = async (token: string): Promise<SplitActivityItem[]> => {

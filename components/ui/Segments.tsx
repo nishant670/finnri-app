@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import {
   Pressable,
   ScrollView,
+  View,
   type LayoutRectangle,
   type StyleProp,
   type ViewStyle,
@@ -17,6 +18,16 @@ export type SegmentOption<Key extends string> = {
   key: Key;
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  /**
+   * A dot on the segment, for "there is something in here you have not seen".
+   *
+   * Deliberately a boolean rather than a count: a segment is a place to go, and
+   * the number of things waiting inside it is what the place itself is for.
+   * Whoever sets this owns the harder half — a dot driven by "anything
+   * happened" never goes out, so it has to be driven by something the user can
+   * actually clear.
+   */
+  badge?: boolean;
 };
 
 type SegmentsProps<Key extends string> = {
@@ -64,7 +75,7 @@ export function Segments<Key extends string>({
             key={option.key}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            accessibilityLabel={option.label}
+            accessibilityLabel={option.badge ? `${option.label}, new items` : option.label}
             onPress={() => {
               haptics.select();
               onChange(option.key);
@@ -91,6 +102,18 @@ export function Segments<Key extends string>({
               }}>
               {option.label}
             </ThemedText>
+            {option.badge ? (
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: theme.negative,
+                }}
+              />
+            ) : null}
           </Pressable>
         );
       })}

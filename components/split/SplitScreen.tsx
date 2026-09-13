@@ -73,7 +73,20 @@ import {
   BalanceFilterSheet,
   type BalanceFilter,
 } from '@/components/split/sheets/BalanceFilterSheet';
+import { SettlementRequests } from '@/components/split/SettlementRequests';
+import { BillSortSheet } from '@/components/split/sheets/BillSortSheet';
 import { DeleteGroupSheet } from '@/components/split/sheets/DeleteGroupSheet';
+import {
+  DEFAULT_SPLIT_BILL_SORT,
+  loadSplitBillSort,
+  saveSplitBillSort,
+  type SplitBillSort,
+} from '@/lib/split-bill-sort';
+import {
+  SPLIT_NOTIFICATION_PREFIX,
+  fetchUnreadNotificationCount,
+  markAllNotificationsRead,
+} from '@/lib/notifications';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
 import { FriendActionsSheet } from '@/components/split/sheets/FriendActionsSheet';
 import { ThemedText } from '@/components/themed-text';
@@ -126,7 +139,9 @@ import {
   createSplitGroupDirectInvite,
   createSplitGroupInviteLink,
   createSplitSettlement,
+  decideSplitSettlement,
   deleteSplitBill,
+  fetchPendingSplitSettlements,
   fetchSplitActivity,
   fetchSplitBalances,
   fetchSplitBills,
@@ -151,6 +166,7 @@ import {
   type SplitGroup,
   type SplitGroupEntryDisposition,
   type SplitGroupDirectInvite,
+  type SplitSettlement,
   type SplitGroupMemberInvite,
 } from '@/lib/splits';
 
@@ -467,6 +483,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [balances, setBalances] = useState<SplitBalance[]>([]);
   const [bills, setBills] = useState<SplitBill[]>([]);
   const [activity, setActivity] = useState<SplitActivityItem[]>([]);
+  // Settlements somebody else recorded that this user has to answer, and the
+  // unread count that lights the Activity dot. Both are about what other people
+  // did, which is the only thing either signal should ever be about.
+  const [settlementRequests, setSettlementRequests] = useState<SplitSettlement[]>([]);
+  const [decidingSettlementId, setDecidingSettlementId] = useState<number | null>(null);
+  const [unreadSplitCount, setUnreadSplitCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   /**
@@ -490,6 +512,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>('open');
   const [filterSheetVisible, setFilterSheetVisible] = useState(false);
+  const [sortSheetVisible, setSortSheetVisible] = useState(false);
+  // How expenses are ordered inside a group. Lives here rather than in the
+  // group screen because the sheet that changes it has to be a sibling of that
+  // modal, and because the choice is one preference across every group.
+  const [billSort, setBillSort] = useState<SplitBillSort>(DEFAULT_SPLIT_BILL_SORT);
   const [openSwipeRow, setOpenSwipeRow] = useState<string | null>(null);
   const [selectedGroupDetailId, setSelectedGroupDetailId] = useState<number | null>(null);
   const [groupSettingsId, setGroupSettingsId] = useState<number | null>(null);
@@ -647,6 +674,28 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [captureEntitlement]
   );
 
+  /**
+   * What other people have done that this user has not answered or seen.
+   *
+   * Swallows its own failures on purpose: both halves are secondary signals
+   * over a ledger that has already loaded, and a Splits screen that refuses to
+   * open because a dot could not be counted would be a worse trade than a dot
+   * that is briefly missing.
+   */
+  const refreshSettlementRequests = useCallback(async () => {
+    if (!token) {
+      setSettlementRequests([]);
+      setUnreadSplitCount(0);
+      return;
+    }
+    const [requests, unread] = await Promise.all([
+      fetchPendingSplitSettlements(token).catch(() => null),
+      fetchUnreadNotificationCount(token, SPLIT_NOTIFICATION_PREFIX).catch(() => null),
+    ]);
+    if (requests) setSettlementRequests(requests);
+    if (unread !== null) setUnreadSplitCount(unread);
+  }, [token]);
+
   const loadSplitData = useCallback(async () => {
     if (!token) {
       setFriends([]);
@@ -654,6 +703,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       setBalances([]);
       setBills([]);
       setActivity([]);
+      setSettlementRequests([]);
+      setUnreadSplitCount(0);
       setLoading(false);
       return;
     }
@@ -674,6 +725,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       setBills(nextBills);
       setActivity(nextActivity);
       clearEntitlement();
+      // Outside the ledger's own `Promise.all`: a decision prompt that fails to
+      // load is a missing prompt, and must never be the reason the balances
+      // above it refuse to draw.
+      void refreshSettlementRequests();
     } catch (fetchError) {
       // Still through the entitlement gate first: a 402 on the split ledger is
       // the paywall's to answer, not a "check your connection".
@@ -683,7 +738,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     } finally {
       setLoading(false);
     }
-  }, [captureEntitlement, clearEntitlement, token]);
+  }, [captureEntitlement, clearEntitlement, refreshSettlementRequests, token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -736,6 +791,19 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     if (!memberPickerGroupId) return;
     void refreshContactsPermission();
   }, [memberPickerGroupId, refreshContactsPermission]);
+
+  // The remembered expense order. Read once on mount and never awaited by the
+  // list: the default is the order the list has always had, so a slow read
+  // costs a re-sort rather than a blank screen.
+  useEffect(() => {
+    let cancelled = false;
+    void loadSplitBillSort().then((stored) => {
+      if (!cancelled) setBillSort(stored);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const totals = useMemo(() => {
     return balances.reduce(
@@ -1098,6 +1166,15 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         item.type === 'bill' && item.actor_name
           ? `${baseCaption} · added by ${item.actor_name}`
           : baseCaption;
+      /*
+       * A claimed payment and an agreed one used to read identically here, and
+       * that is the difference the feed most needs to carry: a denial moves a
+       * balance back, and this row is the only place that says why.
+       */
+      const status =
+        item.type === 'settlement' && item.status && item.status !== 'confirmed'
+          ? item.status
+          : null;
       return {
         id: item.id,
         item,
@@ -1106,6 +1183,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         amount: item.amount,
         icon: getActivityIcon(item.type),
         caption,
+        status,
       };
     });
   }, [activity]);
@@ -1693,7 +1771,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setSaving(true);
     setError(null);
     try {
-      await createSplitSettlement(token, {
+      const recorded = await createSplitSettlement(token, {
         friend_id: settlementFriendId,
         ...(settlementGroupId ? { group_id: settlementGroupId } : {}),
         amount,
@@ -1704,6 +1782,18 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       haptics.saved();
       closeModal();
       await loadSplitData();
+      // Say who now has to agree. Without this the settlement looks final from
+      // this side, and the denial that may follow arrives out of nowhere — a
+      // balance springing back with nothing to connect it to.
+      if (recorded.status === 'pending') {
+        const friendName = friendById.get(settlementFriendId)?.name;
+        void dialog.alert({
+          title: 'Waiting on confirmation',
+          message: friendName
+            ? `${friendName} has been asked to confirm this settlement. The balance is already updated, and goes back if they deny it.`
+            : 'Your friend has been asked to confirm this settlement. The balance is already updated, and goes back if they deny it.',
+        });
+      }
     } catch (saveError) {
       reportSplitError(saveError, 'Unable to record this settlement.');
     } finally {
@@ -2247,6 +2337,52 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     }
   };
 
+  /**
+   * Answer a settlement somebody recorded against this user.
+   *
+   * The prompt is dropped from the list before the reload lands, because the
+   * one thing that must not happen after a tap is the same question being asked
+   * again. A `null` result means somebody already answered it — another device,
+   * or the same tap twice — which is the same outcome from here: it is gone.
+   */
+  const decideSettlementRequest = async (
+    settlement: SplitSettlement,
+    decision: 'confirm' | 'deny'
+  ) => {
+    if (!token || decidingSettlementId) return;
+    setDecidingSettlementId(settlement.id);
+    try {
+      await decideSplitSettlement(token, settlement.id, decision);
+      setSettlementRequests((current) => current.filter((row) => row.id !== settlement.id));
+      // A denial moves the balance back, so the ledger has to be re-read rather
+      // than patched: the figure it changes is computed across every group.
+      await loadSplitData();
+    } catch (decisionError) {
+      reportSplitError(decisionError, 'Unable to record that decision.');
+    } finally {
+      setDecidingSettlementId(null);
+    }
+  };
+
+  /**
+   * Opening Activity is what clears its dot.
+   *
+   * The dot stands for split notifications the user has not read, so looking at
+   * the feed they describe is exactly the event that should put it out — and it
+   * decrements the bell on Home too, which is right: they *have* now seen them.
+   * Scoped to `split.` so it cannot quietly dismiss a budget alert sitting in
+   * the same inbox.
+   */
+  const openSection = (section: ActiveSection) => {
+    setActiveSection(section);
+    if (section !== 'activity' || !token || unreadSplitCount === 0) return;
+    setUnreadSplitCount(0);
+    void markAllNotificationsRead(token, SPLIT_NOTIFICATION_PREFIX).catch(() => {
+      // Purely a read receipt. If it does not land the dot comes back on the
+      // next refresh, which is the harmless direction to fail in.
+    });
+  };
+
   const openActivityTarget = (item: SplitActivityItem) => {
     const targetGroupId = item.group_id ?? item.group?.id ?? null;
     if (targetGroupId && groupSummaries.some((summary) => summary.group.id === targetGroupId)) {
@@ -2533,9 +2669,32 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
           {item.caption} • {item.date}
         </TText>
+        {item.status ? (
+          <View
+            className="mt-2 self-start rounded-full px-2 py-1"
+            style={{
+              backgroundColor:
+                item.status === 'denied' ? `${theme.negative}1F` : theme.secondary,
+            }}>
+            <TText
+              className="text-[11px]"
+              style={{
+                color: item.status === 'denied' ? theme.negative : theme.accent,
+                fontFamily: Fonts.title,
+              }}>
+              {item.status === 'denied' ? 'Denied' : 'Awaiting confirmation'}
+            </TText>
+          </View>
+        ) : null}
       </View>
       {item.amount != null ? (
-        <TText className="text-sm" style={{ color: theme.text, fontFamily: Fonts.title }}>
+        <TText
+          className="text-sm"
+          style={{
+            color: theme.text,
+            fontFamily: Fonts.title,
+            textDecorationLine: item.status === 'denied' ? 'line-through' : 'none',
+          }}>
           {formatBalance(item.amount)}
         </TText>
       ) : null}
@@ -2640,7 +2799,24 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             </View>
           ) : (
             <>
-            <SegmentedSections activeSection={activeSection} onChange={setActiveSection} />
+            <SegmentedSections
+              activeSection={activeSection}
+              onChange={openSection}
+              activityBadge={unreadSplitCount > 0}
+            />
+
+            {/*
+             * Above the balances, on every section, because it is the only
+             * thing on this screen that is waiting on the user rather than
+             * describing what they already have.
+             */}
+            <SettlementRequests
+              settlements={settlementRequests}
+              decidingId={decidingSettlementId}
+              onDecide={(settlement, decision) => {
+                void decideSettlementRequest(settlement, decision);
+              }}
+            />
 
             {activeSection !== 'activity' ? (
               <View className="mt-7 flex-row items-center justify-between gap-4">
@@ -2795,10 +2971,23 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onOpenOptions={(friend) => setSelectedFriendActions(friend)}
         />
 
+        <BillSortSheet
+          visible={sortSheetVisible}
+          selectedSort={billSort}
+          onSelect={(nextSort) => {
+            setBillSort(nextSort);
+            void saveSplitBillSort(nextSort);
+            setSortSheetVisible(false);
+          }}
+          onClose={() => setSortSheetVisible(false)}
+        />
+
         <GroupDetailModal
           summary={selectedGroupSummary}
           friendById={friendById}
           currentUserName={currentUserName}
+          billSort={billSort}
+          onOpenSort={() => setSortSheetVisible(true)}
           onClose={() => setSelectedGroupDetailId(null)}
           onAddExpense={(groupId) => openBillForGroup(groupId)}
           onManageMembers={openMemberPicker}
