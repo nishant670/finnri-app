@@ -2,6 +2,7 @@ import { File } from 'expo-file-system';
 
 import { API_BASE_URL } from './transactions';
 import { ApiFieldErrors, readApiError } from './api-error';
+import { calendarDay } from './statement-dates';
 
 /**
  * Credit card statements — the bank's side of a card, alongside the ledger.
@@ -280,7 +281,11 @@ export const formatDueLabel = (statement: { days_to_due: number; is_overdue: boo
 /** "6 Jul – 5 Aug" for a cycle window. */
 export const formatCycleRange = (start: string, end: string): string => {
   const format = (value: string) => {
-    const parsed = new Date(`${value}T00:00:00`);
+    // Through `calendarDay` first. A date that reached the app as an RFC3339
+    // timestamp made this concatenation `…T00:00:00ZT00:00:00`, which parses to
+    // NaN — so the fallback fired and the banner read the raw timestamp back at
+    // the user: "2026-08-13T00:00:00Z – 2026-09-12T00:00:00Z".
+    const parsed = new Date(`${calendarDay(value)}T00:00:00`);
     if (Number.isNaN(parsed.getTime())) return value;
     return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
   };
@@ -289,7 +294,7 @@ export const formatCycleRange = (start: string, end: string): string => {
 
 /** "August 2026" — how a statement names itself in a history list. */
 export const formatStatementMonth = (statementDate: string): string => {
-  const parsed = new Date(`${statementDate}T00:00:00`);
+  const parsed = new Date(`${calendarDay(statementDate)}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return statementDate;
   return parsed.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 };
