@@ -65,11 +65,26 @@ export const fetchNotifications = async (
   return parseNotificationPayload(await response.json());
 };
 
-export const fetchUnreadNotificationCount = async (token?: string | null): Promise<number> => {
+/**
+ * `typePrefix` narrows the count to one family — `split.` being the one the
+ * Splits screen asks for.
+ *
+ * That screen needed a way to say "something in here wants you" without
+ * claiming it every time the user themselves added an expense. Its activity
+ * feed records everything, so a dot driven by activity would light on the first
+ * launch and never go out again. Unread notifications are only ever written
+ * *about* the reader by somebody else, and they clear when read — which is the
+ * signal the dot was actually reaching for.
+ */
+export const fetchUnreadNotificationCount = async (
+  token?: string | null,
+  typePrefix?: string
+): Promise<number> => {
   if (!token) {
     return 0;
   }
-  const response = await fetch(`${API_BASE_URL}/v1/notifications/unread-count`, {
+  const query = typePrefix ? `?type_prefix=${encodeURIComponent(typePrefix)}` : '';
+  const response = await fetch(`${API_BASE_URL}/v1/notifications/unread-count${query}`, {
     headers: authHeaders(token),
   });
   if (!response.ok) {
@@ -78,6 +93,9 @@ export const fetchUnreadNotificationCount = async (token?: string | null): Promi
   const payload = await response.json();
   return Number(payload?.unread_count ?? 0);
 };
+
+/** The prefix every split-related notification type starts with. */
+export const SPLIT_NOTIFICATION_PREFIX = 'split.';
 
 export const fetchUnreadBudgetNotificationIds = async (
   token?: string | null
@@ -114,8 +132,14 @@ export const markNotificationRead = async (token: string, id: number) => {
   return (await response.json()) as AppNotification;
 };
 
-export const markAllNotificationsRead = async (token: string) => {
-  const response = await fetch(`${API_BASE_URL}/v1/notifications/read-all`, {
+/**
+ * `typePrefix` narrows what gets cleared, so one screen can mark its own
+ * notifications seen without dismissing an unrelated budget alert the user has
+ * never opened.
+ */
+export const markAllNotificationsRead = async (token: string, typePrefix?: string) => {
+  const query = typePrefix ? `?type_prefix=${encodeURIComponent(typePrefix)}` : '';
+  const response = await fetch(`${API_BASE_URL}/v1/notifications/read-all${query}`, {
     method: 'PATCH',
     headers: authHeaders(token),
   });
