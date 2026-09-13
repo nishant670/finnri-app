@@ -11,6 +11,20 @@
  * case is a month boundary, which is exactly what nobody exercises by hand.
  */
 
+/**
+ * The calendar day out of anything the API might hand back for a date field.
+ *
+ * A `DATE` column read into a string arrives as an RFC3339 timestamp, so
+ * `cycle_start` could reach the app as `2026-08-13T00:00:00Z`. The server now
+ * trims it, but an app in somebody's hand talks to whichever build is
+ * deployed, and two of these values are used as exact `YYYY-MM-DD` rather than
+ * merely displayed: the transactions filter rejects any other spelling
+ * outright, which is what made "Review these transactions" open onto an error.
+ *
+ * Idempotent, so it is safe to apply to a value that is already a plain day.
+ */
+export const calendarDay = (value: string) => (value ? value.slice(0, 10) : value);
+
 export const toISODate = (value: Date) => {
   const month = `${value.getMonth() + 1}`.padStart(2, '0');
   const day = `${value.getDate()}`.padStart(2, '0');
@@ -18,7 +32,7 @@ export const toISODate = (value: Date) => {
 };
 
 export const fromISODate = (value: string) => {
-  const parsed = new Date(`${value}T00:00:00`);
+  const parsed = new Date(`${calendarDay(value)}T00:00:00`);
   return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
 };
 

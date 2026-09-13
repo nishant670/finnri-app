@@ -57,6 +57,7 @@ import {
   saveCardStatement,
 } from '@/lib/statements';
 import { loadTransactions } from '@/lib/transactions';
+import { calendarDay } from '@/lib/statement-dates';
 import { Transaction } from '@/types/transaction';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -430,7 +431,15 @@ export default function AccountDetailsScreen() {
       pathname: '/transactions',
       params: {
         accountId: String(account.id),
-        ...(statement ? { start_date: statement.cycle_start, end_date: statement.cycle_end } : {}),
+        // Through `calendarDay`: the filter takes YYYY-MM-DD and nothing else, so
+        // a boundary that arrived as a timestamp opened this screen onto
+        // "Transactions did not load" instead of the cycle it was meant to show.
+        ...(statement
+          ? {
+              start_date: calendarDay(statement.cycle_start),
+              end_date: calendarDay(statement.cycle_end),
+            }
+          : {}),
       },
     });
   };

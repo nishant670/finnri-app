@@ -1,21 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
   describeParseFailure,
@@ -46,6 +39,25 @@ export default function AskFinnriScreen() {
   const [isSending, setIsSending] = useState(false);
   const nextID = useRef(1);
   const scrollRef = useRef<ScrollView>(null);
+  /*
+   * `KeyboardAvoidingView` used to hold the composer up, with `behavior`
+   * set only on iOS — which on Android is the same as not mounting it at all.
+   * Since edge-to-edge, `adjustResize` no longer shrinks the window either, so
+   * nothing moved: the keyboard opened straight over the input and the user
+   * typed a question they could not see. Measuring the keyboard is the one
+   * approach that behaves the same on both platforms, and it is what
+   * `KeyboardAvoidingScreen` and `AnimatedBottomSheet` already do.
+   */
+  const keyboardInset = useKeyboardInset();
+  const insets = useSafeAreaInsets();
+
+  // A transcript that stays put while the composer rises is the same bug one
+  // step up: the answer you just asked about ends up behind the keyboard.
+  useEffect(() => {
+    if (keyboardInset <= 0) return;
+    const timer = setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 140);
+    return () => clearTimeout(timer);
+  }, [keyboardInset]);
 
   const submit = async (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
@@ -84,10 +96,15 @@ export default function AskFinnriScreen() {
   };
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    /*
+     * The bottom edge is handled below rather than here: the composer has to
+     * sit on the safe area when the keyboard is down and on the keyboard when
+     * it is up, and a SafeAreaView bottom inset would be added to both.
+     */
+    <SafeAreaView
+      edges={['top', 'left', 'right']}
+      style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <View style={{ flex: 1 }}>
         <ScreenHeader title="Ask Finnri" subtitle="Your ledger, answered" onBack={() => router.back()} />
 
         <ScrollView
@@ -172,8 +189,12 @@ export default function AskFinnriScreen() {
         </ScrollView>
 
         <View
-          className="border-t px-5 pb-3 pt-3"
-          style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }}>
+          className="border-t px-5 pt-3"
+          style={{
+            backgroundColor: theme.colors.background,
+            borderColor: theme.colors.border,
+            paddingBottom: (keyboardInset > 0 ? keyboardInset : insets.bottom) + 12,
+          }}>
           <View
             className="min-h-14 flex-row items-end gap-2 rounded-3xl border px-4 py-2"
             style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
@@ -201,7 +222,7 @@ export default function AskFinnriScreen() {
             </Pressable>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

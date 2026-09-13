@@ -23,11 +23,12 @@ import {
   isNoCostEMI,
 } from '@/lib/emi-plans';
 import { formatMoney } from '@/lib/money';
+import { calendarDay } from '@/lib/statement-dates';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
 
 const formatDay = (value: string) => {
-  const parsed = new Date(`${value}T00:00:00`);
+  const parsed = new Date(`${calendarDay(value)}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };

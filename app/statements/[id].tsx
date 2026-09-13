@@ -17,6 +17,7 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { Account, fetchAccounts } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
+import { calendarDay } from '@/lib/statement-dates';
 import {
   CardStatement,
   StatementPayment,
@@ -32,7 +33,7 @@ import {
 const TText = cssInterop(ThemedText, { className: 'style' });
 
 const formatDay = (value: string) => {
-  const parsed = new Date(`${value}T00:00:00`);
+  const parsed = new Date(`${calendarDay(value)}T00:00:00`);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 };
@@ -124,8 +125,9 @@ export default function StatementDetailScreen() {
       pathname: '/transactions',
       params: {
         accountId: String(statement.account_id),
-        start_date: statement.cycle_start,
-        end_date: statement.cycle_end,
+        // The filter takes YYYY-MM-DD and nothing else; see `calendarDay`.
+        start_date: calendarDay(statement.cycle_start),
+        end_date: calendarDay(statement.cycle_end),
       },
     });
   };
@@ -138,8 +140,8 @@ export default function StatementDetailScreen() {
         compose: '1',
         composeKey: String(Date.now()),
         accountId: String(statement.account_id),
-        start_date: statement.cycle_start,
-        end_date: statement.cycle_end,
+        start_date: calendarDay(statement.cycle_start),
+        end_date: calendarDay(statement.cycle_end),
         statementId: String(statement.id),
       },
     });
