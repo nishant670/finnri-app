@@ -67,7 +67,18 @@ import type {
   GroupActionMode,
   SplitGroupSummary,
 } from '@/components/split/split-types';
-import type { Category } from '@/lib/categories';
+import type { EntryForm } from '@/components/transactions/TransactionFormModal';
+import {
+  billToComposerForm,
+  billToSplitSelection,
+  buildSplitBillPayload,
+} from '@/lib/split-composer';
+import {
+  buildTransactionPayload,
+  entryToComposerForm,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import {
   BalanceFilterSheet,
@@ -90,9 +101,10 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useMotion } from '@/hooks/use-motion';
-import { fetchAccounts, getPreferredAccountForPaymentMode } from '@/lib/accounts';
+import { fetchAccounts, getPreferredAccountForPaymentMode, type Account } from '@/lib/accounts';
 import { userDisplayName } from '@/lib/display-name';
-import { createEntry } from '@/lib/entries';
+import { fetchEntry, updateEntry } from '@/lib/entries';
+import type { ApiEntry } from '@/lib/transactions';
 import { toAmountString } from '@/lib/money';
 import { resolveAttachmentForSave } from '@/lib/uploads';
 import {
@@ -145,7 +157,6 @@ import {
   type SplitActivityItem,
   type SplitBalance,
   type SplitBill,
-  type SplitBillPayload,
   type SplitDirection,
   type SplitFriend,
   type SplitGroup,
@@ -588,10 +599,29 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   );
   const [selectedGroupFriendIds, setSelectedGroupFriendIds] = useState<number[]>([]);
 
-  const [billTitle, setBillTitle] = useState('');
   const [billAmount, setBillAmount] = useState('');
-  const [billDate, setBillDate] = useState(todayApiDate());
-  const [billNotes, setBillNotes] = useState('');
+  const [billInitialData, setBillInitialData] = useState<Partial<EntryForm>>({});
+  const [billAccounts, setBillAccounts] = useState<Account[]>([]);
+  const [editingBill, setEditingBill] = useState<SplitBill | null>(null);
+  const [editingEntry, setEditingEntry] = useState<ApiEntry | null>(null);
+  const billSaveKey = useRef('');
+  const billSaveProgress = useRef<TransactionSaveProgress>({});
+  const billAllocationChanged = useRef(false);
+  const billEditorRequest = useRef(0);
+  useEffect(() => {
+    if (modal !== 'bill' || !token) return;
+    let cancelled = false;
+    void fetchAccounts(token)
+      .then((accounts) => {
+        if (!cancelled) setBillAccounts(accounts);
+      })
+      .catch(() => {
+        /* Account linking is optional, as it is on Home. */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modal, token]);
   const [billGroupId, setBillGroupId] = useState<number | null>(null);
   const [isBillGroupLocked, setIsBillGroupLocked] = useState(false);
   const [editingBillId, setEditingBillId] = useState<number | null>(null);
@@ -1187,10 +1217,13 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   };
 
   const resetBillForm = () => {
-    setBillTitle('');
     setBillAmount('');
-    setBillDate(todayApiDate());
-    setBillNotes('');
+    setBillInitialData({});
+    setEditingBill(null);
+    setEditingEntry(null);
+    billSaveKey.current = `split-bill-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    billSaveProgress.current = {};
+    billAllocationChanged.current = false;
     setBillGroupId(null);
     setIsBillGroupLocked(false);
     setEditingBillId(null);
@@ -1231,6 +1264,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   };
 
   const closeModal = () => {
+    billEditorRequest.current += 1;
     if (modal === 'friend') {
       setPendingFriendGroupId(null);
     }
@@ -1568,96 +1602,68 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setError(null);
   };
 
-  const resolveSplitExpenseAccount = async (authToken: string) => {
-    const accounts = await fetchAccounts(authToken);
-    const cashAccount =
-      getPreferredAccountForPaymentMode(accounts, 'Cash') ??
-      accounts.find((account) => account.is_default) ??
-      accounts[0] ??
-      null;
-    if (!cashAccount) {
-      throw new Error('Add an account before saving this split expense.');
-    }
-    return cashAccount;
-  };
-
-  const createEntryBackedSplitBill = async (
-    authToken: string,
-    amount: number,
-    participants: ParticipantDraft[],
-    category: Category
-  ) => {
-    const account = await resolveSplitExpenseAccount(authToken);
-    await createEntry(
-      authToken,
-      {
-        title: billTitle.trim(),
-        amount: toAmountString(amount),
-        currency: 'INR',
-        account_id: account.id,
-        type: 'expense',
-        mode: 'Cash',
-        category,
-        notes: billNotes.trim(),
-        merchant: '',
-        tag: 'Split',
-        date: billDate.trim(),
-        time: '',
-        source: 'manual',
-        source_text: '',
-        split: {
-          group_id: billGroupId,
-          notes: billNotes.trim(),
-          participants: participants.map((participant) => ({
-            friend_id: participant.friend_id,
-            share_amount: participant.share_amount,
-            direction: participant.direction,
-          })),
-        },
-      },
-      `split-bill-${Date.now()}-${Math.random().toString(36).slice(2)}`
-    );
-  };
-
-  const handleCreateBill = async (category: Category) => {
-    if (!token || saving) return;
-    const amount = parseAmount(billAmount);
-    if (!billTitle.trim() || !Number.isFinite(amount) || amount <= 0) {
-      setError('Add a title, total amount, and at least one friend share.');
-      return;
-    }
-    const finalParticipants = buildParticipantsFromSplitChoice();
-    if (!finalParticipants || finalParticipants.length === 0) return;
+  const handleCreateBill = async (form: EntryForm) => {
+    if (!token) throw new Error('Please sign in again before saving this expense.');
+    const amount = parseAmount(form.amount);
+    const built = buildParticipantsFromSelection(billSplitSelection, amount);
+    const participants =
+      editingBill && !billAllocationChanged.current && amount === editingBill.total_amount
+        ? editingBill.participants.map(({ friend_id, share_amount, direction }) => ({
+            friend_id,
+            share_amount,
+            direction,
+          }))
+        : built.ok
+          ? built.participants
+          : null;
+    if (!participants?.length)
+      throw new Error(built.ok ? 'Choose at least one friend.' : built.error);
     setSaving(true);
     setError(null);
     try {
-      const payload: SplitBillPayload = {
-        title: billTitle.trim(),
-        total_amount: amount,
-        currency: 'INR',
-        date: billDate.trim(),
-        notes: billNotes.trim(),
-        group_id: billGroupId,
-        participants: finalParticipants,
-      };
-      const shouldMirrorToTransaction = !editingBillId && splitPayerKey === CURRENT_USER_KEY;
-      const savedBill = editingBillId
-        ? await updateSplitBill(token, editingBillId, payload)
-        : shouldMirrorToTransaction
-          ? null
-          : await createSplitBill(token, payload);
-      if (shouldMirrorToTransaction) {
-        await createEntryBackedSplitBill(token, amount, finalParticipants, category);
+      const personalPayment =
+        Boolean(editingEntry) || (!editingBill && splitPayerKey === CURRENT_USER_KEY);
+      if (personalPayment) {
+        const transactionForm: EntryForm = {
+          ...form,
+          splitEnabled: true,
+          splitGroupId: billGroupId,
+          splitGroupName: '',
+          splitParticipants: participants.map((participant) => ({
+            friendId: participant.friend_id,
+            friendName: '',
+            shareAmount: String(participant.share_amount),
+            direction: participant.direction,
+          })),
+        };
+        if (editingEntry && editingBill?.entry_id) {
+          const payload = await buildTransactionPayload(token, transactionForm, {
+            refundStatus: editingEntry.refund_status ?? 'pending',
+          });
+          await updateEntry(token, editingBill.entry_id, payload);
+        } else {
+          const accounts = await fetchAccounts(token);
+          const account =
+            accounts.find((candidate) => candidate.id === form.accountId) ??
+            getPreferredAccountForPaymentMode(accounts, form.mode) ??
+            null;
+          await saveNewTransaction({
+            token,
+            form: transactionForm,
+            account,
+            idempotencyKey: billSaveKey.current,
+            progress: billSaveProgress.current,
+          });
+        }
+        notifyTransactionsChanged();
+      } else {
+        const attachment = await resolveAttachmentForSave(token, form.attachment);
+        const payload = buildSplitBillPayload(form, billGroupId, participants, attachment);
+        if (editingBillId) await updateSplitBill(token, editingBillId, payload);
+        else await createSplitBill(token, payload);
       }
-      haptics.saved();
-      closeModal();
       await loadSplitData();
-      const nextGroupId = savedBill?.group_id ?? billGroupId;
-      if (nextGroupId) {
-        setSelectedGroupDetailId(nextGroupId);
-      }
-    } catch (saveError) {
-      reportSplitError(saveError, 'Unable to save this split bill.');
+      if (billGroupId) setSelectedGroupDetailId(billGroupId);
     } finally {
       setSaving(false);
     }
@@ -2135,45 +2141,39 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setModal('bill');
   };
 
-  const openBillEditor = (bill: SplitBill) => {
-    const groupId = bill.group_id ?? null;
-    const friendIds = bill.participants?.map((participant) => participant.friend_id) ?? [];
-    const userOwesParticipant = bill.participants?.find(
-      (participant) => participant.direction === 'user_owes_friend'
-    );
-    const friendOwesParticipants =
-      bill.participants?.filter((participant) => participant.direction === 'friend_owes_user') ??
-      [];
-    const friendOwesTotal = friendOwesParticipants.reduce(
-      (sum, participant) => sum + participant.share_amount,
-      0
-    );
-
-    setBillTitle(bill.title);
-    setBillAmount(String(bill.total_amount));
-    setBillDate(bill.date || todayApiDate());
-    setBillNotes(bill.notes ?? '');
-    setBillGroupId(groupId);
-    setIsBillGroupLocked(Boolean(groupId));
-    setEditingBillId(bill.id);
-    setExpenseFlowScreen('expense');
-    const includesCurrentUser = userOwesParticipant
-      ? userOwesParticipant.share_amount < bill.total_amount
-      : friendOwesTotal < bill.total_amount;
-    setSplitPayerKey(
-      userOwesParticipant ? friendSplitKey(userOwesParticipant.friend_id) : CURRENT_USER_KEY
-    );
-    setSplitFullAmount(!includesCurrentUser);
-    setSplitSelectedKeys([
-      ...(includesCurrentUser ? [CURRENT_USER_KEY] : []),
-      ...new Set(friendIds.map(friendSplitKey)),
-    ]);
-    setAdjustSplitTab('equally');
-    setSplitWeights({});
-    setSelectedBillId(null);
-    setSelectedGroupDetailId(null);
-    setError(null);
-    setModal('bill');
+  const openBillEditor = async (bill: SplitBill) => {
+    if (!token) return;
+    const request = ++billEditorRequest.current;
+    try {
+      // Load the owner's full transaction before opening, never seed an edit with guessed Cash/details.
+      const [entry, accounts] = await Promise.all([
+        bill.entry_id ? fetchEntry(token, bill.entry_id) : Promise.resolve(null),
+        fetchAccounts(token),
+      ]);
+      if (request !== billEditorRequest.current) return;
+      setBillAccounts(accounts);
+      const selection = billToSplitSelection(bill);
+      setEditingBill(bill);
+      setEditingEntry(entry);
+      setBillInitialData(entry ? entryToComposerForm(entry) : billToComposerForm(bill));
+      setBillAmount(String(bill.total_amount));
+      setBillGroupId(bill.group_id ?? null);
+      setIsBillGroupLocked(Boolean(bill.group_id));
+      setEditingBillId(bill.id);
+      setExpenseFlowScreen('expense');
+      setSplitPayerKey(selection.payerKey);
+      setSplitFullAmount(selection.fullAmount);
+      setSplitSelectedKeys(selection.participantKeys);
+      setAdjustSplitTab(selection.tab);
+      setSplitWeights(selection.weights);
+      billAllocationChanged.current = false;
+      setSelectedBillId(null);
+      setSelectedGroupDetailId(null);
+      setError(null);
+      setModal('bill');
+    } catch (error) {
+      reportSplitError(error, 'Unable to load this expense for editing.');
+    }
   };
 
   const openSettlementForFriend = (friendId: number) => {
@@ -2822,7 +2822,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           bill={selectedBill}
           friendById={friendById}
           currentUserName={currentUserName}
-          onClose={() => setSelectedBillId(null)}
+          onClose={() => {
+            billEditorRequest.current += 1;
+            setSelectedBillId(null);
+          }}
           onEdit={openBillEditor}
           onDelete={(bill) => setPendingBillDelete(bill)}
         />
@@ -3096,33 +3099,41 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         <AddExpenseModal
           visible={modal === 'bill'}
           flowScreen={expenseFlowScreen}
-          saving={saving}
           errorMessage={modal === 'bill' ? error : null}
-          title={billTitle}
+          initialData={billInitialData}
+          isEdit={Boolean(editingBillId)}
+          accounts={billAccounts}
+          onAccountCreated={(account) =>
+            setBillAccounts((current) => [
+              ...current.filter((item) => item.id !== account.id),
+              account,
+            ])
+          }
+          authToken={token}
+          personalPayment={
+            Boolean(editingEntry) || (!editingBill && splitPayerKey === CURRENT_USER_KEY)
+          }
+          payerLocked={Boolean(editingEntry)}
           amount={billAmount}
-          date={billDate}
-          notes={billNotes}
           groups={groups}
           selectedGroup={selectedBillGroup}
           selectedGroupId={billGroupId}
           isGroupLocked={isBillGroupLocked}
           people={billSplitPeople}
           selection={billSplitSelection}
-          onChangeTitle={(value) => {
-            setBillTitle(value);
+          onChangeAmount={setBillAmount}
+          onSelectGroup={(groupId) => {
+            billAllocationChanged.current = true;
+            handleSelectBillGroup(groupId);
           }}
-          onChangeAmount={(value) => {
-            setBillAmount(value);
-          }}
-          onChangeDate={setBillDate}
-          onChangeNotes={setBillNotes}
-          onSelectGroup={handleSelectBillGroup}
           onChangeFlowScreen={setExpenseFlowScreen}
           onSelectPayer={(payerKey, fullAmount) => {
+            billAllocationChanged.current = true;
             setSplitPayerKey(payerKey);
             setSplitFullAmount(fullAmount);
           }}
           onToggleParticipant={(key) => {
+            billAllocationChanged.current = true;
             setSplitSelectedKeys((current) =>
               current.includes(key)
                 ? current.filter((currentKey) => currentKey !== key)
@@ -3130,21 +3141,24 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             );
           }}
           onToggleAllParticipants={() => {
+            billAllocationChanged.current = true;
             const allKeys = billSplitPeople.map((person) => person.key);
             const allSelected = allKeys.every((key) => splitSelectedKeys.includes(key));
             setSplitSelectedKeys(allSelected ? [] : allKeys);
           }}
           onChangeAdjustSplitTab={(tab) => {
+            billAllocationChanged.current = true;
             setAdjustSplitTab(tab);
             setSplitWeights((current) =>
               Object.keys(current).length > 0 ? current : buildSeedWeights(tab, billSplitSelection)
             );
           }}
           onChangeSplitWeight={(key, value) => {
+            billAllocationChanged.current = true;
             setSplitWeights((current) => ({ ...current, [key]: value }));
           }}
           onApplySplit={applySplitChoice}
-          onSave={(category) => void handleCreateBill(category)}
+          onSave={handleCreateBill}
           onClose={closeModal}
         />
 

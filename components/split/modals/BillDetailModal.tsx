@@ -1,6 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import { useAuthStore } from '@/hooks/use-auth-store';
+import { resolveAttachmentForDisplay } from '@/lib/uploads';
+import { formatTime } from '@/lib/datetime';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { formatBalance, readBillForViewer } from '@/components/split/split-utils';
@@ -28,6 +32,12 @@ export function BillDetailModal({
   onDelete: (bill: SplitBill) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const { token } = useAuthStore();
+  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [openingReceipt, setOpeningReceipt] = useState(false);
+  useEffect(() => {
+    setReceiptError(null);
+  }, [bill?.id]);
   const presentedBillRef = useRef<SplitBill | null>(bill);
   if (bill) presentedBillRef.current = bill;
   const presentedBill = presentedBillRef.current;
@@ -106,9 +116,59 @@ export function BillDetailModal({
               </TText>
               <TText className="mt-4 text-base leading-6" style={{ color: theme.muted }}>
                 {presentedBill.date}
-                {presentedBill.created_at ? `\nAdded on ${presentedBill.created_at.slice(0, 10)}` : ''}
+                {presentedBill.time
+                  ? `, ${formatTime(presentedBill.time) ?? presentedBill.time}`
+                  : ''}
+                {presentedBill.created_at
+                  ? `\nAdded on ${presentedBill.created_at.slice(0, 10)}`
+                  : ''}
               </TText>
             </View>
+          </View>
+
+          <View className="mt-5 gap-2">
+            {[
+              ['Payment mode', presentedBill.mode],
+              ['Category', presentedBill.category],
+              ['Merchant', presentedBill.merchant],
+              ['Tag', presentedBill.tag],
+            ]
+              .filter(([, value]) => Boolean(value))
+              .map(([label, value]) => (
+                <View key={label} className="flex-row justify-between gap-4">
+                  <TText style={{ color: theme.muted }}>{label}</TText>
+                  <TText className="flex-1 text-right" style={{ color: theme.text }}>
+                    {value}
+                  </TText>
+                </View>
+              ))}
+            {presentedBill.attachment ? (
+              <Pressable
+                accessibilityRole="button"
+                disabled={openingReceipt}
+                onPress={async () => {
+                  if (!token) return;
+                  setOpeningReceipt(true);
+                  setReceiptError(null);
+                  try {
+                    const url = await resolveAttachmentForDisplay(
+                      token,
+                      presentedBill.attachment ?? ''
+                    );
+                    if (url) await WebBrowser.openBrowserAsync(url);
+                  } catch {
+                    setReceiptError('Could not open this receipt. Please try again.');
+                  } finally {
+                    setOpeningReceipt(false);
+                  }
+                }}
+                className="py-3">
+                <TText style={{ color: theme.accent }}>
+                  {openingReceipt ? 'Opening receipt…' : 'View receipt'}
+                </TText>
+              </Pressable>
+            ) : null}
+            {receiptError ? <TText style={{ color: theme.negative }}>{receiptError}</TText> : null}
           </View>
 
           <View className="mt-10">
@@ -142,9 +202,7 @@ export function BillDetailModal({
 
           {presentedBill.notes ? (
             <View className="mt-10 rounded-2xl border p-4" style={{ borderColor: theme.border }}>
-              <TText
-                className="text-xs"
-                style={{ color: theme.muted, fontFamily: Fonts.title }}>
+              <TText className="text-xs" style={{ color: theme.muted, fontFamily: Fonts.title }}>
                 Notes
               </TText>
               <TText className="mt-2 text-base leading-6" style={{ color: theme.text }}>

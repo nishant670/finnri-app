@@ -79,10 +79,9 @@ import {
   type AccountSuggestionHint,
   type AccountType,
 } from '@/lib/accounts';
-import { createEntry } from '@/lib/entries';
+import { saveNewTransaction, type TransactionSaveProgress } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
-import { resolveAttachmentForSave } from '@/lib/uploads';
-import { formatTime, toApiTime } from '@/lib/datetime';
+import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue, toAmountString } from '@/lib/money';
 import {
   isParseAnswer,
@@ -101,12 +100,9 @@ import {
   type SplitGroup,
 } from '@/lib/splits';
 import { resolveSplitDraft } from '@/lib/split-draft';
-import { createCardEMIPlan } from '@/lib/emi-plans';
-import { refundReminderAtNineAM } from '@/lib/refundables';
 import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
 import {
   confirmSubscriptionOccurrence,
-  createSubscription,
   fetchSubscriptionOccurrences,
   revertSubscriptionOccurrence,
   syncSubscriptionAutomation,
@@ -427,6 +423,7 @@ export default function HomeScreen() {
   const [aiInputSource, setAiInputSource] = useState<'text' | 'voice'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
   const [isGuestUpgradeSnoozed, setIsGuestUpgradeSnoozed] = useState(true);
+  const createSaveProgress = useRef<TransactionSaveProgress>({});
   const createIdempotencyKey = useRef<string | null>(null);
   /**
    * The text of the last capture attempt, so "Try again" can re-send it.
@@ -949,6 +946,7 @@ export default function HomeScreen() {
     pendingSuggestionSetup.current = null;
     setAccountSuggestionHint(null);
     createIdempotencyKey.current = null;
+    createSaveProgress.current = {};
     setForm(createBlankForm());
     setModalMode('manual');
     setIsEditOpen(true);
@@ -989,6 +987,7 @@ export default function HomeScreen() {
         pendingSuggestionSetup.current = null;
         setAccountSuggestionHint(null);
         createIdempotencyKey.current = null;
+        createSaveProgress.current = {};
         setForm({
           ...createBlankForm(),
           mode: 'Credit Card',
@@ -1052,118 +1051,26 @@ export default function HomeScreen() {
     async (formData: EntryForm) => {
       try {
         const resolvedAccount = await ensureAccountForEntry(formData);
-        const parsedDate = parseDateLabel(formData.date);
-        const trimmedTag = formData.tag.trim();
         if (!createIdempotencyKey.current) {
           createIdempotencyKey.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         }
         if (!token) {
           throw new Error('Please sign in again before saving this transaction.');
         }
-        const splitPayload =
-          formData.splitEnabled && formData.type === 'Expense'
-            ? {
-                group_id: formData.splitGroupId,
-                group_name: formData.splitGroupId ? '' : formData.splitGroupName.trim(),
-                notes: formData.notes.trim(),
-                participants: formData.splitParticipants.map((participant) => ({
-                  ...(participant.friendId
-                    ? { friend_id: participant.friendId }
-                    : { friend: { name: participant.friendName.trim() } }),
-                  share_amount: participant.shareAmount.trim(),
-                  direction: participant.direction,
-                })),
-              }
-            : undefined;
-
         const budgetNotificationIds =
           formData.type === 'Expense' && token
             ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
             : new Set<number>();
 
-        // Upload before creating the entry. A failure here aborts the save
-        // rather than persisting an unusable local device URI.
-        const attachmentUrl = await resolveAttachmentForSave(token, formData.attachment);
-
-        const createdEntry = await createEntry(
+        const { entry: createdEntry, convertedToEMI } = await saveNewTransaction({
           token,
-          {
-            amount: formData.amount.trim(),
-            currency: formData.currency || DEFAULT_CURRENCY,
-            source: modalMode === 'audio' ? aiInputSource : 'manual',
-            source_text: modalMode === 'audio' ? aiSourceText : '',
-            account_id: resolvedAccount?.id ?? null,
-            type: formData.type.toLowerCase(),
-            mode: formData.mode,
-            category: formData.category,
-            notes: formData.notes.trim(),
-            date: parsedDate ? formatApiDate(parsedDate) : formData.date,
-            tag: trimmedTag.length > 0 ? trimmedTag : null,
-            merchant: formData.merchant.trim(),
-            title: formData.title.trim() || 'Untitled Transaction',
-            time: toApiTime(formData.time) ?? undefined,
-            attachment: attachmentUrl,
-            ...(formData.tag === 'Refundable'
-              ? {
-                  refundable_amount: formData.refundableAmount.trim(),
-                  refund_expected_on: formatApiDate(
-                    parseDateLabel(formData.refundExpectedOn) as Date
-                  ),
-                  refund_reminder_at: formData.refundReminderEnabled
-                    ? refundReminderAtNineAM(formData.refundExpectedOn)
-                    : null,
-                  refund_status: 'pending' as const,
-                }
-              : {}),
-            ...(splitPayload ? { split: splitPayload } : {}),
-          },
-          createIdempotencyKey.current
-        );
-        let convertedToEMI = false;
-        if (
-          formData.tag === 'EMI' &&
-          resolvedAccount &&
-          normalizeAccountType(resolvedAccount.type) === 'credit_card'
-        ) {
-          const sourceEntryID = Number(createdEntry.id);
-          if (!Number.isInteger(sourceEntryID) || sourceEntryID <= 0) {
-            throw new Error('The saved purchase could not be linked to its EMI plan.');
-          }
-          await createCardEMIPlan(token, resolvedAccount.id, {
-            title: formData.title.trim() || 'EMI purchase',
-            merchant: formData.merchant.trim(),
-            category: formData.category,
-            principal: Number(formData.amount.replace(/,/g, '')),
-            annual_rate_pct: Number(formData.emiRatePct || 0),
-            tenure_months: Number(formData.emiTenureMonths),
-            purchased_on: parsedDate ? formatApiDate(parsedDate) : formData.date,
-            source_entry_id: sourceEntryID,
-            notes: formData.notes.trim(),
-          });
-          convertedToEMI = true;
-        }
-        if (formData.subscriptionEnabled && formData.subscriptionBillingInterval) {
-          await createSubscription(token, {
-            name: formData.subscriptionName.trim(),
-            merchant: formData.subscriptionMerchant.trim() || formData.merchant.trim(),
-            category: formData.subscriptionCategory.trim() || formData.category,
-            amount: Number(formData.subscriptionAmount || formData.amount),
-            billing_interval: formData.subscriptionBillingInterval,
-            next_due_date: formData.subscriptionNextDueDate.trim(),
-            last_charged_date: parsedDate ? formatApiDate(parsedDate) : undefined,
-            status: 'active',
-            reminder_days: Number(formData.subscriptionReminderDays || 0),
-            cancel_before_due: formData.subscriptionCancelBeforeDue,
-            cancel_on_date: formData.subscriptionCancelOnDate.trim(),
-            autopay: formData.subscriptionAutopay,
-            payment_mode: formData.mode,
-            transaction_tag: formData.tag || 'Subscription',
-            purpose_type:
-              formData.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
-            notes: formData.subscriptionNotes.trim(),
-            account_id: resolvedAccount?.id ?? null,
-          });
-        }
+          form: formData,
+          account: resolvedAccount,
+          idempotencyKey: createIdempotencyKey.current,
+          source: modalMode === 'audio' ? aiInputSource : 'manual',
+          sourceText: modalMode === 'audio' ? aiSourceText : '',
+          progress: createSaveProgress.current,
+        });
         if (convertedToEMI) {
           setTransactions((current) =>
             current.filter((transaction) => transaction.id !== String(createdEntry.id))
@@ -1181,6 +1088,7 @@ export default function HomeScreen() {
         }
 
         createIdempotencyKey.current = null;
+        createSaveProgress.current = {};
         setForm(createBlankForm());
         setAiSourceText('');
         pendingSuggestionSetup.current = null;
@@ -1272,6 +1180,7 @@ export default function HomeScreen() {
         const result = await parseEntryDraft({ token, hintText: trimmed, audio });
         void fetchCredits(true);
         createIdempotencyKey.current = null;
+        createSaveProgress.current = {};
 
         // The question direction. An answer is not a transaction and must never
         // reach the form — the sheet goes back down and the card takes the feed's

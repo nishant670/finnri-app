@@ -23,12 +23,9 @@ import { useTransactionDelete } from '@/components/transactions/TransactionDelet
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
 import { Account, fetchAccounts } from '@/lib/accounts';
-import { fetchEntry, updateEntry, type EntryMutationPayload } from '@/lib/entries';
-import {
-  isPdfAttachment,
-  resolveAttachmentForDisplay,
-  resolveAttachmentForSave,
-} from '@/lib/uploads';
+import { fetchEntry, updateEntry } from '@/lib/entries';
+import { buildTransactionPayload } from '@/lib/transaction-composer';
+import { isPdfAttachment, resolveAttachmentForDisplay } from '@/lib/uploads';
 import {
   fetchNewUnreadBudgetNotification,
   fetchUnreadBudgetNotificationIds,
@@ -43,16 +40,14 @@ import {
 } from '@/lib/splits';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
 import {
-  formatApiDate,
   normalizeDateLabel,
-  parseDateLabel,
   formatDateLabel,
   toTitleCase,
   resolveCategoryMetadata,
 } from '@/lib/transactions';
-import { formatTime, toApiTime } from '@/lib/datetime';
+import { formatTime } from '@/lib/datetime';
 import { formatMoney, toAmountInputValue } from '@/lib/money';
-import { refundReminderAtNineAM, updateRefundStatus } from '@/lib/refundables';
+import { updateRefundStatus } from '@/lib/refundables';
 
 export default function TransactionDetailsScreen() {
   const dialog = useAppDialog();
@@ -333,63 +328,10 @@ export default function TransactionDetailsScreen() {
     try {
       if (!token) throw new Error('Missing session.');
 
-      // Uploads a newly picked file and passes an existing receipt URL through
-      // untouched. Throwing here aborts the update instead of saving a local URI.
-      const attachmentUrl = await resolveAttachmentForSave(token, formData.attachment);
-
-      const payload: EntryMutationPayload = {
-        attachment: attachmentUrl,
-        title: formData.title,
-        amount: formData.amount.trim(),
-        currency: formData.currency || DEFAULT_CURRENCY,
-        account_id: formData.accountId,
-        type: formData.type.toLowerCase(),
-        mode: formData.mode,
-        category: formData.category,
-        notes: formData.notes,
-        merchant: formData.merchant,
-        tag: formData.tag,
-        ...(formData.tag === 'Refundable'
-          ? {
-              refundable_amount: formData.refundableAmount.trim(),
-              refund_expected_on: formatApiDate(parseDateLabel(formData.refundExpectedOn) as Date),
-              refund_reminder_at: formData.refundReminderEnabled
-                ? refundReminderAtNineAM(formData.refundExpectedOn)
-                : null,
-              refund_status: (displayData.refund_status ?? 'pending') as
-                'pending' | 'received' | 'written_off',
-            }
-          : {}),
-      };
-
-      // Date handling: EntryForm has "date" as label (e.g. 18 January 2026).
-      // Backend expects YYYY-MM-DD.
-      const parsedDate = parseDateLabel(formData.date);
-      if (parsedDate) {
-        payload.date = formatApiDate(parsedDate);
-      }
-      // Store the canonical HH:MM the parser also writes, not the display
-      // string — two clocks on disk is what S6 exists to end.
-      const apiTime = toApiTime(formData.time);
-      if (apiTime) {
-        payload.time = apiTime;
-      }
-      if (formData.splitEnabled && formData.type === 'Expense') {
-        payload.split = {
-          group_id: formData.splitGroupId,
-          group_name: formData.splitGroupId ? '' : formData.splitGroupName.trim(),
-          notes: formData.notes.trim(),
-          participants: formData.splitParticipants.map((participant) => ({
-            ...(participant.friendId
-              ? { friend_id: participant.friendId }
-              : { friend: { name: participant.friendName.trim() } }),
-            share_amount: participant.shareAmount.trim(),
-            direction: participant.direction,
-          })),
-        };
-      } else if (splitBill) {
-        payload.split = null;
-      }
+      const payload = await buildTransactionPayload(token, formData, {
+        refundStatus: displayData.refund_status ?? 'pending',
+      });
+      if (!formData.splitEnabled && splitBill) payload.split = null;
 
       if (!token) throw new Error('Missing session.');
       const budgetNotificationIds =

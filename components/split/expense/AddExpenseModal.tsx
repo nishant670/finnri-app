@@ -1,39 +1,23 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { cssInterop } from 'nativewind';
-import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Keyboard,
-  Platform,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from 'react-native';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Keyboard, Pressable, ScrollView, TextInput, View } from 'react-native';
 
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { AvatarCircle, GroupChoiceChip } from '@/components/split/primitives/SplitPrimitives';
-import {
-  formatApiDate,
-  formatBalance,
-  parseAmount,
-  parseApiDate,
-} from '@/components/split/split-utils';
+import { formatBalance, parseAmount } from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
-import { AmountDisplay, AmountKeypad } from '@/components/transactions/AmountKeypad';
+import {
+  TransactionFormModal,
+  type EntryForm,
+} from '@/components/transactions/TransactionFormModal';
+import { saveAccount, type Account } from '@/lib/accounts';
 import { DraftFieldCard } from '@/components/transactions/DraftFieldCard';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import {
-  CATEGORIES,
-  DEFAULT_CATEGORY,
-  categoryVisual,
-  type Category,
-} from '@/lib/categories';
 import { haptics } from '@/lib/haptics';
 import {
   computeSplitShares,
@@ -66,25 +50,26 @@ function describeSplitChoice(selection: SplitSelection, people: SplitSlotPerson[
     : `${payerLabel} paid, ${tabLabel}.`;
 }
 
+/** The transaction composer is shared with Home; this adapter only owns allocation. */
 export function AddExpenseModal({
   visible,
   flowScreen,
-  saving,
   errorMessage,
-  title,
+  initialData,
+  isEdit,
+  accounts,
+  authToken,
+  onAccountCreated,
   amount,
-  date,
-  notes,
   groups,
   selectedGroup,
   selectedGroupId,
   isGroupLocked,
   people,
   selection,
-  onChangeTitle,
+  personalPayment,
+  payerLocked,
   onChangeAmount,
-  onChangeDate,
-  onChangeNotes,
   onSelectGroup,
   onChangeFlowScreen,
   onSelectPayer,
@@ -98,22 +83,22 @@ export function AddExpenseModal({
 }: {
   visible: boolean;
   flowScreen: ExpenseFlowScreen;
-  saving: boolean;
   errorMessage?: string | null;
-  title: string;
+  initialData?: Partial<EntryForm>;
+  isEdit: boolean;
+  accounts: Account[];
+  onAccountCreated?: (account: Account) => void;
+  authToken?: string | null;
   amount: string;
-  date: string;
-  notes: string;
   groups: SplitGroup[];
   selectedGroup: SplitGroup | null;
   selectedGroupId: number | null;
   isGroupLocked: boolean;
   people: SplitSlotPerson[];
   selection: SplitSelection;
-  onChangeTitle: (value: string) => void;
+  personalPayment: boolean;
+  payerLocked: boolean;
   onChangeAmount: (value: string) => void;
-  onChangeDate: (value: string) => void;
-  onChangeNotes: (value: string) => void;
   onSelectGroup: (groupId: number | null) => void;
   onChangeFlowScreen: (screen: ExpenseFlowScreen) => void;
   onSelectPayer: (payerKey: string, fullAmount: boolean) => void;
@@ -122,206 +107,122 @@ export function AddExpenseModal({
   onChangeAdjustSplitTab: (tab: AdjustSplitTab) => void;
   onChangeSplitWeight: (key: string, value: string) => void;
   onApplySplit: () => void;
-  onSave: (category: Category) => void;
+  onSave: (form: EntryForm) => Promise<void>;
   onClose: () => void;
 }) {
-  const theme = useThemeTokens().colors;
-  const groupLabel = selectedGroup ? `All of ${selectedGroup.name}` : 'All friends';
   const splitLabel = describeSplitChoice(selection, people);
-  const [category, setCategory] = useState<Category>(DEFAULT_CATEGORY);
-  const [amountKeypadVisible, setAmountKeypadVisible] = useState(true);
-
-  useEffect(() => {
-    if (visible) {
-      setCategory(DEFAULT_CATEGORY);
-      setAmountKeypadVisible(true);
-    }
-  }, [visible]);
-
+  const onDraftChange = useCallback(
+    (form: EntryForm) => onChangeAmount(form.amount),
+    [onChangeAmount]
+  );
   return (
-    <AnimatedBottomSheet visible={visible} onClose={onClose} avoidKeyboard sheetStyle={{ height: '92%' }}>
-      <View
-        className="flex-1 overflow-hidden rounded-t-[28px] border"
-        style={{ backgroundColor: theme.background, borderColor: theme.border }}>
-        <View className="items-center pb-1 pt-3">
-          <View className="h-1.5 w-12 rounded-full" style={{ backgroundColor: theme.border }} />
-        </View>
-        {flowScreen === 'expense' ? (
-          <View className="flex-1">
-            <AppHeader
-              title="Add expense"
-              onBack={onClose}
-              rightNode={<HeaderDoneAction saving={saving} onDone={() => onSave(category)} />}
-              style={{ borderBottomColor: theme.border, borderBottomWidth: 1 }}
+    <TransactionFormModal
+      visible={visible}
+      initialData={initialData}
+      isEdit={isEdit}
+      accounts={accounts}
+      authToken={authToken}
+      onAutoCreateSuggestedAccount={
+        authToken && onAccountCreated
+          ? async (suggestion) => {
+              const { type, name, color, provider, identifier } = suggestion;
+              const account = await saveAccount(authToken, {
+                type,
+                name,
+                color,
+                provider,
+                identifier,
+                auto_created: true,
+              });
+              onAccountCreated(account);
+              return account;
+            }
+          : undefined
+      }
+      onDraftChange={onDraftChange}
+      onSave={onSave}
+      onClose={onClose}
+      splitContext={{
+        personalPayment,
+        onBack: flowScreen === 'expense' ? undefined : () => onChangeFlowScreen('expense'),
+        fields: (
+          <View className="px-5 mb-4 gap-3">
+            <DraftFieldCard
+              label="Split"
+              value={splitLabel}
+              icon="account-multiple-outline"
+              accessibilityLabel={`Change split. ${splitLabel}`}
+              onPress={() => {
+                Keyboard.dismiss();
+                onChangeFlowScreen('split_choice');
+              }}
             />
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 24, paddingHorizontal: 20, paddingTop: 12 }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Edit expense amount"
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setAmountKeypadVisible(true);
-                }}>
-                <AmountDisplay value={amount} />
-              </Pressable>
-
-              <View className="mt-3 gap-3">
-                <DraftFieldCard label="Description" icon="receipt-text-outline">
-                  <TextInput
-                    value={title}
-                    onChangeText={onChangeTitle}
-                    onFocus={() => setAmountKeypadVisible(false)}
-                    placeholder="What was this expense for?"
-                    placeholderTextColor={theme.mutedStrong}
-                    style={{
-                      minHeight: 32,
-                      color: theme.text,
-                      fontFamily: Fonts.body,
-                      fontSize: 16,
-                    }}
+            {!isGroupLocked && groups.length > 0 ? (
+              <DraftFieldCard label="Group" icon="account-group-outline">
+                <View className="mt-1 flex-row flex-wrap gap-2">
+                  <GroupChoiceChip
+                    label="No group"
+                    selected={selectedGroupId === null}
+                    onPress={() => onSelectGroup(null)}
                   />
-                </DraftFieldCard>
-
-                <DraftFieldCard
-                  label="Category"
-                  icon={categoryVisual(category).icon}
-                  iconColor={categoryVisual(category).color}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={{ gap: 8, paddingTop: 6, paddingRight: 8 }}>
-                    {CATEGORIES.map((option) => {
-                      const selected = category === option;
-                      const visual = categoryVisual(option);
-                      return (
-                        <Pressable
-                          key={option}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected }}
-                          onPress={() => {
-                            haptics.select();
-                            setCategory(option);
-                          }}
-                          className="flex-row items-center gap-1.5 rounded-full border px-3 py-2"
-                          style={{
-                            backgroundColor: selected ? theme.secondary : theme.background,
-                            borderColor: selected ? theme.accent : theme.border,
-                          }}>
-                          <MaterialCommunityIcons name={visual.icon} size={14} color={visual.color} />
-                          <TText variant="button" className="text-xs" style={{ color: theme.text }}>
-                            {option}
-                          </TText>
-                        </Pressable>
-                      );
-                    })}
-                  </ScrollView>
-                </DraftFieldCard>
-
-                <DraftFieldCard
-                  label="Split"
-                  value={splitLabel}
-                  icon="account-multiple-outline"
-                  accessibilityLabel={`Change split. ${splitLabel}`}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    onChangeFlowScreen('split_choice');
-                  }}
-                />
-
-                {!isGroupLocked && groups.length > 0 ? (
-                  <DraftFieldCard label="Group" icon="account-group-outline">
-                    <View className="mt-1 flex-row flex-wrap gap-2">
-                      <GroupChoiceChip
-                        label="No group"
-                        selected={selectedGroupId === null}
-                        onPress={() => onSelectGroup(null)}
-                      />
-                      {groups.map((group) => (
-                        <GroupChoiceChip
-                          key={group.id}
-                          label={group.name}
-                          selected={selectedGroupId === group.id}
-                          onPress={() => onSelectGroup(group.id)}
-                        />
-                      ))}
-                    </View>
-                  </DraftFieldCard>
-                ) : (
-                  <DraftFieldCard label="Group" value={groupLabel} icon="account-group-outline" />
-                )}
-
-                <ExpenseDateField date={date} onChangeDate={onChangeDate} />
-
-                <DraftFieldCard label="Notes" icon="note-text-outline">
-                  <TextInput
-                    value={notes}
-                    onChangeText={onChangeNotes}
-                    onFocus={() => setAmountKeypadVisible(false)}
-                    multiline
-                    placeholder="Add a note"
-                    placeholderTextColor={theme.mutedStrong}
-                    textAlignVertical="top"
-                    style={{
-                      minHeight: 64,
-                      color: theme.text,
-                      fontFamily: Fonts.body,
-                      fontSize: 15,
-                    }}
-                  />
-                </DraftFieldCard>
-
-                {errorMessage ? (
-                  <ErrorBanner message={errorMessage} />
-                ) : null}
-              </View>
-            </ScrollView>
-            {amountKeypadVisible ? (
-              <View
-                className="border-t px-5 pb-5 pt-3"
-                style={{ backgroundColor: theme.background, borderColor: theme.border }}>
-                <AmountKeypad value={amount} onChange={onChangeAmount} disabled={saving} />
-              </View>
+                  {groups.map((group) => (
+                    <GroupChoiceChip
+                      key={group.id}
+                      label={group.name}
+                      selected={selectedGroupId === group.id}
+                      onPress={() => onSelectGroup(group.id)}
+                    />
+                  ))}
+                </View>
+              </DraftFieldCard>
+            ) : (
+              <DraftFieldCard
+                label="Group"
+                value={selectedGroup?.name ?? 'All friends'}
+                icon="account-group-outline"
+              />
+            )}
+            {!personalPayment ? (
+              <ThemedText tone="muted" className="text-xs">
+                This records the split only. Your accounts, refund reminders and payment plans are
+                not changed.
+              </ThemedText>
             ) : null}
+            {errorMessage ? <ErrorBanner message={errorMessage} /> : null}
           </View>
-        ) : flowScreen === 'split_choice' ? (
-          <SplitChoiceScreen
-            people={people}
-            selection={selection}
-            onBack={() => onChangeFlowScreen('expense')}
-            onSelectPayer={onSelectPayer}
-            onMoreOptions={() => onChangeFlowScreen('adjust_split')}
-          />
-        ) : (
-          <AdjustSplitScreen
-            people={people}
-            selection={selection}
-            amount={parseAmount(amount)}
-            errorMessage={errorMessage}
-            onBack={() => onChangeFlowScreen('split_choice')}
-            onDone={onApplySplit}
-            onSelectPayer={onSelectPayer}
-            onToggleParticipant={onToggleParticipant}
-            onToggleAll={onToggleAllParticipants}
-            onChangeTab={onChangeAdjustSplitTab}
-            onChangeWeight={onChangeSplitWeight}
-          />
-        )}
-      </View>
-    </AnimatedBottomSheet>
+        ),
+        overlay:
+          flowScreen === 'expense' ? undefined : flowScreen === 'split_choice' ? (
+            <SplitChoiceScreen
+              people={people}
+              selection={selection}
+              payerLocked={payerLocked}
+              onBack={() => onChangeFlowScreen('expense')}
+              onSelectPayer={onSelectPayer}
+              onMoreOptions={() => onChangeFlowScreen('adjust_split')}
+            />
+          ) : (
+            <AdjustSplitScreen
+              people={people}
+              selection={selection}
+              amount={parseAmount(amount)}
+              payerLocked={payerLocked}
+              errorMessage={errorMessage}
+              onBack={() => onChangeFlowScreen('split_choice')}
+              onDone={onApplySplit}
+              onSelectPayer={onSelectPayer}
+              onToggleParticipant={onToggleParticipant}
+              onToggleAll={onToggleAllParticipants}
+              onChangeTab={onChangeAdjustSplitTab}
+              onChangeWeight={onChangeSplitWeight}
+            />
+          ),
+      }}
+    />
   );
 }
 
-function HeaderDoneAction({
-  saving,
-  onDone,
-}: {
-  saving: boolean;
-  onDone: () => void;
-}) {
+function HeaderDoneAction({ saving, onDone }: { saving: boolean; onDone: () => void }) {
   const theme = useThemeTokens().colors;
   return (
     <Pressable
@@ -340,59 +241,6 @@ function HeaderDoneAction({
   );
 }
 
-function ExpenseDateField({
-  date,
-  onChangeDate,
-}: {
-  date: string;
-  onChangeDate: (value: string) => void;
-}) {
-  const [showIosDatePicker, setShowIosDatePicker] = useState(false);
-  const openDatePicker = () => {
-    const currentDate = parseApiDate(date);
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: currentDate,
-        mode: 'date',
-        onValueChange: (_event, selectedDate) => {
-          if (selectedDate) {
-            onChangeDate(formatApiDate(selectedDate));
-          }
-        },
-        onDismiss: () => undefined,
-      });
-      return;
-    }
-    setShowIosDatePicker((current) => !current);
-  };
-
-  return (
-    <View>
-      <DraftFieldCard
-        label="Date"
-        value={date}
-        icon="calendar-blank-outline"
-        accessibilityLabel={`Select expense date. ${date}`}
-        onPress={openDatePicker}
-      />
-      {showIosDatePicker ? (
-        <DateTimePicker
-          value={parseApiDate(date)}
-          mode="date"
-          display="spinner"
-          onValueChange={(_event, selectedDate) => {
-            if (selectedDate) {
-              onChangeDate(formatApiDate(selectedDate));
-            }
-          }}
-          onDismiss={() => setShowIosDatePicker(false)}
-          style={{ width: '100%' }}
-        />
-      ) : null}
-    </View>
-  );
-}
-
 /**
  * The four shapes a split usually takes, offered before the full editor. Which
  * "friend paid" it names is whoever is currently the payer, falling back to the
@@ -403,6 +251,7 @@ export function SplitChoiceScreen({
   selection,
   title,
   variant = 'expense',
+  payerLocked = false,
   onBack,
   onDone,
   onSelectPayer,
@@ -419,6 +268,7 @@ export function SplitChoiceScreen({
    * something she had bought herself.
    */
   variant?: 'expense' | 'default';
+  payerLocked?: boolean;
   onBack: () => void;
   onDone?: () => void;
   onSelectPayer: (payerKey: string, fullAmount: boolean) => void;
@@ -432,6 +282,7 @@ export function SplitChoiceScreen({
     others.find((person) => person.key === selection.payerKey) ?? others[0] ?? null;
   const otherName = activeOther?.label ?? 'Friend';
   const payerIsFixed = variant === 'default';
+  const cannotChangePayer = payerIsFixed || payerLocked;
   const choices: { key: string; payerKey: string; fullAmount: boolean; label: string }[] = [
     {
       key: 'self_equal',
@@ -477,38 +328,41 @@ export function SplitChoiceScreen({
       />
       <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
         <View className="px-6 pt-5">
-          {choices.map((choice) => {
-            const selected =
-              selection.payerKey === choice.payerKey && selection.fullAmount === choice.fullAmount;
-            const paidBySelf = choice.payerKey === selection.selfKey;
-            return (
-              <Pressable
-                key={choice.key}
-                accessibilityRole="button"
-                accessibilityState={{ selected }}
-                onPress={() => {
-                  haptics.select();
-                  onSelectPayer(choice.payerKey, choice.fullAmount);
-                }}
-                className="min-h-[92px] flex-row items-center gap-5">
-                <SplitAvatarStack
-                  primaryLabel={paidBySelf ? selfName : otherName}
-                  secondaryLabel={paidBySelf ? otherName : selfName}
-                  tone={paidBySelf ? 'green' : 'orange'}
-                />
-                <TText
-                  className="flex-1 text-xl"
-                  style={{ color: theme.text, fontFamily: Fonts.body }}>
-                  {choice.label}
-                </TText>
-                {selected ? (
-                  <MaterialCommunityIcons name="check" size={30} color={theme.text} />
-                ) : null}
-              </Pressable>
-            );
-          })}
+          {choices
+            .filter((choice) => !payerLocked || choice.payerKey === selection.payerKey)
+            .map((choice) => {
+              const selected =
+                selection.payerKey === choice.payerKey &&
+                selection.fullAmount === choice.fullAmount;
+              const paidBySelf = choice.payerKey === selection.selfKey;
+              return (
+                <Pressable
+                  key={choice.key}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    haptics.select();
+                    onSelectPayer(choice.payerKey, choice.fullAmount);
+                  }}
+                  className="min-h-[92px] flex-row items-center gap-5">
+                  <SplitAvatarStack
+                    primaryLabel={paidBySelf ? selfName : otherName}
+                    secondaryLabel={paidBySelf ? otherName : selfName}
+                    tone={paidBySelf ? 'green' : 'orange'}
+                  />
+                  <TText
+                    className="flex-1 text-xl"
+                    style={{ color: theme.text, fontFamily: Fonts.body }}>
+                    {choice.label}
+                  </TText>
+                  {selected ? (
+                    <MaterialCommunityIcons name="check" size={30} color={theme.text} />
+                  ) : null}
+                </Pressable>
+              );
+            })}
 
-          {others.length > 1 && !payerIsFixed ? (
+          {others.length > 1 && !cannotChangePayer ? (
             <View className="mt-2">
               <TText className="mb-2 text-sm" style={{ color: theme.muted }}>
                 Paid by someone else
@@ -583,6 +437,7 @@ export function AdjustSplitScreen({
   selection,
   amount,
   variant = 'expense',
+  payerLocked = false,
   title,
   errorMessage,
   onBack,
@@ -601,6 +456,7 @@ export function AdjustSplitScreen({
    * tab has nothing to divide and the rupee previews have nothing to show.
    */
   variant?: 'expense' | 'default';
+  payerLocked?: boolean;
   title?: string;
   errorMessage?: string | null;
   onBack: () => void;
@@ -703,14 +559,21 @@ export function AdjustSplitScreen({
           <TText className="flex-1 text-xl" style={{ color: theme.text }}>
             Paid by <TText style={{ fontFamily: Fonts.title }}>{payerName}</TText>
           </TText>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Change who paid"
-            onPress={() => setPayerPickerVisible(true)}
-            className="h-11 w-11 items-center justify-center">
-            <MaterialCommunityIcons name="pencil" size={26} color={theme.text} />
-          </Pressable>
+          {!payerLocked && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Change who paid"
+              onPress={() => setPayerPickerVisible(true)}
+              className="h-11 w-11 items-center justify-center">
+              <MaterialCommunityIcons name="pencil" size={26} color={theme.text} />
+            </Pressable>
+          )}
         </View>
+        {payerLocked ? (
+          <ThemedText tone="muted" className="px-6 mb-3 text-xs">
+            Payer is fixed for this linked transaction.
+          </ThemedText>
+        ) : null}
 
         <ScrollView
           horizontal
@@ -811,7 +674,9 @@ export function AdjustSplitScreen({
         </Pressable>
       </View>
 
-      <AnimatedBottomSheet visible={payerPickerVisible} onClose={() => setPayerPickerVisible(false)}>
+      <AnimatedBottomSheet
+        visible={payerPickerVisible}
+        onClose={() => setPayerPickerVisible(false)}>
         <View
           className="rounded-t-[28px] border px-5 pb-8 pt-5"
           style={{ backgroundColor: theme.card, borderColor: theme.border }}>
