@@ -181,6 +181,13 @@ interface TransactionFormModalProps {
   recentEntries?: Transaction[];
   /** Used only for the server-authoritative EMI schedule preview. */
   authToken?: string | null;
+  /** Split owns allocation only; transaction fields and validation stay here. */
+  splitContext?: {
+    fields: React.ReactNode;
+    overlay?: React.ReactNode;
+    onBack?: () => void;
+    personalPayment: boolean;
+  };
 }
 
 const emptyAccounts: Account[] = [];
@@ -415,7 +422,9 @@ export function TransactionFormModal({
   categorySuggestions = [],
   recentEntries = emptyRecentEntries,
   authToken,
+  splitContext,
 }: TransactionFormModalProps) {
+  const personalPayment = splitContext?.personalPayment ?? true;
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const colorScheme = themeTokens.mode;
@@ -465,6 +474,7 @@ export function TransactionFormModal({
   const keyboardInset = useKeyboardInset(showModal && Platform.OS === 'android');
   const resolveEntryFormAccount = useCallback(
     (nextForm: EntryForm): EntryForm => {
+      if (!personalPayment) return { ...nextForm, accountId: null, account: '' };
       if (mode === 'quick-prompt') {
         return nextForm;
       }
@@ -486,7 +496,7 @@ export function TransactionFormModal({
       }
       return { ...nextForm, accountId: null, account: '' };
     },
-    [accounts, mode]
+    [accounts, mode, personalPayment]
   );
 
   const [form, setForm] = useState<EntryForm>(() =>
@@ -595,7 +605,10 @@ export function TransactionFormModal({
     [accounts, form.accountId]
   );
   const isEMICreditCard =
-    !isEdit && form.tag === 'EMI' && normalizeAccountType(selectedAccount?.type) === 'credit_card';
+    personalPayment &&
+    !isEdit &&
+    form.tag === 'EMI' &&
+    normalizeAccountType(selectedAccount?.type) === 'credit_card';
   const emiFirstInstallment = useMemo(() => nextMonthClamped(form.date), [form.date]);
 
   useEffect(() => {
@@ -1206,6 +1219,7 @@ export function TransactionFormModal({
   );
 
   const handleConfirmEntry = async () => {
+    if (isSaving) return;
     const normalizedForm = {
       ...form,
       // Amount-first means the amount is the only thing the user owes us. The
@@ -1236,7 +1250,7 @@ export function TransactionFormModal({
       rejectSave('Please enter a valid amount.');
       return;
     }
-    if (form.tag === 'Refundable') {
+    if (personalPayment && form.tag === 'Refundable') {
       const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
       if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
         rejectSave('Please enter how much is refundable.');
@@ -1267,7 +1281,7 @@ export function TransactionFormModal({
         return;
       }
     }
-    if (form.splitEnabled) {
+    if (form.splitEnabled && !splitContext) {
       if (form.type !== 'Expense') {
         rejectSave('Splits can be added only to expenses.');
         return;
@@ -1294,7 +1308,7 @@ export function TransactionFormModal({
         return;
       }
     }
-    if (form.subscriptionEnabled) {
+    if (personalPayment && form.subscriptionEnabled) {
       const subscriptionAmount = Number(form.subscriptionAmount || form.amount);
       const reminderDays = Number(form.subscriptionReminderDays || 0);
       if (form.subscriptionName.trim().length === 0) {
@@ -1337,7 +1351,16 @@ export function TransactionFormModal({
     setFormError(null);
     setIsSaving(true);
     try {
-      await onSave(normalizedForm);
+      await onSave({
+        ...normalizedForm,
+        ...(!personalPayment
+          ? {
+              accountId: null,
+              account: '',
+              subscriptionEnabled: false,
+            }
+          : {}),
+      });
       haptics.saved();
       onClose();
     } catch (error) {
@@ -1429,12 +1452,13 @@ export function TransactionFormModal({
   };
 
   const requestClose = useCallback(() => {
+    if (isSaving) return;
     if (mode !== 'audio') {
       onClose();
       return;
     }
     setIsDiscardDialogVisible(true);
-  }, [mode, onClose]);
+  }, [isSaving, mode, onClose]);
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropAnim.value }));
 
@@ -1829,7 +1853,7 @@ export function TransactionFormModal({
       transparent
       visible={showModal}
       animationType="none" // we handle animations manually for better control
-      onRequestClose={requestClose}>
+      onRequestClose={splitContext?.onBack ?? requestClose}>
       <View className="flex-1 justify-end">
         <Animated.View className="absolute inset-0 bg-black/40" style={backdropStyle}>
           <View style={{ flex: 1 }} />
@@ -1894,7 +1918,9 @@ export function TransactionFormModal({
                           : "I've sorted the details!"
                         : mode === 'quick-prompt'
                           ? 'New Quick Prompt'
-                          : 'New Transaction'}
+                          : splitContext
+                            ? 'New split expense'
+                            : 'New Transaction'}
                   </ThemedText>
                   {/* The review sheet's banner already says how many fields
                       want a look, and a second line saying it again costs the
@@ -2173,7 +2199,7 @@ export function TransactionFormModal({
 
                   {/* The review sheet shows the type as a card in its ranked
                       list instead, where it sits with the rest of the draft. */}
-                  {!draftReview && (
+                  {!draftReview && !splitContext && (
                     <View className="mb-4">
                       <ThemedText
                         tone="muted"
@@ -2442,101 +2468,117 @@ export function TransactionFormModal({
                         </View>
                         <MaterialCommunityIcons name="pencil-outline" size={18} color="#D1D5DB" />
                       </Pressable>
-                      <Pressable
-                        testID="entry-account-picker"
-                        onPress={() => setIsAccountPickerVisible(true)}
-                        className="mt-3 w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
-                        style={{
-                          backgroundColor: accountNeedsReview
-                            ? colorScheme === 'dark'
-                              ? theme.secondary
-                              : '#FFFCF0'
-                            : theme.card,
-                          borderColor: accountNeedsReview ? '#FDE68A' : theme.border,
-                        }}>
-                        {accountNeedsReview && (
-                          <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
-                            <ThemedText className="text-[8px] font-black">Check this</ThemedText>
-                          </View>
-                        )}
-                        <View className="flex-row items-center gap-3 flex-1 pr-2">
-                          <View
-                            className="h-10 w-10 rounded-2xl items-center justify-center"
-                            style={{ backgroundColor: accountNeedsReview ? '#FEF3C7' : '#EFF6FF' }}>
-                            <MaterialCommunityIcons
-                              name="wallet-outline"
-                              size={21}
-                              color={accountNeedsReview ? '#F59E0B' : '#3B82F6'}
-                            />
-                          </View>
-                          <View className="flex-1">
-                            <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                              {paymentLanguage.accountLabel}
-                            </ThemedText>
-                            <ThemedText className="text-sm font-bold" style={{ color: theme.text }}>
-                              {form.account ||
-                                (compatibleAccounts.length === 0
-                                  ? `Add a ${form.mode || 'matching'} account`
-                                  : 'Select an account')}
-                            </ThemedText>
-                          </View>
-                        </View>
-                        <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
-                      </Pressable>
-                      {!draftReview && visibleAccountSuggestion && onSetupSuggestedAccount && (
-                        <View
-                          testID="account-suggestion"
-                          className="mt-3 rounded-[20px] border p-4"
-                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                          <View className="flex-row items-start gap-3">
-                            <MaterialCommunityIcons
-                              name="credit-card-plus-outline"
-                              size={22}
-                              color={accent}
-                            />
+                      {personalPayment && (
+                        <Pressable
+                          testID="entry-account-picker"
+                          onPress={() => setIsAccountPickerVisible(true)}
+                          className="mt-3 w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
+                          style={{
+                            backgroundColor: accountNeedsReview
+                              ? colorScheme === 'dark'
+                                ? theme.secondary
+                                : '#FFFCF0'
+                              : theme.card,
+                            borderColor: accountNeedsReview ? '#FDE68A' : theme.border,
+                          }}>
+                          {accountNeedsReview && (
+                            <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
+                              <ThemedText className="text-[8px] font-black">Check this</ThemedText>
+                            </View>
+                          )}
+                          <View className="flex-row items-center gap-3 flex-1 pr-2">
+                            <View
+                              className="h-10 w-10 rounded-2xl items-center justify-center"
+                              style={{
+                                backgroundColor: accountNeedsReview ? '#FEF3C7' : '#EFF6FF',
+                              }}>
+                              <MaterialCommunityIcons
+                                name="wallet-outline"
+                                size={21}
+                                color={accountNeedsReview ? '#F59E0B' : '#3B82F6'}
+                              />
+                            </View>
                             <View className="flex-1">
+                              <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
+                                {paymentLanguage.accountLabel}
+                              </ThemedText>
                               <ThemedText
-                                className="text-sm font-black"
+                                className="text-sm font-bold"
                                 style={{ color: theme.text }}>
-                                Add {visibleAccountSuggestion.name}?
+                                {form.account ||
+                                  (compatibleAccounts.length === 0
+                                    ? `Add a ${form.mode || 'matching'} account`
+                                    : 'Select an account')}
                               </ThemedText>
-                              <ThemedText tone="muted" className="mt-1 text-xs">
-                                {form.type === 'Income'
-                                  ? 'Use it to record where this money was received. Review the details or create it now.'
-                                  : 'Use it to keep this payment linked. Review the details or create it now.'}
-                              </ThemedText>
-                              <View className="mt-3 flex-row gap-3">
-                                <Pressable
-                                  accessibilityRole="button"
-                                  onPress={() => onSetupSuggestedAccount(visibleAccountSuggestion)}
-                                  className="rounded-full px-4 py-2"
-                                  style={{ backgroundColor: accent }}>
-                                  <ThemedText tone="onAccent" className="text-xs font-black">
-                                    Set up account
-                                  </ThemedText>
-                                </Pressable>
-                                <Pressable
-                                  accessibilityRole="button"
-                                  disabled={autoCreatingAccount}
-                                  onPress={() =>
-                                    void handleAutoCreateSuggestedAccount(visibleAccountSuggestion)
-                                  }
-                                  className="rounded-full px-3 py-2">
-                                  <ThemedText tone="muted" className="text-xs font-black">
-                                    {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
-                                  </ThemedText>
-                                </Pressable>
+                            </View>
+                          </View>
+                          <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
+                        </Pressable>
+                      )}
+                      {!draftReview &&
+                        personalPayment &&
+                        visibleAccountSuggestion &&
+                        onSetupSuggestedAccount && (
+                          <View
+                            testID="account-suggestion"
+                            className="mt-3 rounded-[20px] border p-4"
+                            style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
+                            <View className="flex-row items-start gap-3">
+                              <MaterialCommunityIcons
+                                name="credit-card-plus-outline"
+                                size={22}
+                                color={accent}
+                              />
+                              <View className="flex-1">
+                                <ThemedText
+                                  className="text-sm font-black"
+                                  style={{ color: theme.text }}>
+                                  Add {visibleAccountSuggestion.name}?
+                                </ThemedText>
+                                <ThemedText tone="muted" className="mt-1 text-xs">
+                                  {form.type === 'Income'
+                                    ? 'Use it to record where this money was received. Review the details or create it now.'
+                                    : 'Use it to keep this payment linked. Review the details or create it now.'}
+                                </ThemedText>
+                                <View className="mt-3 flex-row gap-3">
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    onPress={() =>
+                                      onSetupSuggestedAccount(visibleAccountSuggestion)
+                                    }
+                                    className="rounded-full px-4 py-2"
+                                    style={{ backgroundColor: accent }}>
+                                    <ThemedText tone="onAccent" className="text-xs font-black">
+                                      Set up account
+                                    </ThemedText>
+                                  </Pressable>
+                                  <Pressable
+                                    accessibilityRole="button"
+                                    disabled={autoCreatingAccount}
+                                    onPress={() =>
+                                      void handleAutoCreateSuggestedAccount(
+                                        visibleAccountSuggestion
+                                      )
+                                    }
+                                    className="rounded-full px-3 py-2">
+                                    <ThemedText tone="muted" className="text-xs font-black">
+                                      {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
+                                    </ThemedText>
+                                  </Pressable>
+                                </View>
                               </View>
                             </View>
                           </View>
-                        </View>
-                      )}
+                        )}
                       {renderAutoCreateFeedback()}
                     </>
                   )}
                 </View>
 
-                {mode !== 'quick-prompt' &&
+                {splitContext?.fields}
+
+                {!splitContext &&
+                  mode !== 'quick-prompt' &&
                   form.type === 'Expense' &&
                   // On the review sheet a split the parser did not hear about
                   // is an extra, so it waits behind the summary rather than
@@ -2557,153 +2599,159 @@ export function TransactionFormModal({
                     />
                   )}
 
-                {mode !== 'quick-prompt' && (showFullForm || draftReview) && form.tag === 'EMI' && (
-                  <View className="px-5 mb-6">
-                    <View
-                      className="rounded-[24px] border p-4"
-                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      <View className="flex-row items-start gap-3">
-                        <View
-                          className="h-10 w-10 items-center justify-center rounded-2xl"
-                          style={{ backgroundColor: accentSurface }}>
-                          <MaterialCommunityIcons
-                            name="calendar-month-outline"
-                            size={20}
-                            color={accent}
-                          />
-                        </View>
-                        <View className="flex-1">
-                          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                            EMI schedule
-                          </ThemedText>
-                          <ThemedText tone="muted" className="mt-1 text-xs">
-                            {isEMICreditCard
-                              ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
-                              : isEdit
-                                ? 'Existing entries keep EMI as a label. Create a new credit-card transaction to build an instalment schedule.'
-                                : 'EMI is only a label until you choose a credit-card account. Non-card entries are saved without an instalment schedule.'}
-                          </ThemedText>
-                        </View>
-                      </View>
-
-                      {isEMICreditCard ? (
-                        <View className="mt-4 gap-4">
-                          <View>
-                            <ThemedText
-                              tone="muted"
-                              className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                              Tenure
-                            </ThemedText>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                              <View className="flex-row gap-2">
-                                {emiTenureOptions.map((months) => (
-                                  <Pressable
-                                    key={months}
-                                    accessibilityRole="button"
-                                    accessibilityState={{
-                                      selected: form.emiTenureMonths === String(months),
-                                    }}
-                                    onPress={() =>
-                                      setForm((previous) => ({
-                                        ...previous,
-                                        emiTenureMonths: String(months),
-                                      }))
-                                    }
-                                    className="rounded-full border px-4 py-2"
-                                    style={{
-                                      borderColor:
-                                        form.emiTenureMonths === String(months)
-                                          ? accent
-                                          : theme.border,
-                                      backgroundColor:
-                                        form.emiTenureMonths === String(months)
-                                          ? accent
-                                          : theme.card,
-                                    }}>
-                                    <ThemedText
-                                      className="text-xs font-black"
-                                      style={{
-                                        color:
-                                          form.emiTenureMonths === String(months)
-                                            ? '#FFFFFF'
-                                            : theme.text,
-                                      }}>
-                                      {months} mo
-                                    </ThemedText>
-                                  </Pressable>
-                                ))}
-                              </View>
-                            </ScrollView>
-                          </View>
-                          <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                            <ThemedText
-                              tone="muted"
-                              className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                              Annual interest rate
-                            </ThemedText>
-                            <TextInput
-                              value={form.emiRatePct}
-                              onChangeText={(text) =>
-                                setForm((previous) => ({ ...previous, emiRatePct: text }))
-                              }
-                              placeholder="0 for no-cost EMI"
-                              placeholderTextColor={detailInputPlaceholderColor}
-                              keyboardType="decimal-pad"
-                              className="p-0 text-sm font-bold"
-                              style={{ color: theme.text }}
+                {personalPayment &&
+                  mode !== 'quick-prompt' &&
+                  (showFullForm || draftReview) &&
+                  form.tag === 'EMI' && (
+                    <View className="px-5 mb-6">
+                      <View
+                        className="rounded-[24px] border p-4"
+                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                        <View className="flex-row items-start gap-3">
+                          <View
+                            className="h-10 w-10 items-center justify-center rounded-2xl"
+                            style={{ backgroundColor: accentSurface }}>
+                            <MaterialCommunityIcons
+                              name="calendar-month-outline"
+                              size={20}
+                              color={accent}
                             />
                           </View>
-                          <View
-                            className="rounded-2xl p-4"
-                            style={{ backgroundColor: theme.secondary }}>
-                            {isCalculatingEMI ? (
-                              <View className="flex-row items-center gap-2">
-                                <ActivityIndicator size="small" color={accent} />
-                                <ThemedText tone="muted" className="text-xs">
-                                  Calculating schedule…
-                                </ThemedText>
-                              </View>
-                            ) : emiCalculation ? (
-                              <>
-                                <ThemedText
-                                  className="text-base font-black"
-                                  style={{ color: theme.text }}>
-                                  {formatMoney(emiCalculation.principal_amount)} ÷{' '}
-                                  {emiCalculation.tenure_months} ={' '}
-                                  {formatMoney(emiCalculation.monthly_emi)}/mo
-                                </ThemedText>
-                                <ThemedText tone="muted" className="mt-1 text-xs">
-                                  First instalment{' '}
-                                  {emiFirstInstallment || 'one month after purchase'}
-                                  {emiCalculation.total_interest > 0
-                                    ? ` · ${formatMoney(emiCalculation.total_interest)} total interest`
-                                    : ' · No-cost EMI'}
-                                </ThemedText>
-                              </>
-                            ) : (
-                              <ThemedText
-                                tone={emiCalculationError ? 'negative' : 'muted'}
-                                className="text-xs">
-                                {emiCalculationError ??
-                                  'Choose a tenure to preview the monthly schedule.'}
-                              </ThemedText>
-                            )}
-                          </View>
-                          <View className="rounded-2xl bg-amber-50 p-3 dark:bg-amber-900/20">
-                            <ThemedText tone="warning" className="text-xs font-bold">
-                              Saving replaces this purchase entry with the EMI plan. Only each
-                              monthly instalment will appear as spending, so the purchase is not
-                              counted twice.
+                          <View className="flex-1">
+                            <ThemedText
+                              className="text-sm font-black"
+                              style={{ color: theme.text }}>
+                              EMI schedule
+                            </ThemedText>
+                            <ThemedText tone="muted" className="mt-1 text-xs">
+                              {isEMICreditCard
+                                ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
+                                : isEdit
+                                  ? 'Existing entries keep EMI as a label. Create a new credit-card transaction to build an instalment schedule.'
+                                  : 'EMI is only a label until you choose a credit-card account. Non-card entries are saved without an instalment schedule.'}
                             </ThemedText>
                           </View>
                         </View>
-                      ) : null}
+
+                        {isEMICreditCard ? (
+                          <View className="mt-4 gap-4">
+                            <View>
+                              <ThemedText
+                                tone="muted"
+                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                                Tenure
+                              </ThemedText>
+                              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                <View className="flex-row gap-2">
+                                  {emiTenureOptions.map((months) => (
+                                    <Pressable
+                                      key={months}
+                                      accessibilityRole="button"
+                                      accessibilityState={{
+                                        selected: form.emiTenureMonths === String(months),
+                                      }}
+                                      onPress={() =>
+                                        setForm((previous) => ({
+                                          ...previous,
+                                          emiTenureMonths: String(months),
+                                        }))
+                                      }
+                                      className="rounded-full border px-4 py-2"
+                                      style={{
+                                        borderColor:
+                                          form.emiTenureMonths === String(months)
+                                            ? accent
+                                            : theme.border,
+                                        backgroundColor:
+                                          form.emiTenureMonths === String(months)
+                                            ? accent
+                                            : theme.card,
+                                      }}>
+                                      <ThemedText
+                                        className="text-xs font-black"
+                                        style={{
+                                          color:
+                                            form.emiTenureMonths === String(months)
+                                              ? '#FFFFFF'
+                                              : theme.text,
+                                        }}>
+                                        {months} mo
+                                      </ThemedText>
+                                    </Pressable>
+                                  ))}
+                                </View>
+                              </ScrollView>
+                            </View>
+                            <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
+                              <ThemedText
+                                tone="muted"
+                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                                Annual interest rate
+                              </ThemedText>
+                              <TextInput
+                                value={form.emiRatePct}
+                                onChangeText={(text) =>
+                                  setForm((previous) => ({ ...previous, emiRatePct: text }))
+                                }
+                                placeholder="0 for no-cost EMI"
+                                placeholderTextColor={detailInputPlaceholderColor}
+                                keyboardType="decimal-pad"
+                                className="p-0 text-sm font-bold"
+                                style={{ color: theme.text }}
+                              />
+                            </View>
+                            <View
+                              className="rounded-2xl p-4"
+                              style={{ backgroundColor: theme.secondary }}>
+                              {isCalculatingEMI ? (
+                                <View className="flex-row items-center gap-2">
+                                  <ActivityIndicator size="small" color={accent} />
+                                  <ThemedText tone="muted" className="text-xs">
+                                    Calculating schedule…
+                                  </ThemedText>
+                                </View>
+                              ) : emiCalculation ? (
+                                <>
+                                  <ThemedText
+                                    className="text-base font-black"
+                                    style={{ color: theme.text }}>
+                                    {formatMoney(emiCalculation.principal_amount)} ÷{' '}
+                                    {emiCalculation.tenure_months} ={' '}
+                                    {formatMoney(emiCalculation.monthly_emi)}/mo
+                                  </ThemedText>
+                                  <ThemedText tone="muted" className="mt-1 text-xs">
+                                    First instalment{' '}
+                                    {emiFirstInstallment || 'one month after purchase'}
+                                    {emiCalculation.total_interest > 0
+                                      ? ` · ${formatMoney(emiCalculation.total_interest)} total interest`
+                                      : ' · No-cost EMI'}
+                                  </ThemedText>
+                                </>
+                              ) : (
+                                <ThemedText
+                                  tone={emiCalculationError ? 'negative' : 'muted'}
+                                  className="text-xs">
+                                  {emiCalculationError ??
+                                    'Choose a tenure to preview the monthly schedule.'}
+                                </ThemedText>
+                              )}
+                            </View>
+                            <View className="rounded-2xl bg-amber-50 p-3 dark:bg-amber-900/20">
+                              <ThemedText tone="warning" className="text-xs font-bold">
+                                Saving replaces this purchase entry with the EMI plan. Only each
+                                monthly instalment will appear as spending, so the purchase is not
+                                counted twice.
+                              </ThemedText>
+                            </View>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
-                  </View>
-                )}
+                  )}
 
                 {mode !== 'quick-prompt' &&
                   (showFullForm || draftReview) &&
+                  personalPayment &&
                   form.tag === 'Refundable' && (
                     <View className="px-5 mb-6">
                       <View
@@ -2842,6 +2890,7 @@ export function TransactionFormModal({
                 {mode !== 'quick-prompt' &&
                   !isEdit &&
                   (showFullForm || draftReview) &&
+                  personalPayment &&
                   (form.subscriptionEnabled || form.tag === 'Subscription') && (
                     <View className="px-5 mb-6">
                       <View
@@ -3443,6 +3492,11 @@ export function TransactionFormModal({
                   {saveActions}
                 </View>
               )}
+              {splitContext?.overlay ? (
+                <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.background }}>
+                  {splitContext.overlay}
+                </View>
+              ) : null}
             </View>
           </KeyboardAvoidingView>
         </Animated.View>

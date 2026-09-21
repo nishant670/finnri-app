@@ -36,6 +36,7 @@ export function GroupSettingsModal({
   onEditGroup,
   onDeleteGroup,
   onLeaveGroup,
+  onReportGroup,
 }: {
   summary: SplitGroupSummary | null;
   currentUserName: string;
@@ -55,6 +56,7 @@ export function GroupSettingsModal({
   onEditGroup: (summary: SplitGroupSummary) => void;
   onDeleteGroup: (summary: SplitGroupSummary) => void;
   onLeaveGroup: (summary: SplitGroupSummary) => void;
+  onReportGroup: (summary: SplitGroupSummary) => void;
 }) {
   const theme = useThemeTokens().colors;
   if (!summary) return null;
@@ -214,6 +216,15 @@ export function GroupSettingsModal({
               </View>
               <MaterialCommunityIcons name="chevron-right" size={26} color={theme.text} />
             </Pressable>
+            {/* Anyone in the group can report it, owner included — the content
+                that needs reporting is as likely to be a member's expense note
+                as the group itself, and Play requires the route to be reachable
+                from inside the app rather than by email. */}
+            <SettingsActionRow
+              icon="flag-outline"
+              label="Report this group"
+              onPress={() => onReportGroup(summary)}
+            />
             {!canManageGroup ? (
               <SettingsActionRow
                 icon="exit-to-app"

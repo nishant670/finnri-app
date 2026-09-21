@@ -230,6 +230,13 @@ export type SplitGroupInviteAcceptResponse = {
 };
 
 export type SplitBill = {
+  mode?: string;
+  category?: string;
+  merchant?: string;
+  tag?: string;
+  time?: string;
+  attachment?: string;
+
   id: number;
   user_id: number;
   entry_id?: number | null;
@@ -332,6 +339,13 @@ export type SplitFriendPayload = {
 };
 
 export type SplitBillPayload = {
+  mode?: string;
+  category?: string;
+  merchant?: string;
+  tag?: string;
+  time?: string;
+  attachment?: string;
+
   entry_id?: number | null;
   group_id?: number | null;
   title: string;
