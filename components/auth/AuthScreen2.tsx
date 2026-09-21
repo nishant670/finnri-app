@@ -1,4 +1,6 @@
 import { PHONE_IDENTIFIER_ENABLED } from '@/lib/auth';
+import { PRIVACY_URL, TERMS_URL } from '@/lib/legal';
+import * as WebBrowser from 'expo-web-browser';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -202,6 +204,36 @@ export const AuthScreen2 = ({
                     </>
                   )}
                 </TouchableOpacity>
+
+                {/* Play's user-generated content policy wants the terms
+                    accepted before anyone can create content other members
+                    will see — a shared split group is exactly that. The links
+                    open in a browser sheet rather than leaving the app. */}
+                <Text
+                  style={{
+                    marginTop: 18,
+                    textAlign: 'center',
+                    fontSize: 12,
+                    lineHeight: 18,
+                    color: theme.text,
+                    opacity: 0.55,
+                  }}>
+                  By continuing you agree to our{' '}
+                  <Text
+                    accessibilityRole="link"
+                    style={{ textDecorationLine: 'underline' }}
+                    onPress={() => void WebBrowser.openBrowserAsync(TERMS_URL)}>
+                    Terms
+                  </Text>{' '}
+                  and{' '}
+                  <Text
+                    accessibilityRole="link"
+                    style={{ textDecorationLine: 'underline' }}
+                    onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_URL)}>
+                    Privacy Policy
+                  </Text>
+                  .
+                </Text>
               </>
             ) : null}
 

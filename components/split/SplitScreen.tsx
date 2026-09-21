@@ -90,6 +90,7 @@ import { FriendActionsSheet } from '@/components/split/sheets/FriendActionsSheet
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { submitFeedback } from '@/lib/feedback';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { CountUpMoney } from '@/components/ui/CountUpMoney';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
@@ -1996,6 +1997,53 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setPendingGroupLeave(summary);
   };
 
+  /**
+   * A shared group is the one place in Finnri where a member reads text and
+   * images somebody else wrote — expense titles, notes, the group photo. Play's
+   * user-generated content policy asks for a way to report that from inside the
+   * app, which rules out handing the user a mailto link.
+   *
+   * It rides the feedback endpoint that already exists rather than waiting on a
+   * new one; `content_report` is what the admin console filters on to tell a
+   * report from a feature request.
+   */
+  const handleReportGroup = (summary: SplitGroupSummary) => {
+    if (!token) return;
+    void dialog
+      .confirm({
+        title: 'Report this group?',
+        message:
+          'Use this if something here is abusive, offensive or unlawful. We review every report and may remove the content or the account behind it.',
+        confirmLabel: 'Report',
+        cancelLabel: 'Cancel',
+        iconName: 'flag-outline',
+      })
+      .then(async (confirmed) => {
+        if (!confirmed) return;
+        try {
+          await submitFeedback(token, {
+            type: 'other',
+            area: 'content_report',
+            title: `Reported split group #${summary.group.id}`,
+            message: `A member reported the group "${summary.group.name}" (id ${summary.group.id}) for review.`,
+            impact: 'high',
+          });
+          await dialog.alert({
+            title: 'Report sent',
+            message: 'Thank you. We will review this group and act if it breaks our terms.',
+            tone: 'success',
+            iconName: 'flag-outline',
+          });
+        } catch {
+          await dialog.alert({
+            title: 'Could not send the report',
+            message: 'Check your connection and try again.',
+            tone: 'danger',
+          });
+        }
+      });
+  };
+
   const confirmDeleteGroup = () => {
     if (!token || !pendingGroupDelete || saving) return;
     const removedGroupId = pendingGroupDelete.group.id;
@@ -2868,6 +2916,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onEditGroup={openGroupEditor}
           onDeleteGroup={handleDeleteGroup}
           onLeaveGroup={handleLeaveGroup}
+          onReportGroup={handleReportGroup}
         />
 
         <GroupDefaultSplitModal
