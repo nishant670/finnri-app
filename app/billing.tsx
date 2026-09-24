@@ -12,6 +12,7 @@ import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { Card } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
@@ -238,7 +239,12 @@ export default function BillingScreen() {
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
   const trialExpiry = formatCreditDate(status?.credits.trial_expires_at);
-  const currentPlanName = status?.plan?.name ?? 'Free trial';
+  const trialHasExpired = useHasPassed(status?.credits.trial_expires_at);
+  const hasPaidPlan = status?.subscription_status === 'active' || status?.subscription_status === 'cancelled';
+  // "Free trial" stops being the current access the day it runs out. Leaving
+  // the name as-is under a heading that says CURRENT ACCESS tells someone they
+  // still have something they do not.
+  const currentPlanName = status?.plan?.name ?? (trialHasExpired && !hasPaidPlan ? 'No active plan' : 'Free trial');
   const subscriptionCopy =
     status?.subscription_status === 'active' && periodEnd
       ? `Renews or ends ${periodEnd}`
@@ -247,7 +253,9 @@ export default function BillingScreen() {
         : isGuest
           ? 'Guest credits stay on this device'
           : trialExpiry
-            ? `Trial expires ${trialExpiry}`
+            ? trialHasExpired
+              ? `Free trial ended ${trialExpiry} — choose a pass to carry on`
+              : `Trial expires ${trialExpiry}`
             : 'No active paid plan';
 
   const recommendedPlanCode = useMemo(() => {
