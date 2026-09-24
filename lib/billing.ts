@@ -160,6 +160,37 @@ export const createBillingCheckout = async (
   return response.json();
 };
 
+/** What the provider has done with one order, as the server last heard it. */
+export type CheckoutOrderStatus = 'created' | 'captured' | 'failed' | 'refunded';
+
+/**
+ * The state of a checkout order.
+ *
+ * Unauthenticated on purpose — the page that normally reads it runs in a
+ * browser tab with no Finnri session. Knowing an order id only lets someone
+ * pay for it.
+ *
+ * The app uses it to tell two situations apart that otherwise look identical
+ * once the browser closes: a payment that went through, and someone who looked
+ * at the price and came back.
+ */
+export const fetchCheckoutOrderStatus = async (
+  orderId: string
+): Promise<CheckoutOrderStatus | null> => {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/v1/billing/checkout/${encodeURIComponent(orderId)}`
+    );
+    if (!response.ok) return null;
+    const body = (await response.json()) as { status?: string };
+    return (body.status as CheckoutOrderStatus) ?? null;
+  } catch {
+    // Offline, or the order is not readable. Not knowing is its own answer,
+    // and the caller treats it as "say nothing" rather than inventing one.
+    return null;
+  }
+};
+
 export const requestLifetimeQuote = async (token: string) => {
   const response = await fetch(`${API_BASE_URL}/v1/billing/lifetime-quote/request`, {
     method: 'POST',

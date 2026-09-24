@@ -3,6 +3,7 @@ import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Card } from '@/components/ui/theme-primitives';
+import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatCreditDate, type CreditSummary } from '@/lib/billing';
 
@@ -29,6 +30,24 @@ export function CreditStatusCard({
   const isLowDailyLimit = dailyLimit > 0 && dailyRemainingRatio < 0.2;
   const trialExpiry = formatCreditDate(credits?.trial_expires_at);
   const resetDate = formatCreditDate(credits?.reset_at);
+  const totalRemaining = credits?.total_credits_remaining ?? 0;
+
+  /**
+   * An empty balance used to render as "0/50 used today" beside "0 left today"
+   * — two true numbers that read as a bug, because the daily figure is capped
+   * by the total and the total is gone. Once there is nothing left to spend,
+   * the daily allowance is not the story: having run out is.
+   */
+  const isOutOfCredits = !loading && credits !== null && totalRemaining <= 0;
+  const trialHasExpired = useHasPassed(credits?.trial_expires_at);
+  // A date in the past described in the future tense is the kind of small lie
+  // that makes someone distrust every other number on the screen.
+  const trialLine = trialExpiry
+    ? trialHasExpired
+      ? `Free trial ended ${trialExpiry}`
+      : `Trial expires ${trialExpiry}`
+    : null;
+  const needsAttention = isOutOfCredits || isLowDailyLimit;
   const compactContent = (
     <Card
       compact
@@ -44,20 +63,28 @@ export function CreditStatusCard({
             borderRadius: 16,
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: isLowDailyLimit ? '#FFF3E0' : colors.secondary,
+            backgroundColor: needsAttention ? '#FFF3E0' : colors.secondary,
           }}>
           <MaterialCommunityIcons
-            name={isLowDailyLimit ? 'alert-circle-outline' : 'creation'}
+            name={needsAttention ? 'alert-circle-outline' : 'creation'}
             size={17}
-            color={isLowDailyLimit ? '#EF6C00' : colors.accent}
+            color={needsAttention ? '#EF6C00' : colors.accent}
           />
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <ThemedText numberOfLines={1} variant="captionStrong" style={{ color: colors.text }}>
-            {isLowDailyLimit ? 'Daily AI credits low' : 'AI credits'}
+            {isOutOfCredits
+              ? 'Out of AI credits'
+              : isLowDailyLimit
+                ? 'Daily AI credits low'
+                : 'AI credits'}
           </ThemedText>
           <ThemedText numberOfLines={1} variant="caption" style={{ color: `${colors.text}8F` }}>
-            {loading ? 'Checking balance...' : `${dailyUsed}/${dailyLimit} used today`}
+            {loading
+              ? 'Checking balance...'
+              : isOutOfCredits
+                ? (trialHasExpired && trialLine) || 'Tap to see plans'
+                : `${dailyUsed}/${dailyLimit} used today`}
           </ThemedText>
         </View>
         <View style={{ alignItems: 'flex-end' }}>
@@ -82,13 +109,15 @@ export function CreditStatusCard({
             height: '100%',
             width: `${progress * 100}%`,
             borderRadius: 3,
-            backgroundColor: isLowDailyLimit ? '#EF6C00' : colors.accent,
+            backgroundColor: needsAttention ? '#EF6C00' : colors.accent,
           }}
         />
       </View>
 
       <ThemedText numberOfLines={1} variant="micro" style={{ color: `${colors.text}7A` }}>
-        {credits?.total_credits_remaining ?? '—'} total credits left
+        {isOutOfCredits
+          ? 'Renew to keep capturing by voice and text'
+          : `${credits?.total_credits_remaining ?? '—'} total credits left`}
       </ThemedText>
     </Card>
   );
@@ -119,11 +148,13 @@ export function CreditStatusCard({
           <ThemedText numberOfLines={1} variant="caption" style={{ color: `${colors.text}8F` }}>
             {loading
               ? 'Checking balance...'
-              : trialExpiry
-                ? `Trial expires ${trialExpiry}`
-                : resetDate
-                  ? `Daily limit resets ${resetDate}`
-                  : 'Usage refreshes daily'}
+              : isOutOfCredits
+                ? (trialHasExpired && trialLine) || 'Out of credits — tap to see plans'
+                : trialLine
+                  ? trialLine
+                  : resetDate
+                    ? `Daily limit resets ${resetDate}`
+                    : 'Usage refreshes daily'}
           </ThemedText>
         </View>
         <View style={{ alignItems: 'flex-end' }}>

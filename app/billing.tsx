@@ -12,6 +12,7 @@ import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { Card } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
@@ -19,6 +20,7 @@ import {
   createBillingCheckout,
   fetchBillingPlans,
   fetchBillingStatus,
+  fetchCheckoutOrderStatus,
   formatCreditDate,
   formatPlanPrice,
   requestLifetimeQuote,
@@ -80,6 +82,31 @@ const waitForActivation = async (token: string, periodEndBefore: string | null) 
       }
     } catch {
       // A blip mid-poll is not an answer either way; keep asking.
+    }
+  }
+  return false;
+};
+
+/**
+ * Whether the order was actually paid, once the browser tab has closed.
+ *
+ * The webhook that flips an order to `captured` can arrive a beat after the
+ * tab does, so a single read would call a real payment abandoned. A few short
+ * reads cover that gap; staying at `created` past them means nobody paid, and
+ * the quiet ending is the honest one.
+ */
+const PAYMENT_CHECK_INTERVAL_MS = 1500;
+const PAYMENT_CHECK_ATTEMPTS = 4;
+
+const waitForPaymentAttempt = async (orderId: string) => {
+  for (let attempt = 0; attempt < PAYMENT_CHECK_ATTEMPTS; attempt += 1) {
+    const status = await fetchCheckoutOrderStatus(orderId);
+    if (status === 'captured') return true;
+    // `failed` is a decision, not a gap: the provider has already said no, and
+    // waiting longer cannot change it.
+    if (status === 'failed') return false;
+    if (attempt < PAYMENT_CHECK_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, PAYMENT_CHECK_INTERVAL_MS));
     }
   }
   return false;
@@ -206,6 +233,16 @@ export default function BillingScreen() {
         dismissButtonStyle: 'done',
       });
 
+      // Closing the tab says nothing about whether money moved. Ask the order
+      // before saying anything: someone who read the price and came back was
+      // being told their payment was still being confirmed, which invites them
+      // to wait for something that is never coming — or to pay twice.
+      const paid = await waitForPaymentAttempt(order.order_id);
+      if (!paid) {
+        await loadBilling();
+        return;
+      }
+
       const activated = await waitForActivation(token, periodEndBefore);
       await loadBilling();
       void dialog.alert(
@@ -238,7 +275,12 @@ export default function BillingScreen() {
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
   const trialExpiry = formatCreditDate(status?.credits.trial_expires_at);
-  const currentPlanName = status?.plan?.name ?? 'Free trial';
+  const trialHasExpired = useHasPassed(status?.credits.trial_expires_at);
+  const hasPaidPlan = status?.subscription_status === 'active' || status?.subscription_status === 'cancelled';
+  // "Free trial" stops being the current access the day it runs out. Leaving
+  // the name as-is under a heading that says CURRENT ACCESS tells someone they
+  // still have something they do not.
+  const currentPlanName = status?.plan?.name ?? (trialHasExpired && !hasPaidPlan ? 'No active plan' : 'Free trial');
   const subscriptionCopy =
     status?.subscription_status === 'active' && periodEnd
       ? `Renews or ends ${periodEnd}`
@@ -247,7 +289,9 @@ export default function BillingScreen() {
         : isGuest
           ? 'Guest credits stay on this device'
           : trialExpiry
-            ? `Trial expires ${trialExpiry}`
+            ? trialHasExpired
+              ? `Free trial ended ${trialExpiry} — choose a pass to carry on`
+              : `Trial expires ${trialExpiry}`
             : 'No active paid plan';
 
   const recommendedPlanCode = useMemo(() => {
@@ -601,18 +645,33 @@ function PlanCard({
 
         <Pressable
           accessibilityRole="button"
+          accessibilityState={{ disabled, busy }}
           disabled={disabled}
           onPress={onPress}
           style={({ pressed }) => ({
             minHeight: 46,
             borderRadius: 18,
+            flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
-            opacity: pressed ? 0.84 : disabled ? 0.62 : 1,
-            backgroundColor: disabled ? colors.secondary : accent,
+            gap: 8,
+            paddingHorizontal: 16,
+            opacity: pressed ? 0.84 : disabled && !busy ? 0.62 : 1,
+            // Busy keeps the accent. It used to fall through to the disabled
+            // fill, which put a white spinner on a near-white pill: the button
+            // looked like empty space at the exact moment it was working, so a
+            // tap read as nothing happening and the browser opened seconds
+            // later out of nowhere.
+            backgroundColor: busy || !disabled ? accent : colors.secondary,
           })}>
           {busy ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <>
+              <ActivityIndicator color="#FFFFFF" />
+              <ThemedText
+                style={{ color: '#FFFFFF', fontFamily: Fonts.title, fontWeight: '900' }}>
+                Opening payment…
+              </ThemedText>
+            </>
           ) : (
             <ThemedText
               style={{
