@@ -112,6 +112,7 @@ import {
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
+import { creditGateFor } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
@@ -444,6 +445,18 @@ export default function HomeScreen() {
   const dailyCreditsRemaining = billingStatus?.credits.daily_credits_remaining ?? 0;
   const shouldShowLowCreditNotice =
     dailyCreditLimit > 0 && dailyCreditsRemaining / dailyCreditLimit < 0.2;
+
+  /**
+   * Stops a capture that cannot be paid for, at the moment it is asked for
+   * rather than after the clip exists. Returns true when it has taken over,
+   * so callers can bail. The decision itself lives in `creditGateFor`.
+   */
+  const blockCaptureWithoutCredits = useCallback(() => {
+    const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest });
+    if (!gate) return false;
+    setCreditAction(gate);
+    return true;
+  }, [billingStatus, user?.is_guest]);
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
@@ -833,10 +846,12 @@ export default function HomeScreen() {
   const handleToggleRecording = useCallback(async () => {
     if (isRecording) {
       await stopRecording();
-    } else {
-      await startRecording();
+      return;
     }
-  }, [isRecording, startRecording, stopRecording]);
+    // Checked before the microphone opens, not after the clip exists.
+    if (blockCaptureWithoutCredits()) return;
+    await startRecording();
+  }, [blockCaptureWithoutCredits, isRecording, startRecording, stopRecording]);
 
   useEffect(() => {
     const uri = Array.isArray(captureFile) ? captureFile[0] : captureFile;
@@ -1134,6 +1149,9 @@ export default function HomeScreen() {
         setErrorMessage('Please type or record your expense first.');
         return;
       }
+      // The same gate as the microphone, for the typed and quick-prompt paths
+      // that never touch it.
+      if (blockCaptureWithoutCredits()) return;
       setIsSubmitting(true);
       setErrorMessage(null);
       setParseFailure(null);
@@ -1352,6 +1370,7 @@ export default function HomeScreen() {
     [
       billingStatus?.credits.daily_credits_used,
       billingStatus?.credits.daily_limit,
+      blockCaptureWithoutCredits,
       fetchCredits,
       inputText,
       isSubmitting,
