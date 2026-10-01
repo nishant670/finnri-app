@@ -5,6 +5,13 @@ Home manual capture, AI draft review, transaction edits, and Split expenses use
 is an adapter for group selection and the existing allocation screens; it does
 not implement a second amount, category, payment, date, tag, notes, or receipt form.
 
+New manual entries keep the title above the amount and transaction type in the
+collapsed sheet. `lib/transaction-category.ts` suggests a category locally from
+common English/Hindi title words, using separate expense and income categories.
+Unknown or ambiguous titles use Misc/Other. Suggestions follow title changes
+until a category or quick-fill is explicitly selected. Existing entries, AI
+drafts, and non-default categories supplied by a quick prompt are preserved.
+
 `lib/transaction-composer.ts` owns payload mapping and the create flow (receipt
 upload, transaction, optional card EMI/subscription). Transaction edits use the
 same payload mapping. Successful steps are retained for a retry within an open

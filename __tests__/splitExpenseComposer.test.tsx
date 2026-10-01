@@ -25,17 +25,21 @@ const accounts = [
 function Composer({
   onSave,
   personalPayment = true,
+  isEdit = true,
+  draft = initialData,
 }: {
   onSave: jest.Mock;
   personalPayment?: boolean;
+  isEdit?: boolean;
+  draft?: Partial<EntryForm>;
 }) {
   const [flowScreen, setFlowScreen] = useState<ExpenseFlowScreen>('expense');
   const [amount, setAmount] = useState('1000');
   return (
     <AddExpenseModal
       visible
-      isEdit
-      initialData={initialData}
+      isEdit={isEdit}
+      initialData={draft}
       accounts={accounts}
       amount={amount}
       onChangeAmount={setAmount}
@@ -71,6 +75,17 @@ function Composer({
     />
   );
 }
+
+it('infers new split expense categories from the collapsed title field', async () => {
+  const onSave = jest.fn().mockResolvedValue(undefined);
+  const ui = await render(
+    <Composer onSave={onSave} isEdit={false} draft={{ ...initialData, title: '', category: 'Misc' }} />
+  );
+  await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Metro ride');
+  expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
+  await fireEvent.press(await ui.findByTestId('entry-save-button'));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Metro ride', category: 'Transport' }));
+});
 
 it('offers Home payment/account and optional fields in Split and saves their edits', async () => {
   const onSave = jest.fn().mockResolvedValue(undefined);

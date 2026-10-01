@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Dimensions,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -58,6 +59,7 @@ import {
   resolveCategory,
 } from '@/lib/categories';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
+import { inferTransactionCategory } from '@/lib/transaction-category';
 import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
@@ -434,8 +436,8 @@ export function TransactionFormModal({
   const detailIconSurface = colorScheme === 'dark' ? theme.secondary : accentSurface;
 
   /**
-   * Amount-first entry: a full-width amount over a custom keypad, with
-   * everything else folded behind More details.
+   * Compact entry: title, amount and transaction type stay visible, with
+   * optional fields folded behind More details.
    *
    * Only new manual entries take this path. An AI draft is a review, not a
    * capture — the amount already exists and the job is checking it (W7 owns
@@ -541,6 +543,10 @@ export function TransactionFormModal({
   );
 
   const [isMoreDetailsExpanded, setIsMoreDetailsExpanded] = useState(false);
+  const [isTitleFocused, setIsTitleFocused] = useState(false);
+  const titleInputRef = useRef<TextInput>(null);
+  // Explicit picker/quick-fill choices take precedence over title hints.
+  const categoryChosenRef = useRef(false);
   const [isDraftSummaryExpanded, setIsDraftSummaryExpanded] = useState(false);
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
   /** Flagged fields the user has since opened or edited. */
@@ -559,6 +565,11 @@ export function TransactionFormModal({
   const [customCategory, setCustomCategory] = useState('');
   const autoFocusedFieldRef = useRef<string | null>(null);
   const amountInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    const subscription = Keyboard.addListener('keyboardDidHide', () => setIsTitleFocused(false));
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (visible) onDraftChange?.(form);
@@ -797,7 +808,8 @@ export function TransactionFormModal({
    * details swaps it out: every field under there wants the system keyboard,
    * and two keyboards fighting for the same 250dp is worse than either.
    */
-  const isKeypadVisible = fastEntry && !isMoreDetailsExpanded;
+  const isCompactEntry = fastEntry && !isMoreDetailsExpanded;
+  const isKeypadVisible = isCompactEntry && !isTitleFocused && keyboardInset === 0;
   /**
    * The stacked full form. Amount-first folds it behind More details; the AI
    * draft replaces it outright with the confidence-ranked list, so no field
@@ -932,6 +944,42 @@ export function TransactionFormModal({
     setForm((prev) => ({ ...prev, amount }));
   }, []);
 
+  const handleTitleChange = (title: string) => {
+    const shouldInfer = fastEntry && !categoryChosenRef.current;
+    setFormError(null);
+    setForm((previous) => ({
+      ...previous,
+      title,
+      category: shouldInfer
+        ? inferTransactionCategory(title, previous.type) ?? defaultCategoryForType(previous.type)
+        : previous.category,
+    }));
+  };
+
+  const selectCategory = (category: string) => {
+    categoryChosenRef.current = true;
+    setForm((previous) => ({ ...previous, category }));
+  };
+
+  const selectTransactionType = (type: 'Expense' | 'Income') => {
+    if (form.type === type) return;
+    categoryChosenRef.current = false;
+    setForm((previous) => ({
+      ...previous,
+      type,
+      category:
+        (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
+        defaultCategoryForType(type),
+    }));
+    animateTypeSwitch(type === 'Income');
+  };
+
+  const focusAmountKeypad = () => {
+    titleInputRef.current?.blur();
+    Keyboard.dismiss();
+    setIsTitleFocused(false);
+  };
+
   /**
    * A share held as a percentage follows the total.
    *
@@ -964,6 +1012,7 @@ export function TransactionFormModal({
    */
   const applyQuickFill = useCallback(
     (fill: QuickFill) => {
+      categoryChosenRef.current = true;
       setFormError(null);
       setForm((prev) => {
         const next: EntryForm = { ...prev, category: fill.category };
@@ -1003,7 +1052,7 @@ export function TransactionFormModal({
       amount: '',
       type: 'Expense',
       mode: 'Cash',
-      category: 'Food & Drinks',
+      category: defaultCategoryForType(initialData?.type),
       date: formatDateLabel(new Date()),
       time: formatTime(new Date()) ?? '',
       notes: '',
@@ -1036,6 +1085,12 @@ export function TransactionFormModal({
       subscriptionNotes: '',
       ...initialData,
     });
+    categoryChosenRef.current =
+      normalizeCategoryValue(seeded.category, seeded.type) !== defaultCategoryForType(seeded.type);
+    if (fastEntry && !categoryChosenRef.current) {
+      seeded.category =
+        inferTransactionCategory(seeded.title, seeded.type) ?? defaultCategoryForType(seeded.type);
+    }
     // A quick prompt seeds "120.00"; the keypad would then refuse every
     // further digit because both decimal places are already spent.
     setForm(fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded);
@@ -1051,6 +1106,7 @@ export function TransactionFormModal({
     if (visible) {
       setShowModal(true);
       setIsMoreDetailsExpanded(false);
+      setIsTitleFocused(false);
       setFormError(null);
       seedForm();
 
@@ -1941,7 +1997,7 @@ export function TransactionFormModal({
                   )}
                 </View>
 
-                <View className={isKeypadVisible ? 'px-5 mb-6 flex-1 justify-center' : 'px-5 mb-6'}>
+                <View className="px-5 mb-6">
                   {draftReview && aiReview?.sourceText ? (
                     <View
                       className="mb-3 rounded-[20px] border px-4 py-3"
@@ -2197,6 +2253,91 @@ export function TransactionFormModal({
                     </View>
                   )}
 
+                  {!draftReview && (
+                    <View
+                      className="rounded-[20px] p-3 border shadow-sm mb-3"
+                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                      <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
+                        Transaction Title
+                      </ThemedText>
+                      <View className="flex-row items-center gap-3">
+                        <MaterialCommunityIcons
+                          name="label-variant-outline"
+                          size={22}
+                          color={accent}
+                        />
+                        <TextInput
+                          ref={titleInputRef}
+                          testID="entry-title-input"
+                          value={form.title}
+                          onChangeText={handleTitleChange}
+                          onFocus={() => setIsTitleFocused(true)}
+                          onBlur={() => setIsTitleFocused(false)}
+                          onSubmitEditing={isCompactEntry ? focusAmountKeypad : undefined}
+                          returnKeyType={isCompactEntry ? 'next' : 'done'}
+                          className="text-base font-black flex-1 p-0"
+                          style={{ color: theme.text, height: 24 }}
+                          placeholder="What was this for?"
+                          placeholderTextColor="#9CA3AF"
+                        />
+                      </View>
+                    </View>
+                  )}
+
+                  {showFullForm && (
+                    <View className="flex-row gap-3 mb-3">
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Edit amount"
+                        onPress={() => amountInputRef.current?.focus()}
+                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
+                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
+                          Amount
+                        </ThemedText>
+                        <View className="flex-row items-center gap-1">
+                          <ThemedText className="text-lg font-black" style={{ color: accent }}>
+                            {CURRENCY_SYMBOL}
+                          </ThemedText>
+                          <TextInput
+                            ref={amountInputRef}
+                            testID="entry-amount-input"
+                            value={form.amount}
+                            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
+                            className="text-xl font-black p-0 flex-1"
+                            style={{ color: theme.text, height: 32 }}
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setIsModePickerVisible(true)}
+                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
+                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
+                          {paymentLanguage.modeLabel}
+                        </ThemedText>
+                        <View className="flex-row items-center gap-2">
+                          <MaterialCommunityIcons name="cash-multiple" size={21} color="#8B5CF6" />
+                          <ThemedText
+                            className="text-base font-black"
+                            style={{ color: theme.text }}>
+                            {form.mode}
+                          </ThemedText>
+                        </View>
+                      </Pressable>
+                    </View>
+                  )}
+
+                  {isCompactEntry && (
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit amount"
+                      onPress={focusAmountKeypad}>
+                      <AmountDisplay value={form.amount} />
+                    </Pressable>
+                  )}
+
                   {/* The review sheet shows the type as a card in its ranked
                       list instead, where it sits with the rest of the draft. */}
                   {!draftReview && !splitContext && (
@@ -2223,14 +2364,8 @@ export function TransactionFormModal({
                           className="shadow-sm"
                         />
                         <Pressable
-                          onPress={() => {
-                            setForm((p) => ({
-                              ...p,
-                              type: 'Expense',
-                              category: defaultCategoryForType('Expense'),
-                            }));
-                            animateTypeSwitch(false);
-                          }}
+                          testID="entry-type-expense"
+                          onPress={() => selectTransactionType('Expense')}
                           className="flex-1 py-3 items-center justify-center z-10">
                           <ThemedText
                             className={`text-sm font-black tracking-tight ${form.type === 'Expense' ? 'text-white' : 'text-gray-400'}`}>
@@ -2238,14 +2373,8 @@ export function TransactionFormModal({
                           </ThemedText>
                         </Pressable>
                         <Pressable
-                          onPress={() => {
-                            setForm((p) => ({
-                              ...p,
-                              type: 'Income',
-                              category: defaultCategoryForType('Income'),
-                            }));
-                            animateTypeSwitch(true);
-                          }}
+                          testID="entry-type-income"
+                          onPress={() => selectTransactionType('Income')}
                           className="flex-1 py-3 items-center justify-center z-10">
                           <ThemedText
                             className={`text-sm font-black tracking-tight ${form.type === 'Income' ? 'text-white' : 'text-gray-400'}`}>
@@ -2256,10 +2385,8 @@ export function TransactionFormModal({
                     </View>
                   )}
 
-                  {isKeypadVisible && (
+                  {isCompactEntry && (
                     <>
-                      <AmountDisplay value={form.amount} />
-
                       <View className="mb-3 mt-1 flex-row flex-wrap items-center justify-center gap-2">
                         <Pressable
                           testID="entry-category-chip"
@@ -2363,84 +2490,6 @@ export function TransactionFormModal({
                         </Pressable>
                       </View>
                     </>
-                  )}
-
-                  {showFullForm && (
-                    <View
-                      className="rounded-[20px] p-3 border shadow-sm mb-3"
-                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
-                        Transaction Title
-                      </ThemedText>
-                      <View className="flex-row items-center gap-3">
-                        <MaterialCommunityIcons
-                          name="label-variant-outline"
-                          size={22}
-                          color={accent}
-                        />
-                        <TextInput
-                          testID="entry-title-input"
-                          value={form.title}
-                          onChangeText={(t) => setForm((p) => ({ ...p, title: t }))}
-                          className="text-base font-black flex-1 p-0"
-                          style={{ color: theme.text, height: 24 }}
-                          // On the amount-first path a blank title is saved as
-                          // this, so the placeholder is the actual outcome.
-                          placeholder={
-                            fastEntry
-                              ? form.merchant.trim() ||
-                                normalizeCategoryValue(form.category, form.type)
-                              : 'Short title'
-                          }
-                          placeholderTextColor="#9CA3AF"
-                        />
-                      </View>
-                    </View>
-                  )}
-
-                  {showFullForm && (
-                    <View className="flex-row gap-3 mb-3">
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit amount"
-                        onPress={() => amountInputRef.current?.focus()}
-                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                          Amount
-                        </ThemedText>
-                        <View className="flex-row items-center gap-1">
-                          <ThemedText className="text-lg font-black" style={{ color: accent }}>
-                            {CURRENCY_SYMBOL}
-                          </ThemedText>
-                          <TextInput
-                            ref={amountInputRef}
-                            testID="entry-amount-input"
-                            value={form.amount}
-                            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
-                            className="text-xl font-black p-0 flex-1"
-                            style={{ color: theme.text, height: 32 }}
-                            keyboardType="decimal-pad"
-                          />
-                        </View>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setIsModePickerVisible(true)}
-                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                          {paymentLanguage.modeLabel}
-                        </ThemedText>
-                        <View className="flex-row items-center gap-2">
-                          <MaterialCommunityIcons name="cash-multiple" size={21} color="#8B5CF6" />
-                          <ThemedText
-                            className="text-base font-black"
-                            style={{ color: theme.text }}>
-                            {form.mode}
-                          </ThemedText>
-                        </View>
-                      </Pressable>
-                    </View>
                   )}
 
                   {mode !== 'quick-prompt' && showFullForm && (
@@ -3238,11 +3287,13 @@ export function TransactionFormModal({
 
                 {showFullForm && (
                   <View className="px-5 mb-6">
-                    <ThemedText
-                      tone="muted"
-                      className="text-[11px] font-black uppercase tracking-widest italic mb-4">
-                      {categoryNeedsReview ? 'Needs Attention' : 'Category'}
-                    </ThemedText>
+                    {categoryNeedsReview && (
+                      <ThemedText
+                        tone="muted"
+                        className="text-[11px] font-black uppercase tracking-widest italic mb-4">
+                        Needs Attention
+                      </ThemedText>
+                    )}
                     {visibleCategorySuggestions.length > 0 && (
                       <View className="mb-3">
                         <ThemedText
@@ -3255,7 +3306,7 @@ export function TransactionFormModal({
                             <Pressable
                               key={suggestion}
                               accessibilityRole="button"
-                              onPress={() => setForm((p) => ({ ...p, category: suggestion }))}
+                              onPress={() => selectCategory(suggestion)}
                               className="flex-row items-center rounded-full px-3 py-2"
                               style={{ backgroundColor: accentSurface }}>
                               <MaterialCommunityIcons
@@ -3688,7 +3739,7 @@ export function TransactionFormModal({
                         key={suggestion}
                         accessibilityRole="button"
                         onPress={() => {
-                          setForm((p) => ({ ...p, category: suggestion }));
+                          selectCategory(suggestion);
                           setIsCategoryPickerVisible(false);
                         }}
                         className="rounded-full px-3 py-2"
@@ -3706,7 +3757,7 @@ export function TransactionFormModal({
                   <Pressable
                     key={c}
                     onPress={() => {
-                      setForm((p) => ({ ...p, category: c }));
+                      selectCategory(c);
                       setIsCategoryPickerVisible(false);
                     }}
                     className="w-[47%] items-center gap-2 rounded-3xl border p-4"
@@ -3748,7 +3799,7 @@ export function TransactionFormModal({
                     accessibilityRole="button"
                     onPress={() => {
                       const nextCategory = normalizeCategoryValue(customCategory, form.type);
-                      setForm((p) => ({ ...p, category: nextCategory }));
+                      selectCategory(nextCategory);
                       setCustomCategory('');
                       setIsCategoryPickerVisible(false);
                     }}
