@@ -1,4 +1,6 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+// Observe the mocked native calls; these tests never fire haptics directly.
+// eslint-disable-next-line no-restricted-imports
 import * as Haptics from 'expo-haptics';
 
 import {
@@ -296,7 +298,7 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(await findByTestId('entry-amount-display')).toBeTruthy();
     // The decimal-pad TextInput belongs to the full form, which is collapsed.
     expect(queryByTestId('entry-amount-input')).toBeNull();
-    expect(queryByTestId('entry-title-input')).toBeNull();
+    expect(await findByTestId('entry-title-input')).toBeTruthy();
     expect(await findByTestId('entry-save-button')).toBeDisabled();
   });
 
@@ -394,6 +396,88 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(await findByTestId('entry-title-input')).toBeTruthy();
     expect(await findByTestId('entry-amount-input')).toBeTruthy();
     expect(await findByTestId('entry-category-picker')).toBeTruthy();
+  });
+
+  it('keeps title and amount visible while switching between the title keyboard and keypad', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+    await fireEvent(await ui.findByTestId('entry-title-input'), 'focus');
+    expect(ui.queryByTestId('amount-key-1')).toBeNull();
+    expect(await ui.findByTestId('entry-amount-display')).toBeTruthy();
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
+    await fireEvent.press(await ui.findByLabelText('Edit amount'));
+    await typeAmount(ui.findByTestId, '250');
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dinner', amount: '250' }));
+  });
+
+  it('shows only one category label in the expanded form and retains the title', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
+    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
+    expect(ui.getAllByText('Category')).toHaveLength(1);
+    expect(ui.getAllByTestId('entry-title-input')).toHaveLength(1);
+    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
+    expect(await ui.findByTestId('entry-title-input')).toHaveDisplayValue('Dinner');
+  });
+});
+
+describe('TransactionFormModal — title category suggestions', () => {
+  const unclassified = { ...completeInitialData, title: '', category: 'Misc' };
+
+  it('follows title corrections and saves the latest inferred category', async () => {
+    const ui = await renderModal({ initialData: unclassified });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dining out');
+    expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Metro commute');
+    expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Metro commute', category: 'Transport' }));
+  });
+
+  it('clears stale hints for unknown or cleared titles without requiring network access', async () => {
+    const ui = await renderModal({ initialData: unclassified });
+    for (const unknown of ['Something else', '']) {
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
+      expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), unknown);
+      expect(await ui.findByLabelText('Category Misc')).toBeTruthy();
+    }
+  });
+
+  it.each(['Shopping', 'Misc'])('preserves an explicit %s selection across title edits and same-type taps', async (category) => {
+    const ui = await renderModal({ initialData: unclassified });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
+    await fireEvent.press(await ui.findByTestId('entry-category-chip'));
+    await fireEvent.press(await ui.findByText(category));
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Metro');
+    await fireEvent.press(await ui.findByTestId('entry-type-expense'));
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ category }));
+  });
+
+  it('uses income categories after switching type and preserves the current type on title changes', async () => {
+    const ui = await renderModal({ initialData: unclassified });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Monthly salary');
+    await fireEvent.press(await ui.findByTestId('entry-type-income'));
+    expect(await ui.findByLabelText('Category Salary')).toBeTruthy();
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner refund');
+    expect(await ui.findByLabelText('Category Refund')).toBeTruthy();
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ type: 'Income', category: 'Refund' }));
+  });
+
+  it('preserves saved transaction categories when editing the title', async () => {
+    const ui = await renderModal({ initialData: unclassified, isEdit: true });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ category: 'Misc' }));
+  });
+
+  it('infers an initial title only when the seed category is a fallback', async () => {
+    const ui = await renderModal({ initialData: { ...unclassified, title: 'Dinner' } });
+    expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ category: 'Food & Drinks' }));
   });
 });
 
