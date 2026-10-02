@@ -3830,10 +3830,19 @@ export function TransactionFormModal({
                     setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
                     setIsAccountPickerVisible(false);
                   }}
-                  className={`p-4 rounded-2xl flex-row items-center justify-between ${form.accountId === account.id ? 'bg-blue-50 border border-blue-100' : 'bg-gray-50'}`}>
+                  className="p-4 rounded-2xl flex-row items-center justify-between border"
+                  style={{
+                    // Theme tokens, not bg-gray-50 / text-gray-700: those are
+                    // fixed light-mode colours, so in dark mode the rows were
+                    // near-white with near-white labels.
+                    backgroundColor:
+                      form.accountId === account.id ? `${accent}1F` : theme.card,
+                    borderColor: form.accountId === account.id ? accent : theme.border,
+                  }}>
                   <View>
                     <ThemedText
-                      className={`font-bold ${form.accountId === account.id ? 'text-blue-500' : 'text-gray-700'}`}>
+                      className="font-bold"
+                      style={{ color: form.accountId === account.id ? accent : theme.text }}>
                       {account.name}
                     </ThemedText>
                     <ThemedText tone="muted" className="text-xs">
@@ -3841,7 +3850,7 @@ export function TransactionFormModal({
                     </ThemedText>
                   </View>
                   {form.accountId === account.id && (
-                    <MaterialCommunityIcons name="check" size={20} color="#3B82F6" />
+                    <MaterialCommunityIcons name="check" size={20} color={accent} />
                   )}
                 </Pressable>
               ))}
