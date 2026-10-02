@@ -42,6 +42,7 @@ import {
   getPreferredAccountForPaymentMode,
   normalizeAccountType,
 } from '@/lib/accounts';
+import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { calculateEMI, type EMICalculation } from '@/lib/emi';
 import { formatTime, uses24HourClock } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
@@ -621,6 +622,49 @@ export function TransactionFormModal({
     form.tag === 'EMI' &&
     normalizeAccountType(selectedAccount?.type) === 'credit_card';
   const emiFirstInstallment = useMemo(() => nextMonthClamped(form.date), [form.date]);
+
+  // Loan and other non-card EMIs are plain monthly debits, so instead of an
+  // instalment schedule they get the app's existing recurring-payment record,
+  // set to auto-debit. Cash can't auto-debit, so it is not offered there.
+  const [emiRepeats, setEmiRepeats] = useState(false);
+  const canRepeatEmi =
+    personalPayment &&
+    !isEdit &&
+    form.tag === 'EMI' &&
+    form.type === 'Expense' &&
+    !isEMICreditCard &&
+    form.mode !== 'Cash';
+  const emiRepeatActive = emiRepeats && canRepeatEmi;
+  const emiNextDebit = useMemo(() => {
+    const next = parseDateLabel(nextMonthClamped(form.date));
+    return next ? formatApiDate(next) : '';
+  }, [form.date]);
+
+  useEffect(() => {
+    if (emiRepeatActive) {
+      setForm((prev) => {
+        const next = {
+          ...prev,
+          subscriptionEnabled: true,
+          subscriptionName: prev.title.trim() || prev.merchant.trim() || 'EMI',
+          subscriptionMerchant: prev.merchant,
+          subscriptionCategory: prev.category,
+          subscriptionAmount: prev.amount,
+          subscriptionBillingInterval: 'monthly' as const,
+          subscriptionNextDueDate: emiNextDebit,
+          subscriptionAutopay: true,
+        };
+        const unchanged = (Object.keys(next) as (keyof typeof next)[]).every(
+          (key) => next[key] === prev[key]
+        );
+        return unchanged ? prev : next;
+      });
+    } else if (emiRepeats) {
+      // The EMI stopped being repeatable (tag, account or type changed).
+      setEmiRepeats(false);
+      setForm((prev) => ({ ...prev, subscriptionEnabled: false, subscriptionAutopay: false }));
+    }
+  }, [emiRepeatActive, emiRepeats, emiNextDebit, form.title, form.merchant, form.category, form.amount]);
 
   useEffect(() => {
     const amount = Number(form.amount.replace(/,/g, ''));
@@ -2677,10 +2721,38 @@ export function TransactionFormModal({
                                 ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
                                 : isEdit
                                   ? 'Existing entries keep EMI as a label. Create a new credit-card transaction to build an instalment schedule.'
-                                  : 'EMI is only a label until you choose a credit-card account. Non-card entries are saved without an instalment schedule.'}
+                                  : canRepeatEmi
+                                    ? 'Saved as a normal payment. Turn on the repeat below to get a reminder and a ready-to-confirm entry each month.'
+                                    : form.mode === 'Cash'
+                                      ? 'Saved as an EMI-tagged payment. Pick a bank or UPI account to repeat it automatically each month.'
+                                      : 'Saved as an EMI-tagged payment.'}
                             </ThemedText>
                           </View>
                         </View>
+
+                        {canRepeatEmi ? (
+                          <View
+                            className="mt-4 flex-row items-center justify-between gap-3 rounded-2xl border p-3"
+                            style={{ borderColor: theme.border }}>
+                            <View className="flex-1">
+                              <ThemedText
+                                className="text-sm font-black"
+                                style={{ color: theme.text }}>
+                                Repeats monthly (auto-debit)
+                              </ThemedText>
+                              <ThemedText tone="muted" className="mt-0.5 text-xs">
+                                {emiRepeatActive
+                                  ? `Next debit ${emiNextDebit}. You'll be reminded 3 days before and asked to confirm it.`
+                                  : 'For loan EMIs the bank takes automatically.'}
+                              </ThemedText>
+                            </View>
+                            <HapticSwitch
+                              value={emiRepeatActive}
+                              onValueChange={setEmiRepeats}
+                              trackColor={{ false: theme.border, true: accent }}
+                            />
+                          </View>
+                        ) : null}
 
                         {isEMICreditCard ? (
                           <View className="mt-4 gap-4">
@@ -2940,6 +3012,7 @@ export function TransactionFormModal({
                   !isEdit &&
                   (showFullForm || draftReview) &&
                   personalPayment &&
+                  !emiRepeatActive &&
                   (form.subscriptionEnabled || form.tag === 'Subscription') && (
                     <View className="px-5 mb-6">
                       <View
