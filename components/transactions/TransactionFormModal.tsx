@@ -384,21 +384,42 @@ function SettleIn({
 }
 
 /**
- * What the draft is about to look like. Three rows, shaped like the amount card
- * and the two field cards under it, so the parse result lands into the space it
- * was already occupying instead of shoving the sheet around.
+ * What the draft is about to look like. The amount card and the field cards
+ * under it, drawn as the bordered cards they will become, so the parse result
+ * lands into the space it was already occupying instead of shoving the sheet
+ * around — and so a wait of a few seconds reads as work in progress, not as a
+ * sheet that failed to fill.
  */
+const DRAFT_SKELETON_LABELS = ['Amount', 'Category', 'Account', 'Date'];
+const DRAFT_SKELETON_WIDTHS = ['72%', '54%', '64%'] as const;
+
 function DraftSkeleton() {
+  const { colors } = useThemeTokens();
   return (
     <View testID="draft-skeleton" accessibilityLabel="Reading your entry" className="mb-4 gap-3">
-      <View className="gap-3 rounded-[20px] p-4">
-        <Shimmer width={90} height={10} index={0} />
-        <Shimmer width={160} height={34} radius={10} index={1} />
+      <View className="flex-row items-center justify-center gap-2 py-1">
+        <ActivityIndicator size="small" color={colors.accent} />
+        <ThemedText tone="muted" className="text-sm font-bold">
+          Finnri AI is reading your entry…
+        </ThemedText>
       </View>
-      {[0, 1].map((row) => (
-        <View key={row} className="gap-3 rounded-[20px] p-4">
-          <Shimmer width={70} height={10} index={row * 2 + 2} />
-          <Shimmer width={row === 0 ? '72%' : '54%'} height={18} radius={8} index={row * 2 + 3} />
+      <View
+        className="gap-3 rounded-[20px] border p-4"
+        style={{ backgroundColor: colors.card, borderColor: colors.border }}>
+        <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+          {DRAFT_SKELETON_LABELS[0]}
+        </ThemedText>
+        <Shimmer width={160} height={34} radius={10} index={0} />
+      </View>
+      {DRAFT_SKELETON_LABELS.slice(1).map((label, row) => (
+        <View
+          key={label}
+          className="gap-3 rounded-[20px] border p-4"
+          style={{ backgroundColor: colors.card, borderColor: colors.border }}>
+          <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+            {label}
+          </ThemedText>
+          <Shimmer width={DRAFT_SKELETON_WIDTHS[row]} height={18} radius={8} index={row + 1} />
         </View>
       ))}
     </View>
@@ -1333,7 +1354,9 @@ export function TransactionFormModal({
   );
 
   const handleConfirmEntry = async () => {
-    if (isSaving) return;
+    // Mid-parse the form holds none of the AI's answers yet, so a save here
+    // submits an empty draft and fails.
+    if (isSaving || (draftReview && isParsing)) return;
     const normalizedForm = {
       ...form,
       // Amount-first means the amount is the only thing the user owes us. The
@@ -1925,11 +1948,22 @@ export function TransactionFormModal({
       <Pressable
         testID="entry-save-button"
         onPress={handleConfirmEntry}
-        disabled={isSaving || (fastEntry && !amountEntered)}
-        style={{ backgroundColor: accent, opacity: fastEntry && !amountEntered ? 0.4 : 1 }}
+        disabled={isSaving || (draftReview && isParsing) || (fastEntry && !amountEntered)}
+        accessibilityState={{ disabled: isSaving || (draftReview && isParsing) }}
+        style={{
+          backgroundColor: accent,
+          opacity: (fastEntry && !amountEntered) || (draftReview && isParsing) ? 0.4 : 1,
+        }}
         className="w-full py-4 rounded-[20px] flex-row items-center justify-center gap-2 shadow-lg">
         {isSaving ? (
           <ActivityIndicator color="white" />
+        ) : draftReview && isParsing ? (
+          <>
+            <ActivityIndicator color="white" />
+            <ThemedText tone="onAccent" className="text-base font-black">
+              Reading your entry…
+            </ThemedText>
+          </>
         ) : (
           <>
             <ThemedText tone="onAccent" className="text-base font-black">
@@ -2152,7 +2186,9 @@ export function TransactionFormModal({
                           </View>
                         ))}
                       <ThemedText tone="warning" className="mt-3 text-xs">
-                        AI suggestions are never saved until you confirm.
+                        {isParsing
+                          ? 'Picking out the amount, category and account. You can review everything before it is saved.'
+                          : 'AI suggestions are never saved until you confirm.'}
                       </ThemedText>
                     </View>
                   )}
