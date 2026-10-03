@@ -48,6 +48,8 @@ const form = (overrides: Partial<EntryForm> = {}): EntryForm => ({
   refundReminderEnabled: true,
   emiTenureMonths: '',
   emiRatePct: '',
+  emiTotalInstalments: '',
+  emiPaidInstalments: '',
   subscriptionEnabled: false,
   subscriptionName: '',
   subscriptionMerchant: '',

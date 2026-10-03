@@ -1210,7 +1210,16 @@ function SubscriptionCard({
   onDelete,
 }: SubscriptionCardProps) {
   const urgent = subscription.due_state === 'overdue' || subscription.due_state === 'due_soon';
-  const stateLabel = subscription.due_state.replace('_', ' ');
+  const totalInstalments = subscription.total_instalments ?? 0;
+  const instalmentsPaid = subscription.instalments_paid ?? 0;
+  const loanFinished = totalInstalments > 0 && instalmentsPaid >= totalInstalments;
+  const stateLabel = loanFinished ? 'completed' : subscription.due_state.replace('_', ' ');
+  const instalmentLine =
+    totalInstalments > 0
+      ? loanFinished
+        ? `All ${totalInstalments} payments done`
+        : `${instalmentsPaid} of ${totalInstalments} paid · ${totalInstalments - instalmentsPaid} left`
+      : null;
   const isActive = subscription.status === 'active';
   return (
     <Pressable
@@ -1243,10 +1252,17 @@ function SubscriptionCard({
             style={{ color: urgent ? '#F57F17' : muted }}>
             {stateLabel}
           </ThemedText>
-          <ThemedText className="mt-1 text-[11px]" style={{ color: muted }}>
-            Due {formatDueDateLabel(subscription.next_due_date)} ·{' '}
-            {reminderLabel(subscription.reminder_days)}
-          </ThemedText>
+          {instalmentLine ? (
+            <ThemedText className="mt-1 text-[11px] font-bold" style={{ color: colors.text }}>
+              {instalmentLine}
+            </ThemedText>
+          ) : null}
+          {loanFinished ? null : (
+            <ThemedText className="mt-1 text-[11px]" style={{ color: muted }}>
+              Due {formatDueDateLabel(subscription.next_due_date)} ·{' '}
+              {reminderLabel(subscription.reminder_days)}
+            </ThemedText>
+          )}
           {subscription.cancel_before_due && (
             <View
               className="mt-2 self-start rounded-full px-2 py-1"

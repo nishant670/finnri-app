@@ -450,6 +450,8 @@ export default function TransactionDetailsScreen() {
     refundReminderEnabled: Boolean(displayData.refund_reminder_at),
     emiTenureMonths: '',
     emiRatePct: '',
+    emiTotalInstalments: '',
+    emiPaidInstalments: '',
     subscriptionEnabled: false,
     subscriptionName: '',
     subscriptionMerchant: '',

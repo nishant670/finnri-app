@@ -153,10 +153,27 @@ export async function saveNewTransaction({
       purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
       notes: form.subscriptionNotes.trim(),
       account_id: account?.id ?? null,
+      ...loanInstalments(form),
     });
     progress.subscriptionCreated = true;
   }
   return { entry, convertedToEMI };
+}
+
+/**
+ * A loan EMI has an end. Sent only for an EMI-tagged repeat, and "paid" counts
+ * the entry being saved now, so a loan with 12 payments entered at the 5th
+ * says 5 of 12 and has 7 left to generate.
+ */
+function loanInstalments(form: EntryForm) {
+  if (form.tag !== 'EMI') return {};
+  const total = Number(form.emiTotalInstalments);
+  if (!Number.isInteger(total) || total <= 0) return {};
+  const paid = Number(form.emiPaidInstalments);
+  return {
+    total_instalments: total,
+    instalments_paid: Number.isInteger(paid) && paid >= 1 && paid <= total ? paid : 1,
+  };
 }
 
 export function entryToComposerForm(entry: ApiEntry): Partial<EntryForm> {

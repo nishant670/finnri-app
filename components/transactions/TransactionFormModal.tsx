@@ -121,6 +121,9 @@ export type EntryForm = {
   refundReminderEnabled: boolean;
   emiTenureMonths: string;
   emiRatePct: string;
+  /** Loan EMIs only: how many payments the loan has, and how many are done. */
+  emiTotalInstalments: string;
+  emiPaidInstalments: string;
   subscriptionEnabled: boolean;
   subscriptionName: string;
   subscriptionMerchant: string;
@@ -223,6 +226,8 @@ const fieldLabels: Record<keyof EntryForm, string> = {
   refundReminderEnabled: 'Refund reminder',
   emiTenureMonths: 'EMI tenure',
   emiRatePct: 'EMI interest rate',
+  emiTotalInstalments: 'Total EMIs',
+  emiPaidInstalments: 'EMIs paid so far',
   subscriptionEnabled: 'Subscription',
   subscriptionName: 'Subscription name',
   subscriptionMerchant: 'Subscription merchant',
@@ -527,6 +532,8 @@ export function TransactionFormModal({
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
@@ -633,7 +640,10 @@ export function TransactionFormModal({
     form.tag === 'EMI' &&
     form.type === 'Expense' &&
     !isEMICreditCard &&
-    form.mode !== 'Cash';
+    form.mode !== 'Cash' &&
+    // Auto-debit is tied to the account the money leaves; the API rejects it
+    // without one.
+    form.accountId != null;
   const emiRepeatActive = emiRepeats && canRepeatEmi;
   const emiNextDebit = useMemo(() => {
     const next = parseDateLabel(nextMonthClamped(form.date));
@@ -1115,6 +1125,8 @@ export function TransactionFormModal({
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
@@ -1405,6 +1417,18 @@ export function TransactionFormModal({
       }
       if (totalSplit > amountValue) {
         rejectSave('Split shares cannot exceed the transaction amount.');
+        return;
+      }
+    }
+    if (emiRepeatActive && form.emiTotalInstalments) {
+      const total = Number(form.emiTotalInstalments);
+      const paid = Number(form.emiPaidInstalments || 1);
+      if (!Number.isInteger(total) || total < 1 || total > 600) {
+        rejectSave('Total EMIs must be between 1 and 600.');
+        return;
+      }
+      if (!Number.isInteger(paid) || paid < 1 || paid > total) {
+        rejectSave('Paid so far (counting this one) cannot be more than the total EMIs.');
         return;
       }
     }
@@ -2751,6 +2775,57 @@ export function TransactionFormModal({
                               onValueChange={setEmiRepeats}
                               trackColor={{ false: theme.border, true: accent }}
                             />
+                          </View>
+                        ) : null}
+
+                        {emiRepeatActive ? (
+                          <View className="mt-3 flex-row gap-3">
+                            <View
+                              className="flex-1 rounded-2xl border p-3"
+                              style={{ borderColor: theme.border }}>
+                              <ThemedText
+                                tone="muted"
+                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
+                                Total EMIs
+                              </ThemedText>
+                              <TextInput
+                                value={form.emiTotalInstalments}
+                                onChangeText={(text) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    emiTotalInstalments: text.replace(/\D/g, '').slice(0, 3),
+                                  }))
+                                }
+                                placeholder="Leave empty if unknown"
+                                placeholderTextColor={detailInputPlaceholderColor}
+                                keyboardType="number-pad"
+                                className="p-0 text-sm font-bold"
+                                style={{ color: theme.text }}
+                              />
+                            </View>
+                            <View
+                              className="flex-1 rounded-2xl border p-3"
+                              style={{ borderColor: theme.border }}>
+                              <ThemedText
+                                tone="muted"
+                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
+                                Paid so far
+                              </ThemedText>
+                              <TextInput
+                                value={form.emiPaidInstalments}
+                                onChangeText={(text) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    emiPaidInstalments: text.replace(/\D/g, '').slice(0, 3),
+                                  }))
+                                }
+                                placeholder="1 (this one)"
+                                placeholderTextColor={detailInputPlaceholderColor}
+                                keyboardType="number-pad"
+                                className="p-0 text-sm font-bold"
+                                style={{ color: theme.text }}
+                              />
+                            </View>
                           </View>
                         ) : null}
 

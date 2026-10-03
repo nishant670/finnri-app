@@ -284,6 +284,8 @@ export default function HomeScreen() {
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
