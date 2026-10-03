@@ -48,6 +48,8 @@ const form = (overrides: Partial<EntryForm> = {}): EntryForm => ({
   refundReminderEnabled: true,
   emiTenureMonths: '',
   emiRatePct: '',
+  emiTotalInstalments: '',
+  emiPaidInstalments: '',
   subscriptionEnabled: false,
   subscriptionName: '',
   subscriptionMerchant: '',
@@ -241,4 +243,70 @@ it('refuses changed inputs after a partial save instead of silently reusing a di
     saveNewTransaction({ ...args, form: { ...args.form, amount: '2000' } })
   ).rejects.toThrow('already been saved');
   expect(createEntry).toHaveBeenCalledTimes(1);
+});
+
+describe('a refund that already came back', () => {
+  const card = { id: 5, type: 'credit_card', name: 'Amazon ICICI', color: '#000' } as never;
+  const purchase = () =>
+    form({
+      title: 'Groceries',
+      merchant: 'Amazon',
+      amount: '1510',
+      mode: 'Credit Card',
+      accountId: 5,
+      splitEnabled: false,
+      splitParticipants: [],
+      attachment: null,
+    });
+
+  it('is saved as its own income on the same account, and the purchase keeps its amount', async () => {
+    await saveNewTransaction({
+      token: 'token',
+      form: purchase(),
+      account: card,
+      idempotencyKey: 'attempt-9',
+      refund: { amount: 656, date: '2026-10-02' },
+    });
+    expect(createEntry).toHaveBeenCalledTimes(2);
+    const [, mainPayload, mainKey] = jest.mocked(createEntry).mock.calls[0];
+    expect(mainPayload).toMatchObject({ type: 'expense', amount: '1510', account_id: 5 });
+    expect(mainKey).toBe('attempt-9');
+    const [, refundPayload, refundKey] = jest.mocked(createEntry).mock.calls[1];
+    expect(refundPayload).toMatchObject({
+      type: 'income',
+      category: 'Refund',
+      amount: '656',
+      account_id: 5,
+      mode: 'Credit Card',
+      date: '2026-10-02',
+      title: 'Refund: Amazon',
+    });
+    expect(refundKey).toBe('attempt-9:refund');
+  });
+
+  it('is not created twice when a retry follows a later failure', async () => {
+    const progress: TransactionSaveProgress = {};
+    const args = {
+      token: 'token',
+      form: purchase(),
+      account: card,
+      idempotencyKey: 'attempt-10',
+      refund: { amount: 656 },
+      progress,
+    };
+    await saveNewTransaction(args);
+    await saveNewTransaction(args);
+    expect(createEntry).toHaveBeenCalledTimes(2);
+  });
+
+  it('is skipped when the user turns it off', async () => {
+    await saveNewTransaction({
+      token: 'token',
+      form: purchase(),
+      account: card,
+      idempotencyKey: 'attempt-11',
+      refund: null,
+    });
+    expect(createEntry).toHaveBeenCalledTimes(1);
+  });
 });

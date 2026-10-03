@@ -450,6 +450,8 @@ export default function TransactionDetailsScreen() {
     refundReminderEnabled: Boolean(displayData.refund_reminder_at),
     emiTenureMonths: '',
     emiRatePct: '',
+    emiTotalInstalments: '',
+    emiPaidInstalments: '',
     subscriptionEnabled: false,
     subscriptionName: '',
     subscriptionMerchant: '',
@@ -543,12 +545,14 @@ export default function TransactionDetailsScreen() {
             </ThemedText>
           </Animated.View>
 
-          <ThemedText className="text-lg font-black mb-3" style={{ color: '#1E293B' }}>
+          <ThemedText className="text-lg font-black mb-3" style={{ color: theme.text }}>
             {displayData.title || 'Untitled Transaction'}
           </ThemedText>
 
           {hasMerchant && (
-            <View className="flex-row items-center bg-white dark:bg-gray-800 rounded-full px-4 py-1.5 shadow-sm border border-gray-100">
+            <View
+              className="flex-row items-center rounded-full px-4 py-1.5 shadow-sm border"
+              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
               <ThemedText tone="mutedStrong" className="text-sm font-bold mr-2">
                 {displayData.merchant}
               </ThemedText>

@@ -36,6 +36,9 @@ export type Subscription = {
   transaction_tag: string;
   purpose_type: string;
   notes: string;
+  /** 0 means open-ended. */
+  total_instalments: number;
+  instalments_paid: number;
   days_until_due: number;
   due_state: 'scheduled' | 'due_soon' | 'overdue' | 'paused' | 'cancelled' | 'unknown';
   created_at: string;
@@ -60,6 +63,8 @@ export type SubscriptionPayload = {
   purpose_type?: string;
   notes?: string;
   account_id?: number | null;
+  total_instalments?: number;
+  instalments_paid?: number;
 };
 
 export type SubscriptionOccurrence = {

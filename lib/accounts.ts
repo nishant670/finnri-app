@@ -233,6 +233,94 @@ export const getAutoAccountPayloadForPaymentMode = (
 const comparableAccountText = (value?: string | null) =>
   (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
+const HINT_FILLER_WORDS = new Set([
+  'my', 'the', 'a', 'an', 'credit', 'debit', 'card', 'cards', 'account', 'bank', 'wallet', 'upi',
+  'ending', 'last', 'digits', 'number', 'via', 'from', 'used', 'with', 'using', 'paid', 'cc',
+]);
+
+const hintWords = (value?: string | null) =>
+  (value ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length > 0 && !HINT_FILLER_WORDS.has(word) && !/^\d{4}$/.test(word));
+
+const accountWords = (account: Account) =>
+  new Set(
+    [
+      account.name,
+      account.provider,
+      account.provider_id,
+      account.provider_details?.display_name,
+      ...(account.provider_details?.aliases ?? []),
+    ].flatMap((value) =>
+      (value ?? '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/)
+        .filter(Boolean)
+    )
+  );
+
+export type AccountHintMatch = { account: Account; score: number };
+
+/**
+ * Saved accounts a parser hint could be talking about, best first.
+ *
+ * "ICICI Amazon credit card" and a card saved as "Amazon ICICI" are the same
+ * card, and a substring comparison cannot see that: the words are the same and
+ * the order is not. This compares word by word, in any order, ignoring the
+ * words that only say what kind of thing it is (card, bank, account). A card
+ * whose last four digits are in the hint is a certain match.
+ *
+ * `score` is the share of the hint's own words the account accounts for, so 1
+ * means everything the user said is on the account and 0.5 means half of it.
+ * Nothing under 0.5 is returned — "HDFC" alone should find both HDFC cards, but
+ * "Amazon" should not drag in an unrelated one that shares a single filler.
+ */
+export const matchAccountsToHint = (
+  input: AccountSuggestionHint,
+  accounts: Account[]
+): AccountHintMatch[] => {
+  const type = getAccountTypeForPaymentMode(input.mode);
+  const hint = input.accountHint?.trim() ?? '';
+  if (!type || !hint) return [];
+  const identifier =
+    hint.match(/(?:ending|last|xx|\*{2,})\s*[-:]?\s*(\d{4})\b/i)?.[1] ??
+    hint.match(/\b(\d{4})\b/)?.[1] ??
+    '';
+  const words = hintWords(hint);
+  if (words.length === 0 && !identifier) return [];
+
+  return accounts
+    .filter((account) => normalizeAccountType(account.type) === type)
+    .map((account) => {
+      const structuredIdentifier =
+        account.last4 || account.upi_handle || account.wallet_nickname || account.identifier;
+      if (identifier && comparableAccountText(structuredIdentifier).endsWith(identifier)) {
+        return { account, score: 1 };
+      }
+      if (words.length === 0) return { account, score: 0 };
+      const known = accountWords(account);
+      const found = words.filter((word) => known.has(word)).length;
+      return { account, score: found / words.length };
+    })
+    .filter((match) => match.score >= 0.5)
+    .sort(
+      (a, b) =>
+        b.score - a.score ||
+        Number(Boolean(b.account.is_default)) - Number(Boolean(a.account.is_default))
+    );
+};
+
+/**
+ * The account to pre-select for a hint, or null when the hint does not point at
+ * one. A tie at the top is still a guess, so it is returned for the sheet to
+ * ask about rather than hidden.
+ */
+export const bestAccountForHint = (
+  input: AccountSuggestionHint,
+  accounts: Account[]
+): Account | null => matchAccountsToHint(input, accounts)[0]?.account ?? null;
+
 export type AccountSuggestionHint = {
   mode?: string | null;
   accountHint?: string | null;
@@ -269,22 +357,7 @@ export const suggestAccountFromTransaction = (
     '';
   if (!provider && !identifier) return null;
 
-  const providerKey = comparableAccountText(provider);
-  const alreadyExists = accounts.some((account) => {
-    if (normalizeAccountType(account.type) !== type) return false;
-    const structuredIdentifier =
-      account.last4 || account.upi_handle || account.wallet_nickname || account.identifier;
-    if (identifier && comparableAccountText(structuredIdentifier).endsWith(identifier)) return true;
-    if (!providerKey) return false;
-    const providerNames = [
-      account.provider,
-      account.name,
-      account.provider_id,
-      account.provider_details?.display_name,
-      ...(account.provider_details?.aliases ?? []),
-    ];
-    return providerNames.some((value) => comparableAccountText(value).includes(providerKey));
-  });
+  const alreadyExists = matchAccountsToHint(input, accounts).length > 0;
   if (alreadyExists) return null;
 
   const defaults = Object.values(paymentModeAccountDefaults).find((value) => value.type === type);

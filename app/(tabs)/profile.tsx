@@ -12,6 +12,7 @@ import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { Fonts, getMoodIconName } from '@/constants/theme';
 import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { userDisplayName } from '@/lib/display-name';
@@ -103,6 +104,11 @@ export default function ProfileScreen() {
    * guest.
    */
   const credits = billingStatus?.credits;
+  // An expired trial with no paid plan does not refill tomorrow — the balance
+  // stays at zero until a pass is bought, so "they reset tomorrow" is false.
+  const trialHasExpired = useHasPassed(credits?.trial_expires_at);
+  const hasPaidPlan =
+    billingStatus?.subscription_status === 'active' || billingStatus?.subscription_status === 'cancelled';
   const creditLine = isBillingLoading
     ? 'Checking your balance'
     : !credits || credits.daily_limit <= 0
@@ -111,7 +117,9 @@ export default function ProfileScreen() {
         ? `${credits.daily_credits_remaining} AI credits left today`
         : isGuest
           ? 'No AI credits left today — sign in for more'
-          : 'No AI credits left today — they reset tomorrow';
+          : trialHasExpired && !hasPaidPlan
+            ? 'Free trial ended — choose a pass to use AI'
+            : 'No AI credits left today — they reset tomorrow';
 
   return (
     <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor }}>

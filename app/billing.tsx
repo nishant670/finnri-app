@@ -398,9 +398,12 @@ export default function BillingScreen() {
               <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
                 {formatCount(status?.credits.daily_credits_used)} used today
               </ThemedText>
-              <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
-                {resetAt ? `Resets ${resetAt}` : 'Daily reset'}
-              </ThemedText>
+              {/* Nothing refills once the trial is over and no pass is held. */}
+              {trialHasExpired && !hasPaidPlan ? null : (
+                <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
+                  {resetAt ? `Resets ${resetAt}` : 'Daily reset'}
+                </ThemedText>
+              )}
             </View>
           </View>
         </View>
@@ -564,6 +567,7 @@ function PlanCard({
 }) {
   const theme = useThemeTokens();
   const colors = theme.colors;
+  const [pressed, setPressed] = useState(false);
   const features = topFeatures(plan);
   const includedCredits = formatCount(plan.included_credits);
   const dailyLimit =
@@ -648,7 +652,12 @@ function PlanCard({
           accessibilityState={{ disabled, busy }}
           disabled={disabled}
           onPress={onPress}
-          style={({ pressed }) => ({
+          onPressIn={() => setPressed(true)}
+          onPressOut={() => setPressed(false)}
+          style={{
+            // A plain style object, not a `({ pressed }) =>` function. The
+            // pill's fill and centring were not rendering on device, which
+            // left the white label bare on a white card in the light theme.
             minHeight: 46,
             borderRadius: 18,
             flexDirection: 'row',
@@ -663,7 +672,7 @@ function PlanCard({
             // tap read as nothing happening and the browser opened seconds
             // later out of nowhere.
             backgroundColor: busy || !disabled ? accent : colors.secondary,
-          })}>
+          }}>
           {busy ? (
             <>
               <ActivityIndicator color="#FFFFFF" />

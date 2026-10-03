@@ -6,7 +6,7 @@ import { createEntry, type EntryMutationPayload } from './entries';
 import { createCardEMIPlan } from './emi-plans';
 import { refundReminderAtNineAM } from './refundables';
 import { createSubscription } from './subscriptions';
-import { formatApiDate, parseDateLabel, type ApiEntry } from './transactions';
+import { formatApiDate, formatDateLabel, parseDateLabel, type ApiEntry } from './transactions';
 import { resolveAttachmentForSave } from './uploads';
 
 /** One mapping for Home, transaction edits and group expenses. */
@@ -72,7 +72,11 @@ export type TransactionSaveProgress = {
   fingerprint?: string;
   emiCreated?: boolean;
   subscriptionCreated?: boolean;
+  refundCreated?: boolean;
 };
+
+/** A refund already received for the purchase being saved. */
+export type ReceivedRefund = { amount: number; date?: string | null };
 
 export async function saveNewTransaction({
   token,
@@ -82,6 +86,7 @@ export async function saveNewTransaction({
   source = 'manual',
   sourceText = '',
   progress = {},
+  refund = null,
 }: {
   token: string;
   form: EntryForm;
@@ -90,9 +95,10 @@ export async function saveNewTransaction({
   source?: 'manual' | 'text' | 'voice';
   sourceText?: string;
   progress?: TransactionSaveProgress;
+  refund?: ReceivedRefund | null;
 }) {
   const parsedDate = parseDateLabel(form.date);
-  const fingerprint = JSON.stringify({ form, accountId: account?.id ?? null, source, sourceText });
+  const fingerprint = JSON.stringify({ form, accountId: account?.id ?? null, source, sourceText, refund });
   if (progress.entry && progress.fingerprint !== fingerprint) {
     throw new Error(
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'
@@ -153,10 +159,59 @@ export async function saveNewTransaction({
       purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
       notes: form.subscriptionNotes.trim(),
       account_id: account?.id ?? null,
+      ...loanInstalments(form),
     });
     progress.subscriptionCreated = true;
   }
+  if (refund && refund.amount > 0 && !progress.refundCreated) {
+    // The money came back to the same place it left — the same account, and for
+    // a card that is a credit against what is owed. The purchase stays at its
+    // full amount; the refund is its own income, so history shows both.
+    const refundDate = refund.date ? parseDateLabel(refund.date) : null;
+    const what = form.merchant.trim() || form.title.trim() || 'purchase';
+    await createEntry(
+      token,
+      await buildTransactionPayload(
+        token,
+        {
+          ...form,
+          title: `Refund: ${what}`.slice(0, 120),
+          amount: String(refund.amount),
+          type: 'Income',
+          category: 'Refund',
+          date: formatDateLabel(refundDate ?? new Date()),
+          time: '',
+          notes: `Refund for ${form.title.trim() || what} (₹${form.amount.trim()}).`,
+          tag: 'General',
+          attachment: null,
+          splitEnabled: false,
+          splitParticipants: [],
+          refundableAmount: '',
+          refundExpectedOn: '',
+        },
+        { accountId: account?.id ?? null, source }
+      ),
+      `${idempotencyKey}:refund`
+    );
+    progress.refundCreated = true;
+  }
   return { entry, convertedToEMI };
+}
+
+/**
+ * A loan EMI has an end. Sent only for an EMI-tagged repeat, and "paid" counts
+ * the entry being saved now, so a loan with 12 payments entered at the 5th
+ * says 5 of 12 and has 7 left to generate.
+ */
+function loanInstalments(form: EntryForm) {
+  if (form.tag !== 'EMI') return {};
+  const total = Number(form.emiTotalInstalments);
+  if (!Number.isInteger(total) || total <= 0) return {};
+  const paid = Number(form.emiPaidInstalments);
+  return {
+    total_instalments: total,
+    instalments_paid: Number.isInteger(paid) && paid >= 1 && paid <= total ? paid : 1,
+  };
 }
 
 export function entryToComposerForm(entry: ApiEntry): Partial<EntryForm> {

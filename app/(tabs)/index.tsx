@@ -73,13 +73,18 @@ import {
   getAutoAccountPayloadForPaymentMode,
   getPreferredAccountForPaymentMode,
   normalizeAccountType,
+  matchAccountsToHint,
   suggestAccountFromTransaction,
   saveAccount,
   type Account,
   type AccountSuggestionHint,
   type AccountType,
 } from '@/lib/accounts';
-import { saveNewTransaction, type TransactionSaveProgress } from '@/lib/transaction-composer';
+import {
+  saveNewTransaction,
+  type ReceivedRefund,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue, toAmountString } from '@/lib/money';
@@ -219,6 +224,14 @@ type CreditActionState = {
   action: 'upgrade' | 'login';
 };
 
+const DRAFT_NOTE_MAX = 200;
+
+/** The user's own words, trimmed, for when the parser returned no note. */
+const fallbackDraftNote = (sourceText: string) => {
+  const text = sourceText.replace(/\s+/g, ' ').trim();
+  return text.length > DRAFT_NOTE_MAX ? `${text.slice(0, DRAFT_NOTE_MAX - 1).trimEnd()}…` : text;
+};
+
 export default function HomeScreen() {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -284,6 +297,8 @@ export default function HomeScreen() {
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
@@ -301,6 +316,10 @@ export default function HomeScreen() {
   );
 
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // A refund the user said already came back, and whether to record it with the
+  // purchase. It travels beside the form because it becomes a second entry.
+  const [refundReceived, setRefundReceived] = useState<ReceivedRefund | null>(null);
+  const [recordRefund, setRecordRefund] = useState(true);
   // The parser's hints are kept instead of the suggestion they produce, so the
   // prompt is re-derived against the current accounts. Once the hinted account
   // exists — including one just created from the prompt itself — it stops asking.
@@ -319,6 +338,21 @@ export default function HomeScreen() {
       accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, accounts) : null,
     [accountSuggestionHint, accounts]
   );
+  // Saved cards the parser's hint could mean, best first. "ICICI Amazon" finds
+  // the card saved as "Amazon ICICI"; "HDFC" finds every HDFC card.
+  const accountMatches = useMemo(
+    () =>
+      accountSuggestionHint
+        ? matchAccountsToHint(accountSuggestionHint, accounts).map((match) => match.account)
+        : [],
+    [accountSuggestionHint, accounts]
+  );
+  // What "none of these, it's a new one" sets up: the suggestion as if no
+  // account existed.
+  const newAccountSuggestion = useMemo(
+    () => (accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, []) : null),
+    [accountSuggestionHint]
+  );
   useEffect(() => {
     const pending = pendingSuggestionSetup.current;
     if (!pending) return;
@@ -330,6 +364,7 @@ export default function HomeScreen() {
     if (matching > pending.count) {
       pendingSuggestionSetup.current = null;
       setAccountSuggestionHint(null);
+        setRefundReceived(null);
     }
   }, [accounts]);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
@@ -960,6 +995,7 @@ export default function HomeScreen() {
     setAiInputSource('text');
     pendingSuggestionSetup.current = null;
     setAccountSuggestionHint(null);
+        setRefundReceived(null);
     createIdempotencyKey.current = null;
     createSaveProgress.current = {};
     setForm(createBlankForm());
@@ -1001,6 +1037,7 @@ export default function HomeScreen() {
         setAiInputSource('text');
         pendingSuggestionSetup.current = null;
         setAccountSuggestionHint(null);
+        setRefundReceived(null);
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
         setForm({
@@ -1085,6 +1122,7 @@ export default function HomeScreen() {
           source: modalMode === 'audio' ? aiInputSource : 'manual',
           sourceText: modalMode === 'audio' ? aiSourceText : '',
           progress: createSaveProgress.current,
+          refund: modalMode === 'audio' && recordRefund ? refundReceived : null,
         });
         if (convertedToEMI) {
           setTransactions((current) =>
@@ -1098,7 +1136,13 @@ export default function HomeScreen() {
             createdTransaction,
             ...current.filter((transaction) => transaction.id !== createdTransaction.id),
           ]);
-          setSaveConfirmation(formData.subscriptionEnabled ? 'Saved with subscription' : 'Saved');
+          setSaveConfirmation(
+            formData.subscriptionEnabled
+              ? 'Saved with subscription'
+              : modalMode === 'audio' && recordRefund && refundReceived
+                ? 'Saved with refund'
+                : 'Saved'
+          );
           setNewTransactionId(createdTransaction.id);
         }
 
@@ -1108,6 +1152,7 @@ export default function HomeScreen() {
         setAiSourceText('');
         pendingSuggestionSetup.current = null;
         setAccountSuggestionHint(null);
+        setRefundReceived(null);
         setIsEditOpen(false);
         notifyTransactionsChanged();
         if (formData.type === 'Expense' && !convertedToEMI) {
@@ -1133,6 +1178,8 @@ export default function HomeScreen() {
       ensureAccountForEntry,
       fetchSplitOptions,
       modalMode,
+      recordRefund,
+      refundReceived,
       router,
       showNewBudgetAlert,
       token,
@@ -1208,6 +1255,7 @@ export default function HomeScreen() {
           setAiReview(null);
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
+        setRefundReceived(null);
           setPendingQuestion(null);
           setAnswerSourceText(result.source_text ?? trimmed);
           setAnswer(result.answer);
@@ -1227,12 +1275,21 @@ export default function HomeScreen() {
         setAiSourceText(data.source_text ?? trimmed);
         setAiInputSource(audioUri ? 'voice' : 'text');
         pendingSuggestionSetup.current = null;
+        setRefundReceived(
+          data.refund_received && data.refund_received.amount > 0 ? data.refund_received : null
+        );
+        setRecordRefund(true);
         setAccountSuggestionHint({
           mode: data.mode,
           accountHint: data.account_hint,
           cardNetwork: data.card_network,
         });
         const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
+        const hintedAccount =
+          matchAccountsToHint(
+            { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
+            accounts
+          )[0]?.account ?? null;
         setAiReview({
           confidence: data.confidence,
           needsConfirmation: data.needs_confirmation,
@@ -1281,7 +1338,14 @@ export default function HomeScreen() {
             mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
             category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
             merchant: data.merchant ?? '',
-            notes: data.note ?? '',
+            // The account the user named, when they named one we know. Without
+            // this the form fell back to the default card for the mode.
+            ...(hintedAccount
+              ? { accountId: hintedAccount.id, account: hintedAccount.name }
+              : {}),
+            // Never leave the note empty on an AI draft: the parser's own one-liner,
+            // or failing that what the user actually said.
+            notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? trimmed),
             date: formattedDate,
             tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
             splitEnabled: splitDraft.splitEnabled,
@@ -1958,6 +2022,7 @@ export default function HomeScreen() {
           setIsEditOpen(false);
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
+        setRefundReceived(null);
           if (statementComposerReturnId.current) {
             statementComposerReturnId.current = null;
             router.back();
@@ -1974,6 +2039,11 @@ export default function HomeScreen() {
         recentEntries={transactions}
         authToken={token}
         accountSuggestion={accountSuggestion}
+        refundReceived={refundReceived}
+        recordRefund={recordRefund}
+        onRecordRefundChange={setRecordRefund}
+        accountMatches={accountMatches}
+        newAccountSuggestion={newAccountSuggestion}
         onSetupSuggestedAccount={(suggestion) => {
           pendingSuggestionSetup.current = {
             type: suggestion.type,
@@ -2011,6 +2081,7 @@ export default function HomeScreen() {
             ...current.filter((account) => account.id !== saved.id),
           ]);
           setAccountSuggestionHint(null);
+        setRefundReceived(null);
           return saved;
         }}
         onDraftChange={setForm}

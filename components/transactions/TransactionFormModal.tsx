@@ -42,6 +42,7 @@ import {
   getPreferredAccountForPaymentMode,
   normalizeAccountType,
 } from '@/lib/accounts';
+import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { calculateEMI, type EMICalculation } from '@/lib/emi';
 import { formatTime, uses24HourClock } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
@@ -120,6 +121,9 @@ export type EntryForm = {
   refundReminderEnabled: boolean;
   emiTenureMonths: string;
   emiRatePct: string;
+  /** Loan EMIs only: how many payments the loan has, and how many are done. */
+  emiTotalInstalments: string;
+  emiPaidInstalments: string;
   subscriptionEnabled: boolean;
   subscriptionName: string;
   subscriptionMerchant: string;
@@ -170,6 +174,14 @@ interface TransactionFormModalProps {
   splitGroups?: SplitGroup[];
   onManageAccounts?: (suggestion?: AccountSuggestion) => void;
   accountSuggestion?: AccountSuggestion | null;
+  /** A refund the user said already came back, to record as its own income. */
+  refundReceived?: { amount: number; date?: string | null } | null;
+  recordRefund?: boolean;
+  onRecordRefundChange?: (value: boolean) => void;
+  /** Saved accounts the AI's account hint could mean, best first. */
+  accountMatches?: Account[];
+  /** What "it's a new one" sets up, ignoring the saved accounts. */
+  newAccountSuggestion?: AccountSuggestion | null;
   onSetupSuggestedAccount?: (suggestion: AccountSuggestion) => void;
   onAutoCreateSuggestedAccount?: (suggestion: AccountSuggestion) => Promise<Account>;
   onDraftChange?: (data: EntryForm) => void;
@@ -222,6 +234,8 @@ const fieldLabels: Record<keyof EntryForm, string> = {
   refundReminderEnabled: 'Refund reminder',
   emiTenureMonths: 'EMI tenure',
   emiRatePct: 'EMI interest rate',
+  emiTotalInstalments: 'Total EMIs',
+  emiPaidInstalments: 'EMIs paid so far',
   subscriptionEnabled: 'Subscription',
   subscriptionName: 'Subscription name',
   subscriptionMerchant: 'Subscription merchant',
@@ -378,21 +392,42 @@ function SettleIn({
 }
 
 /**
- * What the draft is about to look like. Three rows, shaped like the amount card
- * and the two field cards under it, so the parse result lands into the space it
- * was already occupying instead of shoving the sheet around.
+ * What the draft is about to look like. The amount card and the field cards
+ * under it, drawn as the bordered cards they will become, so the parse result
+ * lands into the space it was already occupying instead of shoving the sheet
+ * around — and so a wait of a few seconds reads as work in progress, not as a
+ * sheet that failed to fill.
  */
+const DRAFT_SKELETON_LABELS = ['Amount', 'Category', 'Account', 'Date'];
+const DRAFT_SKELETON_WIDTHS = ['72%', '54%', '64%'] as const;
+
 function DraftSkeleton() {
+  const { colors } = useThemeTokens();
   return (
     <View testID="draft-skeleton" accessibilityLabel="Reading your entry" className="mb-4 gap-3">
-      <View className="gap-3 rounded-[20px] p-4">
-        <Shimmer width={90} height={10} index={0} />
-        <Shimmer width={160} height={34} radius={10} index={1} />
+      <View className="flex-row items-center justify-center gap-2 py-1">
+        <ActivityIndicator size="small" color={colors.accent} />
+        <ThemedText tone="muted" className="text-sm font-bold">
+          Finnri AI is reading your entry…
+        </ThemedText>
       </View>
-      {[0, 1].map((row) => (
-        <View key={row} className="gap-3 rounded-[20px] p-4">
-          <Shimmer width={70} height={10} index={row * 2 + 2} />
-          <Shimmer width={row === 0 ? '72%' : '54%'} height={18} radius={8} index={row * 2 + 3} />
+      <View
+        className="gap-3 rounded-[20px] border p-4"
+        style={{ backgroundColor: colors.card, borderColor: colors.border }}>
+        <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+          {DRAFT_SKELETON_LABELS[0]}
+        </ThemedText>
+        <Shimmer width={160} height={34} radius={10} index={0} />
+      </View>
+      {DRAFT_SKELETON_LABELS.slice(1).map((label, row) => (
+        <View
+          key={label}
+          className="gap-3 rounded-[20px] border p-4"
+          style={{ backgroundColor: colors.card, borderColor: colors.border }}>
+          <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+            {label}
+          </ThemedText>
+          <Shimmer width={DRAFT_SKELETON_WIDTHS[row]} height={18} radius={8} index={row + 1} />
         </View>
       ))}
     </View>
@@ -417,6 +452,11 @@ export function TransactionFormModal({
   splitGroups = emptySplitGroups,
   onManageAccounts,
   accountSuggestion = null,
+  refundReceived = null,
+  recordRefund = true,
+  onRecordRefundChange,
+  accountMatches = [],
+  newAccountSuggestion = null,
   onSetupSuggestedAccount,
   onAutoCreateSuggestedAccount,
   onDraftChange,
@@ -526,6 +566,8 @@ export function TransactionFormModal({
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
@@ -621,6 +663,52 @@ export function TransactionFormModal({
     form.tag === 'EMI' &&
     normalizeAccountType(selectedAccount?.type) === 'credit_card';
   const emiFirstInstallment = useMemo(() => nextMonthClamped(form.date), [form.date]);
+
+  // Loan and other non-card EMIs are plain monthly debits, so instead of an
+  // instalment schedule they get the app's existing recurring-payment record,
+  // set to auto-debit. Cash can't auto-debit, so it is not offered there.
+  const [emiRepeats, setEmiRepeats] = useState(false);
+  const canRepeatEmi =
+    personalPayment &&
+    !isEdit &&
+    form.tag === 'EMI' &&
+    form.type === 'Expense' &&
+    !isEMICreditCard &&
+    form.mode !== 'Cash' &&
+    // Auto-debit is tied to the account the money leaves; the API rejects it
+    // without one.
+    form.accountId != null;
+  const emiRepeatActive = emiRepeats && canRepeatEmi;
+  const emiNextDebit = useMemo(() => {
+    const next = parseDateLabel(nextMonthClamped(form.date));
+    return next ? formatApiDate(next) : '';
+  }, [form.date]);
+
+  useEffect(() => {
+    if (emiRepeatActive) {
+      setForm((prev) => {
+        const next = {
+          ...prev,
+          subscriptionEnabled: true,
+          subscriptionName: prev.title.trim() || prev.merchant.trim() || 'EMI',
+          subscriptionMerchant: prev.merchant,
+          subscriptionCategory: prev.category,
+          subscriptionAmount: prev.amount,
+          subscriptionBillingInterval: 'monthly' as const,
+          subscriptionNextDueDate: emiNextDebit,
+          subscriptionAutopay: true,
+        };
+        const unchanged = (Object.keys(next) as (keyof typeof next)[]).every(
+          (key) => next[key] === prev[key]
+        );
+        return unchanged ? prev : next;
+      });
+    } else if (emiRepeats) {
+      // The EMI stopped being repeatable (tag, account or type changed).
+      setEmiRepeats(false);
+      setForm((prev) => ({ ...prev, subscriptionEnabled: false, subscriptionAutopay: false }));
+    }
+  }, [emiRepeatActive, emiRepeats, emiNextDebit, form.title, form.merchant, form.category, form.amount]);
 
   useEffect(() => {
     const amount = Number(form.amount.replace(/,/g, ''));
@@ -1071,6 +1159,8 @@ export function TransactionFormModal({
       refundReminderEnabled: true,
       emiTenureMonths: '',
       emiRatePct: '',
+      emiTotalInstalments: '',
+      emiPaidInstalments: '',
       subscriptionEnabled: false,
       subscriptionName: '',
       subscriptionMerchant: '',
@@ -1110,7 +1200,9 @@ export function TransactionFormModal({
       setFormError(null);
       seedForm();
 
-      panelAnim.value = motion.springTo(0);
+      // A timed slide, not a spring: the spring overshot and rang two or three
+      // times, and the form can't be typed into until it stops moving.
+      panelAnim.value = withTiming(0, motion.enter('sheet'));
       backdropAnim.value = withTiming(1, motion.enter('base'));
       return;
     }
@@ -1149,7 +1241,7 @@ export function TransactionFormModal({
 
   const animateTypeSwitch = useCallback(
     (isIncome: boolean) => {
-      typeSwitchAnim.value = motion.springTo(isIncome ? 1 : 0);
+      typeSwitchAnim.value = withTiming(isIncome ? 1 : 0, motion.enter('base'));
     },
     [motion, typeSwitchAnim]
   );
@@ -1275,7 +1367,9 @@ export function TransactionFormModal({
   );
 
   const handleConfirmEntry = async () => {
-    if (isSaving) return;
+    // Mid-parse the form holds none of the AI's answers yet, so a save here
+    // submits an empty draft and fails.
+    if (isSaving || (draftReview && isParsing)) return;
     const normalizedForm = {
       ...form,
       // Amount-first means the amount is the only thing the user owes us. The
@@ -1361,6 +1455,18 @@ export function TransactionFormModal({
       }
       if (totalSplit > amountValue) {
         rejectSave('Split shares cannot exceed the transaction amount.');
+        return;
+      }
+    }
+    if (emiRepeatActive && form.emiTotalInstalments) {
+      const total = Number(form.emiTotalInstalments);
+      const paid = Number(form.emiPaidInstalments || 1);
+      if (!Number.isInteger(total) || total < 1 || total > 600) {
+        rejectSave('Total EMIs must be between 1 and 600.');
+        return;
+      }
+      if (!Number.isInteger(paid) || paid < 1 || paid > total) {
+        rejectSave('Paid so far (counting this one) cannot be more than the total EMIs.');
         return;
       }
     }
@@ -1855,11 +1961,22 @@ export function TransactionFormModal({
       <Pressable
         testID="entry-save-button"
         onPress={handleConfirmEntry}
-        disabled={isSaving || (fastEntry && !amountEntered)}
-        style={{ backgroundColor: accent, opacity: fastEntry && !amountEntered ? 0.4 : 1 }}
+        disabled={isSaving || (draftReview && isParsing) || (fastEntry && !amountEntered)}
+        accessibilityState={{ disabled: isSaving || (draftReview && isParsing) }}
+        style={{
+          backgroundColor: accent,
+          opacity: (fastEntry && !amountEntered) || (draftReview && isParsing) ? 0.4 : 1,
+        }}
         className="w-full py-4 rounded-[20px] flex-row items-center justify-center gap-2 shadow-lg">
         {isSaving ? (
           <ActivityIndicator color="white" />
+        ) : draftReview && isParsing ? (
+          <>
+            <ActivityIndicator color="white" />
+            <ThemedText tone="onAccent" className="text-base font-black">
+              Reading your entry…
+            </ThemedText>
+          </>
         ) : (
           <>
             <ThemedText tone="onAccent" className="text-base font-black">
@@ -2082,7 +2199,9 @@ export function TransactionFormModal({
                           </View>
                         ))}
                       <ThemedText tone="warning" className="mt-3 text-xs">
-                        AI suggestions are never saved until you confirm.
+                        {isParsing
+                          ? 'Picking out the amount, category and account. You can review everything before it is saved.'
+                          : 'AI suggestions are never saved until you confirm.'}
                       </ThemedText>
                     </View>
                   )}
@@ -2140,6 +2259,80 @@ export function TransactionFormModal({
                               {renderDraftField(field)}
                             </SettleIn>
                           ))}
+                        </View>
+                      )}
+
+                      {draftReview && refundReceived && !isParsing && (
+                        <View
+                          testID="refund-received-card"
+                          className="mb-4 flex-row items-center justify-between gap-3 rounded-[20px] border p-4"
+                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                          <View className="flex-1">
+                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                              Also record the {formatMoney(refundReceived.amount)} refund?
+                            </ThemedText>
+                            <ThemedText tone="muted" className="mt-1 text-xs">
+                              {recordRefund
+                                ? 'Saved as a separate income on the same account, so the purchase keeps its full amount.'
+                                : 'Only the purchase will be saved.'}
+                            </ThemedText>
+                          </View>
+                          <HapticSwitch
+                            testID="refund-received-switch"
+                            value={recordRefund}
+                            onValueChange={onRecordRefundChange}
+                            trackColor={{ false: theme.border, true: accent }}
+                          />
+                        </View>
+                      )}
+
+                      {draftReview && accountMatches.length > 1 && !isParsing && (
+                        <View
+                          testID="account-match-choice"
+                          className="mb-4 rounded-[20px] border p-4"
+                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
+                          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                            Which one did you mean?
+                          </ThemedText>
+                          <ThemedText tone="muted" className="mt-1 text-xs">
+                            More than one saved account fits what you said.
+                          </ThemedText>
+                          <View className="mt-3 flex-row flex-wrap gap-2">
+                            {accountMatches.slice(0, 4).map((match) => {
+                              const selected = form.accountId === match.id;
+                              return (
+                                <Pressable
+                                  key={match.id}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  onPress={() =>
+                                    setForm((p) => ({ ...p, accountId: match.id, account: match.name }))
+                                  }
+                                  className="rounded-full border px-4 py-2"
+                                  style={{
+                                    backgroundColor: selected ? `${accent}1F` : theme.card,
+                                    borderColor: selected ? accent : theme.border,
+                                  }}>
+                                  <ThemedText
+                                    className="text-xs font-black"
+                                    style={{ color: selected ? accent : theme.text }}>
+                                    {match.name}
+                                  </ThemedText>
+                                </Pressable>
+                              );
+                            })}
+                            {newAccountSuggestion && onSetupSuggestedAccount ? (
+                              <Pressable
+                                accessibilityRole="button"
+                                onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
+                                className="rounded-full border px-4 py-2"
+                                style={{ borderColor: theme.border }}>
+                                <ThemedText tone="muted" className="text-xs font-black">
+                                  {'It\u2019s a new one'}
+                                </ThemedText>
+                              </Pressable>
+                            ) : null}
+                          </View>
                         </View>
                       )}
 
@@ -2677,10 +2870,89 @@ export function TransactionFormModal({
                                 ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
                                 : isEdit
                                   ? 'Existing entries keep EMI as a label. Create a new credit-card transaction to build an instalment schedule.'
-                                  : 'EMI is only a label until you choose a credit-card account. Non-card entries are saved without an instalment schedule.'}
+                                  : canRepeatEmi
+                                    ? 'Saved as a normal payment. Turn on the repeat below to get a reminder and a ready-to-confirm entry each month.'
+                                    : form.mode === 'Cash'
+                                      ? 'Saved as an EMI-tagged payment. Pick a bank or UPI account to repeat it automatically each month.'
+                                      : 'Saved as an EMI-tagged payment.'}
                             </ThemedText>
                           </View>
                         </View>
+
+                        {canRepeatEmi ? (
+                          <View
+                            className="mt-4 flex-row items-center justify-between gap-3 rounded-2xl border p-3"
+                            style={{ borderColor: theme.border }}>
+                            <View className="flex-1">
+                              <ThemedText
+                                className="text-sm font-black"
+                                style={{ color: theme.text }}>
+                                Repeats monthly (auto-debit)
+                              </ThemedText>
+                              <ThemedText tone="muted" className="mt-0.5 text-xs">
+                                {emiRepeatActive
+                                  ? `Next debit ${emiNextDebit}. You'll be reminded 3 days before and asked to confirm it.`
+                                  : 'For loan EMIs the bank takes automatically.'}
+                              </ThemedText>
+                            </View>
+                            <HapticSwitch
+                              value={emiRepeatActive}
+                              onValueChange={setEmiRepeats}
+                              trackColor={{ false: theme.border, true: accent }}
+                            />
+                          </View>
+                        ) : null}
+
+                        {emiRepeatActive ? (
+                          <View className="mt-3 flex-row gap-3">
+                            <View
+                              className="flex-1 rounded-2xl border p-3"
+                              style={{ borderColor: theme.border }}>
+                              <ThemedText
+                                tone="muted"
+                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
+                                Total EMIs
+                              </ThemedText>
+                              <TextInput
+                                value={form.emiTotalInstalments}
+                                onChangeText={(text) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    emiTotalInstalments: text.replace(/\D/g, '').slice(0, 3),
+                                  }))
+                                }
+                                placeholder="Leave empty if unknown"
+                                placeholderTextColor={detailInputPlaceholderColor}
+                                keyboardType="number-pad"
+                                className="p-0 text-sm font-bold"
+                                style={{ color: theme.text }}
+                              />
+                            </View>
+                            <View
+                              className="flex-1 rounded-2xl border p-3"
+                              style={{ borderColor: theme.border }}>
+                              <ThemedText
+                                tone="muted"
+                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
+                                Paid so far
+                              </ThemedText>
+                              <TextInput
+                                value={form.emiPaidInstalments}
+                                onChangeText={(text) =>
+                                  setForm((previous) => ({
+                                    ...previous,
+                                    emiPaidInstalments: text.replace(/\D/g, '').slice(0, 3),
+                                  }))
+                                }
+                                placeholder="1 (this one)"
+                                placeholderTextColor={detailInputPlaceholderColor}
+                                keyboardType="number-pad"
+                                className="p-0 text-sm font-bold"
+                                style={{ color: theme.text }}
+                              />
+                            </View>
+                          </View>
+                        ) : null}
 
                         {isEMICreditCard ? (
                           <View className="mt-4 gap-4">
@@ -2940,6 +3212,7 @@ export function TransactionFormModal({
                   !isEdit &&
                   (showFullForm || draftReview) &&
                   personalPayment &&
+                  !emiRepeatActive &&
                   (form.subscriptionEnabled || form.tag === 'Subscription') && (
                     <View className="px-5 mb-6">
                       <View
@@ -3830,10 +4103,19 @@ export function TransactionFormModal({
                     setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
                     setIsAccountPickerVisible(false);
                   }}
-                  className={`p-4 rounded-2xl flex-row items-center justify-between ${form.accountId === account.id ? 'bg-blue-50 border border-blue-100' : 'bg-gray-50'}`}>
+                  className="p-4 rounded-2xl flex-row items-center justify-between border"
+                  style={{
+                    // Theme tokens, not bg-gray-50 / text-gray-700: those are
+                    // fixed light-mode colours, so in dark mode the rows were
+                    // near-white with near-white labels.
+                    backgroundColor:
+                      form.accountId === account.id ? `${accent}1F` : theme.card,
+                    borderColor: form.accountId === account.id ? accent : theme.border,
+                  }}>
                   <View>
                     <ThemedText
-                      className={`font-bold ${form.accountId === account.id ? 'text-blue-500' : 'text-gray-700'}`}>
+                      className="font-bold"
+                      style={{ color: form.accountId === account.id ? accent : theme.text }}>
                       {account.name}
                     </ThemedText>
                     <ThemedText tone="muted" className="text-xs">
@@ -3841,7 +4123,7 @@ export function TransactionFormModal({
                     </ThemedText>
                   </View>
                   {form.accountId === account.id && (
-                    <MaterialCommunityIcons name="check" size={20} color="#3B82F6" />
+                    <MaterialCommunityIcons name="check" size={20} color={accent} />
                   )}
                 </Pressable>
               ))}
