@@ -1166,7 +1166,9 @@ export function TransactionFormModal({
       setFormError(null);
       seedForm();
 
-      panelAnim.value = motion.springTo(0);
+      // A timed slide, not a spring: the spring overshot and rang two or three
+      // times, and the form can't be typed into until it stops moving.
+      panelAnim.value = withTiming(0, motion.enter('sheet'));
       backdropAnim.value = withTiming(1, motion.enter('base'));
       return;
     }
