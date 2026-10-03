@@ -174,6 +174,10 @@ interface TransactionFormModalProps {
   splitGroups?: SplitGroup[];
   onManageAccounts?: (suggestion?: AccountSuggestion) => void;
   accountSuggestion?: AccountSuggestion | null;
+  /** A refund the user said already came back, to record as its own income. */
+  refundReceived?: { amount: number; date?: string | null } | null;
+  recordRefund?: boolean;
+  onRecordRefundChange?: (value: boolean) => void;
   /** Saved accounts the AI's account hint could mean, best first. */
   accountMatches?: Account[];
   /** What "it's a new one" sets up, ignoring the saved accounts. */
@@ -448,6 +452,9 @@ export function TransactionFormModal({
   splitGroups = emptySplitGroups,
   onManageAccounts,
   accountSuggestion = null,
+  refundReceived = null,
+  recordRefund = true,
+  onRecordRefundChange,
   accountMatches = [],
   newAccountSuggestion = null,
   onSetupSuggestedAccount,
@@ -2252,6 +2259,30 @@ export function TransactionFormModal({
                               {renderDraftField(field)}
                             </SettleIn>
                           ))}
+                        </View>
+                      )}
+
+                      {draftReview && refundReceived && !isParsing && (
+                        <View
+                          testID="refund-received-card"
+                          className="mb-4 flex-row items-center justify-between gap-3 rounded-[20px] border p-4"
+                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                          <View className="flex-1">
+                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                              Also record the {formatMoney(refundReceived.amount)} refund?
+                            </ThemedText>
+                            <ThemedText tone="muted" className="mt-1 text-xs">
+                              {recordRefund
+                                ? 'Saved as a separate income on the same account, so the purchase keeps its full amount.'
+                                : 'Only the purchase will be saved.'}
+                            </ThemedText>
+                          </View>
+                          <HapticSwitch
+                            testID="refund-received-switch"
+                            value={recordRefund}
+                            onValueChange={onRecordRefundChange}
+                            trackColor={{ false: theme.border, true: accent }}
+                          />
                         </View>
                       )}
 

@@ -150,6 +150,8 @@ export type ParseDraft = {
   amount: number | null;
   refundable_amount?: number | null;
   refund_expected_on?: string | null;
+  /** A refund the user says already came back; a separate income, not a Refundable tag. */
+  refund_received?: { amount: number; date?: string | null } | null;
   emi_tenure_months?: number | null;
   emi_rate_pct?: number | null;
   currency: string | null;
