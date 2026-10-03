@@ -73,6 +73,7 @@ import {
   getAutoAccountPayloadForPaymentMode,
   getPreferredAccountForPaymentMode,
   normalizeAccountType,
+  matchAccountsToHint,
   suggestAccountFromTransaction,
   saveAccount,
   type Account,
@@ -320,6 +321,21 @@ export default function HomeScreen() {
     () =>
       accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, accounts) : null,
     [accountSuggestionHint, accounts]
+  );
+  // Saved cards the parser's hint could mean, best first. "ICICI Amazon" finds
+  // the card saved as "Amazon ICICI"; "HDFC" finds every HDFC card.
+  const accountMatches = useMemo(
+    () =>
+      accountSuggestionHint
+        ? matchAccountsToHint(accountSuggestionHint, accounts).map((match) => match.account)
+        : [],
+    [accountSuggestionHint, accounts]
+  );
+  // What "none of these, it's a new one" sets up: the suggestion as if no
+  // account existed.
+  const newAccountSuggestion = useMemo(
+    () => (accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, []) : null),
+    [accountSuggestionHint]
   );
   useEffect(() => {
     const pending = pendingSuggestionSetup.current;
@@ -1235,6 +1251,11 @@ export default function HomeScreen() {
           cardNetwork: data.card_network,
         });
         const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
+        const hintedAccount =
+          matchAccountsToHint(
+            { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
+            accounts
+          )[0]?.account ?? null;
         setAiReview({
           confidence: data.confidence,
           needsConfirmation: data.needs_confirmation,
@@ -1283,6 +1304,11 @@ export default function HomeScreen() {
             mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
             category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
             merchant: data.merchant ?? '',
+            // The account the user named, when they named one we know. Without
+            // this the form fell back to the default card for the mode.
+            ...(hintedAccount
+              ? { accountId: hintedAccount.id, account: hintedAccount.name }
+              : {}),
             notes: data.note ?? '',
             date: formattedDate,
             tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
@@ -1976,6 +2002,8 @@ export default function HomeScreen() {
         recentEntries={transactions}
         authToken={token}
         accountSuggestion={accountSuggestion}
+        accountMatches={accountMatches}
+        newAccountSuggestion={newAccountSuggestion}
         onSetupSuggestedAccount={(suggestion) => {
           pendingSuggestionSetup.current = {
             type: suggestion.type,

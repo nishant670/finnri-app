@@ -174,6 +174,10 @@ interface TransactionFormModalProps {
   splitGroups?: SplitGroup[];
   onManageAccounts?: (suggestion?: AccountSuggestion) => void;
   accountSuggestion?: AccountSuggestion | null;
+  /** Saved accounts the AI's account hint could mean, best first. */
+  accountMatches?: Account[];
+  /** What "it's a new one" sets up, ignoring the saved accounts. */
+  newAccountSuggestion?: AccountSuggestion | null;
   onSetupSuggestedAccount?: (suggestion: AccountSuggestion) => void;
   onAutoCreateSuggestedAccount?: (suggestion: AccountSuggestion) => Promise<Account>;
   onDraftChange?: (data: EntryForm) => void;
@@ -444,6 +448,8 @@ export function TransactionFormModal({
   splitGroups = emptySplitGroups,
   onManageAccounts,
   accountSuggestion = null,
+  accountMatches = [],
+  newAccountSuggestion = null,
   onSetupSuggestedAccount,
   onAutoCreateSuggestedAccount,
   onDraftChange,
@@ -2246,6 +2252,56 @@ export function TransactionFormModal({
                               {renderDraftField(field)}
                             </SettleIn>
                           ))}
+                        </View>
+                      )}
+
+                      {draftReview && accountMatches.length > 1 && !isParsing && (
+                        <View
+                          testID="account-match-choice"
+                          className="mb-4 rounded-[20px] border p-4"
+                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
+                          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                            Which one did you mean?
+                          </ThemedText>
+                          <ThemedText tone="muted" className="mt-1 text-xs">
+                            More than one saved account fits what you said.
+                          </ThemedText>
+                          <View className="mt-3 flex-row flex-wrap gap-2">
+                            {accountMatches.slice(0, 4).map((match) => {
+                              const selected = form.accountId === match.id;
+                              return (
+                                <Pressable
+                                  key={match.id}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  onPress={() =>
+                                    setForm((p) => ({ ...p, accountId: match.id, account: match.name }))
+                                  }
+                                  className="rounded-full border px-4 py-2"
+                                  style={{
+                                    backgroundColor: selected ? `${accent}1F` : theme.card,
+                                    borderColor: selected ? accent : theme.border,
+                                  }}>
+                                  <ThemedText
+                                    className="text-xs font-black"
+                                    style={{ color: selected ? accent : theme.text }}>
+                                    {match.name}
+                                  </ThemedText>
+                                </Pressable>
+                              );
+                            })}
+                            {newAccountSuggestion && onSetupSuggestedAccount ? (
+                              <Pressable
+                                accessibilityRole="button"
+                                onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
+                                className="rounded-full border px-4 py-2"
+                                style={{ borderColor: theme.border }}>
+                                <ThemedText tone="muted" className="text-xs font-black">
+                                  {'It\u2019s a new one'}
+                                </ThemedText>
+                              </Pressable>
+                            ) : null}
+                          </View>
                         </View>
                       )}
 
