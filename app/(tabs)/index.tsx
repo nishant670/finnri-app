@@ -220,6 +220,14 @@ type CreditActionState = {
   action: 'upgrade' | 'login';
 };
 
+const DRAFT_NOTE_MAX = 200;
+
+/** The user's own words, trimmed, for when the parser returned no note. */
+const fallbackDraftNote = (sourceText: string) => {
+  const text = sourceText.replace(/\s+/g, ' ').trim();
+  return text.length > DRAFT_NOTE_MAX ? `${text.slice(0, DRAFT_NOTE_MAX - 1).trimEnd()}…` : text;
+};
+
 export default function HomeScreen() {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -1309,7 +1317,9 @@ export default function HomeScreen() {
             ...(hintedAccount
               ? { accountId: hintedAccount.id, account: hintedAccount.name }
               : {}),
-            notes: data.note ?? '',
+            // Never leave the note empty on an AI draft: the parser's own one-liner,
+            // or failing that what the user actually said.
+            notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? trimmed),
             date: formattedDate,
             tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
             splitEnabled: splitDraft.splitEnabled,
