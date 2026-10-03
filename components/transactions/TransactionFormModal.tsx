@@ -1207,7 +1207,7 @@ export function TransactionFormModal({
 
   const animateTypeSwitch = useCallback(
     (isIncome: boolean) => {
-      typeSwitchAnim.value = motion.springTo(isIncome ? 1 : 0);
+      typeSwitchAnim.value = withTiming(isIncome ? 1 : 0, motion.enter('base'));
     },
     [motion, typeSwitchAnim]
   );
