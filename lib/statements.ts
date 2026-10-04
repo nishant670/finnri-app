@@ -440,6 +440,31 @@ export type StatementScreenshotFile = {
 };
 
 /**
+ * A statement file chosen before the bill exists. It travels to the review
+ * screen as a route param, which reads it once the bill has been saved.
+ */
+export type StatementUploadSource =
+  | { kind: 'pdf'; uri: string; name: string }
+  | { kind: 'screenshots'; files: StatementScreenshotFile[] };
+
+/** Undefined for anything that is not a well-formed source. */
+export const parseStatementUploadSource = (
+  value: string | undefined
+): StatementUploadSource | undefined => {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(value) as StatementUploadSource;
+    if (parsed?.kind === 'pdf' && typeof parsed.uri === 'string') return parsed;
+    if (parsed?.kind === 'screenshots' && Array.isArray(parsed.files) && parsed.files.length) {
+      return parsed;
+    }
+  } catch {
+    // A malformed param just means nothing to auto-read.
+  }
+  return undefined;
+};
+
+/**
  * Read a batch of cropped statement screenshots and return the same diff used
  * by PDF intake. The images go directly to the request body and are not added
  * to Finnri's receipt uploads or retained by this module.

@@ -1,5 +1,6 @@
 import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { cssInterop } from 'nativewind';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, Pressable, TextInput, View } from 'react-native';
@@ -18,9 +19,12 @@ import {
   parseAmountInput,
   toISODate,
 } from '@/lib/statement-dates';
-import type { CardStatementPayload } from '@/lib/statements';
+import type { CardStatementPayload, StatementUploadSource } from '@/lib/statements';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
+
+/** The server's batch limit for statement screenshots. */
+const MAX_STATEMENT_SCREENSHOTS = 8;
 
 /**
  * Entering the bill.
@@ -46,7 +50,12 @@ export function StatementFormSheet({
   submitting: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (payload: CardStatementPayload) => void;
+  /**
+   * A statement file picked here, if any, comes along with the bill. The
+   * caller saves the bill first and then hands the file to the review screen,
+   * because reading a statement needs the bill's cycle to compare against.
+   */
+  onSubmit: (payload: CardStatementPayload, source?: StatementUploadSource) => void;
 }) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -57,6 +66,8 @@ export function StatementFormSheet({
   const [minimumDue, setMinimumDue] = useState('');
   const [dueDateTouched, setDueDateTouched] = useState(false);
   const [picker, setPicker] = useState<'statement' | 'due' | null>(null);
+  const [source, setSource] = useState<StatementUploadSource | null>(null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -66,6 +77,8 @@ export function StatementFormSheet({
     setTotalDue(initial?.total_due ? String(initial.total_due) : '');
     setMinimumDue(initial?.minimum_due ? String(initial.minimum_due) : '');
     setDueDateTouched(Boolean(initial));
+    setSource(null);
+    setSourceError(null);
   }, [visible, initial, card.statement_day, card.due_day]);
 
   // Moving the statement date carries the due date with it, until the user
@@ -89,6 +102,47 @@ export function StatementFormSheet({
   }, [totalDue, total, minimum, dueDate, statementDate]);
 
   const canSubmit = total > 0 && !validationError && !submitting;
+
+  const pickPDF = async () => {
+    setSourceError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'application/pdf',
+        copyToCacheDirectory: true,
+      });
+      const asset = result.canceled ? null : result.assets?.[0];
+      if (!asset) return;
+      setSource({ kind: 'pdf', uri: asset.uri, name: asset.name ?? 'statement.pdf' });
+    } catch {
+      setSourceError('That file could not be opened. Please try again.');
+    }
+  };
+
+  const pickScreenshots = async () => {
+    setSourceError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      if (result.assets.length > MAX_STATEMENT_SCREENSHOTS) {
+        setSourceError(`Choose up to ${MAX_STATEMENT_SCREENSHOTS} screenshots at a time.`);
+        return;
+      }
+      setSource({
+        kind: 'screenshots',
+        files: result.assets.map((asset, index) => ({
+          uri: asset.uri,
+          name: asset.name ?? `statement-page-${index + 1}.jpg`,
+          mimeType: asset.mimeType,
+        })),
+      });
+    } catch {
+      setSourceError('Those screenshots could not be opened. Please try again.');
+    }
+  };
 
   const openPicker = (which: 'statement' | 'due') => {
     const current = which === 'statement' ? statementDate : dueDate;
@@ -176,6 +230,61 @@ export function StatementFormSheet({
           </TText>
         )}
 
+        {!initial && (
+          <>
+            <SheetLabel>Upload statement (optional)</SheetLabel>
+            {source ? (
+              <View
+                testID="statement-upload-picked"
+                className="h-14 flex-row items-center rounded-[18px] border px-4"
+                style={{ backgroundColor: theme.background, borderColor: theme.border }}>
+                <MaterialCommunityIcons
+                  name={source.kind === 'pdf' ? 'file-pdf-box' : 'image-multiple-outline'}
+                  size={20}
+                  color={theme.accent}
+                  style={{ marginRight: 8 }}
+                />
+                <TText
+                  className="min-w-0 flex-1 text-sm"
+                  numberOfLines={1}
+                  style={{ fontFamily: Fonts.body, color: theme.text }}>
+                  {source.kind === 'pdf'
+                    ? source.name
+                    : `${source.files.length} screenshot${source.files.length === 1 ? '' : 's'}`}
+                </TText>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Remove statement file"
+                  onPress={() => setSource(null)}
+                  hitSlop={8}>
+                  <MaterialCommunityIcons name="close-circle" size={20} color="#94A3B8" />
+                </Pressable>
+              </View>
+            ) : (
+              <View className="flex-row gap-3">
+                <UploadChoice
+                  testID="statement-upload-pdf"
+                  icon="file-pdf-box"
+                  label="PDF"
+                  onPress={() => void pickPDF()}
+                />
+                <UploadChoice
+                  testID="statement-upload-screenshots"
+                  icon="image-multiple-outline"
+                  label="Screenshots"
+                  onPress={() => void pickScreenshots()}
+                />
+              </View>
+            )}
+            <TText
+              className="mt-2 text-[11px]"
+              style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+              {sourceError ??
+                'Finnri reads it right after the bill is added and shows what is missing. Screenshots use AI credits. The file and any password are never stored.'}
+            </TText>
+          </>
+        )}
+
         {picker && Platform.OS !== 'android' && (
           <DateTimePicker
             value={fromISODate(picker === 'statement' ? statementDate : dueDate)}
@@ -197,12 +306,15 @@ export function StatementFormSheet({
           accessibilityRole="button"
           disabled={!canSubmit}
           onPress={() =>
-            onSubmit({
-              statement_date: statementDate,
-              due_date: dueDate,
-              total_due: total,
-              minimum_due: minimum,
-            })
+            onSubmit(
+              {
+                statement_date: statementDate,
+                due_date: dueDate,
+                total_due: total,
+                minimum_due: minimum,
+              },
+              source ?? undefined
+            )
           }
           className="mt-6 h-14 flex-row items-center justify-center gap-2 rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
@@ -215,7 +327,7 @@ export function StatementFormSheet({
                 fontFamily: Fonts.title,
                 color: canSubmit ? '#FFFFFF' : '#94A3B8',
               }}>
-              {initial ? 'Save changes' : 'Add statement'}
+              {initial ? 'Save changes' : source ? 'Add & read statement' : 'Add statement'}
             </TText>
           )}
         </Pressable>
@@ -255,7 +367,12 @@ export function SheetInput({
       className="h-14 flex-row items-center rounded-[18px] border px-4"
       style={{ backgroundColor: theme.background, borderColor: theme.border }}>
       {icon && (
-        <MaterialCommunityIcons name={icon} size={20} color={theme.accent} style={{ marginRight: 8 }} />
+        <MaterialCommunityIcons
+          name={icon}
+          size={20}
+          color={theme.accent}
+          style={{ marginRight: 8 }}
+        />
       )}
       <TextInput
         value={value}
@@ -289,6 +406,34 @@ export function DateField({ value, onPress }: { value: string; onPress: () => vo
         numberOfLines={1}
         style={{ fontFamily: Fonts.body, color: theme.text }}>
         {value ? formatDisplayDate(value) : 'Pick a date'}
+      </TText>
+    </Pressable>
+  );
+}
+
+function UploadChoice({
+  testID,
+  icon,
+  label,
+  onPress,
+}: {
+  testID: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const theme = useThemeTokens().colors;
+  return (
+    <Pressable
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={`Upload statement ${label}`}
+      onPress={onPress}
+      className="h-14 flex-1 flex-row items-center justify-center gap-2 rounded-[18px] border"
+      style={{ backgroundColor: theme.background, borderColor: theme.border }}>
+      <MaterialCommunityIcons name={icon} size={20} color={theme.accent} />
+      <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.text }}>
+        {label}
       </TText>
     </Pressable>
   );

@@ -52,6 +52,7 @@ import {
   CardStatement,
   CardStatementPayload,
   StatementPaymentPayload,
+  StatementUploadSource,
   fetchStatement,
   recordStatementPayment,
   saveCardStatement,
@@ -272,9 +273,9 @@ export default function AccountDetailsScreen() {
   const currentStatement = account ? getCurrentStatement(account) : null;
   const canMarkPaidOff = Boolean(
     isCreditCard &&
-      !currentStatement &&
-      cardLimit?.outstanding_source === 'ledger' &&
-      cardLimit.outstanding > 0
+    !currentStatement &&
+    cardLimit?.outstanding_source === 'ledger' &&
+    cardLimit.outstanding > 0
   );
   const runningBalance = account ? getRunningBalance(account) : null;
   const lastActivity = account ? getLastActivityLabel(account) : null;
@@ -283,9 +284,9 @@ export default function AccountDetailsScreen() {
     const hasProvider = Boolean(account.provider?.trim());
     const hasIdentifier = Boolean(
       account.last4?.trim() ||
-        account.upi_handle?.trim() ||
-        account.wallet_nickname?.trim() ||
-        account.identifier?.trim()
+      account.upi_handle?.trim() ||
+      account.wallet_nickname?.trim() ||
+      account.identifier?.trim()
     );
     const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
     const hasCreditLimit = Boolean(account.credit_limit && account.credit_limit > 0);
@@ -391,7 +392,10 @@ export default function AccountDetailsScreen() {
     setIsActionsSheetVisible(true);
   };
 
-  const handleSaveStatement = async (payload: CardStatementPayload) => {
+  const handleSaveStatement = async (
+    payload: CardStatementPayload,
+    source?: StatementUploadSource
+  ) => {
     if (!token || !account) return;
     setIsSubmittingStatement(true);
     setStatementError(null);
@@ -399,6 +403,16 @@ export default function AccountDetailsScreen() {
       const saved = await saveCardStatement(token, account.id, payload);
       setStatement(saved);
       setIsStatementSheetVisible(false);
+      if (source) {
+        // The bill had to exist first: reading a statement compares it with
+        // this cycle. Review reads the file as soon as it opens.
+        router.push({
+          pathname: '/statements/review',
+          params: { id: String(saved.id), source: JSON.stringify(source) },
+        });
+        void loadDetails();
+        return;
+      }
       // The bill changes the card's outstanding and available limit, both of
       // which live on the account, so the whole screen is refetched.
       await loadDetails();

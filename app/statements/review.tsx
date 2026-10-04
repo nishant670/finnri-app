@@ -2,7 +2,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,7 +16,9 @@ import {
   StatementApiError,
   StatementDiff,
   StatementLine,
+  type StatementScreenshotFile,
   importStatementLines,
+  parseStatementUploadSource,
   statementLineKindLabels,
   statementUploadErrorMessage,
   uploadStatementPDF,
@@ -46,7 +48,7 @@ const lineKey = (line: StatementLine, index: number) =>
  * user's own transactions to make a diff tidy is not this screen's job.
  */
 export default function StatementReviewScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, source } = useLocalSearchParams<{ id?: string; source?: string }>();
   const statementId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -112,41 +114,64 @@ export default function StatementReviewScreen() {
     await runUpload(file, '');
   };
 
+  const runScreenshotUpload = useCallback(
+    async (files: StatementScreenshotFile[]) => {
+      if (!token || !Number.isFinite(statementId)) return;
+      setIsBusy(true);
+      setError(null);
+      setImportedCount(null);
+      setNeedsPassword(false);
+      try {
+        applyDiff(await uploadStatementScreenshots(token, statementId, files));
+      } catch (uploadError) {
+        const code = uploadError instanceof StatementApiError ? uploadError.code : undefined;
+        setError(statementUploadErrorMessage(code));
+      } finally {
+        setIsBusy(false);
+      }
+    },
+    [applyDiff, statementId, token]
+  );
+
   const pickScreenshots = async () => {
     const result = await DocumentPicker.getDocumentAsync({
       type: 'image/*',
       multiple: true,
       copyToCacheDirectory: true,
     });
-    if (result.canceled || !result.assets?.length || !token || !Number.isFinite(statementId))
-      return;
+    if (result.canceled || !result.assets?.length) return;
 
     if (result.assets.length > 8) {
       setError('Choose up to 8 statement screenshots at a time.');
       return;
     }
-    setIsBusy(true);
-    setError(null);
-    setImportedCount(null);
-    setNeedsPassword(false);
-    try {
-      const parsed = await uploadStatementScreenshots(
-        token,
-        statementId,
-        result.assets.map((asset, index) => ({
-          uri: asset.uri,
-          name: asset.name ?? `statement-page-${index + 1}.jpg`,
-          mimeType: asset.mimeType,
-        }))
-      );
-      applyDiff(parsed);
-    } catch (uploadError) {
-      const code = uploadError instanceof StatementApiError ? uploadError.code : undefined;
-      setError(statementUploadErrorMessage(code));
-    } finally {
-      setIsBusy(false);
-    }
+    await runScreenshotUpload(
+      result.assets.map((asset, index) => ({
+        uri: asset.uri,
+        name: asset.name ?? `statement-page-${index + 1}.jpg`,
+        mimeType: asset.mimeType,
+      }))
+    );
   };
+
+  /*
+   * Arriving from "Add statement" with a file already chosen: read it straight
+   * away, once. A password-protected PDF lands on the normal password prompt.
+   */
+  const startedFromSheet = useRef(false);
+  useEffect(() => {
+    if (startedFromSheet.current || !token) return;
+    const picked = parseStatementUploadSource(source);
+    if (!picked) return;
+    startedFromSheet.current = true;
+    if (picked.kind === 'pdf') {
+      const file = { uri: picked.uri, name: picked.name };
+      setPickedFile(file);
+      void runUpload(file, '');
+    } else {
+      void runScreenshotUpload(picked.files);
+    }
+  }, [runScreenshotUpload, runUpload, source, token]);
 
   const selectedLines = useMemo(() => {
     if (!diff) return [];
