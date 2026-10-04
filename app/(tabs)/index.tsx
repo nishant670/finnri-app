@@ -95,6 +95,7 @@ import {
   describeParseFailure,
   type ParseFailure,
   parseEntryDraft,
+  parseReceiptDraft,
   type LedgerAnswer,
   type ParseResponse,
 } from '@/lib/parse';
@@ -364,7 +365,7 @@ export default function HomeScreen() {
     if (matching > pending.count) {
       pendingSuggestionSetup.current = null;
       setAccountSuggestionHint(null);
-        setRefundReceived(null);
+      setRefundReceived(null);
     }
   }, [accounts]);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
@@ -456,7 +457,7 @@ export default function HomeScreen() {
   const [isBillingLoading, setIsBillingLoading] = useState(false);
   const [creditAction, setCreditAction] = useState<CreditActionState | null>(null);
   const [aiSourceText, setAiSourceText] = useState('');
-  const [aiInputSource, setAiInputSource] = useState<'text' | 'voice'>('text');
+  const [aiInputSource, setAiInputSource] = useState<'text' | 'voice' | 'receipt'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
   const [isGuestUpgradeSnoozed, setIsGuestUpgradeSnoozed] = useState(true);
   const createSaveProgress = useRef<TransactionSaveProgress>({});
@@ -995,7 +996,7 @@ export default function HomeScreen() {
     setAiInputSource('text');
     pendingSuggestionSetup.current = null;
     setAccountSuggestionHint(null);
-        setRefundReceived(null);
+    setRefundReceived(null);
     createIdempotencyKey.current = null;
     createSaveProgress.current = {};
     setForm(createBlankForm());
@@ -1186,6 +1187,237 @@ export default function HomeScreen() {
     ]
   );
 
+  /**
+   * Out of credits, or over today's limit: the credit card on Home owns that
+   * message. True when it took the error, so the caller shows nothing else.
+   */
+  const showCreditParseError = useCallback(
+    (error: unknown): boolean => {
+      if (error instanceof ParseApiError) {
+        /*
+         * A guest running out of credits is the one moment they have a reason
+         * to make an account, so the prompt says what signing in buys rather
+         * than just reporting the balance — and it points at sign-in, not at a
+         * plans screen a guest cannot buy from anyway.
+         */
+        const isGuestUser = !!user?.is_guest;
+        if (error.code === 'insufficient_ai_credits') {
+          setCreditAction({
+            title: isGuestUser ? 'You have used up your guest AI credits' : 'AI credits are low',
+            message: isGuestUser
+              ? `Dear guest, this capture needs ${error.requiredCredits ?? 5} credits and you have ${error.availableCredits ?? 0} left. Sign in to keep going with more AI credits — everything you have added so far comes with you.`
+              : `This capture needs ${error.requiredCredits ?? 5} credits. You have ${error.availableCredits ?? 0} available.`,
+            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
+            action: isGuestUser ? 'login' : 'upgrade',
+          });
+          void fetchCredits(true);
+          return true;
+        }
+        if (error.code === 'daily_ai_limit_reached') {
+          const usedToday = error.usedToday ?? billingStatus?.credits.daily_credits_used ?? 0;
+          const dailyLimit = error.dailyLimit ?? billingStatus?.credits.daily_limit ?? 0;
+          setCreditAction({
+            title: isGuestUser ? 'You have reached your guest AI limit' : 'Daily AI limit reached',
+            message: isGuestUser
+              ? `Dear guest, you have used all ${dailyLimit} AI credits for today. Sign in to continue enjoying more AI credits — everything you have added so far comes with you.`
+              : `You used ${usedToday} of ${dailyLimit} credits today.`,
+            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
+            action: isGuestUser ? 'login' : 'upgrade',
+          });
+          void fetchCredits(true);
+          return true;
+        }
+      }
+      return false;
+    },
+    [
+      billingStatus?.credits.daily_credits_used,
+      billingStatus?.credits.daily_limit,
+      fetchCredits,
+      user?.is_guest,
+    ]
+  );
+
+  /**
+   * Fill the review sheet from a capture draft. Text, voice and receipt scans
+   * all land here, so a draft reads the same whichever way it arrived.
+   */
+  const applyParsedDraft = useCallback(
+    (
+      data: ParseResponse,
+      fallbackText: string,
+      inputSource: 'voice' | 'text' | 'receipt',
+      attachment?: string
+    ) => {
+      setAiSourceText(data.source_text ?? fallbackText);
+      setAiInputSource(inputSource);
+      pendingSuggestionSetup.current = null;
+      setRefundReceived(
+        data.refund_received && data.refund_received.amount > 0 ? data.refund_received : null
+      );
+      setRecordRefund(true);
+      setAccountSuggestionHint({
+        mode: data.mode,
+        accountHint: data.account_hint,
+        cardNetwork: data.card_network,
+      });
+      const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
+      const hintedAccount =
+        matchAccountsToHint(
+          { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
+          accounts
+        )[0]?.account ?? null;
+      setAiReview({
+        confidence: data.confidence,
+        needsConfirmation: data.needs_confirmation,
+        missingFields: smartSorting
+          ? data.missing_fields
+          : Array.from(
+              new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])
+            ),
+        clarifications: [
+          ...(data.clarifications ?? []),
+          ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
+        ],
+        smartSortingDisabled: !smartSorting,
+        // What the AI worked from, so the review sheet can show it back. A
+        // wrong field is usually a misheard word, and the phrase is the only
+        // place that is visible.
+        sourceText: data.source_text ?? fallbackText,
+        inputSource,
+      });
+      setForm((prev) => {
+        const missing = new Set(data.missing_fields ?? []);
+        const formattedDate =
+          missing.has('date') || !data.date
+            ? formatDateLabel(new Date())
+            : normalizeDateLabel(data.date, formatDateLabel(new Date()));
+        const tagValue = data.tag ?? data.tags?.[0] ?? '';
+        const newType = missing.has('type') ? '' : (toTitleCase(data.type) ?? '');
+        const subscriptionCandidate = data.subscription_candidate;
+        const subscriptionInterval = isBillingInterval(subscriptionCandidate?.billing_interval)
+          ? subscriptionCandidate.billing_interval
+          : '';
+        const subscriptionPaidDate =
+          subscriptionCandidate?.last_charged_date ?? data.date ?? formatApiDate(new Date());
+        const inferredNextDueDate =
+          subscriptionCandidate?.next_due_date ??
+          inferNextSubscriptionDate(subscriptionPaidDate, subscriptionInterval);
+        return {
+          ...prev,
+          title: smartSorting && !missing.has('title') ? (data.title ?? '') : '',
+          amount:
+            missing.has('amount') || data.amount == null ? '' : toAmountInputValue(data.amount),
+          currency: data.currency ?? prev.currency,
+          // The parser emits `HH:MM`; the form shows and stores a display string.
+          time: formatTime(data.time) ?? prev.time,
+          type: newType,
+          mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
+          category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
+          merchant: data.merchant ?? '',
+          // The account the user named, when they named one we know. Without
+          // this the form fell back to the default card for the mode.
+          ...(hintedAccount ? { accountId: hintedAccount.id, account: hintedAccount.name } : {}),
+          // Never leave the note empty on an AI draft: the parser's own one-liner,
+          // or failing that what the user actually said.
+          notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? fallbackText),
+          date: formattedDate,
+          tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
+          splitEnabled: splitDraft.splitEnabled,
+          splitGroupId: splitDraft.splitGroupId,
+          splitGroupName: splitDraft.splitGroupName,
+          splitParticipants: splitDraft.splitParticipants,
+          refundableAmount:
+            data.refundable_amount != null ? toAmountInputValue(data.refundable_amount) : '',
+          refundExpectedOn: data.refund_expected_on ?? '',
+          refundReminderEnabled: true,
+          emiTenureMonths: data.emi_tenure_months != null ? String(data.emi_tenure_months) : '',
+          emiRatePct: data.emi_rate_pct != null ? String(data.emi_rate_pct) : '',
+          subscriptionEnabled: Boolean(subscriptionCandidate),
+          subscriptionName: subscriptionCandidate?.name ?? data.merchant ?? data.title ?? '',
+          subscriptionMerchant: subscriptionCandidate?.merchant ?? data.merchant ?? '',
+          subscriptionCategory: subscriptionCandidate?.category ?? data.category ?? 'Misc',
+          subscriptionAmount:
+            subscriptionCandidate?.amount != null
+              ? toAmountInputValue(subscriptionCandidate.amount)
+              : data.amount != null
+                ? toAmountInputValue(data.amount)
+                : '',
+          subscriptionBillingInterval: subscriptionInterval,
+          subscriptionNextDueDate: inferredNextDueDate,
+          subscriptionReminderDays:
+            subscriptionCandidate?.reminder_days != null
+              ? String(subscriptionCandidate.reminder_days)
+              : '3',
+          subscriptionCancelBeforeDue: Boolean(subscriptionCandidate?.cancel_before_due),
+          subscriptionCancelOnDate: subscriptionCandidate?.cancel_on_date ?? '',
+          subscriptionAutopay: Boolean(subscriptionCandidate?.autopay),
+          subscriptionNotes: subscriptionCandidate?.notes ?? '',
+          // A scanned bill is kept as the entry's receipt; it uploads on save.
+          attachment: attachment ?? prev.attachment,
+        };
+      });
+    },
+    [accounts, smartSorting, splitFriends, splitGroups]
+  );
+
+  /**
+   * The bill-scan path: a photo picked from the add sheet becomes the same AI
+   * draft a typed or spoken capture does. The sheet stays up throughout — it
+   * flips into review mode while the photo is read, and back to manual entry
+   * (photo still attached as the receipt) if it cannot be read.
+   */
+  const scanReceipt = useCallback(
+    async (uri: string) => {
+      if (isSubmitting) return;
+      if (blockCaptureWithoutCredits()) {
+        // The credit card lives on Home, behind the sheet.
+        setIsEditOpen(false);
+        return;
+      }
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      setParseFailure(null);
+      setCreditAction(null);
+      setAnswer(null);
+      setAiSourceText('');
+      setAiInputSource('text');
+      setAiReview({ inputSource: 'receipt' });
+      setModalMode('audio');
+      setIsParsing(true);
+      setIsEditOpen(true);
+      try {
+        const data = await parseReceiptDraft({ token, uri });
+        void fetchCredits(true);
+        createIdempotencyKey.current = null;
+        createSaveProgress.current = {};
+        applyParsedDraft(data, 'Receipt photo', 'receipt', uri);
+      } catch (error) {
+        if (showCreditParseError(error)) {
+          setIsEditOpen(false);
+          return;
+        }
+        setModalMode('manual');
+        setAiReview(null);
+        setForm((prev) => ({ ...prev, attachment: uri }));
+        const failure = describeParseFailure(error);
+        void dialog.alert({ title: failure.title, message: failure.message, tone: 'danger' });
+      } finally {
+        setIsParsing(false);
+        setIsSubmitting(false);
+      }
+    },
+    [
+      applyParsedDraft,
+      blockCaptureWithoutCredits,
+      dialog,
+      fetchCredits,
+      isSubmitting,
+      showCreditParseError,
+      token,
+    ]
+  );
+
   const submitPrompt = useCallback(
     async (overrideText?: string) => {
       if (isSubmitting) return;
@@ -1255,7 +1487,7 @@ export default function HomeScreen() {
           setAiReview(null);
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
-        setRefundReceived(null);
+          setRefundReceived(null);
           setPendingQuestion(null);
           setAnswerSourceText(result.source_text ?? trimmed);
           setAnswer(result.answer);
@@ -1272,114 +1504,7 @@ export default function HomeScreen() {
         if (deferSheet) {
           setIsEditOpen(true);
         }
-        setAiSourceText(data.source_text ?? trimmed);
-        setAiInputSource(audioUri ? 'voice' : 'text');
-        pendingSuggestionSetup.current = null;
-        setRefundReceived(
-          data.refund_received && data.refund_received.amount > 0 ? data.refund_received : null
-        );
-        setRecordRefund(true);
-        setAccountSuggestionHint({
-          mode: data.mode,
-          accountHint: data.account_hint,
-          cardNetwork: data.card_network,
-        });
-        const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
-        const hintedAccount =
-          matchAccountsToHint(
-            { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
-            accounts
-          )[0]?.account ?? null;
-        setAiReview({
-          confidence: data.confidence,
-          needsConfirmation: data.needs_confirmation,
-          missingFields: smartSorting
-            ? data.missing_fields
-            : Array.from(
-                new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])
-              ),
-          clarifications: [
-            ...(data.clarifications ?? []),
-            ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
-          ],
-          smartSortingDisabled: !smartSorting,
-          // What the AI worked from, so the review sheet can show it back. A
-          // wrong field is usually a misheard word, and the phrase is the only
-          // place that is visible.
-          sourceText: data.source_text ?? trimmed,
-          inputSource: audioUri ? 'voice' : 'text',
-        });
-        setForm((prev) => {
-          const missing = new Set(data.missing_fields ?? []);
-          const formattedDate =
-            missing.has('date') || !data.date
-              ? formatDateLabel(new Date())
-              : normalizeDateLabel(data.date, formatDateLabel(new Date()));
-          const tagValue = data.tag ?? data.tags?.[0] ?? '';
-          const newType = missing.has('type') ? '' : (toTitleCase(data.type) ?? '');
-          const subscriptionCandidate = data.subscription_candidate;
-          const subscriptionInterval = isBillingInterval(subscriptionCandidate?.billing_interval)
-            ? subscriptionCandidate.billing_interval
-            : '';
-          const subscriptionPaidDate =
-            subscriptionCandidate?.last_charged_date ?? data.date ?? formatApiDate(new Date());
-          const inferredNextDueDate =
-            subscriptionCandidate?.next_due_date ??
-            inferNextSubscriptionDate(subscriptionPaidDate, subscriptionInterval);
-          return {
-            ...prev,
-            title: smartSorting && !missing.has('title') ? (data.title ?? '') : '',
-            amount:
-              missing.has('amount') || data.amount == null ? '' : toAmountInputValue(data.amount),
-            currency: data.currency ?? prev.currency,
-            // The parser emits `HH:MM`; the form shows and stores a display string.
-            time: formatTime(data.time) ?? prev.time,
-            type: newType,
-            mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
-            category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
-            merchant: data.merchant ?? '',
-            // The account the user named, when they named one we know. Without
-            // this the form fell back to the default card for the mode.
-            ...(hintedAccount
-              ? { accountId: hintedAccount.id, account: hintedAccount.name }
-              : {}),
-            // Never leave the note empty on an AI draft: the parser's own one-liner,
-            // or failing that what the user actually said.
-            notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? trimmed),
-            date: formattedDate,
-            tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
-            splitEnabled: splitDraft.splitEnabled,
-            splitGroupId: splitDraft.splitGroupId,
-            splitGroupName: splitDraft.splitGroupName,
-            splitParticipants: splitDraft.splitParticipants,
-            refundableAmount:
-              data.refundable_amount != null ? toAmountInputValue(data.refundable_amount) : '',
-            refundExpectedOn: data.refund_expected_on ?? '',
-            refundReminderEnabled: true,
-            emiTenureMonths: data.emi_tenure_months != null ? String(data.emi_tenure_months) : '',
-            emiRatePct: data.emi_rate_pct != null ? String(data.emi_rate_pct) : '',
-            subscriptionEnabled: Boolean(subscriptionCandidate),
-            subscriptionName: subscriptionCandidate?.name ?? data.merchant ?? data.title ?? '',
-            subscriptionMerchant: subscriptionCandidate?.merchant ?? data.merchant ?? '',
-            subscriptionCategory: subscriptionCandidate?.category ?? data.category ?? 'Misc',
-            subscriptionAmount:
-              subscriptionCandidate?.amount != null
-                ? toAmountInputValue(subscriptionCandidate.amount)
-                : data.amount != null
-                  ? toAmountInputValue(data.amount)
-                  : '',
-            subscriptionBillingInterval: subscriptionInterval,
-            subscriptionNextDueDate: inferredNextDueDate,
-            subscriptionReminderDays:
-              subscriptionCandidate?.reminder_days != null
-                ? String(subscriptionCandidate.reminder_days)
-                : '3',
-            subscriptionCancelBeforeDue: Boolean(subscriptionCandidate?.cancel_before_due),
-            subscriptionCancelOnDate: subscriptionCandidate?.cancel_on_date ?? '',
-            subscriptionAutopay: Boolean(subscriptionCandidate?.autopay),
-            subscriptionNotes: subscriptionCandidate?.notes ?? '',
-          };
-        });
+        applyParsedDraft(data, trimmed, audioUri ? 'voice' : 'text');
         setInputText('');
         setRecordedUri(null);
       } catch (error) {
@@ -1388,43 +1513,7 @@ export default function HomeScreen() {
         // behind it.
         setIsEditOpen(false);
         setPendingQuestion(null);
-        if (error instanceof ParseApiError) {
-          /*
-           * A guest running out of credits is the one moment they have a reason
-           * to make an account, so the prompt says what signing in buys rather
-           * than just reporting the balance — and it points at sign-in, not at a
-           * plans screen a guest cannot buy from anyway.
-           */
-          const isGuestUser = !!user?.is_guest;
-          if (error.code === 'insufficient_ai_credits') {
-            setCreditAction({
-              title: isGuestUser ? 'You have used up your guest AI credits' : 'AI credits are low',
-              message: isGuestUser
-                ? `Dear guest, this capture needs ${error.requiredCredits ?? 5} credits and you have ${error.availableCredits ?? 0} left. Sign in to keep going with more AI credits — everything you have added so far comes with you.`
-                : `This capture needs ${error.requiredCredits ?? 5} credits. You have ${error.availableCredits ?? 0} available.`,
-              actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-              action: isGuestUser ? 'login' : 'upgrade',
-            });
-            void fetchCredits(true);
-            return;
-          }
-          if (error.code === 'daily_ai_limit_reached') {
-            const usedToday = error.usedToday ?? billingStatus?.credits.daily_credits_used ?? 0;
-            const dailyLimit = error.dailyLimit ?? billingStatus?.credits.daily_limit ?? 0;
-            setCreditAction({
-              title: isGuestUser
-                ? 'You have reached your guest AI limit'
-                : 'Daily AI limit reached',
-              message: isGuestUser
-                ? `Dear guest, you have used all ${dailyLimit} AI credits for today. Sign in to continue enjoying more AI credits — everything you have added so far comes with you.`
-                : `You used ${usedToday} of ${dailyLimit} credits today.`,
-              actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-              action: isGuestUser ? 'login' : 'upgrade',
-            });
-            void fetchCredits(true);
-            return;
-          }
-        }
+        if (showCreditParseError(error)) return;
         setParseFailure(describeParseFailure(error));
       } finally {
         setIsParsing(false);
@@ -1432,18 +1521,14 @@ export default function HomeScreen() {
       }
     },
     [
-      billingStatus?.credits.daily_credits_used,
-      billingStatus?.credits.daily_limit,
+      applyParsedDraft,
       blockCaptureWithoutCredits,
       fetchCredits,
       inputText,
       isSubmitting,
       recordedUri,
-      smartSorting,
-      splitFriends,
-      splitGroups,
+      showCreditParseError,
       token,
-      user?.is_guest,
     ]
   );
 
@@ -2022,7 +2107,7 @@ export default function HomeScreen() {
           setIsEditOpen(false);
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
-        setRefundReceived(null);
+          setRefundReceived(null);
           if (statementComposerReturnId.current) {
             statementComposerReturnId.current = null;
             router.back();
@@ -2031,6 +2116,7 @@ export default function HomeScreen() {
         initialData={form}
         onSave={handleConfirmEntry}
         mode={modalMode}
+        onScanReceipt={scanReceipt}
         isParsing={isParsing}
         aiReview={aiReview}
         accounts={accounts}
@@ -2081,7 +2167,7 @@ export default function HomeScreen() {
             ...current.filter((account) => account.id !== saved.id),
           ]);
           setAccountSuggestionHint(null);
-        setRefundReceived(null);
+          setRefundReceived(null);
           return saved;
         }}
         onDraftChange={setForm}

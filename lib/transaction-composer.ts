@@ -15,7 +15,7 @@ export async function buildTransactionPayload(
   form: EntryForm,
   options: {
     accountId?: number | null;
-    source?: 'manual' | 'text' | 'voice';
+    source?: 'manual' | 'text' | 'voice' | 'receipt';
     sourceText?: string;
     refundStatus?: EntryMutationPayload['refund_status'];
   } = {}
@@ -92,13 +92,19 @@ export async function saveNewTransaction({
   form: EntryForm;
   account: Account | null;
   idempotencyKey: string;
-  source?: 'manual' | 'text' | 'voice';
+  source?: 'manual' | 'text' | 'voice' | 'receipt';
   sourceText?: string;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
 }) {
   const parsedDate = parseDateLabel(form.date);
-  const fingerprint = JSON.stringify({ form, accountId: account?.id ?? null, source, sourceText, refund });
+  const fingerprint = JSON.stringify({
+    form,
+    accountId: account?.id ?? null,
+    source,
+    sourceText,
+    refund,
+  });
   if (progress.entry && progress.fingerprint !== fingerprint) {
     throw new Error(
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'

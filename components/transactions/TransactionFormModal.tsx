@@ -150,7 +150,7 @@ export type AiReviewMetadata = {
    * of it — a wrong amount is usually a misheard word, not a bad guess.
    */
   sourceText?: string;
-  inputSource?: 'voice' | 'text';
+  inputSource?: 'voice' | 'text' | 'receipt';
 };
 
 interface TransactionFormModalProps {
@@ -161,6 +161,11 @@ interface TransactionFormModalProps {
   onDelete?: () => Promise<void>;
   isEdit?: boolean;
   mode?: 'audio' | 'manual' | 'quick-prompt';
+  /**
+   * Offers "scan a bill" on a new manual entry. Gets the picked photo's local
+   * URI; the parent reads it and drives the sheet into draft review.
+   */
+  onScanReceipt?: (uri: string) => void;
   /**
    * The sheet is open but the parse has not landed yet. The draft area renders
    * placeholders shaped like the fields that are coming; everything else — the
@@ -445,6 +450,7 @@ export function TransactionFormModal({
   onDelete,
   isEdit,
   mode = 'manual',
+  onScanReceipt,
   isParsing = false,
   aiReview,
   accounts = emptyAccounts,
@@ -602,6 +608,7 @@ export function TransactionFormModal({
     dismiss: dismissUpgrade,
   } = useEntitlementGate();
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [scanError, setScanError] = useState<string | null>(null);
   const [splitShareMode, setSplitShareMode] = useState<TransactionSplitShareMode>('amount');
   const [isDiscardDialogVisible, setIsDiscardDialogVisible] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
@@ -708,7 +715,15 @@ export function TransactionFormModal({
       setEmiRepeats(false);
       setForm((prev) => ({ ...prev, subscriptionEnabled: false, subscriptionAutopay: false }));
     }
-  }, [emiRepeatActive, emiRepeats, emiNextDebit, form.title, form.merchant, form.category, form.amount]);
+  }, [
+    emiRepeatActive,
+    emiRepeats,
+    emiNextDebit,
+    form.title,
+    form.merchant,
+    form.category,
+    form.amount,
+  ]);
 
   useEffect(() => {
     const amount = Number(form.amount.replace(/,/g, ''));
@@ -1039,7 +1054,7 @@ export function TransactionFormModal({
       ...previous,
       title,
       category: shouldInfer
-        ? inferTransactionCategory(title, previous.type) ?? defaultCategoryForType(previous.type)
+        ? (inferTransactionCategory(title, previous.type) ?? defaultCategoryForType(previous.type))
         : previous.category,
     }));
   };
@@ -1198,6 +1213,7 @@ export function TransactionFormModal({
       setIsMoreDetailsExpanded(false);
       setIsTitleFocused(false);
       setFormError(null);
+      setScanError(null);
       seedForm();
 
       // A timed slide, not a spring: the spring overshot and rang two or three
@@ -1326,6 +1342,34 @@ export function TransactionFormModal({
       setForm((prev) => ({ ...prev, attachment: asset.uri }));
     } catch {
       setAttachmentError('That file could not be read. Please pick another one.');
+    }
+  };
+
+  /** Bill scanning is for a fresh personal entry; a split has its own composer. */
+  const canScanReceipt = fastEntry && !splitContext && !!onScanReceipt;
+
+  /**
+   * Pick a bill photo and hand it up for reading. Images only — the reader
+   * takes photos and screenshots, not PDFs. A camera option needs a native
+   * module and is left for a later build.
+   */
+  const handleScanReceipt = async () => {
+    setScanError(null);
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: 'image/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset?.uri) {
+        setScanError('That photo could not be read. Please pick another one.');
+        return;
+      }
+      onScanReceipt?.(asset.uri);
+    } catch {
+      setScanError('That photo could not be opened. Please try again.');
     }
   };
 
@@ -2053,6 +2097,25 @@ export function TransactionFormModal({
                   style={{ backgroundColor: colorScheme === 'dark' ? theme.card : '#F3F4F6' }}>
                   <MaterialCommunityIcons name="close" size={18} color={theme.text} />
                 </Pressable>
+                {canScanReceipt ? (
+                  <Pressable
+                    testID="scan-receipt"
+                    onPress={() => void handleScanReceipt()}
+                    accessibilityRole="button"
+                    accessibilityLabel="Scan a bill or receipt photo"
+                    accessibilityHint="Finnri reads the total, date and shop. Uses AI credits."
+                    className="absolute left-5 top-5 h-9 flex-row items-center gap-1.5 rounded-full px-3 z-10"
+                    style={{ backgroundColor: colorScheme === 'dark' ? theme.card : '#F3F4F6' }}>
+                    <MaterialCommunityIcons
+                      name="receipt-text-plus-outline"
+                      size={17}
+                      color={theme.text}
+                    />
+                    <ThemedText className="text-xs font-bold" style={{ color: theme.text }}>
+                      Scan bill
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
               </View>
 
               <ScrollView
@@ -2095,6 +2158,11 @@ export function TransactionFormModal({
                             ? 'New split expense'
                             : 'New Transaction'}
                   </ThemedText>
+                  {canScanReceipt && scanError ? (
+                    <ThemedText tone="negative" className="mt-1 text-center text-xs">
+                      {scanError}
+                    </ThemedText>
+                  ) : null}
                   {/* The review sheet's banner already says how many fields
                       want a look, and a second line saying it again costs the
                       height that keeps a clean draft scroll-free. Smart Sorting
@@ -2122,9 +2190,11 @@ export function TransactionFormModal({
                       <View className="flex-row items-center gap-1.5">
                         <MaterialCommunityIcons
                           name={
-                            aiReview.inputSource === 'text'
-                              ? 'keyboard-outline'
-                              : 'microphone-outline'
+                            aiReview.inputSource === 'receipt'
+                              ? 'receipt-text-outline'
+                              : aiReview.inputSource === 'text'
+                                ? 'keyboard-outline'
+                                : 'microphone-outline'
                           }
                           size={13}
                           color="#9CA3AF"
@@ -2132,7 +2202,11 @@ export function TransactionFormModal({
                         <ThemedText
                           tone="muted"
                           className="text-[10px] font-black uppercase tracking-widest">
-                          {aiReview.inputSource === 'text' ? 'You typed' : 'You said'}
+                          {aiReview.inputSource === 'receipt'
+                            ? 'Read from your receipt'
+                            : aiReview.inputSource === 'text'
+                              ? 'You typed'
+                              : 'You said'}
                         </ThemedText>
                       </View>
                       <ThemedText
@@ -2268,7 +2342,9 @@ export function TransactionFormModal({
                           className="mb-4 flex-row items-center justify-between gap-3 rounded-[20px] border p-4"
                           style={{ backgroundColor: theme.card, borderColor: theme.border }}>
                           <View className="flex-1">
-                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                            <ThemedText
+                              className="text-sm font-black"
+                              style={{ color: theme.text }}>
                               Also record the {formatMoney(refundReceived.amount)} refund?
                             </ThemedText>
                             <ThemedText tone="muted" className="mt-1 text-xs">
@@ -2306,7 +2382,11 @@ export function TransactionFormModal({
                                   accessibilityRole="button"
                                   accessibilityState={{ selected }}
                                   onPress={() =>
-                                    setForm((p) => ({ ...p, accountId: match.id, account: match.name }))
+                                    setForm((p) => ({
+                                      ...p,
+                                      accountId: match.id,
+                                      account: match.name,
+                                    }))
                                   }
                                   className="rounded-full border px-4 py-2"
                                   style={{
@@ -4108,8 +4188,7 @@ export function TransactionFormModal({
                     // Theme tokens, not bg-gray-50 / text-gray-700: those are
                     // fixed light-mode colours, so in dark mode the rows were
                     // near-white with near-white labels.
-                    backgroundColor:
-                      form.accountId === account.id ? `${accent}1F` : theme.card,
+                    backgroundColor: form.accountId === account.id ? `${accent}1F` : theme.card,
                     borderColor: form.accountId === account.id ? accent : theme.border,
                   }}>
                   <View>

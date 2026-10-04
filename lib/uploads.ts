@@ -135,7 +135,7 @@ const discardTemporary = (file: File) => {
   }
 };
 
-type PreparedUpload = {
+export type PreparedUpload = {
   file: File;
   /** True when `file` is a re-encoded copy we made and must clean up. */
   temporary: boolean;
@@ -166,6 +166,25 @@ const prepareUpload = async (
     // cannot read still uploads at its original size.
     return { file: source, temporary: false };
   }
+};
+
+/**
+ * A receipt photo bound for the AI reader rather than for storage.
+ *
+ * Unlike `prepareUpload` this always re-encodes, whatever the size: the reader
+ * takes JPEG, PNG or WebP only, and an iPhone photo arrives as HEIC. The
+ * caller deletes `file` when `temporary` is set, once the request is done.
+ */
+export const prepareReceiptScanImage = async (uri: string): Promise<PreparedUpload> => {
+  try {
+    return { file: await compressImage(uri), temporary: true };
+  } catch {
+    return { file: new File(uri), temporary: false };
+  }
+};
+
+export const discardPreparedUpload = ({ file, temporary }: PreparedUpload) => {
+  if (temporary) discardTemporary(file);
 };
 
 /**
