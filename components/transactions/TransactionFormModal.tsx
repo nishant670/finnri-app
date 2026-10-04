@@ -49,7 +49,8 @@ import { haptics } from '@/lib/haptics';
 import { formatMoney, toAmount, toAmountInputValue, toKeypadValue } from '@/lib/money';
 import { ATTACHMENT_PICKER_TYPES, isLocalAttachmentUri } from '@/lib/uploads';
 import type { SplitFriend, SplitGroup } from '@/lib/splits';
-import type { BillingInterval } from '@/lib/subscriptions';
+import { formatEMIProgress, type EMIPlan } from '@/lib/emi-plans';
+import type { BillingInterval, Subscription } from '@/lib/subscriptions';
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import { formatDateLabel, parseDateLabel } from '@/lib/transactions';
 import {
@@ -96,6 +97,10 @@ export type SplitParticipantForm = {
   sharePercent?: string;
   direction: 'friend_owes_user' | 'user_owes_friend';
 };
+
+export type EMILink =
+  | { kind: 'plan'; plan: EMIPlan; onOpen: () => void }
+  | { kind: 'recurring'; subscription: Subscription };
 
 export type EntryForm = {
   title: string;
@@ -160,6 +165,11 @@ interface TransactionFormModalProps {
   onSave: (data: EntryForm) => Promise<void>;
   onDelete?: () => Promise<void>;
   isEdit?: boolean;
+  /**
+   * Edit only: what this EMI-tagged entry is already tied to. A card EMI has a
+   * plan with a schedule; a bank EMI may already repeat as an auto-debit.
+   */
+  emiLink?: EMILink | null;
   mode?: 'audio' | 'manual' | 'quick-prompt';
   /**
    * The sheet is open but the parse has not landed yet. The draft area renders
@@ -287,6 +297,39 @@ const nextMonthClamped = (value: string) => {
   const targetMonth = (purchased.getMonth() + 1) % 12;
   const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
   return formatDateLabel(new Date(targetYear, targetMonth, Math.min(purchased.getDate(), lastDay)));
+};
+
+/**
+ * The next monthly debit for an EMI that was paid on `value`: the same day of
+ * the month, and strictly after today.
+ *
+ * "A month after the entry" is wrong for an entry dated in the past — logging
+ * last month's EMI would schedule a debit that is already overdue, and the
+ * server would then create a catch-up entry for every month in between. The day
+ * of the month is re-derived from the entry each step, so a 31st does not drift
+ * to the 28th for good after one February.
+ */
+const nextMonthlyAfterToday = (value: string, now = new Date()) => {
+  const base = parseDateLabel(value);
+  if (!base) return null;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  for (let step = 1; step <= 600; step++) {
+    const lastDay = new Date(base.getFullYear(), base.getMonth() + step + 1, 0).getDate();
+    const candidate = new Date(
+      base.getFullYear(),
+      base.getMonth() + step,
+      Math.min(base.getDate(), lastDay)
+    );
+    if (candidate > today) return candidate;
+  }
+  return null;
+};
+
+const formatNiceDate = (iso: string) => {
+  const parsed = parseDateLabel(iso);
+  return parsed
+    ? parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+    : iso;
 };
 
 const splitParticipantDivisor = (participantCount: number) => participantCount + 1;
@@ -444,6 +487,7 @@ export function TransactionFormModal({
   onSave,
   onDelete,
   isEdit,
+  emiLink = null,
   mode = 'manual',
   isParsing = false,
   aiReview,
@@ -670,17 +714,20 @@ export function TransactionFormModal({
   const [emiRepeats, setEmiRepeats] = useState(false);
   const canRepeatEmi =
     personalPayment &&
-    !isEdit &&
+    // On an existing entry only when nothing is tied to it yet — otherwise the
+    // toggle would create a second recurring payment for the same loan.
+    (!isEdit || emiLink === null) &&
     form.tag === 'EMI' &&
     form.type === 'Expense' &&
     !isEMICreditCard &&
     form.mode !== 'Cash' &&
+    form.mode !== 'Credit Card' &&
     // Auto-debit is tied to the account the money leaves; the API rejects it
     // without one.
     form.accountId != null;
   const emiRepeatActive = emiRepeats && canRepeatEmi;
   const emiNextDebit = useMemo(() => {
-    const next = parseDateLabel(nextMonthClamped(form.date));
+    const next = nextMonthlyAfterToday(form.date);
     return next ? formatApiDate(next) : '';
   }, [form.date]);
 
@@ -2321,18 +2368,24 @@ export function TransactionFormModal({
                                 </Pressable>
                               );
                             })}
-                            {newAccountSuggestion && onSetupSuggestedAccount ? (
-                              <Pressable
-                                accessibilityRole="button"
-                                onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
-                                className="rounded-full border px-4 py-2"
-                                style={{ borderColor: theme.border }}>
-                                <ThemedText tone="muted" className="text-xs font-black">
-                                  {'It\u2019s a new one'}
-                                </ThemedText>
-                              </Pressable>
-                            ) : null}
                           </View>
+                          {newAccountSuggestion && onSetupSuggestedAccount ? (
+                            <Pressable
+                              testID="account-match-new"
+                              accessibilityRole="button"
+                              onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
+                              className="mt-3 flex-row items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-3"
+                              style={{ borderColor: accent }}>
+                              <MaterialCommunityIcons
+                                name="plus-circle-outline"
+                                size={18}
+                                color={accent}
+                              />
+                              <ThemedText className="text-sm font-black" style={{ color: accent }}>
+                                None of these — add a new account
+                              </ThemedText>
+                            </Pressable>
+                          ) : null}
                         </View>
                       )}
 
@@ -2868,9 +2921,11 @@ export function TransactionFormModal({
                             <ThemedText tone="muted" className="mt-1 text-xs">
                               {isEMICreditCard
                                 ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
-                                : isEdit
-                                  ? 'Existing entries keep EMI as a label. Create a new credit-card transaction to build an instalment schedule.'
-                                  : canRepeatEmi
+                                : isEdit && emiLink?.kind === 'plan'
+                                  ? 'This purchase is on an EMI plan.'
+                                  : isEdit && emiLink?.kind === 'recurring'
+                                    ? 'This EMI repeats automatically.'
+                                    : canRepeatEmi
                                     ? 'Saved as a normal payment. Turn on the repeat below to get a reminder and a ready-to-confirm entry each month.'
                                     : form.mode === 'Cash'
                                       ? 'Saved as an EMI-tagged payment. Pick a bank or UPI account to repeat it automatically each month.'
@@ -2878,6 +2933,54 @@ export function TransactionFormModal({
                             </ThemedText>
                           </View>
                         </View>
+
+                        {isEdit && emiLink?.kind === 'plan' ? (
+                          <View
+                            testID="emi-link-plan"
+                            className="mt-4 gap-2 rounded-2xl border p-3"
+                            style={{ borderColor: theme.border }}>
+                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                              {formatMoney(emiLink.plan.monthly_amount)} × {emiLink.plan.tenure_months} months
+                              {emiLink.plan.annual_rate_pct === 0
+                                ? ' · No-cost'
+                                : ` · ${emiLink.plan.annual_rate_pct}% a year`}
+                            </ThemedText>
+                            <ThemedText tone="muted" className="text-xs">
+                              {formatEMIProgress(emiLink.plan.progress)}
+                              {emiLink.plan.progress.next_due_date
+                                ? ` · next ${formatNiceDate(emiLink.plan.progress.next_due_date)}`
+                                : ''}
+                            </ThemedText>
+                            <Pressable
+                              accessibilityRole="button"
+                              onPress={emiLink.onOpen}
+                              className="mt-1 self-start rounded-full border px-4 py-2"
+                              style={{ borderColor: accent }}>
+                              <ThemedText className="text-xs font-black" style={{ color: accent }}>
+                                View full schedule
+                              </ThemedText>
+                            </Pressable>
+                          </View>
+                        ) : null}
+
+                        {isEdit && emiLink?.kind === 'recurring' ? (
+                          <View
+                            testID="emi-link-recurring"
+                            className="mt-4 gap-1 rounded-2xl border p-3"
+                            style={{ borderColor: theme.border }}>
+                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
+                              Auto-debit {formatMoney(emiLink.subscription.amount)} every month
+                            </ThemedText>
+                            <ThemedText tone="muted" className="text-xs">
+                              {emiLink.subscription.total_instalments > 0
+                                ? `${emiLink.subscription.instalments_paid} of ${emiLink.subscription.total_instalments} paid · ${Math.max(emiLink.subscription.total_instalments - emiLink.subscription.instalments_paid, 0)} left`
+                                : 'No end date set'}
+                              {emiLink.subscription.status === 'active'
+                                ? ` · next ${formatNiceDate(String(emiLink.subscription.next_due_date).slice(0, 10))}`
+                                : ' · finished'}
+                            </ThemedText>
+                          </View>
+                        ) : null}
 
                         {canRepeatEmi ? (
                           <View
@@ -2891,7 +2994,7 @@ export function TransactionFormModal({
                               </ThemedText>
                               <ThemedText tone="muted" className="mt-0.5 text-xs">
                                 {emiRepeatActive
-                                  ? `Next debit ${emiNextDebit}. You'll be reminded 3 days before and asked to confirm it.`
+                                  ? `Next debit ${formatNiceDate(emiNextDebit)}. You'll be reminded 3 days before and asked to confirm it.`
                                   : 'For loan EMIs the bank takes automatically.'}
                               </ThemedText>
                             </View>

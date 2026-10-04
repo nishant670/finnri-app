@@ -15,6 +15,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
@@ -22,9 +23,11 @@ import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSk
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
+import { fetchCardEMIPlans } from '@/lib/emi-plans';
+import { fetchSubscriptions } from '@/lib/subscriptions';
 import { fetchEntry, updateEntry } from '@/lib/entries';
-import { buildTransactionPayload } from '@/lib/transaction-composer';
+import { buildTransactionPayload, createRecurringFromForm } from '@/lib/transaction-composer';
 import { isPdfAttachment, resolveAttachmentForDisplay } from '@/lib/uploads';
 import {
   fetchNewUnreadBudgetNotification,
@@ -79,6 +82,9 @@ export default function TransactionDetailsScreen() {
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const { requestDelete } = useTransactionDelete();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // What an EMI-tagged entry is already tied to: a card's EMI plan, or a bank EMI
+  // that repeats as an auto-debit. Shown in the edit sheet.
+  const [emiLink, setEmiLink] = useState<EMILink | null>(null);
   const [splitBill, setSplitBill] = useState<SplitBill | null>(null);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
@@ -303,6 +309,50 @@ export default function TransactionDetailsScreen() {
     }
   };
 
+  const loadEmiLink = useCallback(async () => {
+    if (!token || !transaction || transaction.tag !== 'EMI') {
+      setEmiLink(null);
+      return;
+    }
+    try {
+      const account = accounts.find((item) => item.id === transaction.account_id);
+      if (account && normalizeAccountType(account.type) === 'credit_card') {
+        const plans = await fetchCardEMIPlans(token, account.id);
+        const plan = plans.find(
+          (item) =>
+            item.source_entry_id === entryID ||
+            item.installments?.some((installment) => installment.entry_id === entryID)
+        );
+        setEmiLink(
+          plan ? { kind: 'plan', plan, onOpen: () => router.push(`/emi-plans/${plan.id}`) } : null
+        );
+        return;
+      }
+      // A bank EMI has no foreign key to its recurring payment, so it is found
+      // by what identifies one: an EMI-tagged recurring payment on the same
+      // account for the same amount, under this entry's title or merchant.
+      const subscriptions = await fetchSubscriptions(token, 'all');
+      const names = [transaction.title, transaction.merchant]
+        .map((value) => String(value ?? '').trim().toLowerCase())
+        .filter(Boolean);
+      const match = subscriptions.find(
+        (item) =>
+          item.transaction_tag === 'EMI' &&
+          item.account_id === transaction.account_id &&
+          Number(item.amount) === Number(transaction.amount) &&
+          names.includes(item.name.trim().toLowerCase())
+      );
+      setEmiLink(match ? { kind: 'recurring', subscription: match } : null);
+    } catch {
+      // The sheet still works without it; it just offers the repeat again.
+      setEmiLink(null);
+    }
+  }, [accounts, entryID, router, token, transaction]);
+
+  useEffect(() => {
+    void loadEmiLink();
+  }, [loadEmiLink]);
+
   const handleEdit = () => {
     setIsEditModalVisible(true);
   };
@@ -339,6 +389,13 @@ export default function TransactionDetailsScreen() {
           ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
           : new Set<number>();
       await updateEntry(token, params.id, payload);
+
+      // An EMI that was not repeating can start to, from here: the same record a
+      // new transaction creates. Skipped when one is already tied to this entry.
+      if (formData.subscriptionEnabled && formData.subscriptionBillingInterval && !emiLink) {
+        const account = accounts.find((item) => item.id === formData.accountId) ?? null;
+        await createRecurringFromForm(token, formData, account);
+      }
 
       // Refresh logic
       await fetchTransactionDetails();
@@ -905,6 +962,7 @@ export default function TransactionDetailsScreen() {
         initialData={editInitialData}
         onSave={handleSaveUpdate}
         isEdit={true}
+        emiLink={emiLink}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
