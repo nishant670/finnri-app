@@ -60,7 +60,7 @@ import {
 } from '@/lib/categories';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
-import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
+import { PAYMENT_MODES } from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
   draftSummaryParts,
@@ -77,6 +77,7 @@ import {
   TransactionDateTimeSheet,
   TransactionSubscriptionDateSheet,
 } from './TransactionDateSheets';
+import { TransactionDraftField, tagOptions } from './TransactionDraftField';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionModePicker } from './TransactionModePicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
@@ -289,7 +290,6 @@ const getPaymentLanguage = (entryType: string) =>
         modeAccessibilityPrefix: 'Paid via',
         accountAccessibilityPrefix: 'Paid from',
       };
-const tagOptions = ['Investment', 'Lending', 'EMI', 'Refundable', 'Subscription', 'General'];
 
 const nextMonthClamped = (value: string) => {
   const purchased = parseDateLabel(value);
@@ -1728,248 +1728,27 @@ export function TransactionFormModal({
     />
   );
 
-  /**
-   * One field of the AI draft, as a card that says how sure the parser was.
-   *
-   * A picker counts as checked the moment it is opened — the chip asks the
-   * user to look, and they looked, whether or not they changed anything. A
-   * text field counts when it is actually edited, because opening a keyboard
-   * over it proves nothing.
-   */
-  const renderDraftField = (field: DraftFieldKey) => {
-    const flagged = draftPlan?.flagged.includes(field) ?? false;
-    const checked = checkedDraftFields.includes(field);
-
-    switch (field) {
-      case 'type':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Type"
-            icon="swap-vertical"
-            flagged={flagged}
-            checked={checked}>
-            <View className="mt-1.5 flex-row gap-2">
-              {(['Expense', 'Income'] as const).map((option) => {
-                const isSelected = form.type === option;
-                return (
-                  <Pressable
-                    key={option}
-                    testID={`draft-type-${option.toLowerCase()}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                    onPress={() => {
-                      setForm((previous) => ({
-                        ...previous,
-                        type: option,
-                        category: defaultCategoryForType(option),
-                      }));
-                      animateTypeSwitch(option === 'Income');
-                      markDraftFieldChecked('type');
-                    }}
-                    className="rounded-full border px-3 py-1.5"
-                    style={{
-                      backgroundColor: isSelected ? accentSurface : theme.card,
-                      borderColor: isSelected ? accent : theme.border,
-                    }}>
-                    <ThemedText
-                      className="text-[11px] font-black"
-                      style={{ color: isSelected ? accent : theme.text }}>
-                      {option}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </DraftFieldCard>
-        );
-      case 'title':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Transaction Title"
-            icon="label-variant-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-title-input"
-              value={form.title}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, title: text }));
-                markDraftFieldChecked('title');
-              }}
-              className="p-0 text-sm font-black"
-              placeholder="Short title"
-              placeholderTextColor="#9CA3AF"
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      case 'category':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-category-picker"
-            label="Category"
-            value={displayedCategory}
-            icon={displayedCategoryVisual.icon}
-            iconColor={displayedCategoryVisual.color}
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`Category ${displayedCategory}`}
-            onPress={() => {
-              markDraftFieldChecked('category');
-              setIsCategoryPickerVisible(true);
-            }}
-          />
-        );
-      case 'mode':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-mode-picker"
-            label={paymentLanguage.modeLabel}
-            value={form.mode}
-            placeholder="Choose a payment mode"
-            icon={paymentModeVisual(form.mode).icon}
-            iconColor={paymentModeVisual(form.mode).color}
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`${paymentLanguage.modeAccessibilityPrefix} ${form.mode || 'not set'}`}
-            onPress={() => {
-              markDraftFieldChecked('mode');
-              setIsModePickerVisible(true);
-            }}
-          />
-        );
-      case 'account':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-account-picker"
-            label={paymentLanguage.accountLabel}
-            value={form.account}
-            placeholder={
-              compatibleAccounts.length === 0
-                ? `Add a ${form.mode || 'matching'} account`
-                : 'Select an account'
-            }
-            icon="wallet-outline"
-            iconColor="#3B82F6"
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`${paymentLanguage.accountAccessibilityPrefix} ${form.account || 'no account yet'}`}
-            onPress={() => {
-              markDraftFieldChecked('account');
-              setIsAccountPickerVisible(true);
-            }}
-          />
-        );
-      case 'date':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-date-picker"
-            label="Date & time"
-            value={form.date ? `${draftDateLabel}, ${form.time}` : ''}
-            placeholder="Pick a date"
-            icon="calendar-multiselect"
-            iconColor="#8B5CF6"
-            flagged={flagged}
-            checked={checked}
-            onPress={() => {
-              markDraftFieldChecked('date');
-              handleOpenDatePicker();
-            }}
-          />
-        );
-      case 'merchant':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Merchant"
-            icon="storefront-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-merchant-input"
-              value={form.merchant}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, merchant: text }));
-                markDraftFieldChecked('merchant');
-              }}
-              className="p-0 text-sm font-black"
-              placeholder="Merchant or store name"
-              placeholderTextColor={detailInputPlaceholderColor}
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      case 'tag':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Tag"
-            icon="tag-outline"
-            flagged={flagged}
-            checked={checked}>
-            <View className="mt-1.5 flex-row flex-wrap gap-2">
-              {tagOptions.map((tag) => {
-                const isSelected = form.tag === tag;
-                return (
-                  <Pressable
-                    key={tag}
-                    onPress={() => {
-                      setForm((previous) => ({ ...previous, tag }));
-                      markDraftFieldChecked('tag');
-                    }}
-                    className="rounded-full border px-3 py-1.5"
-                    style={{
-                      backgroundColor: isSelected ? accentSurface : theme.card,
-                      borderColor: isSelected ? accent : theme.border,
-                    }}>
-                    <ThemedText
-                      className="text-[11px] font-black"
-                      style={{ color: isSelected ? accent : '#6B7280' }}>
-                      {tag}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </DraftFieldCard>
-        );
-      case 'notes':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Notes"
-            icon="note-text-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-notes-input"
-              multiline
-              value={form.notes}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, notes: text }));
-                markDraftFieldChecked('notes');
-              }}
-              className="p-0 text-sm font-bold"
-              placeholder="Add a note..."
-              placeholderTextColor={detailInputPlaceholderColor}
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      default:
-        // `amount` is the headline above this list and never a row in it.
-        return null;
-    }
-  };
+  const renderDraftField = (field: DraftFieldKey) => (
+    <TransactionDraftField
+      key={field}
+      field={field}
+      form={form}
+      setForm={setForm}
+      flagged={draftPlan?.flagged.includes(field) ?? false}
+      checked={checkedDraftFields.includes(field)}
+      paymentLanguage={paymentLanguage}
+      category={displayedCategory}
+      categoryVisual={displayedCategoryVisual}
+      dateLabel={draftDateLabel}
+      compatibleAccountCount={compatibleAccounts.length}
+      onChecked={markDraftFieldChecked}
+      onSwitchType={animateTypeSwitch}
+      onOpenCategoryPicker={() => setIsCategoryPickerVisible(true)}
+      onOpenModePicker={() => setIsModePickerVisible(true)}
+      onOpenAccountPicker={() => setIsAccountPickerVisible(true)}
+      onOpenDatePicker={handleOpenDatePicker}
+    />
+  );
 
   // Rendered inside the scroll view everywhere except the amount-first path,
   // where it is pinned above the keypad so a save never needs a scroll.
