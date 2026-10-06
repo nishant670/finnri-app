@@ -49,7 +49,7 @@ import { haptics } from '@/lib/haptics';
 import { formatMoney, toAmount, toAmountInputValue, toKeypadValue } from '@/lib/money';
 import { ATTACHMENT_PICKER_TYPES } from '@/lib/uploads';
 import type { SplitFriend, SplitGroup } from '@/lib/splits';
-import { formatEMIProgress, type EMIPlan } from '@/lib/emi-plans';
+import type { EMIPlan } from '@/lib/emi-plans';
 import type { BillingInterval, Subscription } from '@/lib/subscriptions';
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import { formatDateLabel, parseDateLabel } from '@/lib/transactions';
@@ -72,6 +72,7 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
+import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import {
@@ -294,7 +295,6 @@ const subscriptionIntervalOptions: BillingInterval[] = [
   'yearly',
 ];
 const tagOptions = ['Investment', 'Lending', 'EMI', 'Refundable', 'Subscription', 'General'];
-const emiTenureOptions = [3, 6, 9, 12, 18, 24];
 
 const nextMonthClamped = (value: string) => {
   const purchased = parseDateLabel(value);
@@ -330,13 +330,6 @@ const nextMonthlyAfterToday = (value: string, now = new Date()) => {
     if (candidate > today) return candidate;
   }
   return null;
-};
-
-const formatNiceDate = (iso: string) => {
-  const parsed = parseDateLabel(iso);
-  return parsed
-    ? parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-    : iso;
 };
 
 const splitParticipantDivisor = (participantCount: number) => participantCount + 1;
@@ -2919,279 +2912,37 @@ export function TransactionFormModal({
                   mode !== 'quick-prompt' &&
                   (showFullForm || draftReview) &&
                   form.tag === 'EMI' && (
-                    <View className="px-5 mb-6">
-                      <View
-                        className="rounded-[24px] border p-4"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <View className="flex-row items-start gap-3">
-                          <View
-                            className="h-10 w-10 items-center justify-center rounded-2xl"
-                            style={{ backgroundColor: accentSurface }}>
-                            <MaterialCommunityIcons
-                              name="calendar-month-outline"
-                              size={20}
-                              color={accent}
-                            />
-                          </View>
-                          <View className="flex-1">
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              EMI schedule
-                            </ThemedText>
-                            <ThemedText tone="muted" className="mt-1 text-xs">
-                              {isEMICreditCard
-                                ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
-                                : isEdit && emiLink?.kind === 'plan'
-                                  ? 'This purchase is on an EMI plan.'
-                                  : isEdit && emiLink?.kind === 'recurring'
-                                    ? 'This EMI repeats automatically.'
-                                    : canRepeatEmi
-                                    ? 'Saved as a normal payment. Turn on the repeat below to get a reminder and a ready-to-confirm entry each month.'
-                                    : form.mode === 'Cash'
-                                      ? 'Saved as an EMI-tagged payment. Pick a bank or UPI account to repeat it automatically each month.'
-                                      : 'Saved as an EMI-tagged payment.'}
-                            </ThemedText>
-                          </View>
-                        </View>
-
-                        {isEdit && emiLink?.kind === 'plan' ? (
-                          <View
-                            testID="emi-link-plan"
-                            className="mt-4 gap-2 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                              {formatMoney(emiLink.plan.monthly_amount)} × {emiLink.plan.tenure_months} months
-                              {emiLink.plan.annual_rate_pct === 0
-                                ? ' · No-cost'
-                                : ` · ${emiLink.plan.annual_rate_pct}% a year`}
-                            </ThemedText>
-                            <ThemedText tone="muted" className="text-xs">
-                              {formatEMIProgress(emiLink.plan.progress)}
-                              {emiLink.plan.progress.next_due_date
-                                ? ` · next ${formatNiceDate(emiLink.plan.progress.next_due_date)}`
-                                : ''}
-                            </ThemedText>
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={emiLink.onOpen}
-                              className="mt-1 self-start rounded-full border px-4 py-2"
-                              style={{ borderColor: accent }}>
-                              <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                                View full schedule
-                              </ThemedText>
-                            </Pressable>
-                          </View>
-                        ) : null}
-
-                        {isEdit && emiLink?.kind === 'recurring' ? (
-                          <View
-                            testID="emi-link-recurring"
-                            className="mt-4 gap-1 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                              Auto-debit {formatMoney(emiLink.subscription.amount)} every month
-                            </ThemedText>
-                            <ThemedText tone="muted" className="text-xs">
-                              {emiLink.subscription.total_instalments > 0
-                                ? `${emiLink.subscription.instalments_paid} of ${emiLink.subscription.total_instalments} paid · ${Math.max(emiLink.subscription.total_instalments - emiLink.subscription.instalments_paid, 0)} left`
-                                : 'No end date set'}
-                              {emiLink.subscription.status === 'active'
-                                ? ` · next ${formatNiceDate(String(emiLink.subscription.next_due_date).slice(0, 10))}`
-                                : ' · finished'}
-                            </ThemedText>
-                          </View>
-                        ) : null}
-
-                        {canRepeatEmi ? (
-                          <View
-                            className="mt-4 flex-row items-center justify-between gap-3 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <View className="flex-1">
-                              <ThemedText
-                                className="text-sm font-black"
-                                style={{ color: theme.text }}>
-                                Repeats monthly (auto-debit)
-                              </ThemedText>
-                              <ThemedText tone="muted" className="mt-0.5 text-xs">
-                                {emiRepeatActive
-                                  ? `Next debit ${formatNiceDate(emiNextDebit)}. You'll be reminded 3 days before and asked to confirm it.`
-                                  : 'For loan EMIs the bank takes automatically.'}
-                              </ThemedText>
-                            </View>
-                            <HapticSwitch
-                              value={emiRepeatActive}
-                              onValueChange={setEmiRepeats}
-                              trackColor={{ false: theme.border, true: accent }}
-                            />
-                          </View>
-                        ) : null}
-
-                        {emiRepeatActive ? (
-                          <View className="mt-3 flex-row gap-3">
-                            <View
-                              className="flex-1 rounded-2xl border p-3"
-                              style={{ borderColor: theme.border }}>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
-                                Total EMIs
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiTotalInstalments}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({
-                                    ...previous,
-                                    emiTotalInstalments: text.replace(/\D/g, '').slice(0, 3),
-                                  }))
-                                }
-                                placeholder="Leave empty if unknown"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="number-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                            <View
-                              className="flex-1 rounded-2xl border p-3"
-                              style={{ borderColor: theme.border }}>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
-                                Paid so far
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiPaidInstalments}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({
-                                    ...previous,
-                                    emiPaidInstalments: text.replace(/\D/g, '').slice(0, 3),
-                                  }))
-                                }
-                                placeholder="1 (this one)"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="number-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                          </View>
-                        ) : null}
-
-                        {isEMICreditCard ? (
-                          <View className="mt-4 gap-4">
-                            <View>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                                Tenure
-                              </ThemedText>
-                              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View className="flex-row gap-2">
-                                  {emiTenureOptions.map((months) => (
-                                    <Pressable
-                                      key={months}
-                                      accessibilityRole="button"
-                                      accessibilityState={{
-                                        selected: form.emiTenureMonths === String(months),
-                                      }}
-                                      onPress={() =>
-                                        setForm((previous) => ({
-                                          ...previous,
-                                          emiTenureMonths: String(months),
-                                        }))
-                                      }
-                                      className="rounded-full border px-4 py-2"
-                                      style={{
-                                        borderColor:
-                                          form.emiTenureMonths === String(months)
-                                            ? accent
-                                            : theme.border,
-                                        backgroundColor:
-                                          form.emiTenureMonths === String(months)
-                                            ? accent
-                                            : theme.card,
-                                      }}>
-                                      <ThemedText
-                                        className="text-xs font-black"
-                                        style={{
-                                          color:
-                                            form.emiTenureMonths === String(months)
-                                              ? '#FFFFFF'
-                                              : theme.text,
-                                        }}>
-                                        {months} mo
-                                      </ThemedText>
-                                    </Pressable>
-                                  ))}
-                                </View>
-                              </ScrollView>
-                            </View>
-                            <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                              <ThemedText
-                                tone="muted"
-                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                                Annual interest rate
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiRatePct}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({ ...previous, emiRatePct: text }))
-                                }
-                                placeholder="0 for no-cost EMI"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="decimal-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                            <View
-                              className="rounded-2xl p-4"
-                              style={{ backgroundColor: theme.secondary }}>
-                              {isCalculatingEMI ? (
-                                <View className="flex-row items-center gap-2">
-                                  <ActivityIndicator size="small" color={accent} />
-                                  <ThemedText tone="muted" className="text-xs">
-                                    Calculating schedule…
-                                  </ThemedText>
-                                </View>
-                              ) : emiCalculation ? (
-                                <>
-                                  <ThemedText
-                                    className="text-base font-black"
-                                    style={{ color: theme.text }}>
-                                    {formatMoney(emiCalculation.principal_amount)} ÷{' '}
-                                    {emiCalculation.tenure_months} ={' '}
-                                    {formatMoney(emiCalculation.monthly_emi)}/mo
-                                  </ThemedText>
-                                  <ThemedText tone="muted" className="mt-1 text-xs">
-                                    First instalment{' '}
-                                    {emiFirstInstallment || 'one month after purchase'}
-                                    {emiCalculation.total_interest > 0
-                                      ? ` · ${formatMoney(emiCalculation.total_interest)} total interest`
-                                      : ' · No-cost EMI'}
-                                  </ThemedText>
-                                </>
-                              ) : (
-                                <ThemedText
-                                  tone={emiCalculationError ? 'negative' : 'muted'}
-                                  className="text-xs">
-                                  {emiCalculationError ??
-                                    'Choose a tenure to preview the monthly schedule.'}
-                                </ThemedText>
-                              )}
-                            </View>
-                            <View className="rounded-2xl bg-amber-50 p-3 dark:bg-amber-900/20">
-                              <ThemedText tone="warning" className="text-xs font-bold">
-                                Saving replaces this purchase entry with the EMI plan. Only each
-                                monthly instalment will appear as spending, so the purchase is not
-                                counted twice.
-                              </ThemedText>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
+                    <TransactionEmiFields
+                      isEdit={isEdit}
+                      emiLink={emiLink}
+                      paymentMode={form.mode}
+                      isCardConversion={isEMICreditCard}
+                      cardName={selectedAccount?.name}
+                      canRepeat={canRepeatEmi}
+                      repeatActive={emiRepeatActive}
+                      nextDebit={emiNextDebit}
+                      totalInstalments={form.emiTotalInstalments}
+                      paidInstalments={form.emiPaidInstalments}
+                      tenureMonths={form.emiTenureMonths}
+                      ratePct={form.emiRatePct}
+                      firstInstallment={emiFirstInstallment}
+                      calculation={emiCalculation}
+                      calculationError={emiCalculationError}
+                      isCalculating={isCalculatingEMI}
+                      onChangeRepeat={setEmiRepeats}
+                      onChangeTotalInstalments={(emiTotalInstalments) =>
+                        setForm((previous) => ({ ...previous, emiTotalInstalments }))
+                      }
+                      onChangePaidInstalments={(emiPaidInstalments) =>
+                        setForm((previous) => ({ ...previous, emiPaidInstalments }))
+                      }
+                      onChangeTenure={(emiTenureMonths) =>
+                        setForm((previous) => ({ ...previous, emiTenureMonths }))
+                      }
+                      onChangeRate={(emiRatePct) =>
+                        setForm((previous) => ({ ...previous, emiRatePct }))
+                      }
+                    />
                   )}
 
                 {mode !== 'quick-prompt' &&
