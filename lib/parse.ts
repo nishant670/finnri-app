@@ -1,5 +1,6 @@
 import { getClientTimeZone } from './datetime';
 import { API_BASE_URL } from './transactions';
+import { discardPreparedUpload, prepareReceiptScanImage } from './uploads';
 
 /**
  * What the parse channel came back with.
@@ -247,6 +248,10 @@ const parseErrorMessages: Record<string, string> = {
   could_not_parse: 'Finnri could not read that just now. Try again in a moment.',
   schema_invalid:
     'I could not turn that into a clean transaction. Try again with the amount, merchant, and payment method.',
+  receipt_unreadable: 'Finnri could not read a total on that receipt.',
+  unsupported_receipt_image: 'That file is not a photo Finnri can read.',
+  receipt_image_too_large: 'That photo is too large to read.',
+  receipt_parser_unavailable: 'Receipt scanning is not available right now.',
 };
 
 export class ParseApiError extends Error {
@@ -382,6 +387,25 @@ const parseFailureCopy: Record<string, ParseFailureCopy> = {
     examples: [],
     canRetry: false,
   },
+  receipt_unreadable: {
+    title: 'I could not read that receipt',
+    message:
+      'No total was readable on that photo. Try again with the whole bill flat, in good light, and the total in frame — or enter it by hand.',
+    examples: [],
+    canRetry: false,
+  },
+  unsupported_receipt_image: {
+    title: 'That photo did not come through',
+    message: 'Pick a photo or screenshot of the bill. PDFs cannot be scanned yet.',
+    examples: [],
+    canRetry: false,
+  },
+  receipt_image_too_large: {
+    title: 'That photo is too large',
+    message: 'Crop it to just the bill, or take a new photo, and try again.',
+    examples: [],
+    canRetry: false,
+  },
   feature_locked: {
     title: 'This needs an active plan',
     message: 'AI capture is part of a paid plan. You can still add the entry by hand.',
@@ -451,4 +475,42 @@ export const parseEntryDraft = async ({
     throw await readParseError(response);
   }
   return response.json();
+};
+
+/**
+ * Read a bill or receipt photo into the same capture draft `/v1/parse` returns.
+ *
+ * The photo is re-encoded to a small JPEG first — the reader does not take
+ * HEIC, and a full-resolution camera frame is megabytes it does not need. The
+ * server reads it once and keeps nothing; the original `uri` stays untouched so
+ * the form can still attach it as the entry's receipt.
+ */
+export const parseReceiptDraft = async ({
+  token,
+  uri,
+  tz = getClientTimeZone(),
+}: {
+  token?: string | null;
+  uri: string;
+  tz?: string;
+}): Promise<ParseDraft> => {
+  const prepared = await prepareReceiptScanImage(uri);
+  try {
+    const formData = new FormData();
+    // A `File`, not `{ uri, name, type }`: see `lib/uploads.ts`.
+    formData.append('image', prepared.file as unknown as Blob);
+    formData.append('tz', tz);
+
+    const response = await fetch(`${API_BASE_URL}/v1/parse/receipt`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    if (!response.ok) {
+      throw await readParseError(response);
+    }
+    return response.json();
+  } finally {
+    discardPreparedUpload(prepared);
+  }
 };
