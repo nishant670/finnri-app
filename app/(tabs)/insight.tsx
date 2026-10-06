@@ -31,7 +31,7 @@ import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { fetchAccounts, type Account } from '@/lib/accounts';
 import { linkEntryAccount } from '@/lib/entries';
 import { formatMoney } from '@/lib/money';
-import { DashboardResponse, InsightCard, fetchDashboard } from '@/lib/insights';
+import { DashboardResponse, InsightCard, fetchDashboard, moneyOutOf } from '@/lib/insights';
 import {
   periodIsEmptyButAccountIsNot,
   rangeForOverviewMonth,
@@ -62,10 +62,11 @@ const getInsightLevel = (dashboard: DashboardResponse) => {
 };
 
 const getBurnRateCopy = (dashboard: DashboardResponse) => {
-  const { total_income: income, total_spent: spent, daily_average: daily } = dashboard.summary;
+  const { total_income: income, daily_average: daily } = dashboard.summary;
+  const out = moneyOutOf(dashboard.summary);
   if (daily <= 0) return 'Add more transactions to estimate your spending rhythm.';
-  if (income > spent) {
-    const remaining = income - spent;
+  if (income > out) {
+    const remaining = income - out;
     const days = Math.max(1, Math.round(remaining / daily));
     return `At your current spending pace, your surplus can cover ~${days} more days.`;
   }
@@ -73,7 +74,9 @@ const getBurnRateCopy = (dashboard: DashboardResponse) => {
 };
 
 const getPeriodPulse = (dashboard: DashboardResponse, reviewCount: number) => {
-  const { total_income: income, total_spent: spent, transaction_count: count } = dashboard.summary;
+  const { total_income: income, transaction_count: count } = dashboard.summary;
+  // Investments are money going out too; the pulse weighs everything that left.
+  const spent = moneyOutOf(dashboard.summary);
   if (count === 0) {
     return {
       label: 'Waiting for data',
@@ -715,7 +718,7 @@ function PeriodPulseCard({
   const theme = useThemeTokens();
   const accentSurface = theme.mode === 'dark' ? theme.colors.secondary : theme.colors.secondary;
   const pulse = getPeriodPulse(dashboard, reviewCount);
-  const surplus = dashboard.summary.total_income - dashboard.summary.total_spent;
+  const surplus = dashboard.summary.total_income - moneyOutOf(dashboard.summary);
 
   return (
     <View
@@ -745,13 +748,29 @@ function PeriodPulseCard({
           <PulseMetric label="Income" amount={dashboard.summary.total_income} />
           <PulseMetric label="Spent" amount={dashboard.summary.total_spent} />
         </View>
-        <View className="flex-row gap-3">
-          <PulseMetric
-            label={surplus >= 0 ? 'Surplus' : 'Over income'}
-            amount={Math.abs(surplus)}
-          />
-          <PulseMetric label="Daily avg" amount={dashboard.summary.daily_average} />
-        </View>
+        {(dashboard.summary.total_invested ?? 0) > 0 ? (
+          <>
+            <View className="flex-row gap-3">
+              <PulseMetric label="Invested" amount={dashboard.summary.total_invested ?? 0} />
+              <PulseMetric
+                label={surplus >= 0 ? 'Surplus' : 'Over income'}
+                amount={Math.abs(surplus)}
+              />
+            </View>
+            <View className="flex-row gap-3">
+              <PulseMetric label="Daily avg" amount={dashboard.summary.daily_average} />
+              <View className="flex-1" />
+            </View>
+          </>
+        ) : (
+          <View className="flex-row gap-3">
+            <PulseMetric
+              label={surplus >= 0 ? 'Surplus' : 'Over income'}
+              amount={Math.abs(surplus)}
+            />
+            <PulseMetric label="Daily avg" amount={dashboard.summary.daily_average} />
+          </View>
+        )}
       </View>
 
       <View
@@ -898,7 +917,7 @@ function WeeklyReviewTeaser({
 function AllClearCard({ dashboard }: { dashboard: DashboardResponse }) {
   const theme = useThemeTokens();
   const topCategory = dashboard.top_categories[0];
-  const surplus = dashboard.summary.total_income - dashboard.summary.total_spent;
+  const surplus = dashboard.summary.total_income - moneyOutOf(dashboard.summary);
 
   return (
     <View

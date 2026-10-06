@@ -1,4 +1,4 @@
-import { accountIdFromActionURL } from '@/lib/notifications';
+import { accountIdFromActionURL, isRecurringActionURL } from '@/lib/notifications';
 
 jest.mock('expo-notifications', () => ({}));
 
@@ -15,5 +15,14 @@ describe('accountIdFromActionURL', () => {
     expect(accountIdFromActionURL('/accounts/abc')).toBeNull();
     expect(accountIdFromActionURL('/entry/3')).toBeNull();
     expect(accountIdFromActionURL(undefined)).toBeNull();
+  });
+});
+
+describe('isRecurringActionURL', () => {
+  it('opens the Recurring tab for a finished schedule', () => {
+    expect(isRecurringActionURL('/recurring/12')).toBe(true);
+    expect(isRecurringActionURL('/recurring')).toBe(true);
+    expect(isRecurringActionURL('/recurring-candidates')).toBe(false);
+    expect(isRecurringActionURL(undefined)).toBe(false);
   });
 });

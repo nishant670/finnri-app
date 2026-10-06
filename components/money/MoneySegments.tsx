@@ -15,7 +15,9 @@ export const moneySegmentMeta: Record<
 > = {
   upcoming: { label: 'Upcoming', icon: 'calendar-clock' },
   budgets: { label: 'Budgets', icon: 'chart-donut' },
-  subscriptions: { label: 'Subscriptions', icon: 'calendar-sync-outline' },
+  // Key kept for deep links (`?segment=subscriptions`); the tab now holds loans,
+  // investments and bills as well.
+  subscriptions: { label: 'Recurring', icon: 'repeat' },
   accounts: { label: 'Accounts', icon: 'wallet-outline' },
 };
 
