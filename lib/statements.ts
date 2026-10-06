@@ -338,6 +338,23 @@ export type StatementDiffEntry = {
   amount: number;
   type: string;
   tag?: string;
+  /** Dated just outside the cycle; may match, never reported as unbilled. */
+  outside_cycle?: boolean;
+};
+
+/**
+ * A statement line that is probably an entry the user already logged — the
+ * same amount on a different day, or a rupee or a forex markup apart. The user
+ * decides; until they say otherwise it is treated as the same purchase.
+ */
+export type StatementProbablePair = {
+  line: StatementLine;
+  entry: StatementDiffEntry;
+  day_gap: number;
+  /** Line minus entry: positive when the bank billed more. */
+  amount_gap: number;
+  similarity: number;
+  reason: 'date' | 'amount';
 };
 
 export type StatementDiff = {
@@ -349,36 +366,73 @@ export type StatementDiff = {
     /** Description overlap, 0..1. A tie-breaker only — low is normal. */
     similarity: number;
   }[];
+  /** Probably already logged. Kept out of `missing` and `extra`. */
+  probable: StatementProbablePair[];
   /** On the statement, not in Finnri. These are what importing adds. */
   missing: StatementLine[];
   /** In Finnri, not billed. Shown for review — never auto-deleted. */
   extra: StatementDiffEntry[];
   /** Real, but never importable as card entries. */
   ignored: StatementLine[];
+  /** The bank's fees and interest, wherever they landed in the diff. */
+  charges: StatementLine[];
+  /** The ledger against this bill before import. Absent for a draft bill. */
+  reconciliation?: StatementReconciliation;
   summary: {
     statement_lines: number;
     matched_count: number;
     missing_count: number;
     extra_count: number;
     ignored_count: number;
+    probable_count: number;
+    charges_count: number;
+    charges_amount: number;
     missing_amount: number;
     extra_amount: number;
   };
-  /** Present for screenshot intake. It is advisory and never blocks review/import. */
+  /**
+   * Whether the rows read off the file add up to the bill. Advisory — never
+   * blocks review or import. Absent while the bill has no amount.
+   */
   checksum?: {
     parsed_debits: number;
     parsed_credits: number;
     parsed_net: number;
+    /** Bill payments among the rows, kept out of `parsed_net`. */
+    payments: number;
+    /** The previous bill's total, when Finnri has one. */
+    opening_balance?: number;
     expected_net: number;
     difference: number;
     matches: boolean;
     message: string;
   };
-  source?: 'screenshots_ai';
+  source?: 'pdf' | 'screenshots_ai';
   credits_charged?: number;
   credits_remaining_today?: number;
   credits_remaining_total?: number;
 };
+
+/**
+ * Fills the buckets an older API does not send, so a new app on an old server
+ * reads as "nothing probable, no charges" instead of crashing on a missing
+ * array.
+ */
+export const normalizeStatementDiff = (raw: StatementDiff): StatementDiff => ({
+  ...raw,
+  matched: raw.matched ?? [],
+  probable: raw.probable ?? [],
+  missing: raw.missing ?? [],
+  extra: raw.extra ?? [],
+  ignored: raw.ignored ?? [],
+  charges: raw.charges ?? [],
+  summary: {
+    ...raw.summary,
+    probable_count: raw.summary?.probable_count ?? 0,
+    charges_count: raw.summary?.charges_count ?? 0,
+    charges_amount: raw.summary?.charges_amount ?? 0,
+  },
+});
 
 /** Compare already-parsed lines against the ledger. Nothing is stored. */
 export const diffStatementLines = async (
@@ -394,7 +448,7 @@ export const diffStatementLines = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to compare this statement right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 /**
@@ -430,7 +484,7 @@ export const uploadStatementPDF = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to read that statement right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 export type StatementScreenshotFile = {
@@ -487,7 +541,7 @@ export const uploadStatementScreenshots = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to read those screenshots right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 /** Create entries for the lines the user picked. Safe to retry. */

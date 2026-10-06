@@ -16,6 +16,7 @@ import {
   StatementApiError,
   StatementDiff,
   StatementLine,
+  type StatementReconciliation,
   type StatementScreenshotFile,
   importStatementLines,
   parseStatementUploadSource,
@@ -25,14 +26,25 @@ import {
   uploadStatementScreenshots,
 } from '@/lib/statements';
 import { formatMoney } from '@/lib/money';
+import {
+  type ProbableDecision,
+  defaultMissingSelection,
+  defaultProbableDecisions,
+  isChargeLine,
+  missingLineKey,
+  planStatementCheck,
+  probableKey,
+} from '@/lib/statement-check';
+import {
+  ChargesCallout,
+  CheckSection,
+  ImportResultCard,
+  ProbableRow,
+  StatementTotalsCard,
+  formatDay,
+} from '@/components/statements/StatementCheck';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
-
-const formatDay = (value: string) => {
-  const parsed = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-};
 
 const lineKey = (line: StatementLine, index: number) =>
   `${line.date}|${line.amount}|${line.description}|${index}`;
@@ -52,23 +64,25 @@ export default function StatementReviewScreen() {
   const statementId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const light = themeTokens.mode === 'light';
   const { token } = useAuthStore();
 
   const [diff, setDiff] = useState<StatementDiff | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [decisions, setDecisions] = useState<Record<string, ProbableDecision>>({});
   const [isBusy, setIsBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [password, setPassword] = useState('');
   const [pickedFile, setPickedFile] = useState<{ uri: string; name: string } | null>(null);
-  const [importedCount, setImportedCount] = useState<number | null>(null);
+  const [importResult, setImportResult] = useState<{
+    imported: number;
+    reconciliation: StatementReconciliation;
+  } | null>(null);
 
   const applyDiff = useCallback((result: StatementDiff) => {
     setDiff(result);
-    setSelected(
-      Object.fromEntries(result.missing.map((line, index) => [lineKey(line, index), true]))
-    );
+    setSelected(defaultMissingSelection(result));
+    setDecisions(defaultProbableDecisions(result));
   }, []);
 
   const runUpload = useCallback(
@@ -110,7 +124,7 @@ export default function StatementReviewScreen() {
     const asset = result.assets[0];
     const file = { uri: asset.uri, name: asset.name ?? 'statement.pdf' };
     setPickedFile(file);
-    setImportedCount(null);
+    setImportResult(null);
     await runUpload(file, '');
   };
 
@@ -119,7 +133,7 @@ export default function StatementReviewScreen() {
       if (!token || !Number.isFinite(statementId)) return;
       setIsBusy(true);
       setError(null);
-      setImportedCount(null);
+      setImportResult(null);
       setNeedsPassword(false);
       try {
         applyDiff(await uploadStatementScreenshots(token, statementId, files));
@@ -173,22 +187,22 @@ export default function StatementReviewScreen() {
     }
   }, [runScreenshotUpload, runUpload, source, token]);
 
-  const selectedLines = useMemo(() => {
-    if (!diff) return [];
-    return diff.missing.filter((line, index) => selected[lineKey(line, index)]);
-  }, [diff, selected]);
-
-  const selectedTotal = selectedLines.reduce((sum, line) => sum + line.amount, 0);
+  const plan = useMemo(
+    () => (diff ? planStatementCheck(diff, selected, decisions) : null),
+    [decisions, diff, selected]
+  );
+  const linesToImport = plan?.linesToImport ?? [];
 
   const handleImport = async () => {
-    if (!token || selectedLines.length === 0) return;
+    if (!token || linesToImport.length === 0) return;
     setIsBusy(true);
     setError(null);
     try {
-      const result = await importStatementLines(token, statementId, selectedLines);
-      setImportedCount(result.imported);
+      const result = await importStatementLines(token, statementId, linesToImport);
+      setImportResult(result);
       setDiff(null);
       setSelected({});
+      setDecisions({});
     } catch (importError) {
       setError(
         importError instanceof StatementApiError
@@ -215,7 +229,7 @@ export default function StatementReviewScreen() {
           <TText
             className="text-sm uppercase"
             style={{ fontFamily: Fonts.title, color: theme.text, letterSpacing: 1.2 }}>
-            Read statement
+            Check statement
           </TText>
           <View className="h-11 w-11" />
         </View>
@@ -225,21 +239,15 @@ export default function StatementReviewScreen() {
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}>
           {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
 
-          {importedCount !== null && (
-            <View
-              className="mb-5 flex-row items-center gap-3 rounded-[22px] px-4 py-4"
-              style={{ backgroundColor: light ? '#F0FDF4' : '#12281A' }}>
-              <MaterialCommunityIcons name="check-circle-outline" size={20} color="#16A34A" />
-              <TText
-                className="min-w-0 flex-1 text-sm"
-                style={{ fontFamily: Fonts.body, color: light ? '#166534' : '#86EFAC' }}>
-                {importedCount} transaction{importedCount === 1 ? '' : 's'} added. Your bill and
-                category breakdown are back in step.
-              </TText>
-            </View>
+          {importResult && (
+            <ImportResultCard
+              imported={importResult.imported}
+              reconciliation={importResult.reconciliation}
+              onDone={() => router.back()}
+            />
           )}
 
-          {!diff && (
+          {!diff && !importResult && (
             <View
               className="rounded-[26px] border px-5 py-6"
               style={{ backgroundColor: theme.card, borderColor: theme.border }}>
@@ -377,39 +385,39 @@ export default function StatementReviewScreen() {
             </View>
           )}
 
-          {diff && (
+          {diff && plan && (
             <>
-              <SummaryStrip diff={diff} />
+              <StatementTotalsCard diff={diff} plan={plan} />
+              <ChargesCallout charges={diff.charges} total={diff.summary.charges_amount} />
 
-              {diff.checksum && !diff.checksum.matches && (
-                <View
-                  className="mb-5 flex-row items-start gap-3 rounded-[22px] px-4 py-4"
-                  style={{ backgroundColor: light ? '#FFF7ED' : '#321C0E' }}>
-                  <MaterialCommunityIcons name="alert-outline" size={20} color="#F97316" />
-                  <View className="min-w-0 flex-1">
-                    <TText
-                      className="text-sm"
-                      style={{ fontFamily: Fonts.title, color: light ? '#9A3412' : '#FDBA74' }}>
-                      Totals need a quick check
-                    </TText>
-                    <TText
-                      className="mt-1 text-[11px]"
-                      style={{ fontFamily: Fonts.body, color: light ? '#9A3412' : '#FDBA74' }}>
-                      {diff.checksum.message} The difference is{' '}
-                      {formatMoney(Math.abs(diff.checksum.difference))}. You can still review and
-                      import individual rows below.
-                    </TText>
-                  </View>
-                </View>
+              {diff.probable.length > 0 && (
+                <CheckSection
+                  testID="statement-probable"
+                  title="Already logged?"
+                  subtitle="These look like transactions you added yourself, on another day or for a slightly different amount. Your entry is kept as it is either way."
+                  count={diff.probable.length}>
+                  {diff.probable.map((pair, index) => {
+                    const key = probableKey(pair, index);
+                    return (
+                      <ProbableRow
+                        key={key}
+                        pair={pair}
+                        decision={decisions[key] ?? 'same'}
+                        onDecide={(next) => setDecisions((prev) => ({ ...prev, [key]: next }))}
+                      />
+                    );
+                  })}
+                </CheckSection>
               )}
 
               {diff.missing.length > 0 && (
-                <Section
-                  title="Not in Finnri"
-                  subtitle="On your statement but not tracked. Tick the ones to add."
+                <CheckSection
+                  testID="statement-missing"
+                  title="New on your statement"
+                  subtitle="Not in Finnri yet. Untick anything you do not want added."
                   count={diff.missing.length}>
                   {diff.missing.map((line, index) => {
-                    const key = lineKey(line, index);
+                    const key = missingLineKey(line, index);
                     return (
                       <SelectableLine
                         key={key}
@@ -419,14 +427,46 @@ export default function StatementReviewScreen() {
                       />
                     );
                   })}
-                </Section>
+                </CheckSection>
+              )}
+
+              {diff.matched.length > 0 && (
+                <CheckSection
+                  title="Already in Finnri"
+                  subtitle="Matched to transactions you logged. Your titles and categories are kept."
+                  count={diff.matched.length}
+                  initiallyOpen={false}>
+                  {diff.matched.map((pair) => (
+                    <View
+                      key={pair.entry.entry_id}
+                      className="flex-row items-center justify-between rounded-[18px] px-4 py-3"
+                      style={{ backgroundColor: theme.secondary }}>
+                      <View className="min-w-0 flex-1 pr-3">
+                        <TText
+                          className="text-xs"
+                          numberOfLines={1}
+                          style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+                          {pair.line.description}
+                        </TText>
+                        <TText
+                          className="mt-0.5 text-[11px]"
+                          numberOfLines={1}
+                          style={{ fontFamily: Fonts.body, color: '#94A3B8' }}>
+                          your “{pair.entry.title}” · {formatMoney(pair.entry.amount)}
+                        </TText>
+                      </View>
+                      <MaterialCommunityIcons name="check" size={16} color="#16A34A" />
+                    </View>
+                  ))}
+                </CheckSection>
               )}
 
               {diff.extra.length > 0 && (
-                <Section
-                  title="Not on the statement"
-                  subtitle="Finnri has these but the bank did not bill them. Possibly duplicated, on the wrong card, or dated into the next cycle."
-                  count={diff.extra.length}>
+                <CheckSection
+                  title="In Finnri, not billed"
+                  subtitle="You logged these on this card, but the bank did not bill them this cycle. Possibly a duplicate, the wrong card, or posting next cycle. Nothing is deleted."
+                  count={diff.extra.length}
+                  initiallyOpen={false}>
                   {diff.extra.map((entry) => (
                     <View
                       key={entry.entry_id}
@@ -452,14 +492,15 @@ export default function StatementReviewScreen() {
                       </TText>
                     </View>
                   ))}
-                </Section>
+                </CheckSection>
               )}
 
               {diff.ignored.length > 0 && (
-                <Section
-                  title="Payments"
+                <CheckSection
+                  title="Bill payments"
                   subtitle="Tracked on the bill itself, so these are never added as transactions."
-                  count={diff.ignored.length}>
+                  count={diff.ignored.length}
+                  initiallyOpen={false}>
                   {diff.ignored.map((line, index) => (
                     <View
                       key={lineKey(line, index)}
@@ -478,53 +519,23 @@ export default function StatementReviewScreen() {
                       </TText>
                     </View>
                   ))}
-                </Section>
-              )}
-
-              {diff.matched.length > 0 && (
-                <Section
-                  title="Already tracked"
-                  subtitle="Matched to transactions you had already logged."
-                  count={diff.matched.length}>
-                  {diff.matched.map((pair) => (
-                    <View
-                      key={pair.entry.entry_id}
-                      className="flex-row items-center justify-between rounded-[18px] px-4 py-3"
-                      style={{ backgroundColor: theme.secondary }}>
-                      <View className="min-w-0 flex-1 pr-3">
-                        <TText
-                          className="text-xs"
-                          numberOfLines={1}
-                          style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-                          {pair.line.description}
-                        </TText>
-                        <TText
-                          className="mt-0.5 text-[11px]"
-                          numberOfLines={1}
-                          style={{ fontFamily: Fonts.body, color: '#94A3B8' }}>
-                          matched “{pair.entry.title}”
-                        </TText>
-                      </View>
-                      <MaterialCommunityIcons name="check" size={16} color="#16A34A" />
-                    </View>
-                  ))}
-                </Section>
+                </CheckSection>
               )}
             </>
           )}
         </KeyboardAvoidingScreen>
 
-        {diff && diff.missing.length > 0 && (
+        {diff && (diff.missing.length > 0 || diff.probable.length > 0) && (
           <View
             className="absolute inset-x-0 bottom-0 px-6 pb-8 pt-4"
             style={{ backgroundColor: theme.background }}>
             <Pressable
               accessibilityRole="button"
-              disabled={isBusy || selectedLines.length === 0}
+              disabled={isBusy || linesToImport.length === 0}
               onPress={() => void handleImport()}
               className="h-14 items-center justify-center rounded-full"
               style={{
-                backgroundColor: selectedLines.length > 0 ? theme.accent : theme.secondary,
+                backgroundColor: linesToImport.length > 0 ? theme.accent : theme.secondary,
               }}>
               {isBusy ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -533,11 +544,11 @@ export default function StatementReviewScreen() {
                   className="text-base"
                   style={{
                     fontFamily: Fonts.title,
-                    color: selectedLines.length > 0 ? '#FFFFFF' : '#94A3B8',
+                    color: linesToImport.length > 0 ? '#FFFFFF' : '#94A3B8',
                   }}>
-                  {selectedLines.length > 0
-                    ? `Add ${selectedLines.length} · ${formatMoney(selectedTotal)}`
-                    : 'Nothing selected'}
+                  {linesToImport.length > 0
+                    ? `Add ${linesToImport.length} · ${formatMoney(plan?.importNet ?? 0)}`
+                    : 'Nothing to add'}
                 </TText>
               )}
             </Pressable>
@@ -545,66 +556,6 @@ export default function StatementReviewScreen() {
         )}
       </View>
     </SafeAreaView>
-  );
-}
-
-function SummaryStrip({ diff }: { diff: StatementDiff }) {
-  const theme = useThemeTokens().colors;
-  return (
-    <View
-      className="mb-5 flex-row justify-between rounded-[22px] px-5 py-4"
-      style={{ backgroundColor: theme.card }}>
-      <SummaryItem label="Read" value={String(diff.summary.statement_lines)} />
-      <SummaryItem label="Tracked" value={String(diff.summary.matched_count)} />
-      <SummaryItem label="Missing" value={String(diff.summary.missing_count)} tone="#3B82F6" />
-      <SummaryItem label="Unbilled" value={String(diff.summary.extra_count)} tone="#F97316" />
-    </View>
-  );
-}
-
-function SummaryItem({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  const theme = useThemeTokens().colors;
-  return (
-    <View className="items-center">
-      <TText className="text-lg" style={{ fontFamily: Fonts.title, color: tone ?? theme.text }}>
-        {value}
-      </TText>
-      <TText
-        className="mt-0.5 text-[10px] uppercase"
-        style={{ fontFamily: Fonts.title, color: '#8EA0B8', letterSpacing: 0.8 }}>
-        {label}
-      </TText>
-    </View>
-  );
-}
-
-function Section({
-  title,
-  subtitle,
-  count,
-  children,
-}: {
-  title: string;
-  subtitle: string;
-  count: number;
-  children: React.ReactNode;
-}) {
-  const theme = useThemeTokens().colors;
-  return (
-    <View className="mb-7">
-      <View className="flex-row items-center gap-2">
-        <TText className="text-base" style={{ fontFamily: Fonts.title, color: theme.text }}>
-          {title}
-        </TText>
-        <TText className="text-xs" style={{ fontFamily: Fonts.body, color: '#8EA0B8' }}>
-          {count}
-        </TText>
-      </View>
-      <TText className="mb-3 mt-1 text-xs" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-        {subtitle}
-      </TText>
-      <View className="gap-2">{children}</View>
-    </View>
   );
 }
 
@@ -650,6 +601,7 @@ function SelectableLine({
         <TText className="mt-0.5 text-[11px]" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
           {formatDay(line.date)}
           {line.kind && line.kind !== 'spend' ? ` · ${statementLineKindLabels[line.kind]}` : ''}
+          {isChargeLine(line) ? ' · bank charge' : ''}
         </TText>
       </View>
 
