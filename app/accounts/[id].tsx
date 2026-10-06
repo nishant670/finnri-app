@@ -48,13 +48,15 @@ import {
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { fetchBillingStatus } from '@/lib/billing';
+import { intakeFromRead, putStatementIntake } from '@/lib/statement-intake';
 import { EMIPlan, EMIPlanPayload, createCardEMIPlan, fetchCardEMIPlans } from '@/lib/emi-plans';
 import {
   CardStatement,
   CardStatementPayload,
   StatementPaymentPayload,
-  StatementUploadSource,
+  StatementRead,
   fetchStatement,
+  readStatementFile,
   recordStatementPayment,
   saveCardStatement,
 } from '@/lib/statements';
@@ -417,10 +419,7 @@ export default function AccountDetailsScreen() {
     setIsActionsSheetVisible(true);
   };
 
-  const handleSaveStatement = async (
-    payload: CardStatementPayload,
-    source?: StatementUploadSource
-  ) => {
+  const handleSaveStatement = async (payload: CardStatementPayload, read?: StatementRead) => {
     if (!token || !account) return;
     setIsSubmittingStatement(true);
     setStatementError(null);
@@ -428,12 +427,13 @@ export default function AccountDetailsScreen() {
       const saved = await saveCardStatement(token, account.id, payload);
       setStatement(saved);
       setIsStatementSheetVisible(false);
-      if (source) {
-        // The bill had to exist first: reading a statement compares it with
-        // this cycle. Review reads the file as soon as it opens.
+      if (read) {
+        // The bill had to exist first: the check compares the rows with this
+        // cycle. The rows and card updates go by key, not in the URL.
+        const intake = putStatementIntake(intakeFromRead(read, account));
         router.push({
           pathname: '/statements/review',
-          params: { id: String(saved.id), source: JSON.stringify(source) },
+          params: { id: String(saved.id), intake },
         });
         void loadDetails();
         return;
@@ -1034,6 +1034,10 @@ export default function AccountDetailsScreen() {
               error={statementError}
               onClose={() => setIsStatementSheetVisible(false)}
               onSubmit={handleSaveStatement}
+              onReadSource={(source, password) => {
+                if (!token) return Promise.reject(new Error('Please sign in again.'));
+                return readStatementFile(token, account.id, source, password);
+              }}
               screenshotsLocked={hasPaidPlan === false}
               onSeePlans={() => {
                 setIsStatementSheetVisible(false);

@@ -1,16 +1,16 @@
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import StatementReviewScreen from '@/app/statements/review';
+import * as accounts from '@/lib/accounts';
+import { putStatementIntake } from '@/lib/statement-intake';
 import * as statements from '@/lib/statements';
 import type { StatementDiff } from '@/lib/statements';
 
 const mockBack = jest.fn();
+let mockIntakeKey = '';
 jest.mock('expo-router', () => ({
   router: { back: () => mockBack(), push: jest.fn() },
-  useLocalSearchParams: () => ({
-    id: '42',
-    source: JSON.stringify({ kind: 'pdf', uri: 'file:///cache/sept.pdf', name: 'sept.pdf' }),
-  }),
+  useLocalSearchParams: () => ({ id: '42', intake: mockIntakeKey }),
 }));
 jest.mock('@/hooks/use-auth-store', () => ({
   useAuthStore: () => ({ token: 'test-token' }),
@@ -84,10 +84,41 @@ const diff: StatementDiff = {
 describe('Statement check screen', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
-    jest.spyOn(statements, 'uploadStatementPDF').mockResolvedValue(diff);
+    jest.spyOn(statements, 'diffStatementLines').mockResolvedValue(diff);
+    mockIntakeKey = putStatementIntake({
+      lines: [swiggy, myntra, fee],
+      cardUpdates: [{ field: 'due_day', label: 'Due day', current: 20, proposed: 25 }],
+      warnings: [],
+      account: { id: 7, type: 'credit_card', name: 'Regalia', color: '#000', due_day: 20 },
+    });
   });
 
-  it('reads the file, keeps the probable pair as the same purchase, and projects a match', async () => {
+  it('compares the rows read in the sheet and offers the card updates', async () => {
+    const updateSpy = jest
+      .spyOn(accounts, 'updateAccount')
+      .mockResolvedValue({ id: 7, type: 'credit_card', name: 'Regalia', color: '#000' });
+    const { findByTestId, findByText } = await render(<StatementReviewScreen />);
+
+    await findByTestId('statement-totals-card');
+    expect(statements.diffStatementLines).toHaveBeenCalledWith('test-token', 42, [
+      swiggy,
+      myntra,
+      fee,
+    ]);
+    await findByTestId('statement-card-updates');
+    await fireEvent.press(await findByTestId('card-updates-save'));
+
+    await waitFor(() =>
+      expect(updateSpy).toHaveBeenCalledWith(
+        'test-token',
+        7,
+        expect.objectContaining({ due_day: 25, name: 'Regalia' })
+      )
+    );
+    await findByText(/Card updated/);
+  });
+
+  it('keeps the probable pair as the same purchase, and projects a match', async () => {
     const { findByTestId, findByText } = await render(<StatementReviewScreen />);
 
     await findByTestId('statement-totals-card');

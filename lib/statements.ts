@@ -501,21 +501,91 @@ export type StatementUploadSource =
   | { kind: 'pdf'; uri: string; name: string }
   | { kind: 'screenshots'; files: StatementScreenshotFile[] };
 
-/** Undefined for anything that is not a well-formed source. */
-export const parseStatementUploadSource = (
-  value: string | undefined
-): StatementUploadSource | undefined => {
-  if (!value) return undefined;
-  try {
-    const parsed = JSON.parse(value) as StatementUploadSource;
-    if (parsed?.kind === 'pdf' && typeof parsed.uri === 'string') return parsed;
-    if (parsed?.kind === 'screenshots' && Array.isArray(parsed.files) && parsed.files.length) {
-      return parsed;
-    }
-  } catch {
-    // A malformed param just means nothing to auto-read.
+/**
+ * What a statement says about the bill and the card. Every field is optional:
+ * absent means the statement did not print it, never zero.
+ */
+export type StatementSummary = {
+  statement_date?: string;
+  due_date?: string;
+  total_due?: number;
+  minimum_due?: number;
+  credit_limit?: number;
+  available_limit?: number;
+  opening_balance?: number;
+  payments?: number;
+  purchases?: number;
+  fees_and_charges?: number;
+  annual_fee?: number;
+  fee_waiver_spend?: number;
+  renewal_month?: string;
+  card_last4?: string;
+  issuer?: string;
+};
+
+export type StatementCardUpdateField =
+  | 'statement_day'
+  | 'due_day'
+  | 'credit_limit'
+  | 'annual_fee'
+  | 'fee_waiver_spend'
+  | 'fee_month'
+  | 'last4';
+
+/** A card setting the statement disagrees with. `current` is Finnri's value. */
+export type StatementCardUpdate = {
+  field: StatementCardUpdateField;
+  label: string;
+  current: number | string;
+  proposed: number | string;
+};
+
+export type StatementRead = {
+  summary: StatementSummary;
+  lines: StatementLine[];
+  card_updates: StatementCardUpdate[];
+  /** Worth stopping for — chiefly a statement for a different card. */
+  warnings: string[];
+  source: 'pdf' | 'screenshots_ai';
+  credits_charged?: number;
+};
+
+/**
+ * Read a picked statement file before the bill exists. Nothing is saved: the
+ * summary prefills the Add statement form, the rows wait for the statement
+ * check, and the card updates are offered once the bill is in.
+ *
+ * A PDF password is sent for this one request and never stored.
+ */
+export const readStatementFile = async (
+  token: string,
+  accountId: number,
+  source: StatementUploadSource,
+  password?: string
+): Promise<StatementRead> => {
+  const body = new FormData();
+  if (source.kind === 'pdf') {
+    body.append('file', new File(source.uri) as unknown as Blob);
+    if (password) body.append('password', password);
+  } else {
+    source.files.forEach((file) => body.append('images', new File(file.uri) as unknown as Blob));
   }
-  return undefined;
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/statements/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+  if (!response.ok) {
+    throw await readStatementError(response, 'Unable to read that statement right now.');
+  }
+  const read = (await response.json()) as StatementRead;
+  return {
+    ...read,
+    summary: read.summary ?? {},
+    lines: read.lines ?? [],
+    card_updates: read.card_updates ?? [],
+    warnings: read.warnings ?? [],
+  };
 };
 
 /**

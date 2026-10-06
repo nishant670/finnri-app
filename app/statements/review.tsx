@@ -19,7 +19,7 @@ import {
   type StatementReconciliation,
   type StatementScreenshotFile,
   importStatementLines,
-  parseStatementUploadSource,
+  diffStatementLines,
   statementLineKindLabels,
   statementUploadErrorMessage,
   uploadStatementPDF,
@@ -35,7 +35,9 @@ import {
   planStatementCheck,
   probableKey,
 } from '@/lib/statement-check';
+import { takeStatementIntake, type StatementIntake } from '@/lib/statement-intake';
 import {
+  CardUpdatesCard,
   ChargesCallout,
   CheckSection,
   ImportResultCard,
@@ -60,7 +62,7 @@ const lineKey = (line: StatementLine, index: number) =>
  * user's own transactions to make a diff tidy is not this screen's job.
  */
 export default function StatementReviewScreen() {
-  const { id, source } = useLocalSearchParams<{ id?: string; source?: string }>();
+  const { id, intake: intakeKey } = useLocalSearchParams<{ id?: string; intake?: string }>();
   const statementId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -169,23 +171,28 @@ export default function StatementReviewScreen() {
   };
 
   /*
-   * Arriving from "Add statement" with a file already chosen: read it straight
-   * away, once. A password-protected PDF lands on the normal password prompt.
+   * Arriving from "Add statement", where the file was already read: compare
+   * those rows with the saved bill (free — no second upload, no second
+   * charge) and offer the card updates the statement suggested. Taken once.
    */
-  const startedFromSheet = useRef(false);
+  const [intake, setIntake] = useState<StatementIntake | null>(null);
+  const tookIntake = useRef(false);
   useEffect(() => {
-    if (startedFromSheet.current || !token) return;
-    const picked = parseStatementUploadSource(source);
-    if (!picked) return;
-    startedFromSheet.current = true;
-    if (picked.kind === 'pdf') {
-      const file = { uri: picked.uri, name: picked.name };
-      setPickedFile(file);
-      void runUpload(file, '');
-    } else {
-      void runScreenshotUpload(picked.files);
-    }
-  }, [runScreenshotUpload, runUpload, source, token]);
+    if (tookIntake.current || !token || !Number.isFinite(statementId)) return;
+    tookIntake.current = true;
+    const taken = takeStatementIntake(intakeKey);
+    if (!taken) return;
+    setIntake(taken);
+    if (taken.lines.length === 0) return;
+    setIsBusy(true);
+    diffStatementLines(token, statementId, taken.lines)
+      .then(applyDiff)
+      .catch((diffError) => {
+        const code = diffError instanceof StatementApiError ? diffError.code : undefined;
+        setError(statementUploadErrorMessage(code));
+      })
+      .finally(() => setIsBusy(false));
+  }, [applyDiff, intakeKey, statementId, token]);
 
   const plan = useMemo(
     () => (diff ? planStatementCheck(diff, selected, decisions) : null),
@@ -239,6 +246,10 @@ export default function StatementReviewScreen() {
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}>
           {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
 
+          {intake && token && (intake.cardUpdates.length > 0 || intake.warnings.length > 0) && (
+            <CardUpdatesCard token={token} intake={intake} />
+          )}
+
           {importResult && (
             <ImportResultCard
               imported={importResult.imported}
@@ -247,7 +258,7 @@ export default function StatementReviewScreen() {
             />
           )}
 
-          {!diff && !importResult && (
+          {!diff && !importResult && !(isBusy && intake) && (
             <View
               className="rounded-[26px] border px-5 py-6"
               style={{ backgroundColor: theme.card, borderColor: theme.border }}>

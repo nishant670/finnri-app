@@ -1,14 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { updateAccount } from '@/lib/accounts';
+import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
+import { applyCardUpdates, type StatementIntake } from '@/lib/statement-intake';
 import type { ProbableDecision, StatementCheckPlan } from '@/lib/statement-check';
 import type {
+  StatementCardUpdate,
+  StatementCardUpdateField,
   StatementDiff,
   StatementLine,
   StatementProbablePair,
@@ -324,6 +329,176 @@ export function CheckSection({
             {subtitle}
           </TText>
           <View className="gap-2">{children}</View>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+const formatCardValue = (update: StatementCardUpdate, value: number | string) => {
+  if (value === '' || value === 0 || value == null) return 'not set';
+  switch (update.field) {
+    case 'credit_limit':
+    case 'annual_fee':
+    case 'fee_waiver_spend':
+      return formatMoney(Number(value));
+    case 'statement_day':
+    case 'due_day':
+      return ordinal(Number(value));
+    default:
+      return String(value);
+  }
+};
+
+const ordinal = (day: number) => {
+  const suffix =
+    day % 100 >= 11 && day % 100 <= 13
+      ? 'th'
+      : (({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th');
+  return `${day}${suffix}`;
+};
+
+/**
+ * The second and last prompt: what the statement says about the card that
+ * Finnri has differently. Everything starts ticked — the statement is the
+ * bank's own word — and nothing changes until "Update card".
+ */
+export function CardUpdatesCard({ token, intake }: { token: string; intake: StatementIntake }) {
+  const theme = useThemeTokens().colors;
+  const light = useThemeTokens().mode === 'light';
+  const [accepted, setAccepted] = useState<Partial<Record<StatementCardUpdateField, boolean>>>(() =>
+    Object.fromEntries(intake.cardUpdates.map((update) => [update.field, true]))
+  );
+  const [state, setState] = useState<'idle' | 'saving' | 'saved' | 'skipped'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const chosen = intake.cardUpdates.filter((update) => accepted[update.field]);
+
+  if (state === 'skipped') return null;
+
+  const save = async () => {
+    setState('saving');
+    setError(null);
+    try {
+      await updateAccount(
+        token,
+        intake.account.id,
+        applyCardUpdates(intake.account, intake.cardUpdates, accepted)
+      );
+      setState('saved');
+    } catch (saveError) {
+      setError(getFriendlyErrorMessage(saveError, 'Unable to update this card right now.'));
+      setState('idle');
+    }
+  };
+
+  return (
+    <View
+      testID="statement-card-updates"
+      className="mb-5 rounded-[24px] border px-5 py-4"
+      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+      {intake.warnings.map((warning) => (
+        <View
+          key={warning}
+          className="mb-3 flex-row items-start gap-2 rounded-[14px] px-3 py-2"
+          style={{ backgroundColor: light ? '#FFF7ED' : '#321C0E' }}>
+          <MaterialCommunityIcons name="alert-outline" size={16} color={WARN} />
+          <TText
+            className="min-w-0 flex-1 text-xs"
+            style={{ fontFamily: Fonts.body, color: theme.text }}>
+            {warning}
+          </TText>
+        </View>
+      ))}
+
+      {intake.cardUpdates.length > 0 ? (
+        <>
+          <TText className="text-base" style={{ fontFamily: Fonts.title, color: theme.text }}>
+            Card details from your statement
+          </TText>
+          <TText className="mt-1 text-xs" style={{ fontFamily: Fonts.body, color: MUTED }}>
+            {state === 'saved'
+              ? 'Card updated. Reminders and your available limit now use these.'
+              : 'Your statement says something different from what Finnri has. Untick anything you want to keep as it is.'}
+          </TText>
+
+          {state !== 'saved' ? (
+            <>
+              <View className="mt-3 gap-2">
+                {intake.cardUpdates.map((update) => {
+                  const on = Boolean(accepted[update.field]);
+                  return (
+                    <Pressable
+                      key={update.field}
+                      testID={`card-update-${update.field}`}
+                      accessibilityRole="checkbox"
+                      accessibilityState={{ checked: on }}
+                      onPress={() =>
+                        setAccepted((prev) => ({ ...prev, [update.field]: !prev[update.field] }))
+                      }
+                      className="flex-row items-center gap-3">
+                      <View
+                        className="h-5 w-5 items-center justify-center rounded-md border"
+                        style={{
+                          backgroundColor: on ? theme.accent : 'transparent',
+                          borderColor: on ? theme.accent : '#94A3B8',
+                        }}>
+                        {on && <MaterialCommunityIcons name="check" size={13} color="#FFFFFF" />}
+                      </View>
+                      <TText
+                        className="min-w-0 flex-1 text-sm"
+                        style={{ fontFamily: Fonts.body, color: theme.text }}>
+                        {update.label}{' '}
+                        <TText style={{ fontFamily: Fonts.title, color: theme.text }}>
+                          {formatCardValue(update, update.proposed)}
+                        </TText>
+                        <TText className="text-xs" style={{ fontFamily: Fonts.body, color: MUTED }}>
+                          {'  '}(Finnri: {formatCardValue(update, update.current)})
+                        </TText>
+                      </TText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {error ? (
+                <TText
+                  className="mt-2 text-xs"
+                  style={{ fontFamily: Fonts.body, color: '#EF4444' }}>
+                  {error}
+                </TText>
+              ) : null}
+              <View className="mt-4 flex-row gap-2">
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => setState('skipped')}
+                  className="h-10 flex-1 items-center justify-center rounded-full border"
+                  style={{ borderColor: theme.border }}>
+                  <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.text }}>
+                    Not now
+                  </TText>
+                </Pressable>
+                <Pressable
+                  testID="card-updates-save"
+                  accessibilityRole="button"
+                  disabled={chosen.length === 0 || state === 'saving'}
+                  onPress={() => void save()}
+                  className="h-10 flex-1 items-center justify-center rounded-full"
+                  style={{ backgroundColor: chosen.length > 0 ? theme.accent : theme.secondary }}>
+                  {state === 'saving' ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <TText
+                      className="text-sm"
+                      style={{
+                        fontFamily: Fonts.title,
+                        color: chosen.length > 0 ? '#FFFFFF' : '#94A3B8',
+                      }}>
+                      Update card
+                    </TText>
+                  )}
+                </Pressable>
+              </View>
+            </>
+          ) : null}
         </>
       ) : null}
     </View>
