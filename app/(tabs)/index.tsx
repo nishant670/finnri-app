@@ -1367,6 +1367,13 @@ export default function HomeScreen() {
    * flips into review mode while the photo is read, and back to manual entry
    * (photo still attached as the receipt) if it cannot be read.
    */
+  /**
+   * Bumped whenever the capture sheet closes, so a receipt read that lands
+   * after the user walked away is dropped instead of reopening nothing or
+   * throwing an error dialog over Home.
+   */
+  const receiptScanId = useRef(0);
+
   const scanReceipt = useCallback(
     async (uri: string) => {
       if (isSubmitting) return;
@@ -1386,13 +1393,17 @@ export default function HomeScreen() {
       setModalMode('audio');
       setIsParsing(true);
       setIsEditOpen(true);
+      const scanId = ++receiptScanId.current;
+      const abandoned = () => scanId !== receiptScanId.current;
       try {
         const data = await parseReceiptDraft({ token, uri });
         void fetchCredits(true);
+        if (abandoned()) return;
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
         applyParsedDraft(data, 'Receipt photo', 'receipt', uri);
       } catch (error) {
+        if (abandoned()) return;
         if (showCreditParseError(error)) {
           setIsEditOpen(false);
           return;
@@ -2105,6 +2116,7 @@ export default function HomeScreen() {
         visible={isEditOpen}
         onClose={() => {
           setIsEditOpen(false);
+          receiptScanId.current += 1;
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
           setRefundReceived(null);
