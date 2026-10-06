@@ -21,11 +21,10 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
-import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -73,6 +72,11 @@ import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
 import { TransactionAccountPicker } from './TransactionAccountPicker';
 import { TransactionCategoryPicker } from './TransactionCategoryPicker';
+import {
+  TransactionCancellationDateSheet,
+  TransactionDateTimeSheet,
+  TransactionSubscriptionDateSheet,
+} from './TransactionDateSheets';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionModePicker } from './TransactionModePicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
@@ -3248,121 +3252,42 @@ export function TransactionFormModal({
 
         {/* Date Picker Modal (iOS) */}
         {Platform.OS === 'ios' && isDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible={isDatePickerVisible}
+          <TransactionDateTimeSheet
+            pendingDate={pendingDate}
+            onChangePendingDate={setPendingDate}
             onClose={() => setIsDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">Select Date & Time</ThemedText>
-              <DateTimePicker
-                value={pendingDate}
-                mode="datetime"
-                display="spinner"
-                onValueChange={(_e, d) => d && setPendingDate(d)}
-                onDismiss={() => setIsDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <View className="mt-4 flex-row gap-3">
-                <Pressable
-                  className="flex-1 items-center rounded-2xl border py-3 border-gray-100"
-                  onPress={() => setIsDatePickerVisible(false)}>
-                  <ThemedText>Cancel</ThemedText>
-                </Pressable>
-                <Pressable
-                  className="flex-1 items-center rounded-2xl py-3"
-                  style={{ backgroundColor: accent }}
-                  onPress={handleConfirmDatePicker}>
-                  <ThemedText tone="onAccent" className="font-bold">
-                    Set Date
-                  </ThemedText>
-                </Pressable>
-              </View>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={handleConfirmDatePicker}
+          />
         )}
 
         {isCancellationDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible
+          <TransactionCancellationDateSheet
+            pendingDate={pendingCancellationDate}
+            onChangePendingDate={setPendingCancellationDate}
             onClose={() => setIsCancellationDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">
-                Cancellation reminder date
-              </ThemedText>
-              <DateTimePicker
-                value={pendingCancellationDate}
-                mode="date"
-                display="spinner"
-                minimumDate={new Date()}
-                onValueChange={(_event, date) => date && setPendingCancellationDate(date)}
-                onDismiss={() => setIsCancellationDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <Pressable
-                className="mt-4 items-center rounded-2xl py-3"
-                style={{ backgroundColor: accent }}
-                onPress={() => {
-                  setForm((p) => ({
-                    ...p,
-                    subscriptionCancelOnDate: formatApiDate(pendingCancellationDate),
-                  }));
-                  setIsCancellationDatePickerVisible(false);
-                }}>
-                <ThemedText tone="onAccent" className="font-bold">
-                  Set reminder date
-                </ThemedText>
-              </Pressable>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={() => {
+              setForm((p) => ({
+                ...p,
+                subscriptionCancelOnDate: formatApiDate(pendingCancellationDate),
+              }));
+              setIsCancellationDatePickerVisible(false);
+            }}
+          />
         )}
 
         {Platform.OS === 'ios' && isSubscriptionDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible={isSubscriptionDatePickerVisible}
+          <TransactionSubscriptionDateSheet
+            pendingDate={pendingSubscriptionDate}
+            onChangePendingDate={setPendingSubscriptionDate}
             onClose={() => setIsSubscriptionDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">Next payment date</ThemedText>
-              <DateTimePicker
-                value={pendingSubscriptionDate}
-                mode="date"
-                display="spinner"
-                minimumDate={new Date()}
-                onValueChange={(_event, date) => date && setPendingSubscriptionDate(date)}
-                onDismiss={() => setIsSubscriptionDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <View className="mt-4 flex-row gap-3">
-                <Pressable
-                  className="flex-1 items-center rounded-2xl border py-3"
-                  style={{ borderColor: theme.border }}
-                  onPress={() => setIsSubscriptionDatePickerVisible(false)}>
-                  <ThemedText>Cancel</ThemedText>
-                </Pressable>
-                <Pressable
-                  className="flex-1 items-center rounded-2xl py-3"
-                  style={{ backgroundColor: accent }}
-                  onPress={() => {
-                    setForm((prev) => ({
-                      ...prev,
-                      subscriptionNextDueDate: formatApiDate(pendingSubscriptionDate),
-                    }));
-                    setIsSubscriptionDatePickerVisible(false);
-                  }}>
-                  <ThemedText tone="onAccent" className="font-bold">
-                    Set date
-                  </ThemedText>
-                </Pressable>
-              </View>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={() => {
+              setForm((prev) => ({
+                ...prev,
+                subscriptionNextDueDate: formatApiDate(pendingSubscriptionDate),
+              }));
+              setIsSubscriptionDatePickerVisible(false);
+            }}
+          />
         )}
 
         <TransactionModePicker
