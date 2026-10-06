@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -47,6 +47,7 @@ import {
   updateAccount,
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { fetchBillingStatus } from '@/lib/billing';
 import { EMIPlan, EMIPlanPayload, createCardEMIPlan, fetchCardEMIPlans } from '@/lib/emi-plans';
 import {
   CardStatement,
@@ -200,6 +201,30 @@ export default function AccountDetailsScreen() {
   const [statementError, setStatementError] = useState<string | null>(null);
   const [emiPlans, setEmiPlans] = useState<EMIPlan[]>([]);
   const [isEmiSheetVisible, setIsEmiSheetVisible] = useState(false);
+
+  /*
+   * Statement screenshots are a paid-plan read. Knowing that before the bill
+   * is saved lets the sheet say so up front instead of failing afterwards.
+   * Unknown (still loading, or the lookup failed) is treated as allowed: the
+   * server is the real gate, and a wrong lock is worse than a late message.
+   */
+  const [hasPaidPlan, setHasPaidPlan] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    fetchBillingStatus(token)
+      .then((status) => {
+        if (active) {
+          setHasPaidPlan(
+            status.subscription_status === 'active' || status.subscription_status === 'cancelled'
+          );
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   const loadDetails = useCallback(async () => {
     if (!token || !Number.isFinite(accountId) || accountId <= 0) {
@@ -1009,6 +1034,11 @@ export default function AccountDetailsScreen() {
               error={statementError}
               onClose={() => setIsStatementSheetVisible(false)}
               onSubmit={handleSaveStatement}
+              screenshotsLocked={hasPaidPlan === false}
+              onSeePlans={() => {
+                setIsStatementSheetVisible(false);
+                router.push('/billing');
+              }}
             />
             <EMIPlanFormSheet
               visible={isEmiSheetVisible}

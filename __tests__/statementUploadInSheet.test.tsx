@@ -73,6 +73,21 @@ describe('Uploading a statement from the Add statement sheet', () => {
     expect(queryByTestId('statement-upload-picked')).toBeNull();
   });
 
+  it('explains the plan instead of opening the picker when screenshots are locked', async () => {
+    const onSeePlans = jest.fn();
+    const { findByTestId, findByText } = await renderSheet({
+      screenshotsLocked: true,
+      onSeePlans,
+    });
+
+    await fireEvent.press(await findByTestId('statement-upload-screenshots'));
+
+    await findByTestId('statement-screenshots-locked');
+    expect(picker.getDocumentAsync).not.toHaveBeenCalled();
+    await fireEvent.press(await findByText('See plans'));
+    expect(onSeePlans).toHaveBeenCalled();
+  });
+
   it('does not offer an upload when editing a bill', async () => {
     const { queryByTestId } = await renderSheet({
       initial: {

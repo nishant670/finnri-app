@@ -42,6 +42,8 @@ export function StatementFormSheet({
   error,
   onClose,
   onSubmit,
+  screenshotsLocked = false,
+  onSeePlans,
 }: {
   visible: boolean;
   card: Account;
@@ -56,6 +58,9 @@ export function StatementFormSheet({
    * because reading a statement needs the bill's cycle to compare against.
    */
   onSubmit: (payload: CardStatementPayload, source?: StatementUploadSource) => void;
+  /** Reading screenshots needs a paid plan; PDFs never do. */
+  screenshotsLocked?: boolean;
+  onSeePlans?: () => void;
 }) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -68,6 +73,7 @@ export function StatementFormSheet({
   const [picker, setPicker] = useState<'statement' | 'due' | null>(null);
   const [source, setSource] = useState<StatementUploadSource | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  const [showScreenshotsLock, setShowScreenshotsLock] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -79,6 +85,7 @@ export function StatementFormSheet({
     setDueDateTouched(Boolean(initial));
     setSource(null);
     setSourceError(null);
+    setShowScreenshotsLock(false);
   }, [visible, initial, card.statement_day, card.due_day]);
 
   // Moving the statement date carries the due date with it, until the user
@@ -270,12 +277,35 @@ export function StatementFormSheet({
                 />
                 <UploadChoice
                   testID="statement-upload-screenshots"
-                  icon="image-multiple-outline"
+                  icon={screenshotsLocked ? 'lock-outline' : 'image-multiple-outline'}
                   label="Screenshots"
-                  onPress={() => void pickScreenshots()}
+                  onPress={() => {
+                    if (screenshotsLocked) {
+                      setSourceError(null);
+                      setShowScreenshotsLock(true);
+                      return;
+                    }
+                    void pickScreenshots();
+                  }}
                 />
               </View>
             )}
+            {showScreenshotsLock && !source ? (
+              <View testID="statement-screenshots-locked" className="mt-2 flex-row flex-wrap">
+                <TText className="text-[11px]" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+                  Reading screenshots needs a plan. A PDF works on every plan.{' '}
+                </TText>
+                {onSeePlans ? (
+                  <Pressable accessibilityRole="link" onPress={onSeePlans} hitSlop={6}>
+                    <TText
+                      className="text-[11px]"
+                      style={{ fontFamily: Fonts.title, color: theme.accent }}>
+                      See plans
+                    </TText>
+                  </Pressable>
+                ) : null}
+              </View>
+            ) : null}
             <TText
               className="mt-2 text-[11px]"
               style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
