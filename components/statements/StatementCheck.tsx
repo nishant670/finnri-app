@@ -9,6 +9,7 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { updateAccount } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
+import { ordinal } from '@/lib/statement-day-drift';
 import { applyCardUpdates, type StatementIntake } from '@/lib/statement-intake';
 import type { ProbableDecision, StatementCheckPlan } from '@/lib/statement-check';
 import type {
@@ -348,14 +349,6 @@ const formatCardValue = (update: StatementCardUpdate, value: number | string) =>
     default:
       return String(value);
   }
-};
-
-const ordinal = (day: number) => {
-  const suffix =
-    day % 100 >= 11 && day % 100 <= 13
-      ? 'th'
-      : (({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th');
-  return `${day}${suffix}`;
 };
 
 /**

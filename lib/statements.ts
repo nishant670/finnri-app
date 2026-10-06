@@ -91,6 +91,20 @@ export type CardStatement = {
   updated_at?: string;
 };
 
+/**
+ * The card's latest statement was dated off its usual billing day. Only an
+ * offer: the card is unchanged until the user accepts.
+ */
+export type StatementDaySuggestion = {
+  current_day: number;
+  observed_day: number;
+};
+
+/** What saving or correcting a statement returns. */
+export type SavedCardStatement = CardStatement & {
+  statement_day_suggestion?: StatementDaySuggestion;
+};
+
 export type CardStatementPayload = {
   statement_date: string;
   /** Derived from the card's due day when omitted. */
@@ -178,7 +192,7 @@ export const saveCardStatement = async (
   token: string,
   accountId: number,
   payload: CardStatementPayload
-): Promise<CardStatement> => {
+): Promise<SavedCardStatement> => {
   const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/statements`, {
     method: 'POST',
     headers: authHeaders(token),
@@ -186,6 +200,26 @@ export const saveCardStatement = async (
   });
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to save this statement right now.');
+  }
+  return response.json();
+};
+
+/**
+ * Correct one bill in place, its date included. Saving a new date through
+ * `saveCardStatement` would upsert on that date and leave the old bill behind.
+ */
+export const updateCardStatement = async (
+  token: string,
+  statementId: number,
+  payload: CardStatementPayload
+): Promise<SavedCardStatement> => {
+  const response = await fetch(`${API_BASE_URL}/v1/statements/${statementId}`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw await readStatementError(response, 'Unable to update this statement right now.');
   }
   return response.json();
 };
