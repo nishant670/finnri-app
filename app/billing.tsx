@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as WebBrowser from 'expo-web-browser';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -22,10 +22,13 @@ import {
   fetchBillingStatus,
   fetchCheckoutOrderStatus,
   formatCreditDate,
+  formatMinor,
   formatPlanPrice,
+  planOffer,
   requestLifetimeQuote,
   type BillingPlan,
   type BillingStatus,
+  type PlanOffer,
 } from '@/lib/billing';
 
 const intervalLabels: Record<string, string> = {
@@ -146,6 +149,10 @@ export default function BillingScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const isGuest = !!user?.is_guest;
+  // Set when another screen (the Home plans pop-up) sends someone here having
+  // already chosen a plan: checkout starts once, as if they had tapped it.
+  const { checkout: checkoutParam } = useLocalSearchParams<{ checkout?: string }>();
+  const startedCheckout = useRef(false);
 
   const loadBilling = useCallback(async () => {
     setIsLoading(true);
@@ -271,6 +278,23 @@ export default function BillingScreen() {
       setBusyPlan(null);
     }
   };
+
+  useEffect(() => {
+    if (!checkoutParam || startedCheckout.current || isLoading || plans.length === 0) return;
+    const chosen = plans.find((plan) => plan.code === checkoutParam);
+    if (!chosen) return;
+    startedCheckout.current = true;
+    void handlePlanPress(chosen);
+    // handlePlanPress is recreated every render; the ref makes this run once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkoutParam, isLoading, plans]);
+
+  const launchOffer = status?.launch_offer?.active
+    ? status.launch_offer
+    : !status
+      ? plans.find((plan) => plan.offer)?.offer
+      : null;
+  const offerIsYours = !status || !!status.launch_offer?.eligible;
 
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
@@ -427,6 +451,13 @@ export default function BillingScreen() {
         {PLANS_VISIBLE ? (
           <>
           <View style={{ gap: theme.spacing.sm }}>
+            {launchOffer ? (
+              <LaunchOfferBanner
+                percentOff={launchOffer.percent_off}
+                spotsLeft={launchOffer.spots_left ?? null}
+                used={!offerIsYours}
+              />
+            ) : null}
             <ThemedText
               style={{
                 color: colors.text,
@@ -460,6 +491,7 @@ export default function BillingScreen() {
               const isRecommended = plan.code === recommendedPlanCode;
               const disabled = busyPlan !== null || (isLifetime && !lifetimeEligible);
               const accent = planAccents[index % planAccents.length];
+              const offer = isLifetime ? null : planOffer(plan, status);
               const actionLabel = isGuest
                 ? 'Create account'
                 : isCurrent
@@ -472,7 +504,9 @@ export default function BillingScreen() {
                       // Names what the tap does. The payment is taken on a web
                       // page, and a button saying "Subscribe" that opens a
                       // browser is a small dishonesty people notice.
-                      ? 'Continue to payment'
+                      ? offer
+                        ? `Continue to pay ${formatMinor(offer.price_minor, plan.currency)}`
+                        : 'Continue to payment'
                       : 'Notify me';
               return (
                 <PlanCard
@@ -484,6 +518,7 @@ export default function BillingScreen() {
                   disabled={disabled || isCurrent}
                   isCurrent={isCurrent}
                   isRecommended={isRecommended}
+                  offer={offer}
                   onPress={() => void handlePlanPress(plan)}
                 />
               );
@@ -554,9 +589,11 @@ function PlanCard({
   disabled,
   isCurrent,
   isRecommended,
+  offer,
   onPress,
 }: {
   plan: BillingPlan;
+  offer?: PlanOffer | null;
   accent: string;
   actionLabel: string;
   busy: boolean;
@@ -609,17 +646,35 @@ function PlanCard({
                 {plan.name}
               </ThemedText>
               {isRecommended ? <Badge label="Smart pick" color={accent} /> : null}
+              {offer ? <Badge label={`${offer.percent_off}% off`} color="#E5484D" /> : null}
               {isCurrent ? <Badge label="Active" color="#17A978" /> : null}
             </View>
             <ThemedText style={{ color: `${colors.text}99` }}>{planSubtitle(plan)}</ThemedText>
           </View>
 
           <View style={{ alignItems: 'flex-end', maxWidth: 112 }}>
-            <ThemedText
-              numberOfLines={2}
-              style={{ color: colors.text, fontFamily: Fonts.title, fontWeight: '900' }}>
-              {formatPlanPrice(plan)}
-            </ThemedText>
+            {offer ? (
+              <>
+                <ThemedText
+                  testID={`plan-original-price-${plan.code}`}
+                  variant="caption"
+                  style={{ color: `${colors.text}77`, textDecorationLine: 'line-through' }}>
+                  {formatMinor(offer.original_price_minor, plan.currency)}
+                </ThemedText>
+                <ThemedText
+                  testID={`plan-offer-price-${plan.code}`}
+                  numberOfLines={1}
+                  style={{ color: accent, fontFamily: Fonts.title, fontWeight: '900', fontSize: 20 }}>
+                  {formatMinor(offer.price_minor, plan.currency)}
+                </ThemedText>
+              </>
+            ) : (
+              <ThemedText
+                numberOfLines={2}
+                style={{ color: colors.text, fontFamily: Fonts.title, fontWeight: '900' }}>
+                {formatPlanPrice(plan)}
+              </ThemedText>
+            )}
             <ThemedText variant="caption" style={{ color: `${colors.text}88` }}>
               {intervalLabels[plan.billing_interval] ?? plan.billing_interval}
             </ThemedText>
@@ -694,6 +749,49 @@ function PlanCard({
         </Pressable>
       </View>
     </Card>
+  );
+}
+
+/**
+ * "Launch offer · limited time". Spots left are named only when few remain,
+ * which the server decides. Someone who has already used the offer is told
+ * why their prices are the regular ones rather than left to wonder.
+ */
+function LaunchOfferBanner({
+  percentOff,
+  spotsLeft,
+  used,
+}: {
+  percentOff: number;
+  spotsLeft: number | null;
+  used: boolean;
+}) {
+  const theme = useThemeTokens();
+  return (
+    <View
+      testID="launch-offer-banner"
+      style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        padding: 14,
+        borderRadius: 20,
+        backgroundColor: theme.mode === 'dark' ? '#3A1518' : '#FFF1F0',
+      }}>
+      <MaterialCommunityIcons name="rocket-launch-outline" size={24} color="#E5484D" />
+      <View style={{ flex: 1, gap: 2 }}>
+        <ThemedText style={{ color: theme.colors.text, fontFamily: Fonts.title, fontWeight: '900' }}>
+          Launch offer · {percentOff}% off every plan
+        </ThemedText>
+        <ThemedText variant="caption" style={{ color: `${theme.colors.text}AA` }}>
+          {used
+            ? 'You have already used the launch price — thanks for being early.'
+            : spotsLeft != null
+              ? `For a limited time · only ${spotsLeft} launch spot${spotsLeft === 1 ? '' : 's'} left`
+              : 'For a limited time, once per account'}
+        </ThemedText>
+      </View>
+    </View>
   );
 }
 

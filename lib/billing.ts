@@ -38,6 +38,34 @@ export type BillingPlan = {
   requires_prior_paid_months: number;
   checkout_enabled: boolean;
   feature_gates: string[];
+  /**
+   * The launch offer on this plan, while it runs. `price_minor` stays the
+   * regular price; this is what checkout charges an eligible buyer.
+   */
+  offer?: PlanOffer | null;
+};
+
+export type PlanOffer = {
+  code: string;
+  label: string;
+  percent_off: number;
+  price_minor: number;
+  original_price_minor: number;
+  ends_at: string;
+  /** Only present when few spots remain. */
+  spots_left?: number | null;
+};
+
+/** The offer as it applies to the signed-in user. */
+export type LaunchOfferStatus = {
+  active: boolean;
+  /** False once this user has bought at the launch price. */
+  eligible: boolean;
+  code: string;
+  label: string;
+  percent_off: number;
+  ends_at?: string;
+  spots_left?: number | null;
 };
 
 export type BillingStatus = {
@@ -47,6 +75,8 @@ export type BillingStatus = {
   current_period_end?: string | null;
   credits: CreditSummary;
   lifetime_eligibility: LifetimeEligibility;
+  /** Present while the launch offer runs. */
+  launch_offer?: LaunchOfferStatus | null;
 };
 
 export type AIUsageEvent = {
@@ -208,6 +238,24 @@ export const formatCreditDate = (value?: string | null) => {
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 };
+
+/**
+ * The offer this user would actually get on this plan, or null. The plan list
+ * is public and cannot know who is asking; billing status can, and once the
+ * user has used the launch price — or it has sold out — it says so.
+ */
+export const planOffer = (plan: BillingPlan, status?: BillingStatus | null): PlanOffer | null => {
+  if (!plan.offer) return null;
+  if (status && (!status.launch_offer?.active || !status.launch_offer.eligible)) return null;
+  return plan.offer;
+};
+
+export const formatMinor = (minor: number, currency = 'INR') =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: currency || 'INR',
+    maximumFractionDigits: 0,
+  }).format(minor / 100);
 
 export const formatPlanPrice = (plan: BillingPlan) => {
   if (plan.billing_interval === 'lifetime_quote') return 'Quote';
