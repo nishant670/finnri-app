@@ -78,6 +78,7 @@ import {
   TransactionSubscriptionDateSheet,
 } from './TransactionDateSheets';
 import { TransactionDraftField, tagOptions } from './TransactionDraftField';
+import { TransactionDraftBanner, TransactionDraftSource } from './TransactionDraftHeader';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionModePicker } from './TransactionModePicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
@@ -1936,100 +1937,28 @@ export function TransactionFormModal({
 
                 <View className="px-5 mb-6">
                   {draftReview && aiReview?.sourceText ? (
-                    <View
-                      className="mb-3 rounded-[20px] border px-4 py-3"
-                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      <View className="flex-row items-center gap-1.5">
-                        <MaterialCommunityIcons
-                          name={
-                            aiReview.inputSource === 'receipt'
-                              ? 'receipt-text-outline'
-                              : aiReview.inputSource === 'text'
-                                ? 'keyboard-outline'
-                                : 'microphone-outline'
-                          }
-                          size={13}
-                          color="#9CA3AF"
-                        />
-                        <ThemedText
-                          tone="muted"
-                          className="text-[10px] font-black uppercase tracking-widest">
-                          {aiReview.inputSource === 'receipt'
-                            ? 'Read from your receipt'
-                            : aiReview.inputSource === 'text'
-                              ? 'You typed'
-                              : 'You said'}
-                        </ThemedText>
-                      </View>
-                      <ThemedText
-                        testID="draft-source-text"
-                        className="mt-1.5 text-sm font-bold italic"
-                        style={{ color: theme.text }}>
-                        “{aiReview.sourceText}”
-                      </ThemedText>
-                    </View>
+                    <TransactionDraftSource
+                      inputSource={aiReview.inputSource}
+                      sourceText={aiReview.sourceText}
+                    />
                   ) : null}
 
                   {mode === 'audio' && (
-                    <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
-                      <View className="flex-row items-center justify-between">
-                        <View className="flex-row items-center">
-                          <MaterialCommunityIcons
-                            name="creation-outline"
-                            size={18}
-                            color="#D97706"
-                          />
-                          <ThemedText
-                            tone="warning"
-                            className="ml-2 text-[11px] font-black uppercase tracking-widest">
-                            AI draft
-                          </ThemedText>
-                        </View>
-                        <View className="rounded-full border border-amber-200 bg-white px-2 py-1 dark:border-amber-800 dark:bg-gray-800">
-                          <ThemedText tone="warning" className="text-[9px] font-black uppercase">
-                            {/* Mid-parse the chip has no fields to count, and
-                                the fallback "Review all fields" is a claim about
-                                a draft that does not exist yet. */}
-                            {isParsing
-                              ? 'Reading'
-                              : (draftReview ? draftPendingCount : reviewFields.length) > 0
-                                ? `${draftReview ? draftPendingCount : reviewFields.length} field${(draftReview ? draftPendingCount : reviewFields.length) === 1 ? '' : 's'} to check`
-                                : hasReviewMetadata
-                                  ? 'No issues flagged'
-                                  : 'Review all fields'}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      {/* The review sheet gives every flagged field its own card
-                          below, so naming them here as well would say it twice. */}
-                      {!draftReview && reviewFields.length > 0 && (
-                        <ThemedText tone="warning" className="mt-3 text-sm font-bold">
-                          Check: {reviewFields.map(formatFieldName).join(', ')}
-                        </ThemedText>
-                      )}
-                      {/* On the review sheet these exist to prompt the checks
-                          below; once every flagged field has been answered the
-                          banner reads "No issues flagged", and a question left
-                          sitting under that line contradicts it. */}
-                      {(!draftReview || draftPendingCount > 0) &&
-                        aiReview?.clarifications?.map((clarification) => (
-                          <View key={clarification} className="mt-2 flex-row items-start">
-                            <MaterialCommunityIcons
-                              name="help-circle-outline"
-                              size={16}
-                              color="#D97706"
-                            />
-                            <ThemedText tone="warning" className="ml-2 flex-1 text-sm">
-                              {clarification}
-                            </ThemedText>
-                          </View>
-                        ))}
-                      <ThemedText tone="warning" className="mt-3 text-xs">
-                        {isParsing
-                          ? 'Picking out the amount, category and account. You can review everything before it is saved.'
-                          : 'AI suggestions are never saved until you confirm.'}
-                      </ThemedText>
-                    </View>
+                    <TransactionDraftBanner
+                      isParsing={isParsing}
+                      fieldsToCheck={draftReview ? draftPendingCount : reviewFields.length}
+                      hasReviewMetadata={hasReviewMetadata}
+                      // The review sheet gives every flagged field its own card
+                      // below, so naming them here as well would say it twice.
+                      checkList={draftReview ? [] : reviewFields.map(formatFieldName)}
+                      // On the review sheet these exist to prompt the checks
+                      // below; once every flagged field has been answered the
+                      // banner reads "No issues flagged", and a question left
+                      // sitting under that line contradicts it.
+                      clarifications={
+                        !draftReview || draftPendingCount > 0 ? aiReview?.clarifications : undefined
+                      }
+                    />
                   )}
 
                   {draftReview && isParsing && <DraftSkeleton />}
