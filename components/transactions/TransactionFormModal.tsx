@@ -47,7 +47,7 @@ import { calculateEMI, type EMICalculation } from '@/lib/emi';
 import { formatTime, uses24HourClock } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
 import { formatMoney, toAmount, toAmountInputValue, toKeypadValue } from '@/lib/money';
-import { ATTACHMENT_PICKER_TYPES, isLocalAttachmentUri } from '@/lib/uploads';
+import { ATTACHMENT_PICKER_TYPES } from '@/lib/uploads';
 import type { SplitFriend, SplitGroup } from '@/lib/splits';
 import { formatEMIProgress, type EMIPlan } from '@/lib/emi-plans';
 import type { BillingInterval, Subscription } from '@/lib/subscriptions';
@@ -72,6 +72,7 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
+import { TransactionReceiptField } from './TransactionReceiptField';
 import {
   shareFromPercent,
   TransactionSplitFields,
@@ -1731,75 +1732,14 @@ export function TransactionFormModal({
 
   if (!showModal) return null;
 
-  /**
-   * Pulled out of More details because the AI draft review shows it too,
-   * inside its expanded summary. Only ever one of the two is mounted.
-   *
-   * The heading is a section label, which is how More details reads; in the
-   * review list every other row carries its label inside the card, so there
-   * the row speaks for itself.
-   */
   const renderReceiptField = (withSectionLabel: boolean) => (
-    <View>
-      {withSectionLabel && (
-        <ThemedText
-          tone="muted"
-          className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-          Receipt
-        </ThemedText>
-      )}
-      <Pressable
-        onPress={handlePickAttachment}
-        accessibilityRole="button"
-        accessibilityLabel={form.attachment ? 'Change receipt' : 'Attach a receipt'}
-        className="w-full min-h-[64px] rounded-[20px] border px-4 py-3 flex-row items-center justify-between shadow-sm"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <View className="flex-row items-center gap-3 flex-1 pr-3">
-          <MaterialCommunityIcons
-            name={form.attachment ? 'file-check-outline' : 'file-upload-outline'}
-            size={22}
-            color={form.attachment ? accent : detailInputPlaceholderColor}
-          />
-          <View className="flex-1">
-            <ThemedText
-              className="text-sm font-bold"
-              numberOfLines={1}
-              style={{ color: form.attachment ? theme.text : detailInputPlaceholderColor }}>
-              {form.attachment
-                ? decodeURIComponent(form.attachment.split('?')[0].split('/').pop() ?? 'Receipt')
-                : 'Attach a photo or PDF'}
-            </ThemedText>
-            {form.attachment ? (
-              <ThemedText tone="muted" className="text-[10px] font-bold mt-0.5">
-                {isLocalAttachmentUri(form.attachment)
-                  ? 'Uploads when you save'
-                  : 'Saved to this transaction'}
-              </ThemedText>
-            ) : null}
-          </View>
-        </View>
-        {form.attachment ? (
-          <Pressable
-            onPress={handleRemoveAttachment}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Remove receipt">
-            <MaterialCommunityIcons name="close-circle" size={20} color="#EF4444" />
-          </Pressable>
-        ) : (
-          <MaterialCommunityIcons
-            name="plus-circle-outline"
-            size={20}
-            color={detailInputPlaceholderColor}
-          />
-        )}
-      </Pressable>
-      {attachmentError ? (
-        <ThemedText tone="negative" className="text-[11px] font-bold mt-2 ml-1">
-          {attachmentError}
-        </ThemedText>
-      ) : null}
-    </View>
+    <TransactionReceiptField
+      attachment={form.attachment}
+      error={attachmentError}
+      withSectionLabel={withSectionLabel}
+      onPick={handlePickAttachment}
+      onRemove={handleRemoveAttachment}
+    />
   );
 
   /**
