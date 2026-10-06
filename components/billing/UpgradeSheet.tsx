@@ -9,7 +9,16 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Entitlement } from '@/lib/api-error';
-import { fetchBillingPlans, formatPlanPrice, type BillingPlan } from '@/lib/billing';
+import { useAuthStore } from '@/hooks/use-auth-store';
+import {
+  fetchBillingPlans,
+  fetchBillingStatus,
+  formatMinor,
+  formatPlanPrice,
+  planOffer,
+  type BillingPlan,
+  type BillingStatus,
+} from '@/lib/billing';
 
 type FeatureCopy = {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
@@ -134,15 +143,23 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
   const colors = theme.colors;
   const muted = `${colors.text}99`;
   const [plans, setPlans] = useState<BillingPlan[] | null>(null);
+  // Who is looking decides whether the launch price is theirs to quote.
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const { token } = useAuthStore();
 
   useEffect(() => {
     // Prices are only ever shown where the app may sell. Fetching them for a
     // sheet that will not display one is a request for nothing.
     if (!visible || plans || !PLANS_REACHABLE) return;
     let active = true;
-    fetchBillingPlans()
-      .then((loaded) => {
-        if (active) setPlans(loaded);
+    Promise.all([
+      fetchBillingPlans(),
+      token ? fetchBillingStatus(token).catch(() => null) : Promise.resolve(null),
+    ])
+      .then(([loaded, loadedStatus]) => {
+        if (!active) return;
+        setPlans(loaded);
+        setBillingStatus(loadedStatus);
       })
       // Price is a nicety. Without it the sheet still says what the feature
       // does and still routes to the plan screen.
@@ -150,7 +167,7 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
     return () => {
       active = false;
     };
-  }, [plans, visible]);
+  }, [plans, token, visible]);
 
   if (!entitlement) return null;
 
@@ -159,8 +176,11 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
   const plan = plans ? cheapestPayablePlan(plans) : null;
   // Never invent a price. Until checkout is live the plans carry no amount,
   // and saying so is better than an empty card or a made-up number.
+  const offer = plan ? planOffer(plan, billingStatus) : null;
   const priceLine = plan
-    ? `${formatPlanPrice(plan)} a ${intervalSuffix[plan.billing_interval] ?? plan.billing_interval} · ${plan.name}`
+    ? offer
+      ? `${formatMinor(offer.price_minor, plan.currency)} a ${intervalSuffix[plan.billing_interval] ?? plan.billing_interval} · ${plan.name} · launch offer, was ${formatMinor(offer.original_price_minor, plan.currency)}`
+      : `${formatPlanPrice(plan)} a ${intervalSuffix[plan.billing_interval] ?? plan.billing_interval} · ${plan.name}`
     : plans && plans.length > 0
       ? 'Pricing announced soon'
       : null;

@@ -28,6 +28,8 @@ import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
+import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
@@ -473,6 +475,23 @@ export default function HomeScreen() {
   const motion = useMotion();
 
   const [isPromptModalOpen, setIsPromptModalOpen] = useState(false);
+  // The plans pop-up waits its turn: it never opens over a sheet, a credit
+  // prompt or the quick-prompt editor. Read through a ref because the check
+  // runs after a delay, against whatever is on screen by then.
+  const screenBusyRef = useRef(false);
+  screenBusyRef.current = isEditOpen || isPromptModalOpen || creditAction !== null;
+  // A budget alert after a save already interrupted once; a second prompt
+  // straight after it would be the spam this pop-up is built to avoid.
+  const promptQuietUntilRef = useRef(0);
+  const plansPrompt = usePlansPrompt({
+    token,
+    isGuest: !!user?.is_guest,
+    isBusy: useCallback(
+      () => screenBusyRef.current || Date.now() < promptQuietUntilRef.current,
+      []
+    ),
+  });
+  const considerPlansPrompt = plansPrompt.considerAfterSave;
   const [editingPrompt, setEditingPrompt] = useState<
     import('@/components/home/QuickPrompts').QuickPrompt | null
   >(null);
@@ -731,6 +750,7 @@ export default function HomeScreen() {
           previousBudgetNotificationIds
         );
         if (!notification) return;
+        promptQuietUntilRef.current = Date.now() + 60_000;
         if (
           await dialog.confirm({
             title: notification.title,
@@ -1156,6 +1176,9 @@ export default function HomeScreen() {
         setRefundReceived(null);
         setIsEditOpen(false);
         notifyTransactionsChanged();
+        // The moment Finnri just did something useful is the one moment a
+        // plans prompt reads as help rather than a toll — see usePlansPrompt.
+        considerPlansPrompt();
         if (formData.type === 'Expense' && !convertedToEMI) {
           void showNewBudgetAlert(budgetNotificationIds);
         }
@@ -1175,6 +1198,7 @@ export default function HomeScreen() {
     [
       aiInputSource,
       aiSourceText,
+      considerPlansPrompt,
       createBlankForm,
       ensureAccountForEntry,
       fetchSplitOptions,
@@ -2203,6 +2227,7 @@ export default function HomeScreen() {
           });
         }}
       />
+      <PlansOfferSheet {...plansPrompt.sheet} />
       <TransactionFormModal
         visible={isPromptModalOpen}
         onClose={() => setIsPromptModalOpen(false)}
