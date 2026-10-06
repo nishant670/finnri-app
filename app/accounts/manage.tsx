@@ -283,6 +283,8 @@ export default function ManageAccountScreen() {
   const [reminderEnabled, setReminderEnabled] = useState(true);
   const [reminderDaysBefore, setReminderDaysBefore] = useState('3');
   const [feeMonth, setFeeMonth] = useState('');
+  const [annualFee, setAnnualFee] = useState('');
+  const [feeWaiverSpend, setFeeWaiverSpend] = useState('');
 
   // Modal States
   const [showDayModal, setShowDayModal] = useState(false);
@@ -334,6 +336,8 @@ export default function ManageAccountScreen() {
         setReminderEnabled(account.reminder_enabled !== false);
         setReminderDaysBefore(String(account.reminder_days_before ?? 3));
         setFeeMonth(account.fee_month || '');
+        setAnnualFee(account.annual_fee ? String(account.annual_fee) : '');
+        setFeeWaiverSpend(account.fee_waiver_spend ? String(account.fee_waiver_spend) : '');
         setIsDefault(Boolean(account.is_default));
         if (focus === 'details') {
           setStep(2);
@@ -411,6 +415,8 @@ export default function ManageAccountScreen() {
     setReminderEnabled(true);
     setReminderDaysBefore('3');
     setFeeMonth('');
+    setAnnualFee('');
+    setFeeWaiverSpend('');
     setTypeError(null);
   };
 
@@ -430,6 +436,8 @@ export default function ManageAccountScreen() {
     setReminderEnabled(true);
     setReminderDaysBefore('3');
     setFeeMonth('');
+    setAnnualFee('');
+    setFeeWaiverSpend('');
     setIsDefault(false);
     setSaveError(null);
     setTypeError(null);
@@ -465,6 +473,13 @@ export default function ManageAccountScreen() {
         reminder_enabled: reminderEnabled,
         reminder_days_before: Math.min(30, Math.max(0, parseInt(reminderDaysBefore) || 0)),
         fee_month: feeMonth,
+        // Card-only. Left out for other types so the server keeps what it has.
+        ...(selectedType === 'credit_card'
+          ? {
+              annual_fee: parseFloat(annualFee) || 0,
+              fee_waiver_spend: parseFloat(feeWaiverSpend) || 0,
+            }
+          : {}),
         balance: parseFloat(balance) || 0,
         is_default: isDefault,
       };
@@ -913,6 +928,52 @@ export default function ManageAccountScreen() {
                   </ThemedText>
                   <MaterialCommunityIcons name="chevron-down" size={20} color="#AAB7C6" />
                 </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={[styles.row, { marginTop: 4 }]}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Annual fee</ThemedText>
+                <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                  <MaterialCommunityIcons
+                    name="currency-inr"
+                    size={20}
+                    color={theme.accent}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    testID="card-annual-fee"
+                    value={annualFee}
+                    onChangeText={(val) => setAnnualFee(val.replace(/[^0-9]/g, ''))}
+                    placeholder="500"
+                    placeholderTextColor={theme.muted}
+                    keyboardType="number-pad"
+                    style={[styles.textInputSmall, { color: theme.text }]}
+                  />
+                </View>
+              </View>
+              <View style={{ width: 16 }} />
+              <View style={{ flex: 1 }}>
+                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                  Waived above (yearly)
+                </ThemedText>
+                <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                  <MaterialCommunityIcons
+                    name="currency-inr"
+                    size={20}
+                    color={theme.accent}
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    testID="card-fee-waiver"
+                    value={feeWaiverSpend}
+                    onChangeText={(val) => setFeeWaiverSpend(val.replace(/[^0-9]/g, ''))}
+                    placeholder="1,00,000"
+                    placeholderTextColor={theme.muted}
+                    keyboardType="number-pad"
+                    style={[styles.textInputSmall, { color: theme.text }]}
+                  />
+                </View>
               </View>
             </View>
 
