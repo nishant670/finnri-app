@@ -21,7 +21,7 @@ const typeOptions: { label: string; value: FeedbackType; icon: keyof typeof Mate
   { label: 'Idea', value: 'idea', icon: 'creation-outline' },
 ];
 
-const areaOptions = ['Capture', 'Insights', 'Budgets', 'Subscriptions', 'Splits', 'Accounts', 'Security', 'Other'];
+const areaOptions = ['Capture', 'Insights', 'Budgets', 'Recurring', 'Splits', 'Accounts', 'Security', 'Other'];
 
 const impactOptions: { label: string; value: FeedbackImpact }[] = [
   { label: 'Must fix', value: 'critical' },

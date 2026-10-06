@@ -34,7 +34,7 @@ const values = [
 
 const stats = [
   { label: 'Budgets', value: 'Limits + alerts' },
-  { label: 'Subscriptions', value: 'Renewal tracking' },
+  { label: 'Recurring', value: 'EMIs, SIPs, subscriptions and bills' },
   { label: 'Splits', value: 'Shared expenses' },
 ];
 
