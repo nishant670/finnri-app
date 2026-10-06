@@ -134,6 +134,8 @@ const codeMessages: Record<string, string> = {
   invalid_or_expired_session: 'Your session expired. Please sign in again.',
   account_in_use: 'Move or delete linked transactions before deleting this account.',
   last_account: 'Create another account before deleting your only account.',
+  statement_date_taken: 'This card already has a statement on that date.',
+  statement_date_out_of_order: 'That date is past another statement on this card. Pick a date between its neighbours.',
 };
 
 /**

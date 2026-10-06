@@ -13,6 +13,7 @@ import { EMIPlanFormSheet } from '@/components/statements/EMIPlanFormSheet';
 import { EMIPlansSection } from '@/components/statements/EMIPlansSection';
 import { ItemizationBanner } from '@/components/statements/ItemizationBanner';
 import { PaymentFormSheet } from '@/components/statements/PaymentFormSheet';
+import { StatementDayDriftDialog } from '@/components/statements/StatementDayDriftDialog';
 import { StatementFormSheet } from '@/components/statements/StatementFormSheet';
 import { StatementSummaryCard } from '@/components/statements/StatementSummaryCard';
 import { ThemedText } from '@/components/themed-text';
@@ -49,11 +50,13 @@ import {
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { fetchBillingStatus } from '@/lib/billing';
+import { isStatementDaySuggestion } from '@/lib/statement-day-drift';
 import { intakeFromRead, putStatementIntake } from '@/lib/statement-intake';
 import { EMIPlan, EMIPlanPayload, createCardEMIPlan, fetchCardEMIPlans } from '@/lib/emi-plans';
 import {
   CardStatement,
   CardStatementPayload,
+  StatementDaySuggestion,
   StatementPaymentPayload,
   StatementRead,
   fetchStatement,
@@ -202,6 +205,7 @@ export default function AccountDetailsScreen() {
   const [isPaymentSheetVisible, setIsPaymentSheetVisible] = useState(false);
   const [isSubmittingStatement, setIsSubmittingStatement] = useState(false);
   const [statementError, setStatementError] = useState<string | null>(null);
+  const [daySuggestion, setDaySuggestion] = useState<StatementDaySuggestion | null>(null);
   const [emiPlans, setEmiPlans] = useState<EMIPlan[]>([]);
   const [isEmiSheetVisible, setIsEmiSheetVisible] = useState(false);
 
@@ -442,6 +446,11 @@ export default function AccountDetailsScreen() {
       // The bill changes the card's outstanding and available limit, both of
       // which live on the account, so the whole screen is refetched.
       await loadDetails();
+      // A file read offers its card updates on the statement check instead,
+      // so this only asks for a statement entered by hand.
+      if (isStatementDaySuggestion(saved.statement_day_suggestion)) {
+        setDaySuggestion(saved.statement_day_suggestion);
+      }
     } catch (saveError) {
       setStatementError(getFriendlyErrorMessage(saveError, 'Unable to save this statement.'));
     } finally {
@@ -1051,6 +1060,16 @@ export default function AccountDetailsScreen() {
                 setIsStatementSheetVisible(false);
                 router.push('/billing');
               }}
+            />
+            <StatementDayDriftDialog
+              token={token}
+              card={account}
+              suggestion={daySuggestion}
+              onClose={(moved) => {
+                setDaySuggestion(null);
+                if (moved) void loadDetails();
+              }}
+              onError={setError}
             />
             <EMIPlanFormSheet
               visible={isEmiSheetVisible}
