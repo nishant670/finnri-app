@@ -71,7 +71,9 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
+import { TransactionCategoryPicker } from './TransactionCategoryPicker';
 import { TransactionEmiFields } from './TransactionEmiFields';
+import { TransactionModePicker } from './TransactionModePicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
@@ -3362,147 +3364,36 @@ export function TransactionFormModal({
           </AnimatedBottomSheet>
         )}
 
-        {/* Mode Picker */}
-        <AnimatedBottomSheet
+        <TransactionModePicker
           visible={isModePickerVisible}
+          options={modeOptions}
+          selected={form.mode}
           onClose={() => setIsModePickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">
-              Select Payment Method
-            </ThemedText>
-            <View className="gap-2">
-              {modeOptions.map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => {
-                    setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
-                    setIsModePickerVisible(false);
-                  }}
-                  className="flex-row items-center justify-between rounded-2xl border p-4"
-                  style={{
-                    backgroundColor:
-                      form.mode === m
-                        ? accentSurface
-                        : colorScheme === 'dark'
-                          ? theme.card
-                          : '#F9FAFB',
-                    borderColor: form.mode === m ? accent : 'transparent',
-                  }}>
-                  <ThemedText
-                    className="font-bold"
-                    style={{ color: form.mode === m ? accent : theme.text }}>
-                    {m}
-                  </ThemedText>
-                  {form.mode === m && (
-                    <MaterialCommunityIcons name="check" size={20} color={accent} />
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(m) => {
+            setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
+            setIsModePickerVisible(false);
+          }}
+        />
 
-        {/* Category Picker */}
-        <AnimatedBottomSheet
+        <TransactionCategoryPicker
           visible={isCategoryPickerVisible}
+          selected={form.category}
+          options={selectableCategoryOptions}
+          suggestions={visibleCategorySuggestions}
+          customCategory={customCategory}
+          onChangeCustomCategory={setCustomCategory}
           onClose={() => setIsCategoryPickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">
-              Select Category
-            </ThemedText>
-            <ScrollView style={{ maxHeight: 430 }}>
-              {visibleCategorySuggestions.length > 0 && (
-                <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
-                  <ThemedText
-                    tone="warning"
-                    className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                    Suggested from history
-                  </ThemedText>
-                  <View className="flex-row flex-wrap gap-2">
-                    {visibleCategorySuggestions.map((suggestion) => (
-                      <Pressable
-                        key={suggestion}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          selectCategory(suggestion);
-                          setIsCategoryPickerVisible(false);
-                        }}
-                        className="rounded-full px-3 py-2"
-                        style={{ backgroundColor: theme.card }}>
-                        <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                          {suggestion}
-                        </ThemedText>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              )}
-              <View className="flex-row flex-wrap gap-4 justify-between">
-                {selectableCategoryOptions.map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => {
-                      selectCategory(c);
-                      setIsCategoryPickerVisible(false);
-                    }}
-                    className="w-[47%] items-center gap-2 rounded-3xl border p-4"
-                    style={{
-                      backgroundColor:
-                        form.category === c
-                          ? accentSurface
-                          : colorScheme === 'dark'
-                            ? theme.card
-                            : '#F9FAFB',
-                      borderColor: form.category === c ? accent : 'transparent',
-                    }}>
-                    <ThemedText
-                      className="text-xs font-bold"
-                      style={{ color: form.category === c ? accent : theme.text }}>
-                      {c}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-              <View className="mt-5 rounded-3xl border p-4" style={{ borderColor: theme.border }}>
-                <ThemedText
-                  tone="muted"
-                  className="mb-3 text-[10px] font-black uppercase tracking-widest">
-                  Custom category
-                </ThemedText>
-                <View className="flex-row gap-3">
-                  <TextInput
-                    testID="entry-custom-category-input"
-                    value={customCategory}
-                    onChangeText={setCustomCategory}
-                    placeholder="Add category"
-                    placeholderTextColor="#9CA3AF"
-                    className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                    style={{ color: theme.text }}
-                  />
-                  <Pressable
-                    testID="entry-add-custom-category-button"
-                    accessibilityRole="button"
-                    onPress={() => {
-                      const nextCategory = normalizeCategoryValue(customCategory, form.type);
-                      selectCategory(nextCategory);
-                      setCustomCategory('');
-                      setIsCategoryPickerVisible(false);
-                    }}
-                    className="items-center justify-center rounded-2xl px-4"
-                    style={{ backgroundColor: accent }}>
-                    <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(category) => {
+            selectCategory(category);
+            setIsCategoryPickerVisible(false);
+          }}
+          onAddCustom={() => {
+            const nextCategory = normalizeCategoryValue(customCategory, form.type);
+            selectCategory(nextCategory);
+            setCustomCategory('');
+            setIsCategoryPickerVisible(false);
+          }}
+        />
 
         {/* Account Picker */}
         <AnimatedBottomSheet
