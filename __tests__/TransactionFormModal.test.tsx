@@ -5,10 +5,11 @@ import * as Haptics from 'expo-haptics';
 
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
   type AiReviewMetadata,
 } from '@/components/transactions/TransactionFormModal';
-import type { Account } from '@/lib/accounts';
+import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
 import type { Transaction } from '@/types/transaction';
 
@@ -65,7 +66,15 @@ const renderModal = async ({
   recentEntries,
   onSave = jest.fn().mockResolvedValue(undefined),
   onClose = jest.fn(),
+  emiLink,
+  accountMatches,
+  newAccountSuggestion,
+  onSetupSuggestedAccount,
 }: {
+  emiLink?: EMILink | null;
+  accountMatches?: Account[];
+  newAccountSuggestion?: AccountSuggestion | null;
+  onSetupSuggestedAccount?: jest.Mock;
   initialData?: Partial<EntryForm>;
   accounts?: Account[];
   aiReview?: AiReviewMetadata;
@@ -86,6 +95,10 @@ const renderModal = async ({
       aiReview={aiReview}
       accounts={accounts}
       recentEntries={recentEntries}
+      emiLink={emiLink}
+      accountMatches={accountMatches}
+      newAccountSuggestion={newAccountSuggestion}
+      onSetupSuggestedAccount={onSetupSuggestedAccount}
     />
   );
 
@@ -663,3 +676,95 @@ describe('TransactionFormModal — parse choreography', () => {
     expect(Haptics.notificationAsync).not.toHaveBeenCalled();
   });
 });
+
+describe('TransactionFormModal — EMI on an existing entry', () => {
+  const bankAccount: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5' };
+  const emiEdit: Partial<EntryForm> = {
+    ...completeInitialData,
+    title: 'Car loan EMI',
+    amount: '13776',
+    mode: 'Bank Account',
+    tag: 'EMI',
+    accountId: 3,
+    account: 'SBI Bank',
+    date: '05 October 2026',
+  };
+
+  it('offers the monthly auto-debit on a bank EMI that is not repeating yet', async () => {
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+    });
+    expect(await findByText('Repeats monthly (auto-debit)')).toBeTruthy();
+  });
+
+  it('shows the auto-debit it already has instead of offering a second one', async () => {
+    const { findByText, queryByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+      emiLink: {
+        kind: 'recurring',
+        subscription: {
+          amount: 13776,
+          total_instalments: 60,
+          instalments_paid: 12,
+          status: 'active',
+          next_due_date: '2026-11-05T00:00:00Z',
+        } as never,
+      },
+    });
+    expect(await findByText(/12 of 60 paid · 48 left/)).toBeTruthy();
+    expect(queryByText('Repeats monthly (auto-debit)')).toBeNull();
+  });
+
+  it('links a card EMI to its schedule', async () => {
+    const onOpen = jest.fn();
+    const card: Account = { id: 4, type: 'credit_card', name: 'One Card', color: '#000' };
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [card],
+      initialData: { ...emiEdit, mode: 'Credit Card', accountId: 4, account: 'One Card' },
+      emiLink: {
+        kind: 'plan',
+        onOpen,
+        plan: {
+          monthly_amount: 5000,
+          tenure_months: 12,
+          annual_rate_pct: 0,
+          progress: { installments_total: 12, installments_paid: 2 },
+        } as never,
+      },
+    });
+    await fireEvent.press(await findByText('View full schedule'));
+    expect(onOpen).toHaveBeenCalled();
+  });
+});
+
+describe('TransactionFormModal — which account did you mean', () => {
+  it('gives "add a new account" a button of its own', async () => {
+    const onSetup = jest.fn();
+    const suggestion: AccountSuggestion = {
+      type: 'credit_card',
+      name: 'SBI Credit Card',
+      color: '#000',
+      provider: 'SBI',
+      identifier: '',
+      reason: '',
+    };
+    const a: Account = { id: 5, type: 'credit_card', name: 'SBI BPCL', color: '#000' };
+    const b: Account = { id: 6, type: 'credit_card', name: 'SBI simply save', color: '#000' };
+    const { findByTestId } = await renderModal({
+      mode: 'audio',
+      accounts: [a, b],
+      accountMatches: [a, b],
+      newAccountSuggestion: suggestion,
+      onSetupSuggestedAccount: onSetup,
+      initialData: { ...completeInitialData, mode: 'Credit Card', accountId: 5, account: 'SBI BPCL' },
+    });
+    await fireEvent.press(await findByTestId('account-match-new'));
+    expect(onSetup).toHaveBeenCalledWith(suggestion);
+  });
+});
+
