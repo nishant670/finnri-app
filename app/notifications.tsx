@@ -15,6 +15,7 @@ import {
   AppNotification,
   accountIdFromActionURL,
   fetchNotifications,
+  isRecurringActionURL,
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/lib/notifications';
@@ -124,6 +125,11 @@ export default function NotificationsScreen() {
     const entryMatch = notification.action_url?.match(/^\/entry\/(\d+)$/);
     if (entryMatch) {
       router.push({ pathname: '/entry/[id]', params: { id: entryMatch[1] } });
+      return;
+    }
+
+    if (isRecurringActionURL(notification.action_url)) {
+      router.push({ pathname: '/(tabs)/money', params: { segment: 'subscriptions' } });
       return;
     }
 

@@ -154,3 +154,10 @@ export const markAllNotificationsRead = async (token: string, typePrefix?: strin
  */
 export const accountIdFromActionURL = (actionURL?: string | null): string | null =>
   actionURL?.match(/^\/accounts\/(\d+)(?:\?.*)?$/)?.[1] ?? null;
+
+/**
+ * A finished recurring schedule ("Loan paid off") links to `/recurring/<id>`,
+ * which opens the Recurring tab.
+ */
+export const isRecurringActionURL = (actionURL?: string | null): boolean =>
+  /^\/recurring(\/\d+)?$/.test(actionURL ?? '');
