@@ -29,6 +29,24 @@ export type AccountSummary = {
   limit?: CardLimitSummary;
   /** Credit cards with at least one priced statement. The bill to pay. */
   current_statement?: CurrentStatementSummary;
+  /** Cards with an annual fee and a fee month: this card year's waiver progress. */
+  annual_fee?: AnnualFeeStatus;
+};
+
+/**
+ * Where a card's annual fee stands. The card year is the twelve months before
+ * the 1st of the fee month; `spent` is net card spend in it, Finnri's guide to
+ * the bank's own waiver count.
+ */
+export type AnnualFeeStatus = {
+  fee: number;
+  fee_month: string;
+  renewal_date: string;
+  card_year_start: string;
+  spent: number;
+  waiver_spend?: number;
+  remaining_to_waive?: number;
+  waived?: boolean;
 };
 
 /**

@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AccountDetailSkeleton } from '@/components/accounts/AccountSkeletons';
 import { CardLimitRing } from '@/components/accounts/CardLimitRing';
 import { CreditUsageBar } from '@/components/accounts/CreditUsageBar';
+import { AnnualFeeCard } from '@/components/accounts/AnnualFeeCard';
 import { EMIPlanFormSheet } from '@/components/statements/EMIPlanFormSheet';
 import { EMIPlansSection } from '@/components/statements/EMIPlansSection';
 import { ItemizationBanner } from '@/components/statements/ItemizationBanner';
@@ -783,6 +784,13 @@ export default function AccountDetailsScreen() {
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color="#8EA0B8" />
             </Pressable>
+          )}
+
+          {isCreditCard && account.summary?.annual_fee && (
+            <AnnualFeeCard
+              status={account.summary.annual_fee}
+              onEdit={() => handleEdit('details')}
+            />
           )}
 
           {canMarkPaidOff && (
