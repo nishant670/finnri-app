@@ -71,6 +71,7 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
+import { TransactionAccountPicker } from './TransactionAccountPicker';
 import { TransactionCategoryPicker } from './TransactionCategoryPicker';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionModePicker } from './TransactionModePicker';
@@ -3395,117 +3396,27 @@ export function TransactionFormModal({
           }}
         />
 
-        {/* Account Picker */}
-        <AnimatedBottomSheet
+        <TransactionAccountPicker
           visible={isAccountPickerVisible}
+          accounts={compatibleAccounts}
+          selectedAccountId={form.accountId}
+          mode={form.mode}
+          suggestion={actionableAccountSuggestion}
+          isAutoCreating={autoCreatingAccount}
+          autoCreateError={autoCreateAccountError}
           onClose={() => setIsAccountPickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">Select Account</ThemedText>
-            <View className="gap-2">
-              {compatibleAccounts.map((account) => (
-                <Pressable
-                  key={account.id}
-                  onPress={() => {
-                    setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
-                    setIsAccountPickerVisible(false);
-                  }}
-                  className="p-4 rounded-2xl flex-row items-center justify-between border"
-                  style={{
-                    // Theme tokens, not bg-gray-50 / text-gray-700: those are
-                    // fixed light-mode colours, so in dark mode the rows were
-                    // near-white with near-white labels.
-                    backgroundColor: form.accountId === account.id ? `${accent}1F` : theme.card,
-                    borderColor: form.accountId === account.id ? accent : theme.border,
-                  }}>
-                  <View>
-                    <ThemedText
-                      className="font-bold"
-                      style={{ color: form.accountId === account.id ? accent : theme.text }}>
-                      {account.name}
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs">
-                      {account.provider || account.type}
-                    </ThemedText>
-                  </View>
-                  {form.accountId === account.id && (
-                    <MaterialCommunityIcons name="check" size={20} color={accent} />
-                  )}
-                </Pressable>
-              ))}
-              {compatibleAccounts.length === 0 && (
-                <View className="items-center gap-4 py-4">
-                  <ThemedText tone="muted" className="text-center text-sm">
-                    {`No ${form.mode || 'matching'} account found.`}
-                  </ThemedText>
-                  {actionableAccountSuggestion && onSetupSuggestedAccount ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setIsAccountPickerVisible(false);
-                        onSetupSuggestedAccount(actionableAccountSuggestion);
-                      }}
-                      className="rounded-2xl px-5 py-3"
-                      style={{ backgroundColor: accent }}>
-                      <ThemedText tone="onAccent" className="font-bold">
-                        Set up account
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                  {actionableAccountSuggestion && onAutoCreateSuggestedAccount ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={autoCreatingAccount}
-                      onPress={() =>
-                        void handleAutoCreateSuggestedAccount(actionableAccountSuggestion)
-                      }
-                      className="rounded-2xl border px-5 py-3"
-                      style={{ borderColor: accent }}>
-                      <ThemedText className="font-bold" style={{ color: accent }}>
-                        {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                  {autoCreateAccountError ? (
-                    <ThemedText tone="negative" className="text-center text-xs">
-                      {autoCreateAccountError}
-                    </ThemedText>
-                  ) : null}
-                  {onManageAccounts ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setIsAccountPickerVisible(false);
-                        onManageAccounts(actionableAccountSuggestion ?? undefined);
-                      }}
-                      className="px-3 py-2">
-                      <ThemedText tone="muted" className="text-xs font-bold">
-                        Manage accounts
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                </View>
-              )}
-              {compatibleAccounts.length > 0 && onManageAccounts && (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setIsAccountPickerVisible(false);
-                    onManageAccounts();
-                  }}
-                  className="mt-2 flex-row items-center justify-center gap-2 rounded-2xl border p-4"
-                  style={{ borderColor: accent }}>
-                  <MaterialCommunityIcons name="plus-circle-outline" size={20} color={accent} />
-                  <ThemedText className="font-bold" style={{ color: accent }}>
-                    Add or manage payment accounts
-                  </ThemedText>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(account) => {
+            setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
+            setIsAccountPickerVisible(false);
+          }}
+          onSetupSuggestedAccount={onSetupSuggestedAccount}
+          onAutoCreateSuggestedAccount={
+            onAutoCreateSuggestedAccount
+              ? (suggestion) => void handleAutoCreateSuggestedAccount(suggestion)
+              : undefined
+          }
+          onManageAccounts={onManageAccounts}
+        />
 
         <ThemedDeleteDialog
           visible={isDiscardDialogVisible}
