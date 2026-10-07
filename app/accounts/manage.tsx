@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { Fonts } from '@/constants/theme';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
@@ -32,6 +33,7 @@ import {
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { formatMoney } from '@/lib/money';
 
 type AccountTypeOption = {
   key: AccountType;
@@ -68,6 +70,22 @@ const typeOptions: AccountTypeOption[] = [
   { key: 'bank', label: 'Bank', icon: 'bank', color: '#3B5998', bgColor: '#EBF0FF' },
   { key: 'other', label: 'Other', icon: 'dots-horizontal', color: '#546E7A', bgColor: '#F0F4F7' },
 ];
+
+/** Spoken names for the swatches — a screen reader cannot say "#54A0FF". */
+const COLOR_NAMES: Record<string, string> = {
+  '#FF7A7A': 'Coral',
+  '#FF9F43': 'Orange',
+  '#FFD32D': 'Yellow',
+  '#2ECC71': 'Green',
+  '#54A0FF': 'Blue',
+  '#8190FF': 'Periwinkle',
+  '#B57AFF': 'Lavender',
+  '#FF79B0': 'Pink',
+  '#00D2B4': 'Teal',
+  '#8257E5': 'Purple',
+  '#00A8FF': 'Sky blue',
+  '#546E7A': 'Slate',
+};
 
 const COLORS = [
   '#FF7A7A',
@@ -143,34 +161,34 @@ const ACCOUNT_DETAIL_COPY: Record<
   }
 > = {
   cash: {
-    message: 'Set a starting cash amount now, or save it blank and update it later.',
+    message: 'How much cash do you have on you right now?',
     balanceLabel: 'Opening balance',
     balanceHint: 'Cash in hand before your first logged transaction.',
   },
   upi: {
-    message: 'Add the UPI app or handle you use most so scan payments stay grouped.',
+    message: 'Which UPI app is this? It keeps your scan-and-pay spends together.',
     providerLabel: 'UPI app',
-    providerPlaceholder: 'Search app or enter custom UPI source',
+    providerPlaceholder: 'Search or type a UPI app',
     balanceLabel: 'Opening balance',
     balanceHint: 'What this held before your first logged transaction.',
-    identifierLabel: 'UPI handle or nickname (Optional)',
+    identifierLabel: 'UPI ID or nickname',
     identifierPlaceholder: 'name@bank or personal UPI',
     identifierIcon: 'at',
   },
   bank: {
-    message: 'Add the bank and last 4 digits so transfers are easier to identify.',
+    message: 'Add the bank and last 4 digits so you can tell your accounts apart.',
     providerLabel: 'Bank',
-    providerPlaceholder: 'Search bank or enter custom bank',
+    providerPlaceholder: 'Search or type a bank',
     balanceLabel: 'Opening balance',
     balanceHint: 'What this held before your first logged transaction.',
-    identifierLabel: 'Last 4 digits (Optional)',
+    identifierLabel: 'Last 4 digits',
     identifierPlaceholder: '1234',
     identifierIcon: 'numeric-4-box-outline',
   },
   credit_card: {
-    message: 'Add reminders and limits so this card is easier to track.',
+    message: 'Add the limit and due date, and Finnri reminds you before the bill is due.',
     providerLabel: 'Card issuer',
-    providerPlaceholder: 'Search issuer (e.g. HDFC, Amex)',
+    providerPlaceholder: 'Search or type a bank (HDFC, Amex…)',
     balanceLabel: 'Opening outstanding',
     balanceHint: 'What you already owed before your first logged transaction.',
     identifierLabel: 'Last 4 digits',
@@ -178,30 +196,30 @@ const ACCOUNT_DETAIL_COPY: Record<
     identifierIcon: 'numeric-4-box-outline',
   },
   debit_card: {
-    message: 'Add the bank and last 4 digits so card spends can be categorized faster.',
+    message: 'Add the bank and last 4 digits so you can tell your cards apart.',
     providerLabel: 'Bank',
-    providerPlaceholder: 'Search bank or enter custom bank',
+    providerPlaceholder: 'Search or type a bank',
     balanceLabel: 'Opening balance',
     balanceHint: 'What this held before your first logged transaction.',
-    identifierLabel: 'Last 4 digits (Optional)',
+    identifierLabel: 'Last 4 digits',
     identifierPlaceholder: '1234',
     identifierIcon: 'numeric-4-box-outline',
   },
   wallet: {
-    message: 'Add the wallet provider and balance to keep prepaid spends separate.',
+    message: 'Which wallet is this? A balance keeps prepaid spends separate.',
     providerLabel: 'Wallet',
-    providerPlaceholder: 'Search wallet or enter custom wallet',
+    providerPlaceholder: 'Search or type a wallet',
     balanceLabel: 'Opening balance',
     balanceHint: 'What this held before your first logged transaction.',
-    identifierLabel: 'Wallet nickname (Optional)',
+    identifierLabel: 'Nickname',
     identifierPlaceholder: 'Personal wallet',
     identifierIcon: 'wallet-outline',
   },
   other: {
-    message: 'Add a balance or short identifier if this source needs extra context.',
+    message: 'Add a balance or a short note to tell this one apart.',
     balanceLabel: 'Opening balance',
     balanceHint: 'What this held before your first logged transaction.',
-    identifierLabel: 'Identifier (Optional)',
+    identifierLabel: 'Nickname or reference',
     identifierPlaceholder: 'Reference or nickname',
     identifierIcon: 'card-text-outline',
   },
@@ -286,6 +304,11 @@ export default function ManageAccountScreen() {
   const [annualFee, setAnnualFee] = useState('');
   const [feeWaiverSpend, setFeeWaiverSpend] = useState('');
 
+  // Folds: the optional settings each screen keeps out of the way.
+  const [showStyleOptions, setShowStyleOptions] = useState(false);
+  const [showReminderOptions, setShowReminderOptions] = useState(false);
+  const [showAnnualFee, setShowAnnualFee] = useState(false);
+
   // Modal States
   const [showDayModal, setShowDayModal] = useState(false);
   const [showMonthModal, setShowMonthModal] = useState(false);
@@ -344,7 +367,7 @@ export default function ManageAccountScreen() {
         }
       })
       .catch((error) => {
-        setSaveError(getFriendlyErrorMessage(error, 'Unable to load account.'));
+        setSaveError(getFriendlyErrorMessage(error, "Couldn't load this account."));
         router.back();
       })
       .finally(() => {
@@ -448,7 +471,7 @@ export default function ManageAccountScreen() {
     if (!token) return;
     if (!name) {
       haptics.rejected();
-      setSaveError('Please enter a name for the account.');
+      setSaveError('Give this account a name.');
       return;
     }
 
@@ -497,9 +520,11 @@ export default function ManageAccountScreen() {
       haptics.rejected();
       if (err instanceof AccountApiError && err.fields?.type) {
         setStep(1);
-        setTypeError('Choose an account type and try again.');
+        setTypeError('Pick an account type, then try again.');
       }
-      setSaveError(getFriendlyErrorMessage(err, 'Failed to save account.'));
+      setSaveError(
+        getFriendlyErrorMessage(err, "Couldn't save this account. Check your connection and try again.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -530,7 +555,7 @@ export default function ManageAccountScreen() {
       setCreatedAccount(updatedAccount);
       setIsDefault(true);
     } catch (err: unknown) {
-      setSaveError(getFriendlyErrorMessage(err, 'Unable to set default account.'));
+      setSaveError(getFriendlyErrorMessage(err, "Couldn't make this your default. Try again."));
     } finally {
       setIsSaving(false);
     }
@@ -605,12 +630,12 @@ export default function ManageAccountScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}>
         <View style={styles.stepIntro}>
-          <ThemedText style={styles.stepEyebrow}>Account basics</ThemedText>
+          <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Account basics</ThemedText>
           <ThemedText style={[styles.stepTitle, { color: theme.text }]}>
             {isEditing ? 'Update this account' : 'Add a payment source'}
           </ThemedText>
-          <ThemedText style={styles.stepDescription}>
-            Choose the account type and name Finnri should use when matching transactions.
+          <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+            Pick a type and give it a name. Everything else is optional.
           </ThemedText>
         </View>
 
@@ -665,51 +690,70 @@ export default function ManageAccountScreen() {
           />
         </View>
 
-        <TouchableOpacity
-          activeOpacity={0.85}
-          onPress={() => setIsDefault((current) => !current)}
-          style={[styles.defaultCard, { backgroundColor: theme.card }]}>
-          <View style={styles.defaultIcon}>
-            <MaterialCommunityIcons name="star-outline" size={22} color={theme.accent} />
-          </View>
-          <View style={styles.defaultCopy}>
-            <ThemedText style={[styles.defaultTitle, { color: theme.text }]}>Use as default account</ThemedText>
-            <ThemedText style={styles.defaultDescription}>
-              Finnri will preselect it when a transaction matches this payment type.
-            </ThemedText>
-          </View>
-          <View
-            style={[
-              styles.defaultToggle,
-              { backgroundColor: theme.card, borderColor: theme.border },
-              isDefault && { backgroundColor: theme.accent, borderColor: theme.accent },
-            ]}>
-            {isDefault && <MaterialCommunityIcons name="check" size={16} color="white" />}
-          </View>
-        </TouchableOpacity>
+        {/* Colour and default are preferences rather than facts about the
+            account, and both arrive with an answer already chosen — so they
+            wait behind one row that says what that answer is. */}
+        <FormDisclosure
+          testID="account-style-options"
+          label="Colour & default"
+          icon="palette-outline"
+          summary={`${COLOR_NAMES[selectedColor] ?? 'Custom colour'} · ${
+            isDefault ? 'Your default for these payments' : 'Not your default'
+          }`}
+          expanded={showStyleOptions}
+          onToggle={() => setShowStyleOptions((open) => !open)}>
+          <TouchableOpacity
+            activeOpacity={0.85}
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isDefault }}
+            onPress={() => setIsDefault((current) => !current)}
+            style={[styles.defaultCard, styles.defaultCardInFold, { backgroundColor: theme.card }]}>
+            <View style={[styles.defaultIcon, { backgroundColor: theme.secondary }]}>
+              <MaterialCommunityIcons name="star-outline" size={22} color={theme.accent} />
+            </View>
+            <View style={styles.defaultCopy}>
+              <ThemedText style={[styles.defaultTitle, { color: theme.text }]}>
+                Use as default account
+              </ThemedText>
+              <ThemedText style={[styles.defaultDescription, { color: theme.muted }]}>
+                Finnri picks it first for matching payments.
+              </ThemedText>
+            </View>
+            <View
+              style={[
+                styles.defaultToggle,
+                { backgroundColor: theme.card, borderColor: theme.border },
+                isDefault && { backgroundColor: theme.accent, borderColor: theme.accent },
+              ]}>
+              {isDefault && <MaterialCommunityIcons name="check" size={16} color="white" />}
+            </View>
+          </TouchableOpacity>
 
-        {/* Color Picker */}
-        <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>Choose account color</ThemedText>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.colorScroll}>
-          {COLORS.map((color) => {
-            const isSelected = selectedColor === color;
-            return (
-              <TouchableOpacity
-                key={color}
-                onPress={() => setSelectedColor(color)}
-                style={[
-                  styles.colorItem,
-                  { backgroundColor: color },
-                  isSelected && styles.colorItemSelected,
-                ]}>
-                {isSelected && <View style={[styles.colorRing, { borderColor: theme.accent }]} />}
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
+          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Colour</ThemedText>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.colorScroll}>
+            {COLORS.map((color) => {
+              const isSelected = selectedColor === color;
+              return (
+                <TouchableOpacity
+                  key={color}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${COLOR_NAMES[color] ?? color} colour`}
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => setSelectedColor(color)}
+                  style={[
+                    styles.colorItem,
+                    { backgroundColor: color },
+                    isSelected && styles.colorItemSelected,
+                  ]}>
+                  {isSelected && <View style={[styles.colorRing, { borderColor: theme.accent }]} />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </FormDisclosure>
       </KeyboardAvoidingScreen>
 
       {/* Footer Step 1 */}
@@ -735,7 +779,7 @@ export default function ManageAccountScreen() {
             {isSaving ? (
               <ActivityIndicator size="small" color="white" />
             ) : (
-              <MaterialCommunityIcons name="thumb-up-outline" size={20} color="white" />
+              <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
             )}
           </TouchableOpacity>
         </View>
@@ -750,34 +794,26 @@ export default function ManageAccountScreen() {
           <ScreenHeader
             subtitle="STEP 2 OF 2"
             onBack={() => setStep(1)}
-            rightText={isSaving ? 'Saving' : 'Save basic'}
+            rightText={isSaving ? 'Saving' : 'Save now'}
             onRightPress={handleSave}
           />
           <KeyboardAvoidingScreen
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollContent}>
-            {/* Mascot & Message Step 2 */}
-            <View style={styles.mascotSection}>
-              <View style={[styles.bubbleContainer, { backgroundColor: theme.secondary }]}>
-                <ThemedText style={[styles.bubbleText, { color: theme.text }]}>{detailCopy.message}</ThemedText>
-                <View style={[styles.bubbleTriangle, { backgroundColor: theme.secondary }]} />
-              </View>
-              <View style={styles.mascotRowCenter}>
-                <View
-                  style={[
-                    styles.mascotAvatar,
-                    { backgroundColor: '#FFEEED', width: 56, height: 56, borderRadius: 28 },
-                  ]}>
-                  <MaterialCommunityIcons
-                    name="face-woman-outline"
-                    size={32}
-                    color={theme.accent}
-                  />
-                </View>
-              </View>
+            {/* A heading, not a mascot. The speech bubble said one line in
+                18pt black over a cartoon face, and it was the loudest thing on
+                a screen whose fields are all optional. */}
+            <View style={styles.stepIntro}>
+              <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Card details</ThemedText>
+              <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+                {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+              </ThemedText>
+              <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+                {detailCopy.message} All optional — add the rest any time.
+              </ThemedText>
             </View>
 
-            <ThemedText style={styles.sectionHeaderLabel}>VISUALS</ThemedText>
+            <ThemedText style={styles.sectionHeaderLabel}>Card</ThemedText>
 
             <ThemedText style={[styles.labelSmall, { color: theme.text }]}>{detailCopy.providerLabel}</ThemedText>
             <ScrollView
@@ -873,7 +909,7 @@ export default function ManageAccountScreen() {
 
             <View style={{ height: 24 }} />
 
-            <ThemedText style={styles.sectionHeaderLabel}>ALERTS & LIMITS</ThemedText>
+            <ThemedText style={styles.sectionHeaderLabel}>Limit & due date</ThemedText>
 
             <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Credit limit</ThemedText>
             <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
@@ -893,69 +929,165 @@ export default function ManageAccountScreen() {
               />
             </View>
 
-            <View style={styles.row}>
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Due Day</ThemedText>
-                <TouchableOpacity
-                  style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
-                  onPress={() => setShowDayModal(true)}>
-                  <MaterialCommunityIcons
-                    name="calendar-outline"
-                    size={20}
-                    color={theme.accent}
-                    style={styles.inputIcon}
-                  />
-                  <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }, !dueDay && { color: '#AAB7C6' }]}>
-                    {dueDay || 'Day'}
-                  </ThemedText>
-                  <MaterialCommunityIcons name="chevron-down" size={20} color="#AAB7C6" />
-                </TouchableOpacity>
-              </View>
-              <View style={{ width: 16 }} />
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Fee Month</ThemedText>
-                <TouchableOpacity
-                  style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
-                  onPress={() => setShowMonthModal(true)}>
-                  <MaterialCommunityIcons
-                    name="calendar-refresh-outline"
-                    size={20}
-                    color={theme.accent}
-                    style={styles.inputIcon}
-                  />
-                  <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }, !feeMonth && { color: '#AAB7C6' }]}>
-                    {feeMonth || 'Month'}
-                  </ThemedText>
-                  <MaterialCommunityIcons name="chevron-down" size={20} color="#AAB7C6" />
-                </TouchableOpacity>
-              </View>
-            </View>
+            <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Due day</ThemedText>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={dueDay ? `Due day ${dueDay}` : 'Choose the due day'}
+              style={[styles.dropdownContainerSmall, { backgroundColor: theme.card, marginBottom: 24 }]}
+              onPress={() => setShowDayModal(true)}>
+              <MaterialCommunityIcons
+                name="calendar-outline"
+                size={20}
+                color={theme.accent}
+                style={styles.inputIcon}
+              />
+              <ThemedText
+                style={[
+                  styles.dropdownTextSmall,
+                  { color: dueDay ? theme.text : theme.muted },
+                ]}>
+                {dueDay ? `${dueDay} of every month` : 'Day of the month'}
+              </ThemedText>
+              <MaterialCommunityIcons name="chevron-down" size={20} color={theme.muted} />
+            </TouchableOpacity>
 
-            <View style={[styles.row, { marginTop: 4 }]}>
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Annual fee</ThemedText>
-                <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+            {/* Two settings most cards never need touched: a reminder that is
+                already on at three days, and an annual fee most people do not
+                know offhand. Each folds behind a row that reads it back. */}
+            <View style={{ gap: 12 }}>
+              <FormDisclosure
+                testID="card-reminder-options"
+                label="Due-date reminder"
+                icon={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
+                summary={
+                  reminderEnabled
+                    ? `On · ${Number(reminderDaysBefore || 0)} day${Number(reminderDaysBefore) === 1 ? '' : 's'} before the due date`
+                    : 'Off'
+                }
+                expanded={showReminderOptions}
+                onToggle={() => setShowReminderOptions((open) => !open)}>
+                <TouchableOpacity
+                  accessibilityRole="switch"
+                  accessibilityState={{ checked: reminderEnabled }}
+                  onPress={() => setReminderEnabled((current) => !current)}
+                  style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
                   <MaterialCommunityIcons
-                    name="currency-inr"
-                    size={20}
-                    color={theme.accent}
+                    name={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
+                    size={24}
+                    color={reminderEnabled ? theme.accent : theme.muted}
                     style={styles.inputIcon}
                   />
-                  <TextInput
-                    testID="card-annual-fee"
-                    value={annualFee}
-                    onChangeText={(val) => setAnnualFee(val.replace(/[^0-9]/g, ''))}
-                    placeholder="500"
-                    placeholderTextColor={theme.muted}
-                    keyboardType="number-pad"
-                    style={[styles.textInputSmall, { color: theme.text }]}
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }]}>
+                      Remind me before it’s due
+                    </ThemedText>
+                    <ThemedText
+                      style={[styles.fieldHintInline, { color: theme.muted }]}>
+                      {reminderEnabled ? 'On for this card' : 'Off for this card'}
+                    </ThemedText>
+                  </View>
+                  <MaterialCommunityIcons
+                    name={reminderEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
+                    size={34}
+                    color={reminderEnabled ? theme.accent : theme.muted}
                   />
+                </TouchableOpacity>
+
+                {reminderEnabled && (
+                  <>
+                    <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                      Days before the due date
+                    </ThemedText>
+                    <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                      <MaterialCommunityIcons
+                        name="calendar-clock-outline"
+                        size={24}
+                        color={theme.accent}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        value={reminderDaysBefore}
+                        onChangeText={(value) =>
+                          setReminderDaysBefore(value.replace(/[^0-9]/g, '').slice(0, 2))
+                        }
+                        placeholder="3"
+                        placeholderTextColor={theme.muted}
+                        keyboardType="number-pad"
+                        style={[styles.textInputSmall, { color: theme.text }]}
+                      />
+                    </View>
+                  </>
+                )}
+              </FormDisclosure>
+
+              <FormDisclosure
+                testID="card-annual-fee-options"
+                label="Annual fee"
+                icon="cash-clock"
+                summary={
+                  annualFee
+                    ? [
+                        formatMoney(Number(annualFee)),
+                        feeMonth ? `charged in ${feeMonth}` : '',
+                        feeWaiverSpend ? `waived above ${formatMoney(Number(feeWaiverSpend))}` : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    : 'Optional — see how close you are to getting it waived'
+                }
+                expanded={showAnnualFee}
+                onToggle={() => setShowAnnualFee((open) => !open)}>
+                <View style={[styles.row, { marginBottom: 12 }]}>
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Fee</ThemedText>
+                    <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                      <MaterialCommunityIcons
+                        name="currency-inr"
+                        size={20}
+                        color={theme.accent}
+                        style={styles.inputIcon}
+                      />
+                      <TextInput
+                        testID="card-annual-fee"
+                        value={annualFee}
+                        onChangeText={(val) => setAnnualFee(val.replace(/[^0-9]/g, ''))}
+                        placeholder="500"
+                        placeholderTextColor={theme.muted}
+                        keyboardType="number-pad"
+                        style={[styles.textInputSmall, { color: theme.text }]}
+                      />
+                    </View>
+                  </View>
+                  <View style={{ width: 16 }} />
+                  <View style={{ flex: 1 }}>
+                    <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                      Charged in
+                    </ThemedText>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={feeMonth ? `Fee charged in ${feeMonth}` : 'Choose the fee month'}
+                      style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
+                      onPress={() => setShowMonthModal(true)}>
+                      <MaterialCommunityIcons
+                        name="calendar-refresh-outline"
+                        size={20}
+                        color={theme.accent}
+                        style={styles.inputIcon}
+                      />
+                      <ThemedText
+                        style={[
+                          styles.dropdownTextSmall,
+                          { color: feeMonth ? theme.text : theme.muted },
+                        ]}>
+                        {feeMonth || 'Month'}
+                      </ThemedText>
+                      <MaterialCommunityIcons name="chevron-down" size={20} color={theme.muted} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              </View>
-              <View style={{ width: 16 }} />
-              <View style={{ flex: 1 }}>
+
                 <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
-                  Waived above (yearly)
+                  Waived if you spend (a year)
                 </ThemedText>
                 <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
                   <MaterialCommunityIcons
@@ -974,56 +1106,8 @@ export default function ManageAccountScreen() {
                     style={[styles.textInputSmall, { color: theme.text }]}
                   />
                 </View>
-              </View>
+              </FormDisclosure>
             </View>
-
-            <TouchableOpacity
-              accessibilityRole="switch"
-              accessibilityState={{ checked: reminderEnabled }}
-              onPress={() => setReminderEnabled((current) => !current)}
-              style={[styles.inputContainerSmall, { marginTop: 20 }]}>
-              <MaterialCommunityIcons
-                name={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
-                size={24}
-                color={reminderEnabled ? theme.accent : '#AAB7C6'}
-                style={styles.inputIcon}
-              />
-              <View style={{ flex: 1 }}>
-                <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }]}>Due reminder</ThemedText>
-                <ThemedText style={[styles.labelSmall, { color: theme.text }, { marginTop: 2, marginBottom: 0 }]}>
-                  {reminderEnabled ? 'Enabled for this card' : 'Off for this card'}
-                </ThemedText>
-              </View>
-              <MaterialCommunityIcons
-                name={reminderEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
-                size={34}
-                color={reminderEnabled ? theme.accent : '#AAB7C6'}
-              />
-            </TouchableOpacity>
-
-            {reminderEnabled && (
-              <>
-                <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Remind me this many days before</ThemedText>
-                <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
-                  <MaterialCommunityIcons
-                    name="calendar-clock-outline"
-                    size={24}
-                    color={theme.accent}
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    value={reminderDaysBefore}
-                    onChangeText={(value) =>
-                      setReminderDaysBefore(value.replace(/[^0-9]/g, '').slice(0, 2))
-                    }
-                    placeholder="3"
-                    placeholderTextColor={theme.muted}
-                    keyboardType="number-pad"
-                    style={[styles.textInputSmall, { color: theme.text }]}
-                  />
-                </View>
-              </>
-            )}
           </KeyboardAvoidingScreen>
 
           {/* Footer Step 2 */}
@@ -1046,7 +1130,7 @@ export default function ManageAccountScreen() {
                 ]}
                 disabled={isSaving}>
                 <ThemedText style={styles.saveButtonText}>
-                  {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Done 🎉'}
+                  {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
                 </ThemedText>
                 {isSaving && <ActivityIndicator size="small" color="white" className="ml-2" />}
               </TouchableOpacity>
@@ -1058,14 +1142,14 @@ export default function ManageAccountScreen() {
             () => setShowDayModal(false),
             DAYS,
             setDueDay,
-            'Select Due Day'
+            'Due day'
           )}
           {renderSelectionModal(
             showMonthModal,
             () => setShowMonthModal(false),
             MONTHS,
             setFeeMonth,
-            'Select Fee Month'
+            'Fee month'
           )}
         </View>
       );
@@ -1077,17 +1161,23 @@ export default function ManageAccountScreen() {
         <ScreenHeader
           subtitle="STEP 2 OF 2"
           onBack={() => setStep(1)}
-          rightText={isSaving ? 'Saving' : 'Save basic'}
+          rightText={isSaving ? 'Saving' : 'Save now'}
           onRightPress={handleSave}
         />
         <KeyboardAvoidingScreen
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}>
-          <View style={styles.mascotSection}>
-            <View style={[styles.bubbleContainer, { backgroundColor: theme.secondary }]}>
-              <ThemedText style={[styles.bubbleText, { color: theme.text }]}>{detailCopy.message}</ThemedText>
-              <View style={[styles.bubbleTriangle, { backgroundColor: theme.secondary }]} />
-            </View>
+          {/* A heading, not a mascot. The speech bubble said one line in
+              18pt black over a cartoon face, and it was the loudest thing on
+              a screen whose fields are all optional. */}
+          <View style={styles.stepIntro}>
+            <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Details</ThemedText>
+            <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+              {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+            </ThemedText>
+            <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+              {detailCopy.message} All optional — add the rest any time.
+            </ThemedText>
           </View>
 
           {detailCopy.providerLabel && (
@@ -1244,7 +1334,7 @@ export default function ManageAccountScreen() {
               ]}
               disabled={isSaving}>
               <ThemedText style={styles.saveButtonText}>
-                {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Finish Setup'}
+                {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
               </ThemedText>
               {isSaving ? (
                 <ActivityIndicator size="small" color="white" />
@@ -1276,8 +1366,7 @@ export default function ManageAccountScreen() {
               {accountName}
             </ThemedText>
             <ThemedText style={styles.successMessage}>
-              This account is ready for transaction tracking. You can view it now or add another
-              payment source.
+              All set. Finnri will use it whenever a payment matches.
             </ThemedText>
           </View>
         </View>
@@ -1312,7 +1401,7 @@ export default function ManageAccountScreen() {
                 }
                 style={[styles.fullWidthButton, styles.secondaryFullWidthButton, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <ThemedText style={styles.secondaryFullWidthText}>
-                  Complete {missingSetupCount} detail{missingSetupCount > 1 ? 's' : ''}
+                  Add {missingSetupCount} more detail{missingSetupCount > 1 ? 's' : ''}
                 </ThemedText>
                 <MaterialCommunityIcons
                   name="clipboard-check-outline"
@@ -1470,52 +1559,13 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.body,
     color: '#64748B',
   },
-  mascotSection: {
-    marginBottom: 40,
-  },
-  bubbleContainer: {
-    backgroundColor: '#EFEAFF',
-    borderRadius: 24,
-    padding: 24,
-    marginBottom: 16,
-    position: 'relative',
-  },
-  bubbleText: {
-    fontSize: 18,
-    fontFamily: Fonts.title,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  bubbleTriangle: {
-    position: 'absolute',
-    bottom: -8,
-    left: 24,
-    width: 16,
-    height: 16,
-    backgroundColor: '#EFEAFF',
-    transform: [{ rotate: '45deg' }],
-  },
-  mascotRowCenter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mascotAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFDED6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'white',
-  },
   sectionHeaderLabel: {
     fontSize: 12,
     fontFamily: Fonts.title,
     fontWeight: '900',
     color: '#AAB7C6',
     letterSpacing: 1.5,
+    textTransform: 'uppercase',
     marginBottom: 20,
     marginTop: 8,
   },
@@ -1531,6 +1581,12 @@ const styles = StyleSheet.create({
     marginTop: -10,
     marginBottom: 12,
     color: '#7C8EA8',
+  },
+  fieldHintInline: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontFamily: Fonts.body,
+    marginTop: 2,
   },
   labelSmall: {
     fontSize: 14,
@@ -1744,6 +1800,10 @@ const styles = StyleSheet.create({
     bottom: -6,
     borderRadius: 30,
     borderWidth: 2,
+  },
+  defaultCardInFold: {
+    marginTop: 0,
+    marginBottom: 20,
   },
   defaultCard: {
     minHeight: 82,

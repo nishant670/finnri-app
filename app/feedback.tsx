@@ -7,12 +7,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
-import { FeedbackImpact, FeedbackType, submitFeedback } from '@/lib/feedback';
+import { FeedbackImpact, FeedbackType, submitFeedback, titleFromMessage } from '@/lib/feedback';
 
 const typeOptions: { label: string; value: FeedbackType; icon: keyof typeof MaterialCommunityIcons.glyphMap }[] = [
   { label: 'Feature', value: 'feature_request', icon: 'lightbulb-on-outline' },
@@ -37,26 +38,30 @@ export default function FeedbackScreen() {
   const colors = theme.colors;
   const dialog = useAppDialog();
   const [type, setType] = useState<FeedbackType>('feature_request');
-  const [area, setArea] = useState('Capture');
+  // Not "Capture": a default here is a label on someone else's report, and an
+  // unchosen area is honestly "Other".
+  const [area, setArea] = useState('Other');
   const [impact, setImpact] = useState<FeedbackImpact>('high');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
 
   const canSubmit = useMemo(
-    () => !!token && title.trim().length > 0 && message.trim().length > 0 && !submitting,
-    [message, submitting, title, token]
+    () => !!token && message.trim().length > 0 && !submitting,
+    [message, submitting, token]
   );
+  const impactLabel = impactOptions.find((item) => item.value === impact)?.label ?? '';
 
   const handleSubmit = async () => {
     if (!token) {
-      void dialog.alert({ title: 'Sign in needed', message: 'Please sign in before sending feedback.' });
+      void dialog.alert({ title: 'Sign in first', message: 'Sending feedback needs an account.' });
       return;
     }
-    if (!title.trim() || !message.trim()) {
+    if (!message.trim()) {
       void dialog.alert({
-        title: 'Add a little detail',
-        message: 'Please add a short title and explain the idea or issue.',
+        title: 'Add a few words',
+        message: 'Tell us what happened, or what you would like to see.',
       });
       return;
     }
@@ -67,22 +72,25 @@ export default function FeedbackScreen() {
         type,
         area,
         impact,
-        title: title.trim(),
+        title: title.trim() || titleFromMessage(message),
         message: message.trim(),
       });
       setTitle('');
       setMessage('');
       await dialog.alert({
-        title: 'Feedback sent',
-        message: 'Thanks. This is now in the Finnri feedback list for review.',
+        title: 'Thank you',
+        message: 'Your feedback is with the Finnri team now.',
         tone: 'success',
         buttonLabel: 'Done',
       });
       router.back();
     } catch (error) {
       void dialog.alert({
-        title: 'Could not send',
-        message: getFriendlyErrorMessage(error, 'Unable to send feedback right now.'),
+        title: "Couldn't send",
+        message: getFriendlyErrorMessage(
+          error,
+          'Check your connection and try again. Your message is still here.'
+        ),
         tone: 'danger',
       });
     } finally {
@@ -108,13 +116,17 @@ export default function FeedbackScreen() {
         </View>
 
         <View className="mt-6">
-          <ThemedText className="mb-3 ml-1 text-xs font-black uppercase tracking-widest opacity-40">Type</ThemedText>
+          <ThemedText className="mb-3 ml-1 text-xs font-black uppercase tracking-widest opacity-40">
+            What kind of feedback?
+          </ThemedText>
           <View className="flex-row flex-wrap gap-3">
             {typeOptions.map((item) => {
               const active = type === item.value;
               return (
                 <Pressable
                   key={item.value}
+                  accessibilityRole="radio"
+                  accessibilityState={{ selected: active }}
                   onPress={() => setType(item.value)}
                   className="min-w-[47%] flex-1 flex-row items-center rounded-2xl px-4 py-3"
                   style={{ backgroundColor: active ? colors.secondary : colors.card }}>
@@ -128,69 +140,80 @@ export default function FeedbackScreen() {
           </View>
         </View>
 
-        <View className="mt-6">
-          <ThemedText className="mb-3 ml-1 text-xs font-black uppercase tracking-widest opacity-40">Area</ThemedText>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View className="flex-row gap-2">
-              {areaOptions.map((item) => {
-                const active = area === item;
+        <TextInput
+          testID="feedback-message"
+          value={message}
+          onChangeText={setMessage}
+          placeholder="What happened, or what would you like to see?"
+          placeholderTextColor={`${colors.text}66`}
+          multiline
+          maxLength={2000}
+          textAlignVertical="top"
+          className="mt-6 min-h-40 rounded-[24px] px-5 py-4 text-sm"
+          style={{ backgroundColor: colors.card, color: colors.text, fontFamily: Fonts.body }}
+        />
+
+        {/* A message is enough to send. Title, area and impact help sort the
+            pile on the other end, so they are offered rather than demanded —
+            the title is made from the message when it is left blank. */}
+        <View className="mt-4">
+          <FormDisclosure
+            testID="feedback-details"
+            label="Add details"
+            icon="tag-text-outline"
+            summary={`${title.trim() ? `“${title.trim()}” · ` : ''}${area} · ${impactLabel}`}
+            expanded={showDetails}
+            onToggle={() => setShowDetails((open) => !open)}>
+            <TextInput
+              value={title}
+              onChangeText={setTitle}
+              placeholder="Short title (optional)"
+              placeholderTextColor={`${colors.text}66`}
+              maxLength={140}
+              className="rounded-[24px] px-5 py-4 text-base font-bold"
+              style={{ backgroundColor: colors.card, color: colors.text, fontFamily: Fonts.title }}
+            />
+            <ThemedText className="mb-3 ml-1 mt-5 text-xs font-black uppercase tracking-widest opacity-40">
+              Area
+            </ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View className="flex-row gap-2">
+                {areaOptions.map((item) => {
+                  const active = area === item;
+                  return (
+                    <Pressable
+                      key={item}
+                      onPress={() => setArea(item)}
+                      className="rounded-full px-4 py-2"
+                      style={{ backgroundColor: active ? colors.secondary : colors.card }}>
+                      <ThemedText className="text-xs font-black" style={{ color: active ? colors.accent : colors.text }}>
+                        {item}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+            <ThemedText className="mb-3 ml-1 mt-5 text-xs font-black uppercase tracking-widest opacity-40">
+              How much does it matter?
+            </ThemedText>
+            <View className="flex-row rounded-2xl p-1" style={{ backgroundColor: colors.card }}>
+              {impactOptions.map((item) => {
+                const active = impact === item.value;
                 return (
                   <Pressable
-                    key={item}
-                    onPress={() => setArea(item)}
-                    className="rounded-full px-4 py-2"
-                    style={{ backgroundColor: active ? colors.secondary : colors.card }}>
-                    <ThemedText className="text-xs font-black" style={{ color: active ? colors.accent : colors.text }}>
-                      {item}
+                    key={item.value}
+                    onPress={() => setImpact(item.value)}
+                    className="flex-1 items-center rounded-xl py-2"
+                    style={{ backgroundColor: active ? colors.secondary : 'transparent' }}>
+                    <ThemedText className="text-[11px] font-black" style={{ color: active ? colors.accent : `${colors.text}88` }}>
+                      {item.label}
                     </ThemedText>
                   </Pressable>
                 );
               })}
             </View>
-          </ScrollView>
-        </View>
-
-        <View className="mt-6">
-          <ThemedText className="mb-3 ml-1 text-xs font-black uppercase tracking-widest opacity-40">Impact</ThemedText>
-          <View className="flex-row rounded-2xl p-1" style={{ backgroundColor: colors.card }}>
-            {impactOptions.map((item) => {
-              const active = impact === item.value;
-              return (
-                <Pressable
-                  key={item.value}
-                  onPress={() => setImpact(item.value)}
-                  className="flex-1 items-center rounded-xl py-2"
-                  style={{ backgroundColor: active ? colors.secondary : 'transparent' }}>
-                  <ThemedText className="text-[11px] font-black" style={{ color: active ? colors.accent : `${colors.text}88` }}>
-                    {item.label}
-                  </ThemedText>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View className="mt-6 gap-4">
-          <TextInput
-            value={title}
-            onChangeText={setTitle}
-            placeholder="Short title"
-            placeholderTextColor={`${colors.text}66`}
-            maxLength={140}
-            className="rounded-[24px] px-5 py-4 text-base font-bold"
-            style={{ backgroundColor: colors.card, color: colors.text, fontFamily: Fonts.title }}
-          />
-          <TextInput
-            value={message}
-            onChangeText={setMessage}
-            placeholder="What should we improve, add, or fix?"
-            placeholderTextColor={`${colors.text}66`}
-            multiline
-            maxLength={2000}
-            textAlignVertical="top"
-            className="min-h-40 rounded-[24px] px-5 py-4 text-sm"
-            style={{ backgroundColor: colors.card, color: colors.text, fontFamily: Fonts.body }}
-          />
+          </FormDisclosure>
         </View>
 
         <Pressable
@@ -204,7 +227,7 @@ export default function FeedbackScreen() {
             <>
               <MaterialCommunityIcons name="send" size={18} color="white" />
               <ThemedText tone="onAccent" className="ml-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
-                Send Feedback
+                Send feedback
               </ThemedText>
             </>
           )}
