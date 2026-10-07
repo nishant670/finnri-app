@@ -23,6 +23,7 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
@@ -82,14 +83,14 @@ const intervalOptions: { value: BillingInterval; label: string }[] = [
   { value: 'yearly', label: 'Yearly' },
 ];
 /**
- * Daily and biweekly renewals are real but rare, and putting six segments in
- * the control makes every label unreadable to serve two of them. They live
- * under Advanced, where choosing Daily also meets its Autopay requirement in
- * the same section.
+ * Daily and every-two-weeks renewals are real but rare, and putting six
+ * segments in the control makes every label unreadable to serve two of them.
+ * They live under More options, where choosing Daily also meets its Autopay
+ * requirement in the same section.
  */
 const advancedIntervalOptions: { value: BillingInterval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
-  { value: 'biweekly', label: 'Biweekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
 ];
 const statusOptions: { value: SubscriptionStatus; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -243,6 +244,8 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [editing, setEditing] = useState<Subscription | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  /** The loan's or investment's own details — all optional, so folded. */
+  const [showKindDetails, setShowKindDetails] = useState(false);
   const [name, setName] = useState('');
   const [merchant, setMerchant] = useState('');
   const [merchantSuggestions, setMerchantSuggestions] = useState<MerchantSuggestion[]>([]);
@@ -370,6 +373,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setAccountID(null);
     setNotes('');
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
     setFormKind('subscription');
     setLoanType('');
@@ -485,6 +489,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setPlatform(subscription.platform ?? '');
     setStepUpPct(numberText(subscription.step_up_pct));
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
     setShowForm(true);
   };
@@ -571,38 +576,49 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     // it and the backend's required `name` is satisfied without a field.
     const resolvedName = name.trim() || merchant.trim();
     const validation: string[] = [];
-    if (!resolvedName) validation.push(`${kindMeta.nameLabel} name is required.`);
+    // A failure caused by something folded away has to open the fold, or the
+    // message names a control the user cannot see.
+    let opensMoreOptions = false;
+    let opensKindDetails = false;
+    if (!resolvedName) validation.push(`Add a name — like ${kindMeta.namePlaceholder.split(',')[0]}.`);
     if (!Number.isFinite(amountValue) || amountValue <= 0)
-      validation.push('Amount must be positive.');
-    if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Choose a valid renewal date.');
+      validation.push('Enter an amount above zero.');
+    if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Pick the next payment date.');
     if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-      validation.push('Reminder must be between 0 and 30 days.');
+      validation.push('Reminders can be 0 to 30 days before.');
+      opensMoreOptions = true;
     }
-    if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/))
-      validation.push('Choose a cancellation reminder date.');
-    if ((interval === 'daily' || interval === 'business_daily') && !autopay)
-      validation.push('Daily schedules require Autopay.');
-    if (autopay && !accountID) validation.push('Select the account used for Autopay.');
+    if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      validation.push('Pick when to remind you to cancel.');
+      opensMoreOptions = true;
+    }
+    if ((interval === 'daily' || interval === 'business_daily') && !autopay) {
+      validation.push('Daily payments need Autopay turned on.');
+      opensMoreOptions = true;
+    }
+    if (autopay && !accountID) {
+      validation.push('Choose the account Autopay should use.');
+      opensMoreOptions = true;
+    }
     const totalEmiCount = totalEmis.trim() ? Number(totalEmis) : 0;
     const paidEmiCount = emisPaid.trim() ? Number(emisPaid) : 0;
     if (formKind === 'loan') {
+      const loanErrorsBefore = validation.length;
       if (!Number.isInteger(totalEmiCount) || totalEmiCount < 0 || totalEmiCount > 600)
-        validation.push('Total EMIs must be a whole number up to 600.');
+        validation.push('Total EMIs should be a whole number up to 600.');
       if (!Number.isInteger(paidEmiCount) || paidEmiCount < 0)
-        validation.push('EMIs paid must be a whole number.');
+        validation.push('EMIs paid should be a whole number.');
       if (totalEmiCount > 0 && paidEmiCount > totalEmiCount)
-        validation.push('EMIs paid cannot be more than the total.');
+        validation.push("EMIs paid can't be more than the total.");
       if (ratePct.trim() && !(Number(ratePct) >= 0 && Number(ratePct) <= 60))
-        validation.push('Interest rate must be between 0 and 60%.');
+        validation.push('Enter an interest rate between 0 and 60%.');
+      opensKindDetails = validation.length > loanErrorsBefore;
     }
     if (validation.length > 0) {
       haptics.rejected();
       setError(validation.join('\n'));
-      // A failure caused by something folded away has to open the fold, or the
-      // message names a control the user cannot see.
-      if (validation.some((line) => line.includes('Autopay') || line.includes('Reminder'))) {
-        setShowAdvanced(true);
-      }
+      if (opensMoreOptions) setShowAdvanced(true);
+      if (opensKindDetails) setShowKindDetails(true);
       return;
     }
 
@@ -667,7 +683,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     } catch (saveError) {
       haptics.rejected();
       setError(
-        getFriendlyErrorMessage(saveError, `Unable to save this ${kindMeta.label.toLowerCase()}.`)
+        getFriendlyErrorMessage(
+          saveError,
+          `Couldn't save this ${formKind}. Check your connection and try again.`
+        )
       );
     } finally {
       setSaving(false);
@@ -735,6 +754,43 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setMerchant(suggestion.merchant);
     if (suggestion.category) setCategory(suggestion.category);
   };
+
+  const loanTypeLabel = loanTypeOptions.find((option) => option.value === loanType)?.label;
+  /** What the kind's own fold holds, read back so it can stay closed. */
+  const kindDetailsSummary =
+    formKind === 'loan'
+      ? [
+          loanTypeLabel ? `${loanTypeLabel} loan` : '',
+          lender.trim(),
+          principal.trim() ? formatMoney(parseAmount(principal)) : '',
+          ratePct.trim() ? `${ratePct}% a year` : '',
+          totalEmis.trim() ? `${emisPaid.trim() || '0'} of ${totalEmis} EMIs paid` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — loan amount, interest and EMIs left'
+      : [
+          platform.trim(),
+          startDate ? `Since ${formatDueDateLabel(startDate)}` : '',
+          stepUpPct.trim() ? `${stepUpPct}% yearly step-up` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — fund, start date and yearly step-up';
+  const autopayAccountName = accounts.find((account) => account.id === accountID)?.name;
+  const moreOptionsSummary = [
+    editing && status !== 'active'
+      ? statusOptions.find((option) => option.value === status)?.label
+      : '',
+    category || 'Uncategorized',
+    interval === 'daily' || interval === 'business_daily'
+      ? 'Added automatically'
+      : reminderDays === 0
+        ? 'Reminder on the due date'
+        : `Reminder ${reminderLabel(reminderDays)}`,
+    autopay ? `Autopay${autopayAccountName ? ` from ${autopayAccountName}` : ''}` : 'Autopay off',
+    cancelBeforeDue ? 'Cancel reminder on' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -917,172 +973,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             }
           />
 
-          {formKind === 'loan' ? (
-            <View testID="recurring-loan-fields">
-              <ThemedText
-                className="mb-2 text-[11px] font-black uppercase"
-                style={{ color: muted }}>
-                Loan type
-              </ThemedText>
-              <View className="mb-3 flex-row flex-wrap gap-2">
-                {loanTypeOptions.map((option) => (
-                  <Pill
-                    key={option.value}
-                    label={option.label}
-                    selected={loanType === option.value}
-                    onPress={() => setLoanType(loanType === option.value ? '' : option.value)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-              <Field
-                label="Lender (optional)"
-                value={lender}
-                onChangeText={setLender}
-                colors={colors}
-                placeholder="HDFC Bank, Bajaj Finance"
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Loan amount"
-                    value={principal}
-                    onChangeText={(value) => setPrincipal(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="3,00,000"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Interest % a year"
-                    value={ratePct}
-                    onChangeText={(value) => setRatePct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="10.5"
-                  />
-                </View>
-              </View>
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Total EMIs"
-                    value={totalEmis}
-                    onChangeText={(value) => setTotalEmis(value.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    colors={colors}
-                    placeholder="36"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="EMIs already paid"
-                    value={emisPaid}
-                    onChangeText={(value) => setEmisPaid(value.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    colors={colors}
-                    placeholder="0"
-                  />
-                </View>
-              </View>
-              {Object.keys(loanSuggestion).length > 0 ? (
-                <Pressable
-                  testID="recurring-loan-suggestion"
-                  accessibilityRole="button"
-                  onPress={() => {
-                    haptics.select();
-                    if (loanSuggestion.emi != null)
-                      setAmount(String(Math.round(loanSuggestion.emi)));
-                    if (loanSuggestion.principal != null)
-                      setPrincipal(String(Math.round(loanSuggestion.principal)));
-                    if (loanSuggestion.months != null) setTotalEmis(String(loanSuggestion.months));
-                    if (loanSuggestion.annualRatePct != null)
-                      setRatePct(String(loanSuggestion.annualRatePct));
-                  }}
-                  className="mb-3 flex-row items-center gap-2 rounded-2xl px-3 py-2.5"
-                  style={{ backgroundColor: colors.secondary }}>
-                  <MaterialCommunityIcons
-                    name="calculator-variant-outline"
-                    size={18}
-                    color={colors.accent}
-                  />
-                  <ThemedText className="flex-1 text-xs font-bold" style={{ color: colors.text }}>
-                    {loanSuggestion.emi != null
-                      ? `EMI works out to ${formatMoney(loanSuggestion.emi)}. Use it`
-                      : loanSuggestion.months != null
-                        ? `That is ${loanSuggestion.months} EMIs. Use it`
-                        : loanSuggestion.principal != null
-                          ? `Loan amount works out to ${formatMoney(loanSuggestion.principal)}. Use it`
-                          : `Interest works out to ${loanSuggestion.annualRatePct}% a year. Use it`}
-                  </ThemedText>
-                </Pressable>
-              ) : null}
-              <DateRow
-                label="First EMI on (optional)"
-                value={startDate}
-                onPress={openStartDatePicker}
-                colors={colors}
-                muted={muted}
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Processing fee"
-                    value={processingFee}
-                    onChangeText={(value) => setProcessingFee(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="0"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Foreclosure charge %"
-                    value={foreclosurePct}
-                    onChangeText={(value) => setForeclosurePct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="4"
-                  />
-                </View>
-              </View>
-            </View>
-          ) : null}
-
-          {formKind === 'investment' ? (
-            <View testID="recurring-investment-fields">
-              <Field
-                label="Fund or platform (optional)"
-                value={platform}
-                onChangeText={setPlatform}
-                colors={colors}
-                placeholder="Zerodha Coin, Groww, Post office"
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <DateRow
-                    label="Started on (optional)"
-                    value={startDate}
-                    onPress={openStartDatePicker}
-                    colors={colors}
-                    muted={muted}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Yearly step-up %"
-                    value={stepUpPct}
-                    onChangeText={(value) => setStepUpPct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="10"
-                  />
-                </View>
-              </View>
-            </View>
-          ) : null}
-
           <Pressable
             accessibilityRole="button"
             onPress={openDueDatePicker}
@@ -1122,223 +1012,401 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             colors={colors}
           />
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: showAdvanced }}
-            onPress={() => {
-              haptics.toggle(!showAdvanced);
-              setShowAdvanced((current) => !current);
-            }}
-            className="mb-3 mt-1 flex-row items-center justify-between rounded-2xl px-1 py-3">
-            <ThemedText className="text-xs font-black uppercase" style={{ color: muted }}>
-              Advanced
-            </ThemedText>
-            <MaterialCommunityIcons
-              name={showAdvanced ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={muted}
-            />
-          </Pressable>
-
-          {showAdvanced && (
-            <View>
-              {editing && (
-                <SegmentedControl
-                  label="Status"
-                  values={statusOptions}
-                  active={status}
-                  onSelect={setStatus}
-                  colors={colors}
-                />
-              )}
-
-              <Field
-                label="Display name"
-                value={name}
-                onChangeText={setName}
-                colors={colors}
-                placeholder={merchant.trim() || 'Same as merchant'}
-              />
-
-              <ChipPicker
-                label="Category"
-                options={categoryOptions}
-                active={category}
-                onSelect={setCategory}
-                colors={colors}
-              />
-
-              <View className="mb-4">
-                <ThemedText
-                  className="mb-2 text-[11px] font-black uppercase"
-                  style={{ color: muted }}>
-                  Other intervals
-                </ThemedText>
-                <View className="flex-row flex-wrap gap-2">
-                  {advancedIntervalOptions.map((option) => (
-                    <Pill
-                      key={option.value}
-                      label={option.label}
-                      selected={interval === option.value}
-                      onPress={() => {
-                        setInterval(option.value);
-                        if (option.value === 'daily') {
-                          setAutopay(true);
-                          setReminderDays(0);
-                        }
-                      }}
-                      colors={colors}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {interval !== 'daily' && interval !== 'business_daily' ? (
-                <View className="mb-4">
+          {/* The loan's or investment's own details. None of them is needed
+              to schedule the payment — the amount and the date do that — so
+              they fold, and the fold reads back whatever is filled in. A loan
+              used to open with all fourteen inputs on screen. */}
+          {formKind === 'loan' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-loan-details"
+                label="Loan details"
+                icon="bank-outline"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <View testID="recurring-loan-fields">
                   <ThemedText
                     className="mb-2 text-[11px] font-black uppercase"
                     style={{ color: muted }}>
-                    Reminder
+                    Loan type
                   </ThemedText>
-                  <View className="flex-row flex-wrap gap-2">
-                    {reminderOptions.map((days) => (
+                  <View className="mb-3 flex-row flex-wrap gap-2">
+                    {loanTypeOptions.map((option) => (
                       <Pill
-                        key={days}
-                        label={reminderLabel(days)}
-                        selected={reminderDays === days}
-                        onPress={() => setReminderDays(days)}
+                        key={option.value}
+                        label={option.label}
+                        selected={loanType === option.value}
+                        onPress={() => setLoanType(loanType === option.value ? '' : option.value)}
                         colors={colors}
                       />
                     ))}
                   </View>
-                </View>
-              ) : (
-                <View
-                  className="mb-4 rounded-2xl p-3"
-                  style={{ backgroundColor: colors.secondary }}>
-                  <ThemedText className="text-xs font-bold" style={{ color: colors.accent }}>
-                    Daily transactions are added automatically. No daily reminder is sent.
-                  </ThemedText>
-                </View>
-              )}
-
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between">
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-black">Autopay</ThemedText>
-                    <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-                      Add each recurring payment automatically and ask you to confirm it.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={autopay}
-                    onValueChange={setAutopay}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
+                  <Field
+                    label="Lender"
+                    value={lender}
+                    onChangeText={setLender}
+                    colors={colors}
+                    placeholder="HDFC Bank, Bajaj Finance"
                   />
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <Field
+                        label="Loan amount"
+                        value={principal}
+                        onChangeText={(value) => setPrincipal(sanitizeAmount(value))}
+                        keyboardType="decimal-pad"
+                        colors={colors}
+                        placeholder="3,00,000"
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Field
+                        label="Interest % a year"
+                        value={ratePct}
+                        onChangeText={(value) => setRatePct(sanitizeAmount(value))}
+                        keyboardType="decimal-pad"
+                        colors={colors}
+                        placeholder="10.5"
+                      />
+                    </View>
+                  </View>
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <Field
+                        label="Total EMIs"
+                        value={totalEmis}
+                        onChangeText={(value) => setTotalEmis(value.replace(/[^0-9]/g, ''))}
+                        keyboardType="number-pad"
+                        colors={colors}
+                        placeholder="36"
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Field
+                        label="EMIs already paid"
+                        value={emisPaid}
+                        onChangeText={(value) => setEmisPaid(value.replace(/[^0-9]/g, ''))}
+                        keyboardType="number-pad"
+                        colors={colors}
+                        placeholder="0"
+                      />
+                    </View>
+                  </View>
+                  {Object.keys(loanSuggestion).length > 0 ? (
+                    <Pressable
+                      testID="recurring-loan-suggestion"
+                      accessibilityRole="button"
+                      onPress={() => {
+                        haptics.select();
+                        if (loanSuggestion.emi != null)
+                          setAmount(String(Math.round(loanSuggestion.emi)));
+                        if (loanSuggestion.principal != null)
+                          setPrincipal(String(Math.round(loanSuggestion.principal)));
+                        if (loanSuggestion.months != null) setTotalEmis(String(loanSuggestion.months));
+                        if (loanSuggestion.annualRatePct != null)
+                          setRatePct(String(loanSuggestion.annualRatePct));
+                      }}
+                      className="mb-3 flex-row items-center gap-2 rounded-2xl px-3 py-2.5"
+                      style={{ backgroundColor: colors.secondary }}>
+                      <MaterialCommunityIcons
+                        name="calculator-variant-outline"
+                        size={18}
+                        color={colors.accent}
+                      />
+                      <ThemedText className="flex-1 text-xs font-bold" style={{ color: colors.text }}>
+                        {loanSuggestion.emi != null
+                          ? `EMI works out to ${formatMoney(loanSuggestion.emi)}. Use it`
+                          : loanSuggestion.months != null
+                            ? `That is ${loanSuggestion.months} EMIs. Use it`
+                            : loanSuggestion.principal != null
+                              ? `Loan amount works out to ${formatMoney(loanSuggestion.principal)}. Use it`
+                              : `Interest works out to ${loanSuggestion.annualRatePct}% a year. Use it`}
+                      </ThemedText>
+                    </Pressable>
+                  ) : null}
+                  <DateRow
+                    label="First EMI on"
+                    value={startDate}
+                    onPress={openStartDatePicker}
+                    colors={colors}
+                    muted={muted}
+                  />
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <Field
+                        label="Processing fee"
+                        value={processingFee}
+                        onChangeText={(value) => setProcessingFee(sanitizeAmount(value))}
+                        keyboardType="decimal-pad"
+                        colors={colors}
+                        placeholder="0"
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Field
+                        label="Foreclosure charge %"
+                        value={foreclosurePct}
+                        onChangeText={(value) => setForeclosurePct(sanitizeAmount(value))}
+                        keyboardType="decimal-pad"
+                        colors={colors}
+                        placeholder="4"
+                      />
+                    </View>
+                  </View>
                 </View>
-                {autopay && (
-                  <>
-                    <View className="mt-4 flex-row flex-wrap gap-2">
-                      {['Bank Account', 'UPI', 'Credit Card'].map((mode) => (
+              </FormDisclosure>
+            </View>
+          ) : null}
+
+          {formKind === 'investment' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-investment-details"
+                label="Investment details"
+                icon="chart-line"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <View testID="recurring-investment-fields">
+                  <Field
+                    label="Fund or platform"
+                    value={platform}
+                    onChangeText={setPlatform}
+                    colors={colors}
+                    placeholder="Zerodha Coin, Groww, Post office"
+                  />
+                  <View className="flex-row gap-3">
+                    <View className="flex-1">
+                      <DateRow
+                        label="Started on"
+                        value={startDate}
+                        onPress={openStartDatePicker}
+                        colors={colors}
+                        muted={muted}
+                      />
+                    </View>
+                    <View className="flex-1">
+                      <Field
+                        label="Yearly step-up %"
+                        value={stepUpPct}
+                        onChangeText={(value) => setStepUpPct(sanitizeAmount(value))}
+                        keyboardType="decimal-pad"
+                        colors={colors}
+                        placeholder="10"
+                      />
+                    </View>
+                  </View>
+                </View>
+              </FormDisclosure>
+            </View>
+          ) : null}
+
+          <View className="mb-4">
+            <FormDisclosure
+              testID="recurring-more-options"
+              label="More options"
+              summary={moreOptionsSummary}
+              expanded={showAdvanced}
+              onToggle={() => setShowAdvanced((current) => !current)}>
+                <View>
+                  {editing && (
+                    <SegmentedControl
+                      label="Status"
+                      values={statusOptions}
+                      active={status}
+                      onSelect={setStatus}
+                      colors={colors}
+                    />
+                  )}
+
+                  <Field
+                    label="Display name"
+                    value={name}
+                    onChangeText={setName}
+                    colors={colors}
+                    placeholder={merchant.trim() || 'Same as merchant'}
+                  />
+
+                  <ChipPicker
+                    label="Category"
+                    options={categoryOptions}
+                    active={category}
+                    onSelect={setCategory}
+                    colors={colors}
+                  />
+
+                  <View className="mb-4">
+                    <ThemedText
+                      className="mb-2 text-[11px] font-black uppercase"
+                      style={{ color: muted }}>
+                      Other intervals
+                    </ThemedText>
+                    <View className="flex-row flex-wrap gap-2">
+                      {advancedIntervalOptions.map((option) => (
                         <Pill
-                          key={mode}
-                          label={mode}
-                          selected={paymentMode === mode}
+                          key={option.value}
+                          label={option.label}
+                          selected={interval === option.value}
                           onPress={() => {
-                            setPaymentMode(mode);
-                            setAccountID(null);
+                            setInterval(option.value);
+                            if (option.value === 'daily') {
+                              setAutopay(true);
+                              setReminderDays(0);
+                            }
                           }}
                           colors={colors}
                         />
                       ))}
                     </View>
-                    <View className="mt-3 flex-row flex-wrap gap-2">
-                      {getAccountsForPaymentMode(accounts, paymentMode).map((account) => (
-                        <Pill
-                          key={account.id}
-                          label={account.name}
-                          selected={accountID === account.id}
-                          onPress={() => setAccountID(account.id)}
-                          colors={colors}
-                        />
-                      ))}
+                  </View>
+
+                  {interval !== 'daily' && interval !== 'business_daily' ? (
+                    <View className="mb-4">
+                      <ThemedText
+                        className="mb-2 text-[11px] font-black uppercase"
+                        style={{ color: muted }}>
+                        Reminder
+                      </ThemedText>
+                      <View className="flex-row flex-wrap gap-2">
+                        {reminderOptions.map((days) => (
+                          <Pill
+                            key={days}
+                            label={reminderLabel(days)}
+                            selected={reminderDays === days}
+                            onPress={() => setReminderDays(days)}
+                            colors={colors}
+                          />
+                        ))}
+                      </View>
                     </View>
+                  ) : (
+                    <View
+                      className="mb-4 rounded-2xl p-3"
+                      style={{ backgroundColor: colors.secondary }}>
+                      <ThemedText className="text-xs font-bold" style={{ color: colors.accent }}>
+                        Daily transactions are added automatically. No daily reminder is sent.
+                      </ThemedText>
+                    </View>
+                  )}
+
+                  <View
+                    className="mb-4 rounded-2xl border p-4"
+                    style={{ borderColor: colors.border, backgroundColor: colors.background }}>
+                    <View className="flex-row items-center justify-between">
+                      <View className="flex-1 pr-3">
+                        <ThemedText className="text-sm font-black">Autopay</ThemedText>
+                        <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
+                          Finnri adds each payment for you, then asks you to confirm it.
+                        </ThemedText>
+                      </View>
+                      <HapticSwitch
+                        value={autopay}
+                        onValueChange={setAutopay}
+                        trackColor={{ false: '#E0E0E0', true: colors.accent }}
+                        thumbColor="white"
+                      />
+                    </View>
+                    {autopay && (
+                      <>
+                        <View className="mt-4 flex-row flex-wrap gap-2">
+                          {['Bank Account', 'UPI', 'Credit Card'].map((mode) => (
+                            <Pill
+                              key={mode}
+                              label={mode}
+                              selected={paymentMode === mode}
+                              onPress={() => {
+                                setPaymentMode(mode);
+                                setAccountID(null);
+                              }}
+                              colors={colors}
+                            />
+                          ))}
+                        </View>
+                        <View className="mt-3 flex-row flex-wrap gap-2">
+                          {getAccountsForPaymentMode(accounts, paymentMode).map((account) => (
+                            <Pill
+                              key={account.id}
+                              label={account.name}
+                              selected={accountID === account.id}
+                              onPress={() => setAccountID(account.id)}
+                              colors={colors}
+                            />
+                          ))}
+                        </View>
+                        <Pressable
+                          className="mt-3 flex-row items-center gap-2"
+                          onPress={() => router.push('/accounts/manage')}>
+                          <MaterialCommunityIcons
+                            name="plus-circle-outline"
+                            size={18}
+                            color={colors.accent}
+                          />
+                          <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+                            Add a payment account
+                          </ThemedText>
+                        </Pressable>
+                      </>
+                    )}
+                  </View>
+
+                  <View
+                    className="mb-4 rounded-2xl border p-4"
+                    style={{ borderColor: colors.border, backgroundColor: colors.background }}>
+                    <View className="flex-row items-center justify-between gap-4">
+                      <View className="flex-1">
+                        <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
+                          Remind me to cancel
+                        </ThemedText>
+                        <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
+                          For a trial or a plan you mean to stop. You’ll get a nudge before it renews.
+                        </ThemedText>
+                      </View>
+                      <HapticSwitch
+                        value={cancelBeforeDue}
+                        onValueChange={(enabled) => {
+                          setCancelBeforeDue(enabled);
+                          if (enabled && reminderDays === 0) setReminderDays(1);
+                        }}
+                        trackColor={{ false: '#E0E0E0', true: colors.accent }}
+                        thumbColor="white"
+                      />
+                    </View>
+                  </View>
+
+                  {cancelBeforeDue && (
                     <Pressable
-                      className="mt-3 flex-row items-center gap-2"
-                      onPress={() => router.push('/accounts/manage')}>
+                      onPress={openCancellationDatePicker}
+                      className="mb-4 flex-row items-center justify-between rounded-2xl border p-4"
+                      style={{ borderColor: colors.border, backgroundColor: colors.background }}>
+                      <View>
+                        <ThemedText
+                          className="text-[11px] font-black uppercase"
+                          style={{ color: muted }}>
+                          Cancellation reminder date
+                        </ThemedText>
+                        <ThemedText className="mt-1 text-sm font-black">
+                          {cancelOnDate || 'Choose date'}
+                        </ThemedText>
+                      </View>
                       <MaterialCommunityIcons
-                        name="plus-circle-outline"
-                        size={18}
+                        name="calendar-month-outline"
+                        size={22}
                         color={colors.accent}
                       />
-                      <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                        Add or manage payment account
-                      </ThemedText>
                     </Pressable>
-                  </>
-                )}
-              </View>
+                  )}
 
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between gap-4">
-                  <View className="flex-1">
-                    <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
-                      Remind me to cancel
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-                      Reminder notification will explicitly ask you to cancel before the next
-                      payment.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={cancelBeforeDue}
-                    onValueChange={(enabled) => {
-                      setCancelBeforeDue(enabled);
-                      if (enabled && reminderDays === 0) setReminderDays(1);
-                    }}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
+                  <Field
+                    label="Notes"
+                    value={notes}
+                    onChangeText={setNotes}
+                    colors={colors}
+                    placeholder="Plan tier, cancellation link, family plan details"
                   />
                 </View>
-              </View>
-
-              {cancelBeforeDue && (
-                <Pressable
-                  onPress={openCancellationDatePicker}
-                  className="mb-4 flex-row items-center justify-between rounded-2xl border p-4"
-                  style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                  <View>
-                    <ThemedText
-                      className="text-[11px] font-black uppercase"
-                      style={{ color: muted }}>
-                      Cancellation reminder date
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-sm font-black">
-                      {cancelOnDate || 'Choose date'}
-                    </ThemedText>
-                  </View>
-                  <MaterialCommunityIcons
-                    name="calendar-month-outline"
-                    size={22}
-                    color={colors.accent}
-                  />
-                </Pressable>
-              )}
-
-              <Field
-                label="Notes"
-                value={notes}
-                onChangeText={setNotes}
-                colors={colors}
-                placeholder="Plan tier, cancellation link, family plan details"
-              />
-            </View>
-          )}
+            </FormDisclosure>
+          </View>
 
           {error && (
             <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
@@ -1358,9 +1426,9 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               <ActivityIndicator color="white" />
             ) : (
               <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                {editing
-                  ? `Update ${kindMeta.label.toLowerCase()}`
-                  : `Add ${kindMeta.label.toLowerCase()}`}
+                {/* The kind's key is its plain noun. Lower-casing the label
+                    printed "Add loan / emi". */}
+                {editing ? 'Save changes' : `Add ${formKind}`}
               </ThemedText>
             )}
           </Pressable>
