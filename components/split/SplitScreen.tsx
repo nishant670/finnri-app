@@ -46,13 +46,8 @@ import {
   PrimaryModalButton,
   SplitModal,
 } from '@/components/split/primitives/SplitPrimitives';
-import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, formatBalance, getGroupKindConfig, buildGroupRoster, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
-import type {
-  DeviceContactOption,
-  FriendDetailSummary,
-  GroupActionMode,
-  SplitGroupSummary,
-} from '@/components/split/split-types';
+import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, formatBalance, getGroupKindConfig, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
+import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import {
   billToComposerForm,
@@ -128,7 +123,9 @@ import {
 import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSplitBill, createSplitFriend, createSplitGroup, createSplitGroupDirectInvite, createSplitGroupInviteLink, createSplitSettlement, decideSplitSettlement, deleteSplitBill, fetchPendingSplitSettlements, fetchSplitActivity, fetchSplitBalances, fetchSplitBills, fetchSplitFriends, fetchSplitGroups, fetchSplitGroupDirectInvites, leaveSplitGroup, mergeSplitFriend, revokeSplitGroupDirectInvite, splitScreenState, updateSplitBill, updateSplitFriend, setSplitGroupDefaultSplit, updateSplitGroup, type SettlementDirection, type SplitActivityItem, type SplitBalance, type SplitBill, type SplitFriend, type SplitGroup, type SplitGroupEntryDisposition, type SplitGroupDirectInvite, type SplitSettlement, type SplitGroupMemberInvite } from '@/lib/splits';
 import { TView, TText } from '@/components/split/primitives/themed-interop';
 import { BalanceFigure } from '@/components/split/BalanceFigure';
-import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getActivityIcon, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
+import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
+
+import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
 
 type ModalKind = 'friend' | 'group' | 'bill' | 'settlement' | 'group_invite' | null;
 type SplitScreenProps = {
@@ -494,19 +491,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     };
   }, []);
 
-  const totals = useMemo(() => {
-    return balances.reduce(
-      (acc, balance) => {
-        if (balance.net_balance > 0) {
-          acc.owedByFriends += balance.net_balance;
-        } else {
-          acc.owedToFriends += Math.abs(balance.net_balance);
-        }
-        return acc;
-      },
-      { owedByFriends: 0, owedToFriends: 0 }
-    );
-  }, [balances]);
+  const totals = useMemo(() => computeBalanceTotals(balances), [balances]);
 
   const overallNetBalance = totals.owedByFriends - totals.owedToFriends;
   /**
@@ -545,62 +530,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     return new Map(balances.map((balance) => [balance.friend.id, balance]));
   }, [balances]);
 
-  const friendById = useMemo(() => {
-    const map = new Map(friends.map((friend) => [friend.id, friend]));
-    groups.forEach((group) => {
-      group.members?.forEach((member) => {
-        if (member.friend) map.set(member.friend.id, member.friend);
-      });
-    });
-    bills.forEach((bill) => {
-      bill.participants?.forEach((participant) => {
-        if (participant.friend) map.set(participant.friend.id, participant.friend);
-      });
-    });
-    return map;
-  }, [bills, friends, groups]);
+  const friendById = useMemo(() => buildFriendById(friends, groups, bills), [bills, friends, groups]);
 
-  const groupSummaries = useMemo<SplitGroupSummary[]>(() => {
-    return groups.map((group) => {
-      const kind = group.kind ?? 'other';
-      const memberIds = (group.members ?? []).map((member) => member.friend_id);
-      const groupBills = bills.filter((bill) => bill.group_id === group.id);
-      // Both figures come from the server. Summing the group's participant
-      // rows here read every bill as if its `direction` were absolute, but a
-      // bill states the debts of whoever wrote it — so an expense a member
-      // recorded arrived inverted, and the card claimed they owed money they
-      // had actually laid out. The server is the only side that can tell, so
-      // it is asked rather than guessed at.
-      const groupBalancesByFriendId = new Map<number, number>(
-        (group.viewer_balances ?? []).map((entry) => [entry.friend_id, entry.net_balance])
-      );
-      const netBalance = group.viewer_net_balance ?? 0;
-      const latestBill = [...groupBills].sort((a, b) => b.date.localeCompare(a.date))[0];
-      // Driven by the balances rather than the roster: for a member those name
-      // their own friend rows, which is the only namespace they can resolve.
-      const detailLines = [...groupBalancesByFriendId.entries()]
-        .map(([friendId, balance]) => {
-          const friend = friendById.get(friendId);
-          if (!friend || balance === 0) return null;
-          return balance > 0
-            ? `${friend.name} owes you ${formatBalance(balance)}`
-            : `You owe ${friend.name} ${formatBalance(balance)}`;
-        })
-        .filter((line): line is string => Boolean(line));
-
-      return {
-        group,
-        billCount: groupBills.length,
-        bills: [...groupBills].sort((a, b) => b.date.localeCompare(a.date)),
-        detailLines,
-        latestBill,
-        kind,
-        memberIds,
-        roster: buildGroupRoster({ group, friendById, currentUserName, currentUserContact }),
-        netBalance,
-      };
-    });
-  }, [bills, currentUserContact, currentUserName, friendById, groups]);
+  const groupSummaries = useMemo(() => buildGroupSummaries({ groups, bills, friendById, currentUserName, currentUserContact }), [bills, currentUserContact, currentUserName, friendById, groups]);
 
   const selectedGroupSummary = useMemo(
     () => groupSummaries.find((summary) => summary.group.id === selectedGroupDetailId) ?? null,
@@ -648,35 +580,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     loadPendingGroupInvites,
   ]);
 
-  const friendDetailSummaries = useMemo<FriendDetailSummary[]>(() => {
-    return friends.map((friend) => {
-      // Matched through the viewer's restatement where there is one: a bill
-      // somebody else wrote names *their* friend rows, so filtering on the raw
-      // participants hid every shared-group expense from the card for the very
-      // person it was split with.
-      const friendBills = bills
-        .filter((bill) =>
-          bill.viewer_shares && bill.viewer_shares.length > 0
-            ? bill.viewer_shares.some((share) => share.friend_id === friend.id)
-            : bill.participants?.some((participant) => participant.friend_id === friend.id)
-        )
-        .sort((a, b) => b.date.localeCompare(a.date));
-      // Matched on the roster rather than `memberIds`: those are the owner's
-      // friend rows, so in a shared group a member's own friend never lined up
-      // with one and the group never appeared on their card.
-      const sharedGroups = groupSummaries.filter((summary) =>
-        summary.roster.some((person) => person.friendId === friend.id)
-      );
-      const balance = balanceByFriendId.get(friend.id) ?? null;
-      return {
-        friend,
-        balance,
-        groups: sharedGroups,
-        bills: friendBills,
-        netBalance: balance?.net_balance ?? 0,
-      };
-    });
-  }, [balanceByFriendId, bills, friends, groupSummaries]);
+  const friendDetailSummaries = useMemo(() => buildFriendDetailSummaries({ friends, bills, groupSummaries, balanceByFriendId }), [balanceByFriendId, bills, friends, groupSummaries]);
 
   const selectedFriendDetailSummary = useMemo(
     () =>
@@ -694,41 +598,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [groupSummaries, memberPickerGroupId]
   );
 
-  const nonGroupSummary = useMemo(() => {
-    const nonGroupBills = bills.filter((bill) => !bill.group_id);
-    const participantBalances = new Map<number, number>();
-
-    nonGroupBills.forEach((bill) => {
-      bill.participants?.forEach((participant) => {
-        const current = participantBalances.get(participant.friend_id) ?? 0;
-        const signedShare =
-          participant.direction === 'friend_owes_user'
-            ? participant.share_amount
-            : -participant.share_amount;
-        participantBalances.set(participant.friend_id, current + signedShare);
-      });
-    });
-
-    const netBalance = [...participantBalances.values()].reduce((sum, value) => sum + value, 0);
-    const detailLines = [...participantBalances.entries()]
-      .map(([friendId, value]) => {
-        const friend = friendById.get(friendId);
-        if (!friend || value === 0) return null;
-        return value > 0
-          ? `${friend.name} owes you ${formatBalance(value)}`
-          : `You owe ${friend.name} ${formatBalance(value)}`;
-      })
-      .filter((line): line is string => Boolean(line))
-      .slice(0, 2);
-    const latestBill = [...nonGroupBills].sort((a, b) => b.date.localeCompare(a.date))[0];
-
-    return {
-      billCount: nonGroupBills.length,
-      detailLines,
-      latestBill,
-      netBalance,
-    };
-  }, [bills, friendById]);
+  const nonGroupSummary = useMemo(() => buildNonGroupSummary(bills, friendById), [bills, friendById]);
 
   const selectedBillGroup = useMemo(
     () => groups.find((group) => group.id === billGroupId) ?? null,
@@ -834,48 +704,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [billFriendOptions, currentUserContact, currentUserName]
   );
 
-  const recentActivity = useMemo(() => {
-    return activity.map((item) => {
-      const fallbackCaption =
-        item.type === 'group_created'
-          ? `${item.participant_count ?? 0} member${item.participant_count === 1 ? '' : 's'}`
-          : item.type === 'friend_created'
-            ? 'Friend added'
-            : item.type === 'bill'
-              ? item.group?.name
-                ? `${item.group.name} group`
-                : `${item.participant_count ?? item.participants?.length ?? 0} share${
-                    (item.participant_count ?? item.participants?.length ?? 0) === 1 ? '' : 's'
-                  }`
-              : 'Settlement';
-      const baseCaption = item.notes || fallbackCaption;
-      // Only on expenses. A settlement's title already names the other person
-      // ("Priya paid you"), so repeating it here reads as a stutter.
-      const caption =
-        item.type === 'bill' && item.actor_name
-          ? `${baseCaption} · added by ${item.actor_name}`
-          : baseCaption;
-      /*
-       * A claimed payment and an agreed one used to read identically here, and
-       * that is the difference the feed most needs to carry: a denial moves a
-       * balance back, and this row is the only place that says why.
-       */
-      const status =
-        item.type === 'settlement' && item.status && item.status !== 'confirmed'
-          ? item.status
-          : null;
-      return {
-        id: item.id,
-        item,
-        title: item.title,
-        date: item.date,
-        amount: item.amount,
-        icon: getActivityIcon(item.type),
-        caption,
-        status,
-      };
-    });
-  }, [activity]);
+  const recentActivity = useMemo(() => buildRecentActivity(activity), [activity]);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -884,27 +713,14 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   }, [activeSection, balanceFilter, normalizedSearch]);
 
   const balanceMatchesFilter = useCallback(
-    (value: number) => {
-      if (balanceFilter === 'all') return true;
-      if (balanceFilter === 'open') return value !== 0;
-      if (balanceFilter === 'owed_to_me') return value > 0;
-      if (balanceFilter === 'i_owe') return value < 0;
-      return value === 0;
-    },
+    (value: number) => matchesBalanceFilter(balanceFilter, value),
     [balanceFilter]
   );
 
-  const visibleGroupSummaries = useMemo(() => {
-    return groupSummaries.filter((summary) => {
-      const matchesSearch = groupMatchesSearch(summary, normalizedSearch);
-      const isNewEmptyGroup = summary.billCount === 0 && summary.netBalance === 0;
-      const matchesBalance =
-        balanceFilter === 'open' && isNewEmptyGroup
-          ? true
-          : balanceMatchesFilter(summary.netBalance);
-      return matchesSearch && matchesBalance;
-    });
-  }, [balanceFilter, balanceMatchesFilter, groupSummaries, normalizedSearch]);
+  const visibleGroupSummaries = useMemo(
+    () => filterVisibleGroups({ groupSummaries, normalizedSearch, balanceFilter }),
+    [balanceFilter, groupSummaries, normalizedSearch]
+  );
 
   const hiddenSettledCount = useMemo(
     () =>
@@ -919,23 +735,15 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     balanceMatchesFilter(nonGroupSummary.netBalance) &&
     (!normalizedSearch || 'non-group expenses'.includes(normalizedSearch));
 
-  const visibleFriends = useMemo(() => {
-    return friends.filter((friend) => {
-      const balance = balanceByFriendId.get(friend.id);
-      const netBalance = balance?.net_balance ?? 0;
-      const searchText = [friend.name, friend.phone, friend.email].filter(Boolean).join(' ');
-      const matchesSearch =
-        !normalizedSearch || searchText.toLowerCase().includes(normalizedSearch);
-      return matchesSearch && balanceMatchesFilter(netBalance);
-    });
-  }, [balanceByFriendId, balanceMatchesFilter, friends, normalizedSearch]);
+  const visibleFriends = useMemo(
+    () => filterVisibleFriends({ friends, balanceByFriendId, normalizedSearch, balanceFilter }),
+    [balanceByFriendId, balanceFilter, friends, normalizedSearch]
+  );
 
-  const visibleActivity = useMemo(() => {
-    if (!normalizedSearch) return recentActivity;
-    return recentActivity.filter((item) =>
-      [item.title, item.caption].join(' ').toLowerCase().includes(normalizedSearch)
-    );
-  }, [normalizedSearch, recentActivity]);
+  const visibleActivity = useMemo(
+    () => filterVisibleActivity(recentActivity, normalizedSearch),
+    [normalizedSearch, recentActivity]
+  );
 
   const resetFriendForm = () => {
     setFriendName('');
