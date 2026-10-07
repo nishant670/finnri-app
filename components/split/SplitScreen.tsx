@@ -12,7 +12,6 @@ import {
   Share,
   View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
 
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import { AppHeader } from '@/components/navigation/AppHeader';
@@ -33,20 +32,10 @@ import { GroupDetailModal } from '@/components/split/modals/GroupDetailModal';
 import { GroupDefaultSplitModal } from '@/components/split/modals/GroupDefaultSplitModal';
 import { GroupSettingsModal } from '@/components/split/modals/GroupSettingsModal';
 import { GroupMembersModal } from '@/components/split/modals/GroupMembersModal';
-import { GroupAvatar } from '@/components/split/GroupAvatar';
-import { GroupTile } from '@/components/split/rows/GroupTile';
-import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { GroupActionModal } from '@/components/split/modals/GroupActionModal';
 import { BillDetailModal } from '@/components/split/modals/BillDetailModal';
-import {
-  AvatarCircle,
-  DirectionChip,
-  FloatingExpenseButton,
-  FormInput,
-  PrimaryModalButton,
-  SplitModal,
-} from '@/components/split/primitives/SplitPrimitives';
-import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, formatBalance, getGroupKindConfig, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
+import { DirectionChip, FloatingExpenseButton, FormInput, PrimaryModalButton, SplitModal } from '@/components/split/primitives/SplitPrimitives';
+import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
 import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import {
@@ -87,12 +76,9 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedConfirmDialog, ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { Card } from '@/components/ui/theme-primitives';
-import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { useMotion } from '@/hooks/use-motion';
 import { fetchAccounts, getPreferredAccountForPaymentMode, type Account } from '@/lib/accounts';
 import { userDisplayName } from '@/lib/display-name';
 import { fetchEntry, updateEntry } from '@/lib/entries';
@@ -126,6 +112,11 @@ import { BalanceFigure } from '@/components/split/BalanceFigure';
 import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
 import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
+import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
+import { SplitFriendChip } from '@/components/split/rows/SplitFriendChip';
+import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
+import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
+import { SplitNonGroupRow } from '@/components/split/rows/SplitNonGroupRow';
 
 type ModalKind = 'friend' | 'group' | 'bill' | 'settlement' | 'group_invite' | null;
 type SplitScreenProps = {
@@ -140,8 +131,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const dialog = useAppDialog();
-  const motion = useMotion();
-  const borderColor = theme.border;
   const currentUserName = userDisplayName(user?.username, 'You');
   const currentUserContact = user?.email?.trim() || user?.phone?.trim() || '';
 
@@ -1944,278 +1933,55 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     friend: SplitFriend,
     selectedId: number | null,
     onSelect: (id: number) => void
-  ) => {
-    const isSelected = friend.id === selectedId;
-    return (
-      <Pressable
-        key={friend.id}
-        accessibilityRole="button"
-        onPress={() => {
-          haptics.select();
-          onSelect(friend.id);
-        }}
-        className="rounded-2xl px-3 py-2"
-        style={{
-          borderWidth: 1,
-          borderColor: isSelected ? theme.accent : borderColor,
-          backgroundColor: isSelected ? theme.accent : 'transparent',
-        }}>
-        <TText
-          className="text-xs"
-          style={{ color: isSelected ? theme.onAccent : theme.text, fontFamily: Fonts.title }}>
-          {friend.name}
-        </TText>
-      </Pressable>
-    );
-  };
+  ) => (
+    <SplitFriendChip key={friend.id} friend={friend} selectedId={selectedId} onSelect={onSelect} />
+  );
 
-  const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => {
-    const balance = balanceByFriendId.get(friend.id);
-    const netBalance = balance?.net_balance ?? 0;
-    const isReceivable = netBalance > 0;
-    const isPayable = netBalance < 0;
-    const amountColor = isReceivable
-      ? theme.positive
-      : isPayable
-        ? theme.negative
-        : theme.neutral;
-    const balanceLabel = isReceivable ? 'owes you' : isPayable ? 'you owe' : 'settled';
+  const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => (
+    <SplitFriendRow
+      key={friend.id}
+      friend={friend}
+      netBalance={balanceByFriendId.get(friend.id)?.net_balance ?? 0}
+      entranceIndex={entranceIndex}
+      isOpen={openSwipeRow === `friend-${friend.id}`}
+      onOpenChange={(open) => setOpenSwipeRow(open ? `friend-${friend.id}` : null)}
+      onEdit={() => openFriendEditor(friend)}
+      onArchive={() => handleArchiveFriend(friend)}
+      onOpen={() => openFriendDetail(friend.id)}
+      onLongPress={() => setSelectedFriendActions(friend)}
+    />
+  );
 
-    return (
-      <Animated.View
-        key={friend.id}
-        entering={motion.rowEntering(entranceIndex)}
-        layout={motion.reflow()}>
-        <SwipeActionRow
-          open={openSwipeRow === `friend-${friend.id}`}
-          onOpenChange={(open) => setOpenSwipeRow(open ? `friend-${friend.id}` : null)}
-          actions={[
-            {
-              label: 'Edit',
-              icon: 'pencil-outline',
-              onPress: () => openFriendEditor(friend),
-            },
-            {
-              label: 'Archive',
-              icon: 'archive-outline',
-              tone: 'destructive',
-              onPress: () => handleArchiveFriend(friend),
-            },
-          ]}>
-          <Card compact style={{ padding: 0 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${friend.name}`}
-              onPress={() => openFriendDetail(friend.id)}
-              onLongPress={() => setSelectedFriendActions(friend)}
-              className="flex-row items-center gap-4 p-4">
-              <AvatarCircle label={friend.name} size={58} />
-              <View className="flex-1">
-                <TText variant="cardTitle" style={{ color: theme.text }}>
-                  {friend.name}
-                </TText>
-                <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
-                  {[friend.phone, friend.email].filter(Boolean).join(' • ') || 'No contact saved'}
-                </TText>
-                <TText
-                  className="mt-1 text-sm"
-                  style={{ color: amountColor, fontFamily: Fonts.title }}>
-                  {formatBalance(netBalance)} {balanceLabel}
-                </TText>
-              </View>
-            </Pressable>
-          </Card>
-        </SwipeActionRow>
-      </Animated.View>
-    );
-  };
+  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number) => (
+    <SplitGroupCard
+      key={summary.group.id}
+      summary={summary}
+      entranceIndex={entranceIndex}
+      isOpen={openSwipeRow === `group-${summary.group.id}`}
+      onOpenChange={(open) => setOpenSwipeRow(open ? `group-${summary.group.id}` : null)}
+      onEdit={() => openGroupEditor(summary)}
+      onArchive={() => handleArchiveGroup(summary)}
+      onOpen={() => setSelectedGroupDetailId(summary.group.id)}
+    />
+  );
 
-  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number) => {
-    const { group, detailLines, roster, kind, netBalance, billCount, latestBill } = summary;
-    const tone = getBalanceTone(netBalance, theme, billCount > 0);
-    const kindConfig = getGroupKindConfig(kind);
-    const memberNames = roster
-      .filter((person) => !person.isViewer)
-      .map((person) => person.name)
-      .join(', ');
-
-    return (
-      <Animated.View
-        key={group.id}
-        entering={motion.rowEntering(entranceIndex)}
-        layout={motion.reflow()}>
-        <SwipeActionRow
-          open={openSwipeRow === `group-${group.id}`}
-          onOpenChange={(open) => setOpenSwipeRow(open ? `group-${group.id}` : null)}
-          actions={
-            group.viewer_can_manage
-              ? [
-                  {
-                    label: 'Edit',
-                    icon: 'pencil-outline' as const,
-                    onPress: () => openGroupEditor(summary),
-                  },
-                  {
-                    label: 'Archive',
-                    icon: 'archive-outline' as const,
-                    tone: 'destructive' as const,
-                    onPress: () => handleArchiveGroup(summary),
-                  },
-                ]
-              : []
-          }>
-          <Card compact style={{ padding: 0 }}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSelectedGroupDetailId(group.id)}
-              className="flex-row gap-4 p-4">
-              <GroupAvatar icon={kindConfig.icon} photoUri={group.photo_url || null} />
-              <View className="flex-1 justify-center">
-                <TText variant="cardTitle" style={{ color: theme.text }}>
-                  {group.name}
-                </TText>
-                <View className="mt-1">
-                  <BalanceFigure
-                    value={netBalance}
-                    color={tone.color}
-                    hasActivity={billCount > 0}
-                  />
-                </View>
-                {detailLines.length > 0 ? (
-                  detailLines.map((line) => (
-                    <TText
-                      key={line}
-                      className="mt-1 text-sm" style={{ color: theme.muted }}
-                      numberOfLines={1}>
-                      {line}
-                    </TText>
-                  ))
-                ) : (
-                  <TText
-                    className="mt-1 text-sm" style={{ color: theme.muted }}
-                    numberOfLines={1}>
-                    {latestBill
-                      ? `${billCount} bill${billCount === 1 ? '' : 's'} • last on ${latestBill.date}`
-                      : // The balance line above already says "No expenses yet"
-                        // when there are none, so this line spends itself on
-                        // the next thing the user needs instead of repeating it.
-                        memberNames || 'Add members or the first expense'}
-                  </TText>
-                )}
-              </View>
-            </Pressable>
-          </Card>
-        </SwipeActionRow>
-      </Animated.View>
-    );
-  };
-
-  const renderNonGroupRow = (entranceIndex: number) => {
-    const tone = getBalanceTone(
-      nonGroupSummary.netBalance,
-      theme,
-      nonGroupSummary.billCount > 0
-    );
-    return (
-      <Animated.View entering={motion.rowEntering(entranceIndex)} layout={motion.reflow()}>
-        <Card compact style={{ padding: 0 }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => openModal('bill')}
-            className="flex-row gap-4 p-4">
-          <GroupTile icon="receipt-text-outline" />
-          <View className="flex-1 justify-center">
-          <TText variant="cardTitle" style={{ color: theme.text }}>
-            Non-group expenses
-          </TText>
-          <View className="mt-1">
-            <BalanceFigure
-              value={nonGroupSummary.netBalance}
-              color={tone.color}
-              hasActivity={nonGroupSummary.billCount > 0}
-            />
-          </View>
-          {nonGroupSummary.detailLines.length > 0 ? (
-            nonGroupSummary.detailLines.map((line) => (
-              <TText
-                key={line}
-                className="mt-1 text-sm" style={{ color: theme.muted }}
-                numberOfLines={1}>
-                {line}
-              </TText>
-            ))
-          ) : (
-            <TText className="mt-1 text-sm" style={{ color: theme.muted }} numberOfLines={1}>
-              {nonGroupSummary.latestBill
-                ? `${nonGroupSummary.billCount} bill${
-                    nonGroupSummary.billCount === 1 ? '' : 's'
-                  } • last on ${nonGroupSummary.latestBill.date}`
-                : 'Personal shared expenses'}
-            </TText>
-          )}
-          </View>
-          </Pressable>
-        </Card>
-      </Animated.View>
-    );
-  };
+  const renderNonGroupRow = (entranceIndex: number) => (
+    <SplitNonGroupRow
+      summary={nonGroupSummary}
+      entranceIndex={entranceIndex}
+      onPress={() => openModal('bill')}
+    />
+  );
 
   const renderActivityRow = (item: (typeof recentActivity)[number], entranceIndex: number) => (
-    <Animated.View
+    <SplitActivityRow
       key={item.id}
-      entering={motion.rowEntering(entranceIndex)}
-      layout={motion.reflow()}>
-      <Card compact style={{ padding: 0 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Open activity ${item.title}`}
-        onPress={() => openActivityTarget(item.item)}
-        className="flex-row items-center gap-4 p-4">
-      <View
-        className="h-[58px] w-[58px] items-center justify-center rounded-xl"
-        style={{ backgroundColor: theme.secondary }}>
-        <MaterialCommunityIcons name={item.icon} size={26} color={theme.accent} />
-      </View>
-      <View className="flex-1">
-        <TText variant="cardTitle" style={{ color: theme.text }}>
-          {item.title}
-        </TText>
-        <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
-          {item.caption} • {item.date}
-        </TText>
-        {item.status ? (
-          <View
-            className="mt-2 self-start rounded-full px-2 py-1"
-            style={{
-              backgroundColor:
-                item.status === 'denied' ? `${theme.negative}1F` : theme.secondary,
-            }}>
-            <TText
-              className="text-[11px]"
-              style={{
-                color: item.status === 'denied' ? theme.negative : theme.accent,
-                fontFamily: Fonts.title,
-              }}>
-              {item.status === 'denied' ? 'Denied' : 'Awaiting confirmation'}
-            </TText>
-          </View>
-        ) : null}
-      </View>
-      {item.amount != null ? (
-        <TText
-          className="text-sm"
-          style={{
-            color: theme.text,
-            fontFamily: Fonts.title,
-            textDecorationLine: item.status === 'denied' ? 'line-through' : 'none',
-          }}>
-          {formatBalance(item.amount)}
-        </TText>
-      ) : null}
-      </Pressable>
-      </Card>
-    </Animated.View>
+      item={item}
+      entranceIndex={entranceIndex}
+      onPress={() => openActivityTarget(item.item)}
+    />
   );
+
 
   return (
     <SplitScreenFrame embedded={embedded} backgroundColor={theme.background}>
