@@ -1,32 +1,18 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  Share,
-  View,
-} from 'react-native';
+import { ScrollView, Share, View } from 'react-native';
 
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
-import { AppHeader } from '@/components/navigation/AppHeader';
 import {
   AddExpenseModal,
   type ExpenseFlowScreen,
 } from '@/components/split/expense/AddExpenseModal';
 import { CreateGroupModal } from '@/components/split/modals/CreateGroupModal';
-import {
-  SearchField,
-  SegmentedSections,
-  SettledHint,
-  SplitScreenFrame,
-  type ActiveSection,
-} from '@/components/split/primitives/SplitChrome';
+import { SearchField, SegmentedSections, SplitScreenFrame, type ActiveSection } from '@/components/split/primitives/SplitChrome';
 import { FriendDetailModal } from '@/components/split/modals/FriendDetailModal';
 import { GroupDetailModal } from '@/components/split/modals/GroupDetailModal';
 import { GroupDefaultSplitModal } from '@/components/split/modals/GroupDefaultSplitModal';
@@ -34,7 +20,7 @@ import { GroupSettingsModal } from '@/components/split/modals/GroupSettingsModal
 import { GroupMembersModal } from '@/components/split/modals/GroupMembersModal';
 import { GroupActionModal } from '@/components/split/modals/GroupActionModal';
 import { BillDetailModal } from '@/components/split/modals/BillDetailModal';
-import { DirectionChip, FloatingExpenseButton, FormInput, PrimaryModalButton, SplitModal } from '@/components/split/primitives/SplitPrimitives';
+import { FloatingExpenseButton } from '@/components/split/primitives/SplitPrimitives';
 import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
 import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
@@ -107,16 +93,22 @@ import {
   type SplitWeights,
 } from '@/lib/split-preferences';
 import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSplitBill, createSplitFriend, createSplitGroup, createSplitGroupDirectInvite, createSplitGroupInviteLink, createSplitSettlement, decideSplitSettlement, deleteSplitBill, fetchPendingSplitSettlements, fetchSplitActivity, fetchSplitBalances, fetchSplitBills, fetchSplitFriends, fetchSplitGroups, fetchSplitGroupDirectInvites, leaveSplitGroup, mergeSplitFriend, revokeSplitGroupDirectInvite, splitScreenState, updateSplitBill, updateSplitFriend, setSplitGroupDefaultSplit, updateSplitGroup, type SettlementDirection, type SplitActivityItem, type SplitBalance, type SplitBill, type SplitFriend, type SplitGroup, type SplitGroupEntryDisposition, type SplitGroupDirectInvite, type SplitSettlement, type SplitGroupMemberInvite } from '@/lib/splits';
-import { TView, TText } from '@/components/split/primitives/themed-interop';
-import { BalanceFigure } from '@/components/split/BalanceFigure';
+import { TView } from '@/components/split/primitives/themed-interop';
 import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
 import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
 import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
-import { SplitFriendChip } from '@/components/split/rows/SplitFriendChip';
 import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
 import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
 import { SplitNonGroupRow } from '@/components/split/rows/SplitNonGroupRow';
+import { SplitActivitySection } from '@/components/split/SplitActivitySection';
+import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
+import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
+import { SplitGroupInviteModal } from '@/components/split/SplitGroupInviteModal';
+import { SplitGroupsSection } from '@/components/split/SplitGroupsSection';
+import { SplitHeader } from '@/components/split/SplitHeader';
+import { SplitOverallBalance } from '@/components/split/SplitOverallBalance';
+import { SplitSettlementModal } from '@/components/split/SplitSettlementModal';
 
 type ModalKind = 'friend' | 'group' | 'bill' | 'settlement' | 'group_invite' | null;
 type SplitScreenProps = {
@@ -1929,14 +1921,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     );
   }
 
-  const renderFriendChip = (
-    friend: SplitFriend,
-    selectedId: number | null,
-    onSelect: (id: number) => void
-  ) => (
-    <SplitFriendChip key={friend.id} friend={friend} selectedId={selectedId} onSelect={onSelect} />
-  );
-
   const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => (
     <SplitFriendRow
       key={friend.id}
@@ -1995,50 +1979,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             paddingBottom: 136,
           }}>
           {!embedded && (
-            <AppHeader
-              title="Splits"
-              style={{ marginBottom: 20, paddingHorizontal: 0, paddingVertical: 0 }}
-              rightNode={
-                <View className="ml-4 flex-row items-center gap-2">
-                  {loading ? <ActivityIndicator color={theme.accent} /> : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={searchVisible ? 'Hide split search' : 'Search splits'}
-                    onPress={() => setSearchVisible((current) => !current)}
-                    className="h-10 w-10 items-center justify-center rounded-full"
-                    style={{ backgroundColor: theme.card }}>
-                    <MaterialCommunityIcons
-                      name={searchVisible ? 'close' : 'magnify'}
-                      size={22}
-                      color={theme.accent}
-                    />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      activeSection === 'friends'
-                        ? 'Add split friend'
-                        : activeSection === 'activity'
-                          ? 'Create split group'
-                          : 'Create split friend or group'
-                    }
-                    onPress={openContextCreate}
-                    className="h-10 w-10 items-center justify-center rounded-full"
-                    style={{ backgroundColor: theme.card }}>
-                    <MaterialCommunityIcons
-                      name={
-                        activeSection === 'friends'
-                          ? 'account-plus-outline'
-                          : activeSection === 'activity'
-                            ? 'account-group-outline'
-                            : 'account-multiple-plus-outline'
-                      }
-                      size={22}
-                      color={theme.accent}
-                    />
-                  </Pressable>
-                </View>
-              }
+            <SplitHeader
+              loading={loading}
+              searchVisible={searchVisible}
+              activeSection={activeSection}
+              onToggleSearch={() => setSearchVisible((current) => !current)}
+              onCreate={openContextCreate}
             />
           )}
 
@@ -2099,108 +2045,51 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             />
 
             {activeSection !== 'activity' ? (
-              <View className="mt-7 flex-row items-center justify-between gap-4">
-                <View className="flex-1">
-                  <BalanceFigure
-                    value={overallNetBalance}
-                    color={overallTone.color}
-                    overall
-                    hasActivity={hasLedgerActivity}
-                  />
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Filter split balances"
-                  onPress={() => setFilterSheetVisible(true)}
-                  className="h-12 w-12 items-center justify-center rounded-full"
-                  style={{ backgroundColor: theme.secondary }}>
-                  <MaterialCommunityIcons name="tune-variant" size={24} color={theme.text} />
-                </Pressable>
-              </View>
+              <SplitOverallBalance
+                value={overallNetBalance}
+                color={overallTone.color}
+                hasActivity={hasLedgerActivity}
+                onOpenFilter={() => setFilterSheetVisible(true)}
+              />
             ) : null}
 
-            {activeSection === 'groups' && (
-              <View className="mt-6 gap-5">
-                {visibleGroupSummaries.length > 0 || showNonGroupSummary ? (
-                  <>
-                    {visibleGroupSummaries.map(renderGroupCard)}
-                    {showNonGroupSummary
-                      ? renderNonGroupRow(visibleGroupSummaries.length)
-                      : null}
-                    <SettledHint
-                      settledCount={hiddenSettledCount}
-                      onShowSettled={() => {
-                        setBalanceFilter('settled');
-                        setFilterSheetVisible(false);
-                      }}
-                    />
 
-                  </>
-                ) : (
-                  <StateView
-                    compact
-                    icon="account-group-outline"
-                    title={normalizedSearch ? 'No matching groups' : 'Create your first group'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search or balance filter.'
-                        : 'Start a group now. Members can be added later.'
-                    }
-                    actionLabel={normalizedSearch ? undefined : 'New group'}
-                    onAction={() => openModal('group')}
-                  />
-                )}
-              </View>
+            {activeSection === 'groups' && (
+              <SplitGroupsSection
+                groups={visibleGroupSummaries}
+                showNonGroupSummary={showNonGroupSummary}
+                hiddenSettledCount={hiddenSettledCount}
+                normalizedSearch={normalizedSearch}
+                renderGroupCard={renderGroupCard}
+                renderNonGroupRow={renderNonGroupRow}
+                onShowSettled={() => {
+                  setBalanceFilter('settled');
+                  setFilterSheetVisible(false);
+                }}
+                onNewGroup={() => openModal('group')}
+              />
             )}
+
 
             {activeSection === 'friends' && (
-              <View className="mt-6 gap-4">
-                {visibleFriends.length > 0 ? (
-                  visibleFriends.map(renderFriendRow)
-                ) : (
-                  <StateView
-                    compact
-                    icon={
-                      friends.length === 0
-                        ? 'account-multiple-plus-outline'
-                        : 'account-search-outline'
-                    }
-                    title={normalizedSearch ? 'No matching friends' : 'Add friends to split bills'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search or balance filter.'
-                        : 'Create friends, then add them to groups, bills, and settlements.'
-                    }
-                    actionLabel={normalizedSearch ? undefined : 'Add friend'}
-                    onAction={() => openModal('friend')}
-                  />
-                )}
-              </View>
+              <SplitFriendsSection
+                visibleFriends={visibleFriends}
+                hasAnyFriends={friends.length > 0}
+                normalizedSearch={normalizedSearch}
+                renderFriendRow={renderFriendRow}
+                onAddFriend={() => openModal('friend')}
+              />
             )}
 
+
             {activeSection === 'activity' && (
-              <View className="mt-9 gap-4">
-                <View className="mb-2">
-                  <TText variant="sectionTitle" style={{ color: theme.text }}>
-                    Recent activity
-                  </TText>
-                </View>
-                {visibleActivity.length > 0 ? (
-                  visibleActivity.map(renderActivityRow)
-                ) : (
-                  <StateView
-                    compact
-                    icon="history"
-                    title={normalizedSearch ? 'No matching activity' : 'No activity yet'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search.'
-                        : 'Group, friend, bill, and settlement activity will appear here.'
-                    }
-                  />
-                )}
-              </View>
+              <SplitActivitySection
+                activity={visibleActivity}
+                normalizedSearch={normalizedSearch}
+                renderActivityRow={renderActivityRow}
+              />
             )}
+
             </>
           )}
         </ScrollView>
@@ -2458,44 +2347,20 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onSave={() => void handleSaveGroupMembers()}
         />
 
-        <SplitModal
+        <SplitFriendFormModal
           visible={modal === 'friend'}
-          title={editingFriendId ? 'Edit Friend' : 'Add Friend'}
+          isEditing={Boolean(editingFriendId)}
           errorMessage={modal === 'friend' ? error : null}
-          footer={
-            <PrimaryModalButton
-              label={editingFriendId ? 'Update friend' : 'Save friend'}
-              loading={saving}
-              onPress={() => void handleSaveFriend()}
-            />
-          }
-          onClose={closeModal}>
-          <FormInput label="Name" value={friendName} onChangeText={setFriendName} />
-          <FormInput
-            label="Phone (optional)"
-            value={friendPhone}
-            onChangeText={setFriendPhone}
-            keyboardType="phone-pad"
-          />
-          <FormInput
-            label="Email (optional)"
-            value={friendEmail}
-            onChangeText={setFriendEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          {/*
-            * Saying what these are *for* is the point. Typing a phone number
-            * into a friend row looks like the thing that reaches the person,
-            * and it is not — nothing is ever sent to it. It is a matching hint,
-            * and it only pays off if it happens to be the same address they
-            * sign up with.
-            */}
-          <TText className="text-xs" style={{ color: theme.muted }}>
-            Nothing is sent to these. They are how Finnri recognises this person
-            if they join, so the balance you keep for them follows them in.
-          </TText>
-        </SplitModal>
+          saving={saving}
+          name={friendName}
+          phone={friendPhone}
+          email={friendEmail}
+          onChangeName={setFriendName}
+          onChangePhone={setFriendPhone}
+          onChangeEmail={setFriendEmail}
+          onSave={() => void handleSaveFriend()}
+          onClose={closeModal}
+        />
 
         {/*
           * The button used to say "Send invite" and what happened next was the
@@ -2509,38 +2374,17 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           * link, so they land on the balance already kept for them rather than
           * on a second row of their own.
           */}
-        <SplitModal
+        <SplitGroupInviteModal
           visible={modal === 'group_invite'}
-          title="Invite a specific person"
           errorMessage={modal === 'group_invite' ? error : null}
-          footer={
-            <PrimaryModalButton
-              label="Share invite link"
-              loading={saving}
-              onPress={() => void handleSendGroupInvite()}
-            />
-          }
-          onClose={closeModal}>
-          <TText className="text-xs" style={{ color: theme.muted }}>
-            Finnri does not send emails or texts — the share sheet opens next and
-            you send the link yourself. The address here is how Finnri recognises
-            them when they open it, so they join on the balance you have already
-            been keeping for them.
-          </TText>
-          <FormInput
-            label="Email"
-            value={groupInviteEmail}
-            onChangeText={setGroupInviteEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <FormInput
-            label="Phone"
-            value={groupInvitePhone}
-            onChangeText={setGroupInvitePhone}
-            keyboardType="phone-pad"
-          />
-        </SplitModal>
+          saving={saving}
+          email={groupInviteEmail}
+          phone={groupInvitePhone}
+          onChangeEmail={setGroupInviteEmail}
+          onChangePhone={setGroupInvitePhone}
+          onSend={() => void handleSendGroupInvite()}
+          onClose={closeModal}
+        />
 
         <CreateGroupModal
           visible={modal === 'group'}
@@ -2632,46 +2476,23 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onClose={closeModal}
         />
 
-        <SplitModal visible={modal === 'settlement'} title="Record Settlement" onClose={closeModal}>
-          <View className="gap-2">
-            <TText className="text-xs" style={{ color: theme.muted }}>Friend</TText>
-            <View className="flex-row flex-wrap gap-2">
-              {friends.map((friend) =>
-                renderFriendChip(friend, settlementFriendId, setSettlementFriendId)
-              )}
-            </View>
-          </View>
-          <View className="flex-row gap-2">
-            <DirectionChip
-              label="Friend paid"
-              selected={settlementDirection === 'friend_paid_user'}
-              onPress={() => setSettlementDirection('friend_paid_user')}
-            />
-            <DirectionChip
-              label="You paid"
-              selected={settlementDirection === 'user_paid_friend'}
-              onPress={() => setSettlementDirection('user_paid_friend')}
-            />
-          </View>
-          <FormInput
-            label="Amount"
-            value={settlementAmount}
-            onChangeText={setSettlementAmount}
-            keyboardType="decimal-pad"
-          />
-          <FormInput label="Date" value={settlementDate} onChangeText={setSettlementDate} />
-          <FormInput
-            label="Notes"
-            value={settlementNotes}
-            onChangeText={setSettlementNotes}
-            multiline
-          />
-          <PrimaryModalButton
-            label="Save settlement"
-            loading={saving}
-            onPress={() => void handleCreateSettlement()}
-          />
-        </SplitModal>
+        <SplitSettlementModal
+          visible={modal === 'settlement'}
+          saving={saving}
+          friends={friends}
+          friendId={settlementFriendId}
+          direction={settlementDirection}
+          amount={settlementAmount}
+          date={settlementDate}
+          notes={settlementNotes}
+          onChangeFriend={setSettlementFriendId}
+          onChangeDirection={setSettlementDirection}
+          onChangeAmount={setSettlementAmount}
+          onChangeDate={setSettlementDate}
+          onChangeNotes={setSettlementNotes}
+          onSave={() => void handleCreateSettlement()}
+          onClose={closeModal}
+        />
 
         <UpgradeSheet
           visible={upgradeSheetVisible}
