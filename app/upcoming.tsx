@@ -76,7 +76,7 @@ export default function UpcomingScreen() {
           style={{ backgroundColor: colors.accent }}>
           <MaterialCommunityIcons name="message-draw" size={18} color="white" />
           <ThemedText tone="onAccent" className="ml-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
-            Suggest What Comes Next
+            Suggest what comes next
           </ThemedText>
         </Pressable>
       </ScrollView>

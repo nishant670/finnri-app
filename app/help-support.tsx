@@ -87,7 +87,7 @@ export default function HelpSupportScreen() {
 
   return (
     <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor: colors.background }}>
-      <AppHeader title="Help & Support" onBack={() => router.back()} />
+      <AppHeader title="Help & support" onBack={() => router.back()} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>
         <View className="rounded-[32px] p-6" style={{ backgroundColor: colors.card }}>

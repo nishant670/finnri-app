@@ -39,7 +39,7 @@ export function TransactionCategoryPicker({
   return (
     <AnimatedBottomSheet visible={visible} onClose={onClose} backdropOpacity={0.3}>
       <View className="rounded-t-3xl px-4 pb-10 pt-4" style={{ backgroundColor: theme.background }}>
-        <ThemedText className="text-center text-base font-bold mb-6">Select Category</ThemedText>
+        <ThemedText className="text-center text-base font-bold mb-6">Choose a category</ThemedText>
         <ScrollView style={{ maxHeight: 430 }}>
           {suggestions.length > 0 && (
             <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">

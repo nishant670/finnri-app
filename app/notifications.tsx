@@ -307,7 +307,7 @@ export default function NotificationsScreen() {
                           <ThemedText
                             className="text-xs font-black"
                             style={{ color: colors.accent }}>
-                            Correct / revert
+                            Fix it
                           </ThemedText>
                         </Pressable>
                       </View>

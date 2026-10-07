@@ -189,7 +189,7 @@ export default function ProfileScreen() {
               <TText
                 className="font-bold text-sm"
                 style={{ color: colors.accent, fontFamily: Fonts.title }}>
-                Edit My Profile
+                Edit profile
               </TText>
               {isProfileIncomplete && (
                 <View
@@ -296,7 +296,7 @@ export default function ProfileScreen() {
                 icon={getMoodIconName('shield-check', iconStyle) as any}
                 iconColor="#388E3C"
                 iconSurface="#E8F5E9"
-                title="Keep it Safe"
+                title="Security & privacy"
                 subtitle="PIN lock, biometrics and stealth mode"
                 onPress={() => router.push('/security')}
               />
@@ -312,7 +312,7 @@ export default function ProfileScreen() {
                 icon={getMoodIconName('help-circle', iconStyle) as any}
                 iconColor="#7B1FA2"
                 iconSurface="#F3E5F5"
-                title="Help & Support"
+                title="Help & support"
                 subtitle="Answers, contact and what's next"
                 borderColor={borderColor}
                 onPress={() => router.push('/help-support')}
@@ -322,7 +322,7 @@ export default function ProfileScreen() {
                 icon="message-draw"
                 iconColor="#00796B"
                 iconSurface="#E0F2F1"
-                title="Feedback & Ideas"
+                title="Feedback & ideas"
                 subtitle="Suggest features or report issues"
                 borderColor={borderColor}
                 onPress={() => router.push('/feedback')}

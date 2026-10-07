@@ -101,7 +101,7 @@ function DetailHeader({
       <TText
         className="text-sm uppercase"
         style={{ fontFamily: Fonts.title, color: theme.text, letterSpacing: 1.2 }}>
-        Account Details
+        Account details
       </TText>
       {onActions ? (
         <Pressable
@@ -914,7 +914,7 @@ export default function AccountDetailsScreen() {
 
           <View className="mt-9 flex-row items-center justify-between">
             <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
-              Recent Activity
+              Recent activity
             </TText>
             <Pressable accessibilityRole="button" onPress={openAllTransactions}>
               <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.accent }}>

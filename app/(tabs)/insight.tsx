@@ -80,7 +80,7 @@ const getPeriodPulse = (dashboard: DashboardResponse, reviewCount: number) => {
   if (count === 0) {
     return {
       label: 'Waiting for data',
-      reason: 'Add confirmed transactions to build this period summary.',
+      reason: 'Log a few transactions and this fills in.',
       color: '#9B9692',
       icon: 'progress-clock',
     };
@@ -96,22 +96,22 @@ const getPeriodPulse = (dashboard: DashboardResponse, reviewCount: number) => {
   if (income <= 0 && spent > 0) {
     return {
       label: 'No income recorded',
-      reason: 'This period has expenses but no recorded income, so surplus cannot be estimated.',
+      reason: 'Log your income too and Finnri can show what’s left over.',
       color: '#FFB020',
       icon: 'cash-remove',
     };
   }
   if (income > 0 && spent > income) {
     return {
-      label: 'Watch spending',
-      reason: 'Confirmed expenses are higher than recorded income for this period.',
+      label: 'Spending ahead of income',
+      reason: 'You’ve spent more than you’ve logged as income this period.',
       color: '#FF6680',
       icon: 'alert-circle-outline',
     };
   }
   return {
     label: 'On track',
-    reason: 'Recorded income is higher than confirmed expenses for this period.',
+    reason: 'You’ve logged more income than spending this period.',
     color: '#00B878',
     icon: 'check-decagram',
   };
@@ -727,7 +727,7 @@ function PeriodPulseCard({
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-4">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Period Pulse
+            This period
           </ThemedText>
           <ThemedText className="mt-1 text-2xl font-black">{pulse.label}</ThemedText>
           <ThemedText tone="muted" className="mt-2 text-xs leading-5">{pulse.reason}</ThemedText>
@@ -785,7 +785,7 @@ function PeriodPulseCard({
           <View className="flex-1">
             <ThemedText className="text-xs leading-5">
               <ThemedText className="text-xs font-black" style={{ color: theme.colors.accent }}>
-                Why this status:{' '}
+                Why:{' '}
               </ThemedText>
               {getBurnRateCopy(dashboard)}
             </ThemedText>
@@ -795,7 +795,7 @@ function PeriodPulseCard({
 
       <View className="mt-4 flex-row items-start gap-3">
         <ThemedText tone="muted" className="flex-1 text-[11px] font-bold">
-          Insight depth grows as Finnri sees more transactions, merchants, and accounts.
+          The more you log, the sharper these get.
         </ThemedText>
         <View
           className="rounded-full px-3 py-1"
@@ -853,7 +853,7 @@ function MonthlyReviewTeaser() {
         </View>
         <View className="flex-1">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Monthly Review
+            Monthly review
           </ThemedText>
           <ThemedText className="mt-1 text-base font-black">{label} in review</ThemedText>
           <ThemedText tone="muted" className="mt-1 text-xs leading-5">
@@ -901,9 +901,9 @@ function WeeklyReviewTeaser({
         </View>
         <View className="flex-1">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Weekly Review
+            Weekly review
           </ThemedText>
-          <ThemedText className="mt-1 text-base font-black">Review the money story</ThemedText>
+          <ThemedText className="mt-1 text-base font-black">See how your week went</ThemedText>
           <ThemedText tone="muted" className="mt-1 text-xs leading-5">
             {budgetRisks} budget risk{budgetRisks === 1 ? '' : 's'} · {recurringCount} recurring · {warningCount} alert{warningCount === 1 ? '' : 's'}
           </ThemedText>
@@ -1017,7 +1017,7 @@ function SpendingAnalysisCard({
   const merchants = dashboard.top_merchants.slice(0, 2);
 
   return (
-    <SectionHeader title="Spending Analysis" actionLabel="Details" onAction={onDetails}>
+    <SectionHeader title="Spending breakdown" actionLabel="Details" onAction={onDetails}>
       <View className="gap-4">
         <SpendTrendChart
           dashboard={dashboard}
@@ -1051,7 +1051,7 @@ function SpendingAnalysisCard({
             className="rounded-[24px] border p-5 shadow-sm"
             style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
             <ThemedText tone="muted" className="mb-2 text-[10px] font-black uppercase tracking-widest">
-              Top Merchants
+              Top merchants
             </ThemedText>
             {merchants.map((merchant) => (
               <MerchantRow key={merchant.merchant} merchant={merchant} />
@@ -1183,7 +1183,7 @@ function SmartAlerts({
   if (cards.length === 0) return null;
 
   return (
-    <SectionHeader title="Smart Alerts">
+    <SectionHeader title="Alerts">
       <View className="gap-3">
         {cards.slice(0, 3).map((card) => (
           <AlertCard
@@ -1210,7 +1210,7 @@ function RecurringReviewTeaser({
 
   return (
     <SectionHeader
-      title="Recurring Review"
+      title="Recurring review"
       actionLabel="Review"
       onAction={() =>
         router.push({
@@ -1423,13 +1423,13 @@ function AlertCard({ card, params }: { card: InsightCard; params: Record<string,
           {isWarning && (
             <View className="mt-3 flex-row gap-2">
               <PillButton
-                label="View Details"
+                label="View details"
                 muted
                 onPress={() => router.push({ pathname: '/insight-detail', params })}
               />
               {params.category && (
                 <PillButton
-                  label="Set Limit"
+                  label="Set a limit"
                   onPress={() =>
                     router.push({
                       pathname: '/budgets',
@@ -1480,7 +1480,7 @@ function AccountIntelligence({ dashboard }: { dashboard: DashboardResponse }) {
   const theme = useThemeTokens();
   const topCategory = dashboard.top_categories[0]?.category ?? 'Not enough data';
   return (
-    <SectionHeader title="Account Intelligence">
+    <SectionHeader title="Accounts">
       <View
         className="rounded-[24px] border p-5 shadow-sm"
         style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
@@ -1507,10 +1507,10 @@ function AccountIntelligence({ dashboard }: { dashboard: DashboardResponse }) {
         <View className="mt-2 flex-row gap-3">
           <MiniMetric
             icon="calendar-blank-outline"
-            label="Daily Average"
+            label="Daily average"
             value={formatMoney(dashboard.summary.daily_average)}
           />
-          <MiniMetric icon="chart-bar" label="Top Category" value={topCategory} />
+          <MiniMetric icon="chart-bar" label="Top category" value={topCategory} />
         </View>
       </View>
     </SectionHeader>
@@ -1583,7 +1583,7 @@ function NeedsReview({
 
   return (
     <SectionHeader
-      title="Needs Review"
+      title="Needs review"
       actionLabel={totalCount > entries.length ? `View all ${totalCount}` : `${totalCount} Items`}
       onAction={() =>
         router.push({

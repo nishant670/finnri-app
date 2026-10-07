@@ -20,7 +20,7 @@ const setup = async (visible = true) => {
 describe('TransactionModePicker', () => {
   it('lists every option under its heading', async () => {
     const { screen } = await setup();
-    expect(screen.getByText('Select Payment Method')).toBeTruthy();
+    expect(screen.getByText('Choose a payment method')).toBeTruthy();
     for (const label of ['Cash', 'UPI', 'Bank Account']) {
       expect(screen.getByText(label)).toBeTruthy();
     }
@@ -34,6 +34,6 @@ describe('TransactionModePicker', () => {
 
   it('renders nothing while hidden', async () => {
     const { screen } = await setup(false);
-    expect(screen.queryByText('Select Payment Method')).toBeNull();
+    expect(screen.queryByText('Choose a payment method')).toBeNull();
   });
 });
