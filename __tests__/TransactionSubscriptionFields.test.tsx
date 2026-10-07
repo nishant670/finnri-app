@@ -48,7 +48,8 @@ const setup = async (overrides: Partial<EntryForm> = {}) => {
 describe('TransactionSubscriptionFields', () => {
   it('stays collapsed until the switch is turned on', async () => {
     const { screen } = await setup();
-    expect(screen.getByText('Add subscription')).toBeTruthy();
+    expect(screen.getByText('Track as a subscription')).toBeTruthy();
+    expect(screen.queryByText('Repeats')).toBeNull();
     expect(screen.queryByPlaceholderText('Subscription name')).toBeNull();
   });
 
@@ -59,7 +60,18 @@ describe('TransactionSubscriptionFields', () => {
     expect(latest.subscriptionName).toBe('Netflix India');
     expect(latest.subscriptionAmount).toBe('649');
     expect(latest.subscriptionCategory).toBe('Entertainment');
-    expect(screen.getByPlaceholderText('Subscription name')).toBeTruthy();
+    // The defaults are read back on the fold rather than laid out as fields.
+    expect(screen.queryByPlaceholderText('Subscription name')).toBeNull();
+    expect(screen.getByText(/Netflix India · ₹649/)).toBeTruthy();
+  });
+
+  it('answers interval, next date and reminder itself when turned on', async () => {
+    const { screen } = await setup();
+    await fireEvent.press(screen.getByRole('switch'));
+    expect(latest.subscriptionBillingInterval).toBe('monthly');
+    expect(latest.subscriptionNextDueDate).not.toBe('');
+    expect(latest.subscriptionReminderDays).toBe('3');
+    expect(screen.getByText(/Reminder 3 days before/)).toBeTruthy();
   });
 
   it('does not overwrite details the user already typed', async () => {
@@ -74,6 +86,7 @@ describe('TransactionSubscriptionFields', () => {
       subscriptionEnabled: true,
       subscriptionBillingInterval: 'monthly',
     });
+    await fireEvent.press(screen.getByTestId('subscription-more-options'));
     await fireEvent.changeText(screen.getByPlaceholderText('Amount'), '1,2a.5');
     expect(latest.subscriptionAmount).toBe('12.5');
     await fireEvent.changeText(screen.getByPlaceholderText('Days'), '4d');
@@ -82,7 +95,7 @@ describe('TransactionSubscriptionFields', () => {
 
   it('infers the next date and a 3-day reminder when an interval is chosen', async () => {
     const { screen } = await setup({ subscriptionEnabled: true });
-    await fireEvent.press(screen.getByText('monthly'));
+    await fireEvent.press(screen.getByText('Monthly'));
     expect(latest.subscriptionBillingInterval).toBe('monthly');
     expect(latest.subscriptionNextDueDate).not.toBe('');
     expect(latest.subscriptionReminderDays).toBe('3');
@@ -90,11 +103,15 @@ describe('TransactionSubscriptionFields', () => {
 
   it('forces autopay and no reminder for a daily interval', async () => {
     const { screen } = await setup({ subscriptionEnabled: true });
-    await fireEvent.press(screen.getByText('daily'));
+    // Daily is rare enough to wait under More options.
+    expect(screen.queryByText('Daily')).toBeNull();
+    await fireEvent.press(screen.getByTestId('subscription-more-options'));
+    await fireEvent.press(screen.getByText('Daily'));
     expect(latest.subscriptionAutopay).toBe(true);
     expect(latest.subscriptionReminderDays).toBe('0');
     expect(screen.getByText('Runs every day automatically.')).toBeTruthy();
     expect(screen.queryByTestId('subscription-next-payment-picker')).toBeNull();
+    expect(screen.queryByText('Remind me before')).toBeNull();
   });
 
   it('explains market days for existing business-daily rows', async () => {
@@ -113,12 +130,14 @@ describe('TransactionSubscriptionFields', () => {
     });
     await fireEvent.press(screen.getByTestId('subscription-next-payment-picker'));
     expect(onOpenNextPaymentDatePicker).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByTestId('subscription-more-options'));
     await fireEvent.press(screen.getByText('Cancellation reminder date'));
     expect(onOpenCancellationDatePicker).toHaveBeenCalledTimes(1);
   });
 
   it('toggles autopay and the cancel reminder', async () => {
     const { screen } = await setup({ subscriptionEnabled: true });
+    await fireEvent.press(screen.getByTestId('subscription-more-options'));
     await fireEvent.press(screen.getByText('Autopay'));
     expect(latest.subscriptionAutopay).toBe(true);
     expect(screen.queryByText('Cancellation reminder date')).toBeNull();

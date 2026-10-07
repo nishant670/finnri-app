@@ -202,7 +202,7 @@ describe('TransactionFormModal', () => {
       />
     );
 
-    expect(await findByText('New Quick Prompt')).toBeTruthy();
+    expect(await findByText('New quick prompt')).toBeTruthy();
   });
 
   it('validates required fields before saving', async () => {
@@ -216,7 +216,7 @@ describe('TransactionFormModal', () => {
 
     await fireEvent.press(await findByTestId('entry-save-button'));
 
-    expect(await findByText('Please provide Transaction Title.')).toBeTruthy();
+    expect(await findByText('Add a title so you can spot this later.')).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -262,6 +262,52 @@ describe('TransactionFormModal', () => {
       resolveSave();
       await firstPress;
     });
+  });
+
+  it('opens the subscription options when a folded setting refuses the save', async () => {
+    const { findByTestId, findByText, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: 'Netflix',
+        subscriptionAmount: '649',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '45',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    expect(await findByText('Reminders can be 0 to 30 days before.')).toBeTruthy();
+    // The message names a setting under More options, so the fold opens.
+    expect(await findByText('Remind me before')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('names a subscription after the payment when the name was left to default', async () => {
+    const { findByTestId, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: '',
+        subscriptionAmount: '',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '3',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ subscriptionName: 'Cafe' })
+    );
   });
 
   it('uses Autopay instead of a reminder for daily subscriptions', async () => {
@@ -399,16 +445,27 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     );
   });
 
-  it('swaps the keypad for the full form under More details', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({ initialData: blankEntry });
+  it('adds a note from its chip without leaving the capture screen', async () => {
+    const { findByTestId, queryByTestId, onSave } = await renderModal({ initialData: blankEntry });
 
-    await fireEvent.press(await findByTestId('entry-more-details-toggle'));
+    await fireEvent.press(await findByTestId('entry-add-notes'));
 
-    // Two keyboards cannot share the same space, so the pad stands down.
-    expect(queryByTestId('amount-key-1')).toBeNull();
-    expect(await findByTestId('entry-title-input')).toBeTruthy();
-    expect(await findByTestId('entry-amount-input')).toBeTruthy();
-    expect(await findByTestId('entry-category-picker')).toBeTruthy();
+    // Only the note arrives. The full form — a second amount field, the
+    // category card — used to come with it, and does not any more.
+    expect(await findByTestId('entry-notes-input')).toBeTruthy();
+    expect(queryByTestId('entry-add-notes')).toBeNull();
+    expect(queryByTestId('entry-amount-input')).toBeNull();
+    expect(queryByTestId('entry-category-picker')).toBeNull();
+    expect(await findByTestId('amount-key-1')).toBeTruthy();
+
+    await fireEvent.changeText(await findByTestId('entry-notes-input'), 'Office lunch');
+    await typeAmount(findByTestId, '180');
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ amount: '180', notes: 'Office lunch' })
+    );
   });
 
   it('keeps title and amount visible while switching between the title keyboard and keypad', async () => {
@@ -423,14 +480,55 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dinner', amount: '250' }));
   });
 
-  it('shows only one category label in the expanded form and retains the title', async () => {
+  it('offers every optional detail as a chip and shows only the one asked for', async () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
-    expect(ui.getAllByText('Category')).toHaveLength(1);
+
+    for (const detail of ['notes', 'merchant', 'tag', 'receipt', 'split']) {
+      expect(await ui.findByTestId(`entry-add-${detail}`)).toBeTruthy();
+    }
+    expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
+    expect(ui.queryByText('Split this expense')).toBeNull();
+
+    await fireEvent.press(await ui.findByTestId('entry-add-merchant'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
+    expect(ui.queryByTestId('entry-notes-input')).toBeNull();
     expect(ui.getAllByTestId('entry-title-input')).toHaveLength(1);
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
     expect(await ui.findByTestId('entry-title-input')).toHaveDisplayValue('Dinner');
+  });
+
+  it('turns the split on in the same tap that adds it', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-add-split'));
+
+    expect(await ui.findByText('Split this expense')).toBeTruthy();
+    expect(ui.getByRole('switch')).toBeChecked();
+    expect(ui.queryByTestId('entry-add-split')).toBeNull();
+  });
+
+  it('does not offer a split on income', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-type-income'));
+
+    expect(ui.queryByTestId('entry-add-split')).toBeNull();
+    expect(await ui.findByTestId('entry-add-notes')).toBeTruthy();
+  });
+
+  it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
+    const ui = await renderModal({
+      initialData: blankEntry,
+      recentEntries: [
+        recentEntry({ id: '9', title: 'DMart groceries', merchant: 'DMart', category: 'Shopping' }),
+      ],
+    });
+
+    await fireEvent.press(await ui.findByTestId('quick-fill-merchant:dmart'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toHaveDisplayValue('DMart');
+    expect(ui.queryByTestId('entry-add-merchant')).toBeNull();
   });
 });
 
@@ -573,8 +671,12 @@ describe('TransactionFormModal — AI draft review', () => {
   it('leaves the manual and edit sheets on the stacked form', async () => {
     const { findByTestId, queryByTestId } = await renderModal({ isEdit: true });
 
-    expect(await findByTestId('entry-more-details-toggle')).toBeTruthy();
+    expect(await findByTestId('entry-category-picker')).toBeTruthy();
     expect(queryByTestId('draft-summary-toggle')).toBeNull();
+    // The saved merchant is a field; the empty note is an offer.
+    expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
+    expect(queryByTestId('entry-add-merchant')).toBeNull();
+    expect(await findByTestId('entry-add-notes')).toBeTruthy();
   });
 });
 

@@ -29,6 +29,34 @@ export const shareFromPercent = (percent: string, totalAmount: string) => {
   return toAmountInputValue((total * parsedPercent) / 100);
 };
 
+/**
+ * The form with the split switched on, seeded with one half-share for the
+ * first friend so there is something to edit rather than an empty list.
+ *
+ * Shared by the card's own switch and the sheet's "Split" chip, which turns
+ * the split on in the same tap that brings the card into view — a chip that
+ * revealed a card whose switch then had to be found and flipped would be two
+ * taps for one intention.
+ */
+export const withSplitTurnedOn = (previous: EntryForm, friends: SplitFriend[]): EntryForm => ({
+  ...previous,
+  splitEnabled: true,
+  splitParticipants:
+    previous.splitParticipants.length === 0
+      ? [
+          {
+            friendId: friends[0]?.id ?? null,
+            friendName: '',
+            shareAmount: previous.amount
+              ? toAmountInputValue(roundToPaise(previous.amount) / 2)
+              : '',
+            sharePercent: '50',
+            direction: 'friend_owes_user',
+          },
+        ]
+      : previous.splitParticipants,
+});
+
 type TransactionSplitFieldsProps = {
   form: EntryForm;
   setForm: Dispatch<SetStateAction<EntryForm>>;
@@ -86,7 +114,7 @@ export function TransactionSplitFields({
                 Split this expense
               </ThemedText>
               <ThemedText tone="muted" className="text-xs">
-                Track friends who owe you back.
+                Keep track of who owes you.
               </ThemedText>
             </View>
           </View>
@@ -94,27 +122,14 @@ export function TransactionSplitFields({
             accessibilityRole="switch"
             accessibilityState={{ checked: form.splitEnabled }}
             onPress={() =>
-              setForm((previous) => ({
-                ...previous,
-                splitEnabled: !previous.splitEnabled,
-                splitParticipants:
-                  !previous.splitEnabled && previous.splitParticipants.length === 0
-                    ? [
-                        {
-                          friendId: friends[0]?.id ?? null,
-                          friendName: '',
-                          shareAmount: previous.amount
-                            ? toAmountInputValue(roundToPaise(previous.amount) / 2)
-                            : '',
-                          sharePercent: '50',
-                          direction: 'friend_owes_user',
-                        },
-                      ]
-                    : previous.splitParticipants,
-              }))
+              setForm((previous) =>
+                previous.splitEnabled
+                  ? { ...previous, splitEnabled: false }
+                  : withSplitTurnedOn(previous, friends)
+              )
             }
             className="h-8 w-14 justify-center rounded-full px-1"
-            style={{ backgroundColor: form.splitEnabled ? accent : '#E5E7EB' }}>
+            style={{ backgroundColor: form.splitEnabled ? accent : theme.border }}>
             <View
               className="h-6 w-6 rounded-full bg-white"
               style={{ alignSelf: form.splitEnabled ? 'flex-end' : 'flex-start' }}
@@ -339,7 +354,7 @@ export function TransactionSplitFields({
               style={{ borderColor: theme.border }}>
               <MaterialCommunityIcons name="plus" size={18} color={accent} />
               <ThemedText className="text-sm font-black" style={{ color: accent }}>
-                Add friend share
+                Add a friend
               </ThemedText>
             </Pressable>
           </View>
