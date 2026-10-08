@@ -2,22 +2,10 @@ import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/d
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { PanelActionRow } from '@/components/money/PanelActionRow';
-import {
-  CardEMIRow,
-  RecurringOverviewCard,
-  RecurringScheduleLine,
-} from '@/components/money/RecurringParts';
+import { CardEMIRow, RecurringOverviewCard } from '@/components/money/RecurringParts';
 import { RecurringCandidatesCard } from '@/components/money/RecurringCandidatesCard';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
@@ -32,7 +20,6 @@ import { fetchAccounts, getAccountsForPaymentMode, type Account } from '@/lib/ac
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
 import { formatMoney } from '@/lib/money';
-import { CATEGORIES } from '@/lib/categories';
 import {
   fetchDashboard,
   saveRecurringCandidateDecision,
@@ -65,128 +52,33 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-/**
- * The four cadences a subscription actually renews on, as a segmented control.
- *
- * This used to be seven full-size cards, each with a helper line, and one of
- * them was **Market days — skips weekends and market holidays**: an SIP
- * concept borrowed from the investment side of the app that has no meaning for
- * Netflix. `business_daily` is gone from subscriptions entirely — the
- * `BillingInterval` type still carries it because existing rows and the SIP
- * path in the transaction form use it, but it can no longer be chosen here.
- */
-const intervalOptions: { value: BillingInterval; label: string }[] = [
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'yearly', label: 'Yearly' },
-];
-/**
- * Daily and biweekly renewals are real but rare, and putting six segments in
- * the control makes every label unreadable to serve two of them. They live
- * under Advanced, where choosing Daily also meets its Autopay requirement in
- * the same section.
- */
-const advancedIntervalOptions: { value: BillingInterval; label: string }[] = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'biweekly', label: 'Biweekly' },
-];
-const statusOptions: { value: SubscriptionStatus; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
-// A subscription generates transactions, and autopay copies this straight onto
-// them, so it uses the same canonical categories as everything else. The old
-// subscription-only list (Productivity, Cloud, Membership, Learning) put values
-// into the ledger that no other screen could render or filter.
-const categoryOptions = [...CATEGORIES];
-// Most subscriptions are streaming or apps; Entertainment is the likeliest pick.
-const defaultSubscriptionCategory = 'Entertainment';
-const reminderOptions = [0, 1, 3, 7, 14, 30];
-const defaultReminderDays = 3;
-
-const todayISO = () => dateToApiDate(new Date());
-const nextMonthISO = () => {
-  const next = new Date();
-  next.setMonth(next.getMonth() + 1);
-  return dateToApiDate(next);
-};
-const parseAmount = (value: string) => Number(value.replace(/,/g, '').trim());
-const sanitizeAmount = (value: string) => value.replace(/[^0-9.]/g, '');
-const toParam = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
-
-/**
- * The API sends `next_due_date` as RFC3339 (`2026-09-13T00:00:00Z`), not as the
- * bare `YYYY-MM-DD` this screen's form state uses, so every value read off a
- * subscription is normalised here before it touches state.
- *
- * Without it the anchored parse below fell through to `new Date()` and every
- * card, and the edit form, rendered *today* as the due date — and because the
- * raw timestamp also went into form state, the save validation rejected it, so
- * `Update subscription` answered "Choose a valid next due date" with the date
- * displayed directly above the message. No existing subscription could be
- * edited at all.
- */
-export function toApiDateOnly(value?: string | null) {
-  return value?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
-}
-
-function apiDateToLocalDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return new Date();
-  const [, year, month, day] = match;
-  return new Date(Number(year), Number(month) - 1, Number(day));
-}
-
-function dateToApiDate(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function formatDueDateLabel(value: string) {
-  return apiDateToLocalDate(value).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function reminderLabel(days: number) {
-  if (days === 0) return 'On due date';
-  if (days === 1) return '1 day before';
-  return `${days} days before`;
-}
-
-/** Legacy rows can still hold `business_daily`; only the picker dropped it. */
-function intervalLabel(value: BillingInterval) {
-  if (value === 'business_daily') return 'Market days';
-  const known = [...intervalOptions, ...advancedIntervalOptions].find(
-    (option) => option.value === value
-  );
-  return known?.label ?? value;
-}
-
-/** What a subscription costs per month, whatever cadence it renews on. */
-export function monthlyEquivalent(amount: number, interval: BillingInterval) {
-  switch (interval) {
-    case 'daily':
-    case 'business_daily':
-      return amount * 30;
-    case 'weekly':
-      return amount * 4;
-    case 'biweekly':
-      return amount * 2;
-    case 'quarterly':
-      return amount / 3;
-    case 'yearly':
-      return amount / 12;
-    default:
-      return amount;
-  }
-}
+import {
+  advancedIntervalOptions,
+  apiDateToLocalDate,
+  categoryOptions,
+  dateToApiDate,
+  defaultReminderDays,
+  defaultSubscriptionCategory,
+  formatDueDateLabel,
+  intervalOptions,
+  monthlyEquivalent,
+  nextMonthISO,
+  parseAmount,
+  reminderLabel,
+  reminderOptions,
+  sanitizeAmount,
+  statusOptions,
+  toApiDateOnly,
+  toParam,
+  todayISO,
+} from '@/lib/subscription-form';
+import { DateRow } from '@/components/money/subscriptions/DateRow';
+import { Field } from '@/components/money/subscriptions/Field';
+import { ChipPicker } from '@/components/money/subscriptions/ChipPicker';
+import { Pill } from '@/components/money/subscriptions/Pill';
+import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
+import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
+export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
 /**
  * Subscriptions, as a list of what you pay for.
@@ -1414,310 +1306,5 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         </View>
       </Modal>
     </View>
-  );
-}
-
-function DateRow({
-  label,
-  value,
-  onPress,
-  colors,
-  muted,
-}: {
-  label: string;
-  value: string;
-  onPress: () => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      className="mb-3 rounded-2xl border px-4 py-3"
-      style={{ backgroundColor: colors.background, borderColor: colors.border }}>
-      <ThemedText className="text-[11px] font-black uppercase" style={{ color: muted }}>
-        {label}
-      </ThemedText>
-      <ThemedText
-        className="mt-1 text-sm font-black"
-        style={{ color: value ? colors.text : muted }}>
-        {value ? formatDueDateLabel(value) : 'Pick a date'}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-type FieldProps = {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  placeholder?: string;
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'numbers-and-punctuation';
-  autoFocus?: boolean;
-};
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  colors,
-  placeholder,
-  keyboardType = 'default',
-  autoFocus = false,
-}: FieldProps) {
-  return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-        placeholder={placeholder}
-        placeholderTextColor={`${colors.text}66`}
-        autoFocus={autoFocus}
-        className="h-12 rounded-2xl border px-4 text-sm"
-        style={{
-          borderColor: colors.border,
-          color: colors.text,
-          backgroundColor: colors.background,
-        }}
-      />
-    </View>
-  );
-}
-
-type ChipPickerProps = {
-  label: string;
-  options: string[];
-  active: string;
-  onSelect: (value: string) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function ChipPicker({ label, options, active, onSelect, colors }: ChipPickerProps) {
-  return (
-    <View className="mb-4">
-      <ThemedText
-        className="mb-2 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <View className="flex-row flex-wrap gap-2">
-        {options.map((option) => (
-          <Pill
-            key={option}
-            label={option}
-            selected={active === option}
-            onPress={() => onSelect(option)}
-            colors={colors}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-type PillProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function Pill({ label, selected, onPress, colors }: PillProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className="min-h-11 justify-center rounded-full border px-3 py-2"
-      style={{
-        backgroundColor: selected ? colors.secondary : colors.background,
-        borderColor: selected ? colors.accent : colors.border,
-      }}>
-      <ThemedText
-        className="text-[11px] font-black"
-        style={{ color: selected ? colors.accent : `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-type SegmentedControlProps<T extends string> = {
-  label: string;
-  values: { value: T; label: string }[];
-  active: T;
-  onSelect: (value: T) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function SegmentedControl<T extends string>({
-  label,
-  values,
-  active,
-  onSelect,
-  colors,
-}: SegmentedControlProps<T>) {
-  return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <View className="flex-row rounded-2xl p-1" style={{ backgroundColor: colors.background }}>
-        {values.map((option) => {
-          const selected = option.value === active;
-          return (
-            <Pressable
-              key={option.value}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              onPress={() => {
-                haptics.select();
-                onSelect(option.value);
-              }}
-              className="min-h-11 flex-1 items-center justify-center rounded-xl py-2"
-              style={{ backgroundColor: selected ? colors.secondary : 'transparent' }}>
-              <ThemedText
-                className="text-[11px] font-black uppercase"
-                style={{ color: selected ? colors.accent : `${colors.text}99` }}>
-                {option.label}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-type SubscriptionCardProps = {
-  subscription: Subscription;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
-  onPress: () => void;
-  onMarkPaid: () => void;
-  onCancelNow: () => void;
-  onDelete: () => void;
-};
-
-function SubscriptionCard({
-  subscription,
-  colors,
-  muted,
-  onPress,
-  onMarkPaid,
-  onCancelNow,
-  onDelete,
-}: SubscriptionCardProps) {
-  const urgent = subscription.due_state === 'overdue' || subscription.due_state === 'due_soon';
-  const totalInstalments = subscription.total_instalments ?? 0;
-  const instalmentsPaid = subscription.instalments_paid ?? 0;
-  const loanFinished = totalInstalments > 0 && instalmentsPaid >= totalInstalments;
-  const stateLabel = loanFinished ? 'completed' : subscription.due_state.replace('_', ' ');
-  const instalmentLine =
-    totalInstalments > 0
-      ? loanFinished
-        ? `All ${totalInstalments} payments done`
-        : `${instalmentsPaid} of ${totalInstalments} paid · ${totalInstalments - instalmentsPaid} left`
-      : null;
-  const isActive = subscription.status === 'active';
-  const kind = kindOf(subscription);
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Edit ${subscription.name}`}
-      onPress={onPress}
-      className="rounded-[28px] border p-4"
-      style={{
-        backgroundColor: colors.card,
-        borderColor: urgent ? '#F9A825' : colors.border,
-      }}>
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1">
-          <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-            {subscription.name}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-            {recurringKindMeta[kind].label} ·{' '}
-            {kind === 'loan' && subscription.lender
-              ? subscription.lender
-              : kind === 'investment' && subscription.platform
-                ? subscription.platform
-                : subscription.category || 'Uncategorized'}{' '}
-            · {intervalLabel(subscription.billing_interval)}
-          </ThemedText>
-        </View>
-        <ThemedText className="text-base font-black" style={{ color: colors.accent }}>
-          {formatMoney(subscription.amount)}
-        </ThemedText>
-      </View>
-      <View className="mt-4 flex-row items-center justify-between">
-        <View className="flex-1 pr-3">
-          <ThemedText
-            className="text-xs font-bold capitalize"
-            style={{ color: urgent ? '#F57F17' : muted }}>
-            {stateLabel}
-          </ThemedText>
-          {instalmentLine ? (
-            <ThemedText className="mt-1 text-[11px] font-bold" style={{ color: colors.text }}>
-              {instalmentLine}
-            </ThemedText>
-          ) : null}
-          <RecurringScheduleLine item={subscription} kind={kind} />
-          {loanFinished ? null : (
-            <ThemedText className="mt-1 text-[11px]" style={{ color: muted }}>
-              Due {formatDueDateLabel(subscription.next_due_date)} ·{' '}
-              {reminderLabel(subscription.reminder_days)}
-            </ThemedText>
-          )}
-          {subscription.cancel_before_due && (
-            <View
-              className="mt-2 self-start rounded-full px-2 py-1"
-              style={{ backgroundColor: '#FFF3E0' }}>
-              <ThemedText className="text-[10px] font-black uppercase" style={{ color: '#EF6C00' }}>
-                Cancel reminder
-              </ThemedText>
-            </View>
-          )}
-        </View>
-        <View className="flex-row items-center gap-4">
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Mark ${subscription.name} paid`}
-              onPress={onMarkPaid}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="check-circle-outline" size={22} color={colors.accent} />
-            </Pressable>
-          )}
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Cancel ${subscription.name}`}
-              onPress={onCancelNow}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="calendar-remove-outline" size={21} color="#EF6C00" />
-            </Pressable>
-          )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Delete ${subscription.name}`}
-            onPress={onDelete}
-            hitSlop={12}>
-            <MaterialCommunityIcons name="trash-can-outline" size={21} color="#D32F2F" />
-          </Pressable>
-        </View>
-      </View>
-    </Pressable>
   );
 }
