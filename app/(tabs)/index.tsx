@@ -90,6 +90,7 @@ import {
 import { haptics } from '@/lib/haptics';
 import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue, toAmountString } from '@/lib/money';
+import { formToQuickPromptPayload, quickPromptToForm } from '@/lib/quick-prompts';
 import {
   isParseAnswer,
   looksLikeQuestion,
@@ -520,17 +521,14 @@ export default function HomeScreen() {
       setAiReview(null);
       setForm({
         ...blank,
-        title: prompt.title,
-        amount: toAmountInputValue(prompt.amount),
+        ...quickPromptToForm(prompt, accounts),
         date: formatDateLabel(now),
         time: formatTime(now) ?? '',
-        mode: prompt.mode,
-        category: prompt.category,
       });
       setModalMode('manual');
       setIsEditOpen(true);
     },
-    [createBlankForm]
+    [accounts, createBlankForm]
   );
 
   const handleAddPrompt = useCallback(() => {
@@ -552,31 +550,7 @@ export default function HomeScreen() {
     const id = editingPrompt?.id;
     const url = id ? `${API_BASE_URL}/v1/quick-prompts/${id}` : `${API_BASE_URL}/v1/quick-prompts`;
     const method = id ? 'PUT' : 'POST';
-
-    const getIconForCategory = (cat: string) => {
-      switch (cat.toLowerCase()) {
-        case 'food & drinks':
-          return 'coffee-outline';
-        case 'travel':
-          return 'train';
-        case 'transport':
-          return 'gas-station-outline';
-        case 'shopping':
-          return 'cart-outline';
-        case 'bills':
-          return 'file-document-outline';
-        default:
-          return 'lightning-bolt';
-      }
-    };
-
-    const payload = {
-      title: formData.title,
-      amount: parseFloat(formData.amount),
-      mode: formData.mode,
-      category: formData.category,
-      icon: getIconForCategory(formData.category),
-    };
+    const payload = formToQuickPromptPayload(formData);
 
     const resp = await fetch(url, {
       method,
@@ -629,11 +603,7 @@ export default function HomeScreen() {
         date: formatDateLabel(new Date()),
       };
     return {
-      title: editingPrompt.title,
-      amount: editingPrompt.amount.toString(),
-      mode: editingPrompt.mode,
-      category: editingPrompt.category,
-      type: 'Expense',
+      ...quickPromptToForm(editingPrompt, accounts),
       date: formatDateLabel(new Date()),
     };
   };
@@ -2236,6 +2206,11 @@ export default function HomeScreen() {
         onDelete={editingPrompt ? handleDeletePrompt : undefined}
         isEdit={!!editingPrompt}
         mode="quick-prompt"
+        accounts={accounts}
+        onManageAccounts={() => {
+          setIsPromptModalOpen(false);
+          router.push({ pathname: '/money', params: { segment: 'accounts' } });
+        }}
       />
     </Screen>
   );

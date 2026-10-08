@@ -16,8 +16,15 @@ export type QuickPrompt = {
   id: number;
   title: string;
   amount: number;
+  /** "expense" or "income". Absent from servers older than the field. */
+  type?: string;
   mode: string;
   category: string;
+  /** The exact account to pay from; null means the default for `mode`. */
+  account_id?: number | null;
+  merchant?: string;
+  tag?: string;
+  notes?: string;
   icon: string;
 };
 
