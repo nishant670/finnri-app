@@ -68,6 +68,20 @@ export type LaunchOfferStatus = {
   spots_left?: number | null;
 };
 
+/**
+ * The most recent paid pass, once it is over. The server sends it only while
+ * nothing is running, so its end is always in the past.
+ */
+export type PastPass = {
+  plan_code: string;
+  plan_name: string;
+  billing_interval: string;
+  period_start: string;
+  period_end: string;
+  /** "expired" when it ran its course, "refunded" when a refund ended it. */
+  ended_by: string;
+};
+
 export type BillingStatus = {
   plan?: BillingPlan | null;
   subscription_status: string;
@@ -75,8 +89,38 @@ export type BillingStatus = {
   current_period_end?: string | null;
   credits: CreditSummary;
   lifetime_eligibility: LifetimeEligibility;
+  /** Present only while no pass runs, and only when one ran before. */
+  last_pass?: PastPass | null;
   /** Present while the launch offer runs. */
   launch_offer?: LaunchOfferStatus | null;
+};
+
+/**
+ * One row of purchase history. Orders opened and never paid are not listed.
+ *
+ * A partly refunded purchase stays `captured`, with `amount_refunded_minor`
+ * above zero; `refunded` means all of it went back.
+ */
+export type BillingPayment = {
+  id: number;
+  status: 'captured' | 'refunded' | 'failed' | string;
+  plan_code: string;
+  plan_name: string;
+  billing_interval: string;
+  amount_minor: number;
+  amount_refunded_minor: number;
+  original_amount_minor?: number;
+  offer_label?: string;
+  currency: string;
+  method?: string;
+  /** Razorpay's payment id — what its receipt email and support desk quote. */
+  reference?: string;
+  failure_reason?: string;
+  created_at: string;
+  captured_at?: string | null;
+  refunded_at?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
 };
 
 export type AIUsageEvent = {
@@ -128,6 +172,17 @@ export const fetchBillingStatus = async (token?: string | null): Promise<Billing
   }
   const status = (await response.json()) as BillingStatus;
   return { ...status, credits: normalizeCreditSummary(status.credits) };
+};
+
+export const fetchBillingPayments = async (token: string): Promise<BillingPayment[]> => {
+  const response = await fetch(`${API_BASE_URL}/v1/billing/payments`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    throw await readApiError(response, 'Unable to load your purchases right now.');
+  }
+  const payload = (await response.json()) as { payments?: BillingPayment[] };
+  return payload.payments ?? [];
 };
 
 export const fetchAICredits = async (token?: string | null): Promise<CreditSummary> => {
@@ -237,6 +292,86 @@ export const formatCreditDate = (value?: string | null) => {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+};
+
+const parseInstant = (value?: string | null) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+/** Whatever ran out most recently: a paid pass, or the free trial. */
+export type EndedAccess =
+  | { kind: 'pass'; planName: string; endedAt: string; refunded: boolean }
+  | { kind: 'trial'; endedAt: string };
+
+/**
+ * What someone has, or last had, as one decision for every screen that says it.
+ *
+ * Each screen used to work this out for itself from the trial date alone, so
+ * the day a bought pass ran out they all said "Free trial ended 16 Sept" — to
+ * someone who had paid after that date and was left guessing whether the pass
+ * had ever existed. The rule now: a running pass, else a running trial, else
+ * whichever of the two ended last.
+ */
+export type Access =
+  | { kind: 'pass'; planName: string; endsAt: string | null; cancelled: boolean }
+  | { kind: 'trial'; endsAt: string }
+  | { kind: 'ended'; ended: EndedAccess }
+  | { kind: 'none' };
+
+export const describeAccess = (
+  status: BillingStatus | null | undefined,
+  now: Date = new Date()
+): Access => {
+  if (!status) return { kind: 'none' };
+  const periodEnd = parseInstant(status.current_period_end);
+  if (
+    status.plan &&
+    (status.subscription_status === 'active' || status.subscription_status === 'cancelled') &&
+    (!periodEnd || periodEnd > now)
+  ) {
+    return {
+      kind: 'pass',
+      planName: status.plan.name,
+      endsAt: status.current_period_end ?? null,
+      cancelled: status.subscription_status === 'cancelled',
+    };
+  }
+
+  const trialEnd = parseInstant(status.credits?.trial_expires_at);
+  if (trialEnd && trialEnd > now) {
+    return { kind: 'trial', endsAt: status.credits.trial_expires_at as string };
+  }
+
+  const pass = status.last_pass;
+  const passEnd = parseInstant(pass?.period_end);
+  if (pass && passEnd && passEnd <= now && (!trialEnd || passEnd >= trialEnd)) {
+    return {
+      kind: 'ended',
+      ended: {
+        kind: 'pass',
+        planName: pass.plan_name,
+        endedAt: pass.period_end,
+        refunded: pass.ended_by === 'refunded',
+      },
+    };
+  }
+  if (trialEnd) {
+    return {
+      kind: 'ended',
+      ended: { kind: 'trial', endedAt: status.credits.trial_expires_at as string },
+    };
+  }
+  return { kind: 'none' };
+};
+
+/** "Weekly Pass ended 23 Sept", "Free trial ended 16 Sept". */
+export const endedAccessLine = (ended: EndedAccess) => {
+  const date = formatCreditDate(ended.endedAt);
+  const when = date ? ` ${date}` : '';
+  if (ended.kind === 'trial') return `Free trial ended${when}`;
+  return `${ended.planName} ${ended.refunded ? 'refunded' : 'ended'}${when}`;
 };
 
 /**
