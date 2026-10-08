@@ -28,17 +28,7 @@ import {
 import { fetchMerchantSuggestions, type MerchantSuggestion } from '@/lib/merchant-suggestions';
 import type { MoneyPanelProps } from '@/components/money/BudgetsPanel';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
-import {
-  fetchRecurring,
-  kindOf,
-  loanTypeOptions,
-  recurringKindMeta,
-  recurringKinds,
-  solveLoan,
-  type RecurringCardEMI,
-  type RecurringFilter,
-  type RecurringSummary,
-} from '@/lib/recurring';
+import { fetchRecurring, kindOf, loanTypeOptions, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
 import {
   BillingInterval,
   LoanType,
@@ -52,26 +42,7 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-import {
-  advancedIntervalOptions,
-  apiDateToLocalDate,
-  categoryOptions,
-  dateToApiDate,
-  defaultReminderDays,
-  defaultSubscriptionCategory,
-  formatDueDateLabel,
-  intervalOptions,
-  monthlyEquivalent,
-  nextMonthISO,
-  parseAmount,
-  reminderLabel,
-  reminderOptions,
-  sanitizeAmount,
-  statusOptions,
-  toApiDateOnly,
-  toParam,
-  todayISO,
-} from '@/lib/subscription-form';
+import { advancedIntervalOptions, apiDateToLocalDate, categoryOptions, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, reminderLabel, reminderOptions, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { DateRow } from '@/components/money/subscriptions/DateRow';
 import { Field } from '@/components/money/subscriptions/Field';
 import { ChipPicker } from '@/components/money/subscriptions/ChipPicker';
@@ -163,22 +134,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const prefillNotes = toParam(params.notes);
   const candidateKey = toParam(params.candidateKey);
 
-  const dueCount = useMemo(
-    () =>
-      subscriptions.filter((item) => item.due_state === 'due_soon' || item.due_state === 'overdue')
-        .length,
-    [subscriptions]
-  );
+  const dueCount = useMemo(() => countDueSoon(subscriptions), [subscriptions]);
   const activeSubscriptions = useMemo(
     () => subscriptions.filter((item) => item.status === 'active'),
     [subscriptions]
   );
   const projectedMonthly = useMemo(
-    () =>
-      activeSubscriptions.reduce(
-        (sum, item) => sum + monthlyEquivalent(Number(item.amount || 0), item.billing_interval),
-        0
-      ),
+    () => projectMonthlyTotal(activeSubscriptions),
     [activeSubscriptions]
   );
   /**
@@ -186,14 +148,17 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
    * is visible before the list is scrolled and without a tile row competing
    * with the subscriptions themselves for the top of the screen.
    */
-  const summaryLine = useMemo(() => {
-    if (loading) return 'Loading recurring payments…';
-    const count = overview?.active_count ?? activeSubscriptions.length;
-    if (count === 0) return 'Nothing recurring tracked yet';
-    const monthly = overview?.monthly_total ?? projectedMonthly;
-    const headline = `${formatMoney(monthly)}/month across ${count} recurring payment${count === 1 ? '' : 's'}`;
-    return dueCount > 0 ? `${headline} · ${dueCount} due soon` : headline;
-  }, [activeSubscriptions.length, dueCount, loading, overview, projectedMonthly]);
+  const summaryLine = useMemo(
+    () =>
+      buildSummaryLine({
+        loading,
+        overview,
+        activeCount: activeSubscriptions.length,
+        projectedMonthly,
+        dueCount,
+      }),
+    [activeSubscriptions.length, dueCount, loading, overview, projectedMonthly]
+  );
   const visibleItems = useMemo(
     () =>
       filter === 'all' ? subscriptions : subscriptions.filter((item) => kindOf(item) === filter),
@@ -205,16 +170,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
    * Whichever of loan amount, rate, tenure and EMI the user left empty, worked
    * out from the other three. Offered, never written over what they typed.
    */
-  const loanSuggestion = useMemo(() => {
-    if (formKind !== 'loan') return {};
-    const value = (raw: string) => (raw.trim() === '' ? undefined : parseAmount(raw));
-    return solveLoan({
-      principal: value(principal),
-      annualRatePct: value(ratePct),
-      months: value(totalEmis),
-      emi: value(amount),
-    });
-  }, [amount, formKind, principal, ratePct, totalEmis]);
+  const loanSuggestion = useMemo(
+    () => suggestLoanFigures({ formKind, principal, ratePct, totalEmis, amount }),
+    [amount, formKind, principal, ratePct, totalEmis]
+  );
   const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
 
@@ -457,36 +416,23 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
 
   const saveSubscription = async () => {
     if (!token || saving) return;
-    const amountValue = parseAmount(amount);
-    // The sheet asks for a merchant, not a name — "Netflix" is both. A display
-    // name is only ever entered under Advanced, so the merchant stands in for
-    // it and the backend's required `name` is satisfied without a field.
-    const resolvedName = name.trim() || merchant.trim();
-    const validation: string[] = [];
-    if (!resolvedName) validation.push(`${kindMeta.nameLabel} name is required.`);
-    if (!Number.isFinite(amountValue) || amountValue <= 0)
-      validation.push('Amount must be positive.');
-    if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Choose a valid renewal date.');
-    if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-      validation.push('Reminder must be between 0 and 30 days.');
-    }
-    if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/))
-      validation.push('Choose a cancellation reminder date.');
-    if ((interval === 'daily' || interval === 'business_daily') && !autopay)
-      validation.push('Daily schedules require Autopay.');
-    if (autopay && !accountID) validation.push('Select the account used for Autopay.');
-    const totalEmiCount = totalEmis.trim() ? Number(totalEmis) : 0;
-    const paidEmiCount = emisPaid.trim() ? Number(emisPaid) : 0;
-    if (formKind === 'loan') {
-      if (!Number.isInteger(totalEmiCount) || totalEmiCount < 0 || totalEmiCount > 600)
-        validation.push('Total EMIs must be a whole number up to 600.');
-      if (!Number.isInteger(paidEmiCount) || paidEmiCount < 0)
-        validation.push('EMIs paid must be a whole number.');
-      if (totalEmiCount > 0 && paidEmiCount > totalEmiCount)
-        validation.push('EMIs paid cannot be more than the total.');
-      if (ratePct.trim() && !(Number(ratePct) >= 0 && Number(ratePct) <= 60))
-        validation.push('Interest rate must be between 0 and 60%.');
-    }
+    const validation = validateRecurringForm({
+      name,
+      merchant,
+      amount,
+      nextDueDate,
+      reminderDays,
+      cancelBeforeDue,
+      cancelOnDate,
+      interval,
+      autopay,
+      accountID,
+      formKind,
+      totalEmis,
+      emisPaid,
+      ratePct,
+      nameLabel: kindMeta.nameLabel,
+    });
     if (validation.length > 0) {
       haptics.rejected();
       setError(validation.join('\n'));
@@ -501,43 +447,36 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setSaving(true);
     setError(null);
     try {
-      const payload = {
-        name: resolvedName,
-        merchant: merchant.trim(),
-        category: category.trim(),
-        amount: amountValue,
-        billing_interval: interval,
-        next_due_date: nextDueDate,
-        status: editing ? status : 'active',
-        reminder_days: reminderDays,
-        cancel_before_due: cancelBeforeDue,
-        cancel_on_date: cancelBeforeDue ? cancelOnDate : '',
+      const payload = buildRecurringPayload({
+        name,
+        merchant,
+        category,
+        amount,
+        interval,
+        nextDueDate,
+        status,
+        reminderDays,
+        cancelBeforeDue,
+        cancelOnDate,
         autopay,
-        payment_mode: paymentMode,
-        transaction_tag:
-          editing && kindOf(editing) === formKind ? editing.transaction_tag : kindMeta.defaultTag,
-        purpose_type:
-          formKind === 'investment' ? 'investment' : (editing?.purpose_type ?? 'normal_spend'),
-        account_id: accountID,
-        notes: notes.trim(),
-        kind: formKind,
-        start_date: formKind === 'loan' || formKind === 'investment' ? startDate : '',
-        ...(formKind === 'loan'
-          ? {
-              total_instalments: totalEmiCount,
-              instalments_paid: paidEmiCount,
-              loan_type: loanType,
-              lender: lender.trim(),
-              principal: principal.trim() ? parseAmount(principal) : 0,
-              annual_rate_pct: ratePct.trim() ? Number(ratePct) : 0,
-              processing_fee: processingFee.trim() ? parseAmount(processingFee) : 0,
-              foreclosure_charge_pct: foreclosurePct.trim() ? Number(foreclosurePct) : 0,
-            }
-          : {}),
-        ...(formKind === 'investment'
-          ? { platform: platform.trim(), step_up_pct: stepUpPct.trim() ? Number(stepUpPct) : 0 }
-          : {}),
-      };
+        paymentMode,
+        accountID,
+        notes,
+        formKind,
+        startDate,
+        totalEmis,
+        emisPaid,
+        loanType,
+        lender,
+        principal,
+        ratePct,
+        processingFee,
+        foreclosurePct,
+        platform,
+        stepUpPct,
+        editing,
+        kindMeta,
+      });
       if (editing) {
         await updateSubscription(token, editing.id, payload);
       } else {
