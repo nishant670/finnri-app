@@ -47,23 +47,11 @@ import {
   type AppNotification,
 } from '@/lib/notifications';
 import { isAccountSetupNudgeSnoozed, snoozeAccountSetupNudge } from '@/lib/account-setup-nudge';
-import {
-  API_BASE_URL,
-  formatApiDate,
-  formatDateLabel,
-  groupTransactionsBySection,
-  loadTransactionPage,
-  mapEntryToTransaction,
-  normalizeDateLabel,
-  parseDateLabel,
-  toTitleCase,
-} from '@/lib/transactions';
+import { API_BASE_URL, formatApiDate, formatDateLabel, groupTransactionsBySection, loadTransactionPage, mapEntryToTransaction, parseDateLabel } from '@/lib/transactions';
 import { Transaction } from '@/types/transaction';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
-import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import { Motion } from '@/constants/theme';
-import { DEFAULT_CATEGORY } from '@/lib/categories';
 import {
   isGuestUpgradePromptSnoozed,
   shouldShowGuestUpgradePrompt,
@@ -90,17 +78,7 @@ import {
 import { haptics } from '@/lib/haptics';
 import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue, toAmountString } from '@/lib/money';
-import {
-  isParseAnswer,
-  looksLikeQuestion,
-  ParseApiError,
-  describeParseFailure,
-  type ParseFailure,
-  parseEntryDraft,
-  parseReceiptDraft,
-  type LedgerAnswer,
-  type ParseResponse,
-} from '@/lib/parse';
+import { isParseAnswer, looksLikeQuestion, describeParseFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import {
   fetchSplitFriends,
   fetchSplitGroups,
@@ -109,21 +87,20 @@ import {
 } from '@/lib/splits';
 import { resolveSplitDraft } from '@/lib/split-draft';
 import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
-import {
-  confirmSubscriptionOccurrence,
-  fetchSubscriptionOccurrences,
-  revertSubscriptionOccurrence,
-  syncSubscriptionAutomation,
-  type BillingInterval,
-  type SubscriptionOccurrence,
-} from '@/lib/subscriptions';
-import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
+import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubscriptionOccurrence, syncSubscriptionAutomation, type SubscriptionOccurrence } from '@/lib/subscriptions';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { creditGateFor } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
+import {
+  applyParsedDraftToForm,
+  buildAiReview,
+  createDefaultEntryForm,
+  creditActionForParseError,
+  type CreditActionState,
+} from '@/lib/home-capture';
 import {
   TransactionFormModal,
   type AiReviewMetadata,
@@ -207,33 +184,6 @@ const SAVE_TOAST_DWELL_MS = 2200;
 const TOAST_IN_EASING = Easing.bezier(...Motion.ease.standard);
 const TOAST_OUT_EASING = Easing.bezier(...Motion.ease.exit);
 
-const billingIntervals: BillingInterval[] = [
-  'daily',
-  'business_daily',
-  'weekly',
-  'biweekly',
-  'monthly',
-  'quarterly',
-  'yearly',
-];
-
-const isBillingInterval = (value?: string | null): value is BillingInterval =>
-  billingIntervals.includes(value as BillingInterval);
-
-type CreditActionState = {
-  title: string;
-  message: string;
-  actionLabel: string;
-  action: 'upgrade' | 'login';
-};
-
-const DRAFT_NOTE_MAX = 200;
-
-/** The user's own words, trimmed, for when the parser returned no note. */
-const fallbackDraftNote = (sourceText: string) => {
-  const text = sourceText.replace(/\s+/g, ' ').trim();
-  return text.length > DRAFT_NOTE_MAX ? `${text.slice(0, DRAFT_NOTE_MAX - 1).trimEnd()}…` : text;
-};
 
 export default function HomeScreen() {
   const themeTokens = useThemeTokens();
@@ -273,50 +223,7 @@ export default function HomeScreen() {
   const smartSorting = useAppSettingsStore((state) => state.smartSorting);
   const isStealthMode = !!user?.stealth_mode;
 
-  const defaultForm = useMemo<EntryForm>(
-    () => ({
-      title: '',
-      amount: '',
-      type: 'Expense',
-      mode: 'Cash',
-      // S2 left this behind: 'Food' is a legacy alias, and the amount-first
-      // sheet shows the seeded category on a chip and saves it as the title.
-      category: DEFAULT_CATEGORY,
-      date: formatDateLabel(new Date()),
-      time: formatTime(new Date()) ?? '',
-      notes: '',
-      tag: 'General',
-      currency: DEFAULT_CURRENCY,
-      accountId: null,
-      account: '',
-      merchant: '',
-      attachment: null,
-      splitEnabled: false,
-      splitGroupId: null,
-      splitGroupName: '',
-      splitParticipants: [],
-      refundableAmount: '',
-      refundExpectedOn: '',
-      refundReminderEnabled: true,
-      emiTenureMonths: '',
-      emiRatePct: '',
-      emiTotalInstalments: '',
-      emiPaidInstalments: '',
-      subscriptionEnabled: false,
-      subscriptionName: '',
-      subscriptionMerchant: '',
-      subscriptionCategory: '',
-      subscriptionAmount: '',
-      subscriptionBillingInterval: '',
-      subscriptionNextDueDate: '',
-      subscriptionReminderDays: '3',
-      subscriptionCancelBeforeDue: false,
-      subscriptionCancelOnDate: '',
-      subscriptionAutopay: false,
-      subscriptionNotes: '',
-    }),
-    []
-  );
+  const defaultForm = useMemo<EntryForm>(() => createDefaultEntryForm(), []);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   // A refund the user said already came back, and whether to record it with the
@@ -1217,40 +1124,15 @@ export default function HomeScreen() {
    */
   const showCreditParseError = useCallback(
     (error: unknown): boolean => {
-      if (error instanceof ParseApiError) {
-        /*
-         * A guest running out of credits is the one moment they have a reason
-         * to make an account, so the prompt says what signing in buys rather
-         * than just reporting the balance — and it points at sign-in, not at a
-         * plans screen a guest cannot buy from anyway.
-         */
-        const isGuestUser = !!user?.is_guest;
-        if (error.code === 'insufficient_ai_credits') {
-          setCreditAction({
-            title: isGuestUser ? 'You have used up your guest AI credits' : 'AI credits are low',
-            message: isGuestUser
-              ? `Dear guest, this capture needs ${error.requiredCredits ?? 5} credits and you have ${error.availableCredits ?? 0} left. Sign in to keep going with more AI credits — everything you have added so far comes with you.`
-              : `This capture needs ${error.requiredCredits ?? 5} credits. You have ${error.availableCredits ?? 0} available.`,
-            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-            action: isGuestUser ? 'login' : 'upgrade',
-          });
-          void fetchCredits(true);
-          return true;
-        }
-        if (error.code === 'daily_ai_limit_reached') {
-          const usedToday = error.usedToday ?? billingStatus?.credits.daily_credits_used ?? 0;
-          const dailyLimit = error.dailyLimit ?? billingStatus?.credits.daily_limit ?? 0;
-          setCreditAction({
-            title: isGuestUser ? 'You have reached your guest AI limit' : 'Daily AI limit reached',
-            message: isGuestUser
-              ? `Dear guest, you have used all ${dailyLimit} AI credits for today. Sign in to continue enjoying more AI credits — everything you have added so far comes with you.`
-              : `You used ${usedToday} of ${dailyLimit} credits today.`,
-            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-            action: isGuestUser ? 'login' : 'upgrade',
-          });
-          void fetchCredits(true);
-          return true;
-        }
+      const creditAction = creditActionForParseError(error, {
+        isGuestUser: !!user?.is_guest,
+        dailyCreditsUsed: billingStatus?.credits.daily_credits_used,
+        dailyLimit: billingStatus?.credits.daily_limit,
+      });
+      if (creditAction) {
+        setCreditAction(creditAction);
+        void fetchCredits(true);
+        return true;
       }
       return false;
     },
@@ -1291,96 +1173,16 @@ export default function HomeScreen() {
           { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
           accounts
         )[0]?.account ?? null;
-      setAiReview({
-        confidence: data.confidence,
-        needsConfirmation: data.needs_confirmation,
-        missingFields: smartSorting
-          ? data.missing_fields
-          : Array.from(
-              new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])
-            ),
-        clarifications: [
-          ...(data.clarifications ?? []),
-          ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
-        ],
-        smartSortingDisabled: !smartSorting,
-        // What the AI worked from, so the review sheet can show it back. A
-        // wrong field is usually a misheard word, and the phrase is the only
-        // place that is visible.
-        sourceText: data.source_text ?? fallbackText,
-        inputSource,
-      });
-      setForm((prev) => {
-        const missing = new Set(data.missing_fields ?? []);
-        const formattedDate =
-          missing.has('date') || !data.date
-            ? formatDateLabel(new Date())
-            : normalizeDateLabel(data.date, formatDateLabel(new Date()));
-        const tagValue = data.tag ?? data.tags?.[0] ?? '';
-        const newType = missing.has('type') ? '' : (toTitleCase(data.type) ?? '');
-        const subscriptionCandidate = data.subscription_candidate;
-        const subscriptionInterval = isBillingInterval(subscriptionCandidate?.billing_interval)
-          ? subscriptionCandidate.billing_interval
-          : '';
-        const subscriptionPaidDate =
-          subscriptionCandidate?.last_charged_date ?? data.date ?? formatApiDate(new Date());
-        const inferredNextDueDate =
-          subscriptionCandidate?.next_due_date ??
-          inferNextSubscriptionDate(subscriptionPaidDate, subscriptionInterval);
-        return {
-          ...prev,
-          title: smartSorting && !missing.has('title') ? (data.title ?? '') : '',
-          amount:
-            missing.has('amount') || data.amount == null ? '' : toAmountInputValue(data.amount),
-          currency: data.currency ?? prev.currency,
-          // The parser emits `HH:MM`; the form shows and stores a display string.
-          time: formatTime(data.time) ?? prev.time,
-          type: newType,
-          mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
-          category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
-          merchant: data.merchant ?? '',
-          // The account the user named, when they named one we know. Without
-          // this the form fell back to the default card for the mode.
-          ...(hintedAccount ? { accountId: hintedAccount.id, account: hintedAccount.name } : {}),
-          // Never leave the note empty on an AI draft: the parser's own one-liner,
-          // or failing that what the user actually said.
-          notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? fallbackText),
-          date: formattedDate,
-          tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
-          splitEnabled: splitDraft.splitEnabled,
-          splitGroupId: splitDraft.splitGroupId,
-          splitGroupName: splitDraft.splitGroupName,
-          splitParticipants: splitDraft.splitParticipants,
-          refundableAmount:
-            data.refundable_amount != null ? toAmountInputValue(data.refundable_amount) : '',
-          refundExpectedOn: data.refund_expected_on ?? '',
-          refundReminderEnabled: true,
-          emiTenureMonths: data.emi_tenure_months != null ? String(data.emi_tenure_months) : '',
-          emiRatePct: data.emi_rate_pct != null ? String(data.emi_rate_pct) : '',
-          subscriptionEnabled: Boolean(subscriptionCandidate),
-          subscriptionName: subscriptionCandidate?.name ?? data.merchant ?? data.title ?? '',
-          subscriptionMerchant: subscriptionCandidate?.merchant ?? data.merchant ?? '',
-          subscriptionCategory: subscriptionCandidate?.category ?? data.category ?? 'Misc',
-          subscriptionAmount:
-            subscriptionCandidate?.amount != null
-              ? toAmountInputValue(subscriptionCandidate.amount)
-              : data.amount != null
-                ? toAmountInputValue(data.amount)
-                : '',
-          subscriptionBillingInterval: subscriptionInterval,
-          subscriptionNextDueDate: inferredNextDueDate,
-          subscriptionReminderDays:
-            subscriptionCandidate?.reminder_days != null
-              ? String(subscriptionCandidate.reminder_days)
-              : '3',
-          subscriptionCancelBeforeDue: Boolean(subscriptionCandidate?.cancel_before_due),
-          subscriptionCancelOnDate: subscriptionCandidate?.cancel_on_date ?? '',
-          subscriptionAutopay: Boolean(subscriptionCandidate?.autopay),
-          subscriptionNotes: subscriptionCandidate?.notes ?? '',
-          // A scanned bill is kept as the entry's receipt; it uploads on save.
-          attachment: attachment ?? prev.attachment,
-        };
-      });
+      setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
+      setForm((prev) =>
+        applyParsedDraftToForm(prev, data, {
+          fallbackText,
+          attachment,
+          smartSorting,
+          splitDraft,
+          hintedAccount,
+        })
+      );
     },
     [accounts, smartSorting, splitFriends, splitGroups]
   );
