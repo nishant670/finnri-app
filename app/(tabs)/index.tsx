@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   getRecordingPermissionsAsync,
   RecordingPresets,
@@ -9,19 +8,26 @@ import {
 import { File } from 'expo-file-system';
 import { useRouter, useFocusEffect, useLocalSearchParams, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated as RNAnimated, Easing, Pressable, View } from 'react-native';
+import { Animated as RNAnimated, Easing, View } from 'react-native';
 import Animated, {
   useAnimatedRef,
   useAnimatedScrollHandler,
   useSharedValue,
 } from 'react-native-reanimated';
 
+import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
+import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
+import { CreditActionCard } from '@/components/home/CreditActionCard';
+import { HomeRecentActivity } from '@/components/home/HomeRecentActivity';
+import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
+import { HomeAddButton } from '@/components/home/HomeAddButton';
+import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
+import { FAB_BOTTOM_OFFSET, FAB_SIZE } from '@/components/home/home-layout';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { CAPTURE_COLLAPSED_HEIGHT, CollapsibleCapture } from '@/components/home/CollapsibleCapture';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { MonthStrip } from '@/components/home/MonthStrip';
 import { QuickPrompts } from '@/components/home/QuickPrompts';
-import { TransactionItem } from '@/components/home/TransactionItem';
 import { ParseErrorCard } from '@/components/home/ParseErrorCard';
 import { VoiceInputCard } from '@/components/home/VoiceInputCard';
 import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
@@ -31,12 +37,9 @@ import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
-import { StateView } from '@/components/ui/StateView';
-import { Card, Screen, SectionHeader } from '@/components/ui/theme-primitives';
+import { Screen } from '@/components/ui/theme-primitives';
 import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
-import { encodeFrame } from '@/hooks/use-shared-element';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
   fetchNotifications,
@@ -77,7 +80,7 @@ import {
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formatTime } from '@/lib/datetime';
-import { toAmountInputValue, toAmountString } from '@/lib/money';
+import { toAmountInputValue } from '@/lib/money';
 import { isParseAnswer, looksLikeQuestion, describeParseFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import {
   fetchSplitFriends,
@@ -107,15 +110,6 @@ import {
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 
-/**
- * The FAB floats above the scroll view, so anything that scrolls under it has
- * to stop short of its footprint. Its geometry is written here once and nowhere
- * else: the button reads these, and so do the list's bottom padding and the
- * save toast that has to clear it. Change FAB_SIZE and all three follow.
- */
-const FAB_SIZE = 64;
-const FAB_BOTTOM_OFFSET = 40;
-const FAB_RIGHT_OFFSET = 24;
 /** The button's full footprint, plus a gap of air so the last row breathes. */
 const LIST_BOTTOM_PADDING = FAB_SIZE + FAB_BOTTOM_OFFSET + 24;
 /**
@@ -147,8 +141,6 @@ const EMPTY_BOTTOM_PADDING = 24;
  * keeps the animation from running at all when it has nothing to buy.
  */
 const MIN_ENTRIES_FOR_COLLAPSE = 3;
-/** Just above the FAB, so the toast never lands on top of it. */
-const SAVE_TOAST_BOTTOM_OFFSET = FAB_BOTTOM_OFFSET + FAB_SIZE + 8;
 
 /** Roughly how long ScrollView's animated scrollTo takes to settle. */
 const CAPTURE_EXPAND_MS = 260;
@@ -187,8 +179,6 @@ const TOAST_OUT_EASING = Easing.bezier(...Motion.ease.exit);
 
 export default function HomeScreen() {
   const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const isDark = themeTokens.mode === 'dark';
   const dialog = useAppDialog();
   const router = useRouter();
   const {
@@ -1416,151 +1406,21 @@ export default function HomeScreen() {
     handleOpenManualEntry();
   }, [handleOpenManualEntry]);
 
-  const renderRecentActivity = () => {
-    if (isEntriesLoading) {
-      return (
-        <SkeletonFrame label="Loading activity" testID="home-activity-skeleton">
-          <SkeletonRows count={4} />
-        </SkeletonFrame>
-      );
-    }
-
-    if (entriesError) {
-      return (
-        <StateView
-          icon="wifi-off"
-          title="Activity did not load"
-          message={entriesError}
-          actionLabel="Try again"
-          onAction={() => {
-            // Retry everything the outage took down, not just the feed. The
-            // month strip hides itself on failure rather than showing an
-            // error, so without this it would stay missing until the next
-            // time the screen regained focus.
-            void fetchEntries();
-            void fetchMonthSummary();
-          }}
-        />
-      );
-    }
-
-    if (!hasTransactions) {
-      return (
-        <StateView
-          icon="receipt-text-plus-outline"
-          title="No activity yet"
-          message="Record, type, or add your first transaction to start building your money story."
-          actionLabel="Add"
-          onAction={handleOpenManualEntry}
-        />
-      );
-    }
-
-    const recentTransactions = transactions.slice(0, 5);
-    const groupedRecentTransactions = groupTransactionsBySection(recentTransactions);
-    // The stagger counts down the feed rather than restarting at every date
-    // heading — see the same note on the full list in app/transactions/index.tsx.
-    let rowsAbove = 0;
-
-    return (
-      <View>
-        <SectionHeader
-          title="Recent Activity"
-          actionLabel="See All"
-          onAction={() => router.push('/transactions')}
-        />
-
-        <View className="px-6">
-          {groupedRecentTransactions.map((group, groupIndex) => {
-            const groupOffset = rowsAbove;
-            rowsAbove += group.data.length;
-
-            return (
-              // Changing the month rewrites the feed under whatever survives it.
-              <Animated.View key={group.title} layout={motion.reflow()}>
-                <Card
-                  compact
-                  style={{
-                    overflow: 'hidden',
-                    padding: 0,
-                    marginBottom:
-                      groupIndex === groupedRecentTransactions.length - 1
-                        ? 0
-                        : themeTokens.spacing.md,
-                  }}>
-                  <View
-                    style={{
-                      paddingHorizontal: themeTokens.spacing.lg,
-                      paddingTop: themeTokens.spacing.md,
-                      paddingBottom: themeTokens.spacing.xs,
-                    }}>
-                    <ThemedText
-                      variant="micro"
-                      style={{
-                        color: isDark ? 'rgba(255,255,255,0.5)' : '#9A9697',
-                        textTransform: 'uppercase',
-                        letterSpacing: 1,
-                      }}>
-                      {group.title}
-                    </ThemedText>
-                  </View>
-                  {group.data.map((item, index) => {
-                    const isLastInSection = index === group.data.length - 1;
-                    return (
-                      <TransactionItem
-                        key={item.id}
-                        title={item.name}
-                        icon={item.icon}
-                        category={item.category}
-                        subtitle={item.accountName ?? item.mode ?? ''}
-                        amount={Math.abs(item.amount)}
-                        maskAmount={isStealthMode}
-                        date={item.timeLabel ?? item.dateLabel ?? ''}
-                        color={item.color}
-                        bgColor={item.bgColor}
-                        isIncome={item.entryType === 'income'}
-                        unlinked={item.accountId == null}
-                        variant="list"
-                        isNew={item.id === newTransactionId}
-                        entranceIndex={groupOffset + index}
-                        showDivider={!isLastInSection}
-                        onPress={(origin) => {
-                          router.push({
-                            pathname: '/entry/[id]',
-                            params: {
-                              id: item.id,
-                              name: item.name,
-                              category: item.category,
-                              amount: toAmountString(Math.abs(item.amount)),
-                              entryType: item.entryType ?? 'expense',
-                              section: item.section,
-                              mode: item.mode ?? '',
-                              notes: item.notes ?? '',
-                              merchant: item.merchant ?? '',
-                              dateLabel: item.dateLabel ?? '',
-                              rawDate: item.rawDate ?? '',
-                              tag: item.tag ?? '',
-                              // C9 — the feed's rows travel into detail the same
-                              // way the transaction list's do.
-                              ...(origin?.icon ? { originIcon: encodeFrame(origin.icon) } : {}),
-                              ...(origin?.amount
-                                ? { originAmount: encodeFrame(origin.amount) }
-                                : {}),
-                            },
-                          });
-                        }}
-                      />
-                    );
-                  })}
-                </Card>
-              </Animated.View>
-            );
-          })}
-        </View>
-      </View>
-    );
-  };
-
+  const renderRecentActivity = () => (
+    <HomeRecentActivity
+      isEntriesLoading={isEntriesLoading}
+      entriesError={entriesError}
+      hasTransactions={hasTransactions}
+      transactions={transactions}
+      newTransactionId={newTransactionId}
+      isStealthMode={isStealthMode}
+      onRetry={() => {
+        void fetchEntries();
+        void fetchMonthSummary();
+      }}
+      onAdd={handleOpenManualEntry}
+    />
+  );
   return (
     <Screen>
       {/* One positioning context for the pinned block and the feed it floats
@@ -1603,63 +1463,25 @@ export default function HomeScreen() {
               : null),
           }}>
           {autopayReviews[0] ? (
-            <View
-              className="mx-6 mb-4 rounded-3xl border p-4"
-              style={{
-                backgroundColor: themeTokens.colors.card,
-                borderColor: themeTokens.colors.accent,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <MaterialCommunityIcons
-                  name="bank-check"
-                  size={24}
-                  color={themeTokens.colors.accent}
-                />
-                <View className="flex-1">
-                  <ThemedText className="font-black">Autopay transaction added</ThemedText>
-                  <ThemedText className="mt-1 text-xs opacity-60">
-                    Review the recurring payment. It is already in your transaction list.
-                  </ThemedText>
-                  <View className="mt-3 flex-row gap-2">
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      style={{ backgroundColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const item = autopayReviews[0];
-                        if (!token) return;
-                        void confirmSubscriptionOccurrence(token, item.id).then(() =>
-                          setAutopayReviews((items) =>
-                            items.filter((entry) => entry.id !== item.id)
-                          )
-                        );
-                      }}>
-                      <ThemedText tone="onAccent" className="text-xs font-black">
-                        Confirm
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      className="rounded-xl border px-4 py-2"
-                      style={{ borderColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const item = autopayReviews[0];
-                        if (!token) return;
-                        void revertSubscriptionOccurrence(token, item.id).then((result) =>
-                          router.push({
-                            pathname: '/entry/[id]',
-                            params: { id: String(result.entry_id), edit: '1' },
-                          })
-                        );
-                      }}>
-                      <ThemedText
-                        className="text-xs font-black"
-                        style={{ color: themeTokens.colors.accent }}>
-                        Correct / revert
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            </View>
+            <AutopayReviewCard
+              onConfirm={() => {
+                const item = autopayReviews[0];
+                if (!token) return;
+                void confirmSubscriptionOccurrence(token, item.id).then(() =>
+                  setAutopayReviews((items) => items.filter((entry) => entry.id !== item.id))
+                );
+              }}
+              onRevert={() => {
+                const item = autopayReviews[0];
+                if (!token) return;
+                void revertSubscriptionOccurrence(token, item.id).then((result) =>
+                  router.push({
+                    pathname: '/entry/[id]',
+                    params: { id: String(result.entry_id), edit: '1' },
+                  })
+                );
+              }}
+            />
           ) : null}
 
           {showGuestUpgradePrompt ? (
@@ -1686,22 +1508,7 @@ export default function HomeScreen() {
 
           {/* Questions answer here, at the top of the feed, directly under the
               capture field that asked them — not in a sheet. */}
-          {pendingQuestion ? (
-            <View
-              className="mx-6 mb-4 flex-row items-center gap-3 rounded-3xl border p-4"
-              style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
-                borderColor: themeTokens.colors.border,
-              }}>
-              <ActivityIndicator size="small" color={themeTokens.colors.accent} />
-              <ThemedText
-                variant="caption"
-                numberOfLines={2}
-                style={{ flex: 1, color: `${themeTokens.colors.text}99` }}>
-                Looking through your transactions…
-              </ThemedText>
-            </View>
-          ) : null}
+          {pendingQuestion ? <PendingQuestionNotice /> : null}
 
           {answer ? (
             <AnswerCard
@@ -1735,55 +1542,21 @@ export default function HomeScreen() {
           )}
 
           {accountSetupNudge ? (
-            <View
-              className="mx-6 mb-4 rounded-3xl border p-4"
-              style={{
-                backgroundColor: themeTokens.colors.card,
-                borderColor: themeTokens.colors.border,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <MaterialCommunityIcons
-                  name="wallet-plus-outline"
-                  size={24}
-                  color={themeTokens.colors.accent}
-                />
-                <View className="flex-1">
-                  <ThemedText className="font-black">{accountSetupNudge.title}</ThemedText>
-                  <ThemedText className="mt-1 text-xs opacity-60">
-                    {accountSetupNudge.body}
-                  </ThemedText>
-                  <View className="mt-3 flex-row gap-2">
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      style={{ backgroundColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const accountID =
-                          accountSetupNudge.action_url?.match(/^\/accounts\/(\d+)$/)?.[1];
-                        if (!accountID || !token) return;
-                        void markNotificationRead(token, accountSetupNudge.id).catch(
-                          () => undefined
-                        );
-                        setAccountSetupNudge(null);
-                        router.push({ pathname: '/accounts/[id]', params: { id: accountID } });
-                      }}>
-                      <ThemedText tone="onAccent" className="text-xs font-black">
-                        Complete setup
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      onPress={() => {
-                        void snoozeAccountSetupNudge();
-                        setAccountSetupNudge(null);
-                      }}>
-                      <ThemedText tone="muted" className="text-xs font-black">
-                        Later
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            </View>
+            <AccountSetupNudgeCard
+              title={accountSetupNudge.title}
+              body={accountSetupNudge.body}
+              onComplete={() => {
+                const accountID = accountSetupNudge.action_url?.match(/^\/accounts\/(\d+)$/)?.[1];
+                if (!accountID || !token) return;
+                void markNotificationRead(token, accountSetupNudge.id).catch(() => undefined);
+                setAccountSetupNudge(null);
+                router.push({ pathname: '/accounts/[id]', params: { id: accountID } });
+              }}
+              onLater={() => {
+                void snoozeAccountSetupNudge();
+                setAccountSetupNudge(null);
+              }}
+            />
           ) : null}
 
           {errorMessage && (
@@ -1794,45 +1567,12 @@ export default function HomeScreen() {
           )}
 
           {creditAction && (
-            <View
-              className="mx-6 mb-6 rounded-2xl border p-4"
-              style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
-                borderColor: themeTokens.colors.border,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <View
-                  className="h-9 w-9 items-center justify-center rounded-full"
-                  style={{ backgroundColor: themeTokens.colors.secondary }}>
-                  <MaterialCommunityIcons
-                    name="creation"
-                    size={18}
-                    color={themeTokens.colors.accent}
-                  />
-                </View>
-                <View className="min-w-0 flex-1">
-                  <ThemedText className="font-bold" style={{ color: themeTokens.colors.text }}>
-                    {creditAction.title}
-                  </ThemedText>
-                  <ThemedText
-                    className="mt-1 text-xs"
-                    style={{ color: `${themeTokens.colors.text}99` }}>
-                    {creditAction.message}
-                  </ThemedText>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() =>
-                      router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
-                    }
-                    className="mt-3 self-start rounded-full px-4 py-2"
-                    style={{ backgroundColor: themeTokens.colors.accent }}>
-                    <ThemedText tone="onAccent" className="text-xs font-bold">
-                      {creditAction.actionLabel}
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
+            <CreditActionCard
+              creditAction={creditAction}
+              onPress={() =>
+                router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
+              }
+            />
           )}
 
           {renderRecentActivity()}
@@ -1893,49 +1633,10 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {hasTransactions && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleOpenManualEntry}
-          style={[
-            {
-              backgroundColor: theme.accent,
-              height: FAB_SIZE,
-              width: FAB_SIZE,
-              borderRadius: FAB_SIZE / 2,
-              bottom: FAB_BOTTOM_OFFSET,
-              right: FAB_RIGHT_OFFSET,
-            },
-            themeTokens.shadows.soft,
-          ]}
-          className="items-center justify-center absolute elevation-5">
-          <MaterialCommunityIcons name="plus" size={32} color="white" />
-        </Pressable>
-      )}
+      {hasTransactions && <HomeAddButton onPress={handleOpenManualEntry} />}
 
       {saveConfirmation && (
-        <RNAnimated.View
-          accessibilityLiveRegion="polite"
-          className="absolute self-center z-50 flex-row items-center gap-2 rounded-full px-3 py-2 shadow-md"
-          style={{
-            bottom: SAVE_TOAST_BOTTOM_OFFSET,
-            backgroundColor: theme.accent,
-            opacity: saveConfirmationAnim,
-            transform: [
-              {
-                translateY: saveConfirmationAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [10, 0],
-                }),
-              },
-            ],
-          }}
-          pointerEvents="none">
-          <MaterialCommunityIcons name="check" size={15} color="white" />
-          <ThemedText tone="onAccent" className="text-xs font-bold">
-            {saveConfirmation}
-          </ThemedText>
-        </RNAnimated.View>
+        <SaveConfirmationToast message={saveConfirmation} anim={saveConfirmationAnim} />
       )}
 
       <TransactionFormModal
