@@ -257,20 +257,28 @@ export function DirectionChip({
   label,
   selected,
   onPress,
+  fill = true,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  /**
+   * Share the row equally — right for a pair like "Friend paid / You paid".
+   * Off for a wrapping set of options, where equal shares squeeze six labels
+   * until "Cash" breaks across two lines.
+   */
+  fill?: boolean;
 }) {
   const theme = useThemeTokens().colors;
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={() => {
         haptics.select();
         onPress();
       }}
-      className="flex-1 rounded-2xl px-3 py-3"
+      className={fill ? 'flex-1 rounded-2xl px-3 py-3' : 'rounded-2xl px-4 py-2'}
       style={{
         backgroundColor: selected ? theme.accent : 'transparent',
         borderColor: selected ? 'transparent' : theme.border,
