@@ -1,5 +1,10 @@
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
-import type { Account } from '@/lib/accounts';
+import {
+  getAccountTypeForPaymentMode,
+  getPreferredAccountForPaymentMode,
+  type Account,
+} from '@/lib/accounts';
+import type { QuickPrompt } from '@/components/home/QuickPrompts';
 import { DEFAULT_CATEGORY } from '@/lib/categories';
 import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue } from '@/lib/money';
@@ -250,4 +255,69 @@ export const creditActionForParseError = (
     }
   }
   return null;
+};
+
+/**
+ * The account an entry will be saved against: the one picked, if it suits the
+ * payment mode, otherwise the preferred account for that mode, otherwise none.
+ */
+export const resolveAccountForEntry = (accounts: Account[], formData: EntryForm) => {
+  const requiredType = getAccountTypeForPaymentMode(formData.mode);
+  const selectedAccount =
+    formData.accountId === null
+      ? null
+      : (accounts.find((account) => account.id === formData.accountId) ?? null);
+  if (selectedAccount && (!requiredType || selectedAccount.type?.toLowerCase() === requiredType)) {
+    return selectedAccount;
+  }
+
+  const preferredAccount = getPreferredAccountForPaymentMode(accounts, formData.mode);
+  if (preferredAccount) {
+    return preferredAccount;
+  }
+
+  return null;
+};
+
+/** What the toast says after a transaction is saved. */
+export const saveConfirmationLabel = ({
+  subscriptionEnabled,
+  recordsRefund,
+}: {
+  subscriptionEnabled: boolean;
+  recordsRefund: boolean;
+}) =>
+  subscriptionEnabled ? 'Saved with subscription' : recordsRefund ? 'Saved with refund' : 'Saved';
+
+/** A quick prompt, laid over a blank form, ready to review and save. */
+export const quickPromptForm = (blank: EntryForm, prompt: QuickPrompt, now: Date): EntryForm => ({
+  ...blank,
+  title: prompt.title,
+  amount: toAmountInputValue(prompt.amount),
+  date: formatDateLabel(now),
+  time: formatTime(now) ?? '',
+  mode: prompt.mode,
+  category: prompt.category,
+});
+
+/** The starting values of the quick-prompt editor, for a new or an existing prompt. */
+export const quickPromptEditorData = (
+  editingPrompt: QuickPrompt | null,
+  now: Date
+): Partial<EntryForm> => {
+  if (!editingPrompt)
+    return {
+      category: 'Food & Drinks',
+      mode: 'Cash',
+      type: 'Expense',
+      date: formatDateLabel(now),
+    };
+  return {
+    title: editingPrompt.title,
+    amount: editingPrompt.amount.toString(),
+    mode: editingPrompt.mode,
+    category: editingPrompt.category,
+    type: 'Expense',
+    date: formatDateLabel(now),
+  };
 };

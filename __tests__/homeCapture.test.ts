@@ -7,6 +7,10 @@ import {
   creditActionForParseError,
   fallbackDraftNote,
   isBillingInterval,
+  quickPromptEditorData,
+  quickPromptForm,
+  resolveAccountForEntry,
+  saveConfirmationLabel,
 } from '@/lib/home-capture';
 import { ParseApiError, type ParseResponse } from '@/lib/parse';
 
@@ -313,5 +317,83 @@ describe('creditActionForParseError', () => {
     expect(action?.title).toBe('You have reached your guest AI limit');
     expect(action?.message).toContain('all 10 AI credits');
     expect(action?.action).toBe('login');
+  });
+});
+
+describe('resolveAccountForEntry', () => {
+  const upi = { id: 1, type: 'upi', name: 'GPay', is_default: true } as Account;
+  const bank = { id: 2, type: 'bank', name: 'HDFC', is_default: false } as Account;
+  const form = (over: Partial<EntryForm>) =>
+    ({ ...createDefaultEntryForm(), ...over }) as EntryForm;
+
+  it('keeps the picked account when it suits the payment mode', () => {
+    expect(resolveAccountForEntry([upi, bank], form({ mode: 'UPI', accountId: 1 }))).toBe(upi);
+  });
+
+  it('falls back to the preferred account for the mode when the pick does not suit it', () => {
+    expect(resolveAccountForEntry([upi, bank], form({ mode: 'UPI', accountId: 2 }))).toBe(upi);
+  });
+
+  it('uses the preferred account when none was picked', () => {
+    expect(resolveAccountForEntry([upi, bank], form({ mode: 'UPI', accountId: null }))).toBe(upi);
+  });
+
+  it('is null when nothing fits, and when the picked id is unknown', () => {
+    expect(resolveAccountForEntry([bank], form({ mode: 'UPI', accountId: null }))).toBeNull();
+    expect(resolveAccountForEntry([], form({ mode: 'Cash', accountId: 99 }))).toBeNull();
+  });
+});
+
+describe('saveConfirmationLabel', () => {
+  it('prefers the subscription wording, then the refund, then plain', () => {
+    expect(saveConfirmationLabel({ subscriptionEnabled: true, recordsRefund: true })).toBe(
+      'Saved with subscription'
+    );
+    expect(saveConfirmationLabel({ subscriptionEnabled: false, recordsRefund: true })).toBe(
+      'Saved with refund'
+    );
+    expect(saveConfirmationLabel({ subscriptionEnabled: false, recordsRefund: false })).toBe(
+      'Saved'
+    );
+  });
+});
+
+describe('quick prompts', () => {
+  const prompt = {
+    title: 'Morning Coffee',
+    amount: 120,
+    mode: 'UPI',
+    category: 'Food & Drinks',
+  } as never;
+  const now = new Date(2026, 9, 7, 9, 5);
+
+  it('seeds the review form from a prompt, over the blank form', () => {
+    const blank = createDefaultEntryForm();
+    const form = quickPromptForm({ ...blank, notes: 'keep' }, prompt, now);
+    expect(form).toMatchObject({
+      title: 'Morning Coffee',
+      amount: '120.00',
+      mode: 'UPI',
+      category: 'Food & Drinks',
+      notes: 'keep',
+    });
+    expect(form.date).toContain('2026');
+  });
+
+  it('gives the editor defaults for a new prompt', () => {
+    expect(quickPromptEditorData(null, now)).toMatchObject({
+      category: 'Food & Drinks',
+      mode: 'Cash',
+      type: 'Expense',
+    });
+  });
+
+  it('fills the editor from an existing prompt', () => {
+    expect(quickPromptEditorData(prompt, now)).toMatchObject({
+      title: 'Morning Coffee',
+      amount: '120',
+      mode: 'UPI',
+      type: 'Expense',
+    });
   });
 });

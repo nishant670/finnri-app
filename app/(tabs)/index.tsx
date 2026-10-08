@@ -60,27 +60,13 @@ import {
   shouldShowGuestUpgradePrompt,
   snoozeGuestUpgradePrompt,
 } from '@/lib/guest-upgrade';
-import {
-  fetchAccounts as loadAccounts,
-  getAccountTypeForPaymentMode,
-  getAutoAccountPayloadForPaymentMode,
-  getPreferredAccountForPaymentMode,
-  normalizeAccountType,
-  matchAccountsToHint,
-  suggestAccountFromTransaction,
-  saveAccount,
-  type Account,
-  type AccountSuggestionHint,
-  type AccountType,
-} from '@/lib/accounts';
+import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, suggestAccountFromTransaction, saveAccount, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
 import {
   saveNewTransaction,
   type ReceivedRefund,
   type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
-import { formatTime } from '@/lib/datetime';
-import { toAmountInputValue } from '@/lib/money';
 import { isParseAnswer, looksLikeQuestion, describeParseFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import {
   fetchSplitFriends,
@@ -102,6 +88,10 @@ import {
   buildAiReview,
   createDefaultEntryForm,
   creditActionForParseError,
+  quickPromptEditorData,
+  quickPromptForm,
+  resolveAccountForEntry,
+  saveConfirmationLabel,
   type CreditActionState,
 } from '@/lib/home-capture';
 import {
@@ -412,18 +402,8 @@ export default function HomeScreen() {
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
-      const blank = createBlankForm();
-      const now = new Date();
       setAiReview(null);
-      setForm({
-        ...blank,
-        title: prompt.title,
-        amount: toAmountInputValue(prompt.amount),
-        date: formatDateLabel(now),
-        time: formatTime(now) ?? '',
-        mode: prompt.mode,
-        category: prompt.category,
-      });
+      setForm(quickPromptForm(createBlankForm(), prompt, new Date()));
       setModalMode('manual');
       setIsEditOpen(true);
     },
@@ -515,25 +495,7 @@ export default function HomeScreen() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [accountSetupNudge, setAccountSetupNudge] = useState<AppNotification | null>(null);
 
-  const getInitialPromptData = (): Partial<
-    import('@/components/transactions/TransactionFormModal').EntryForm
-  > => {
-    if (!editingPrompt)
-      return {
-        category: 'Food & Drinks',
-        mode: 'Cash',
-        type: 'Expense',
-        date: formatDateLabel(new Date()),
-      };
-    return {
-      title: editingPrompt.title,
-      amount: editingPrompt.amount.toString(),
-      mode: editingPrompt.mode,
-      category: editingPrompt.category,
-      type: 'Expense',
-      date: formatDateLabel(new Date()),
-    };
-  };
+  const getInitialPromptData = () => quickPromptEditorData(editingPrompt, new Date());
 
   const fetchEntries = useCallback(
     async (silent = false) => {
@@ -994,26 +956,7 @@ export default function HomeScreen() {
   ]);
 
   const ensureAccountForEntry = useCallback(
-    async (formData: EntryForm) => {
-      const requiredType = getAccountTypeForPaymentMode(formData.mode);
-      const selectedAccount =
-        formData.accountId === null
-          ? null
-          : (accounts.find((account) => account.id === formData.accountId) ?? null);
-      if (
-        selectedAccount &&
-        (!requiredType || selectedAccount.type?.toLowerCase() === requiredType)
-      ) {
-        return selectedAccount;
-      }
-
-      const preferredAccount = getPreferredAccountForPaymentMode(accounts, formData.mode);
-      if (preferredAccount) {
-        return preferredAccount;
-      }
-
-      return null;
-    },
+    async (formData: EntryForm) => resolveAccountForEntry(accounts, formData),
     [accounts]
   );
 
@@ -1055,11 +998,10 @@ export default function HomeScreen() {
             ...current.filter((transaction) => transaction.id !== createdTransaction.id),
           ]);
           setSaveConfirmation(
-            formData.subscriptionEnabled
-              ? 'Saved with subscription'
-              : modalMode === 'audio' && recordRefund && refundReceived
-                ? 'Saved with refund'
-                : 'Saved'
+            saveConfirmationLabel({
+              subscriptionEnabled: formData.subscriptionEnabled,
+              recordsRefund: modalMode === 'audio' && recordRefund && Boolean(refundReceived),
+            })
           );
           setNewTransactionId(createdTransaction.id);
         }
