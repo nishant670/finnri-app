@@ -169,7 +169,10 @@ import {
   updateSplitFriend,
   setSplitGroupDefaultSplit,
   updateSplitGroup,
+  SETTLEMENT_PAYMENT_MODES,
+  settlementPaymentCaption,
   type SettlementDirection,
+  type SettlementPaymentMode,
   type SplitActivityItem,
   type SplitBalance,
   type SplitBill,
@@ -683,6 +686,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [settlementDirection, setSettlementDirection] =
     useState<SettlementDirection>('friend_paid_user');
   const [settlementNotes, setSettlementNotes] = useState('');
+  const [settlementPaymentMode, setSettlementPaymentMode] = useState<SettlementPaymentMode | null>(
+    null
+  );
 
   const {
     entitlement,
@@ -1190,7 +1196,13 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                     (item.participant_count ?? item.participants?.length ?? 0) === 1 ? '' : 's'
                   }`
               : 'Settlement';
-      const baseCaption = item.notes || fallbackCaption;
+      // A settlement says how it was paid before anything else: it is what
+      // the other person checks it against, and it was not shown anywhere.
+      const baseCaption =
+        item.type === 'settlement'
+          ? [settlementPaymentCaption(item.payment_mode), item.notes].filter(Boolean).join(' · ') ||
+            fallbackCaption
+          : item.notes || fallbackCaption;
       // Only on expenses. A settlement's title already names the other person
       // ("Priya paid you"), so repeating it here reads as a stutter.
       const caption =
@@ -1321,6 +1333,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setSettlementDate(todayApiDate());
     setSettlementDirection('friend_paid_user');
     setSettlementNotes('');
+    setSettlementPaymentMode(null);
   };
 
   const resetGroupInviteForm = () => {
@@ -1775,6 +1788,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       setError('Choose a friend and enter a positive settlement amount.');
       return;
     }
+    if (!settlementPaymentMode) {
+      setError('Choose how it was paid, so the other person can check it.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -1785,6 +1802,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         direction: settlementDirection,
         date: settlementDate.trim(),
         notes: settlementNotes.trim(),
+        payment_mode: settlementPaymentMode,
       });
       haptics.saved();
       closeModal();
@@ -3400,7 +3418,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onClose={closeModal}
         />
 
-        <SplitModal visible={modal === 'settlement'} title="Record Settlement" onClose={closeModal}>
+        <SplitModal
+          visible={modal === 'settlement'}
+          title="Record Settlement"
+          errorMessage={modal === 'settlement' ? error : null}
+          onClose={closeModal}>
           <View className="gap-2">
             <TText className="text-xs" style={{ color: theme.muted }}>Friend</TText>
             <View className="flex-row flex-wrap gap-2">
@@ -3420,6 +3442,22 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
               selected={settlementDirection === 'user_paid_friend'}
               onPress={() => setSettlementDirection('user_paid_friend')}
             />
+          </View>
+          <View className="gap-2">
+            <TText className="text-xs" style={{ color: theme.muted }}>
+              How was it paid?
+            </TText>
+            <View className="flex-row flex-wrap gap-2">
+              {SETTLEMENT_PAYMENT_MODES.map((option) => (
+                <DirectionChip
+                  key={option.value}
+                  label={option.label}
+                  selected={settlementPaymentMode === option.value}
+                  onPress={() => setSettlementPaymentMode(option.value)}
+                  fill={false}
+                />
+              ))}
+            </View>
           </View>
           <FormInput
             label="Amount"
