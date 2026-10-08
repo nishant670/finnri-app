@@ -1,8 +1,8 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { CardEMIRow, RecurringOverviewCard } from '@/components/money/RecurringParts';
@@ -16,10 +16,9 @@ import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { fetchAccounts, getAccountsForPaymentMode, type Account } from '@/lib/accounts';
+import { fetchAccounts, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
-import { formatMoney } from '@/lib/money';
 import {
   fetchDashboard,
   saveRecurringCandidateDecision,
@@ -27,8 +26,7 @@ import {
 } from '@/lib/insights';
 import { fetchMerchantSuggestions, type MerchantSuggestion } from '@/lib/merchant-suggestions';
 import type { MoneyPanelProps } from '@/components/money/BudgetsPanel';
-import { HapticSwitch } from '@/components/ui/HapticSwitch';
-import { fetchRecurring, kindOf, loanTypeOptions, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
+import { fetchRecurring, kindOf, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
 import {
   BillingInterval,
   LoanType,
@@ -42,13 +40,15 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-import { advancedIntervalOptions, apiDateToLocalDate, categoryOptions, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, reminderLabel, reminderOptions, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
-import { DateRow } from '@/components/money/subscriptions/DateRow';
+import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, sanitizeAmount, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
-import { ChipPicker } from '@/components/money/subscriptions/ChipPicker';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
 import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
+import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
+import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
+import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
+import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
 /**
@@ -749,169 +749,45 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           />
 
           {formKind === 'loan' ? (
-            <View testID="recurring-loan-fields">
-              <ThemedText
-                className="mb-2 text-[11px] font-black uppercase"
-                style={{ color: muted }}>
-                Loan type
-              </ThemedText>
-              <View className="mb-3 flex-row flex-wrap gap-2">
-                {loanTypeOptions.map((option) => (
-                  <Pill
-                    key={option.value}
-                    label={option.label}
-                    selected={loanType === option.value}
-                    onPress={() => setLoanType(loanType === option.value ? '' : option.value)}
-                    colors={colors}
-                  />
-                ))}
-              </View>
-              <Field
-                label="Lender (optional)"
-                value={lender}
-                onChangeText={setLender}
-                colors={colors}
-                placeholder="HDFC Bank, Bajaj Finance"
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Loan amount"
-                    value={principal}
-                    onChangeText={(value) => setPrincipal(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="3,00,000"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Interest % a year"
-                    value={ratePct}
-                    onChangeText={(value) => setRatePct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="10.5"
-                  />
-                </View>
-              </View>
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Total EMIs"
-                    value={totalEmis}
-                    onChangeText={(value) => setTotalEmis(value.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    colors={colors}
-                    placeholder="36"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="EMIs already paid"
-                    value={emisPaid}
-                    onChangeText={(value) => setEmisPaid(value.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    colors={colors}
-                    placeholder="0"
-                  />
-                </View>
-              </View>
-              {Object.keys(loanSuggestion).length > 0 ? (
-                <Pressable
-                  testID="recurring-loan-suggestion"
-                  accessibilityRole="button"
-                  onPress={() => {
-                    haptics.select();
-                    if (loanSuggestion.emi != null)
-                      setAmount(String(Math.round(loanSuggestion.emi)));
-                    if (loanSuggestion.principal != null)
-                      setPrincipal(String(Math.round(loanSuggestion.principal)));
-                    if (loanSuggestion.months != null) setTotalEmis(String(loanSuggestion.months));
-                    if (loanSuggestion.annualRatePct != null)
-                      setRatePct(String(loanSuggestion.annualRatePct));
-                  }}
-                  className="mb-3 flex-row items-center gap-2 rounded-2xl px-3 py-2.5"
-                  style={{ backgroundColor: colors.secondary }}>
-                  <MaterialCommunityIcons
-                    name="calculator-variant-outline"
-                    size={18}
-                    color={colors.accent}
-                  />
-                  <ThemedText className="flex-1 text-xs font-bold" style={{ color: colors.text }}>
-                    {loanSuggestion.emi != null
-                      ? `EMI works out to ${formatMoney(loanSuggestion.emi)}. Use it`
-                      : loanSuggestion.months != null
-                        ? `That is ${loanSuggestion.months} EMIs. Use it`
-                        : loanSuggestion.principal != null
-                          ? `Loan amount works out to ${formatMoney(loanSuggestion.principal)}. Use it`
-                          : `Interest works out to ${loanSuggestion.annualRatePct}% a year. Use it`}
-                  </ThemedText>
-                </Pressable>
-              ) : null}
-              <DateRow
-                label="First EMI on (optional)"
-                value={startDate}
-                onPress={openStartDatePicker}
-                colors={colors}
-                muted={muted}
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <Field
-                    label="Processing fee"
-                    value={processingFee}
-                    onChangeText={(value) => setProcessingFee(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="0"
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Foreclosure charge %"
-                    value={foreclosurePct}
-                    onChangeText={(value) => setForeclosurePct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="4"
-                  />
-                </View>
-              </View>
-            </View>
+            <SubscriptionLoanFields
+              amount={amount}
+              colors={colors}
+              emisPaid={emisPaid}
+              foreclosurePct={foreclosurePct}
+              lender={lender}
+              loanSuggestion={loanSuggestion}
+              loanType={loanType}
+              muted={muted}
+              name={name}
+              openStartDatePicker={openStartDatePicker}
+              principal={principal}
+              processingFee={processingFee}
+              ratePct={ratePct}
+              setAmount={setAmount}
+              setEmisPaid={setEmisPaid}
+              setForeclosurePct={setForeclosurePct}
+              setLender={setLender}
+              setLoanType={setLoanType}
+              setPrincipal={setPrincipal}
+              setProcessingFee={setProcessingFee}
+              setRatePct={setRatePct}
+              setTotalEmis={setTotalEmis}
+              startDate={startDate}
+              totalEmis={totalEmis}
+            />
           ) : null}
 
           {formKind === 'investment' ? (
-            <View testID="recurring-investment-fields">
-              <Field
-                label="Fund or platform (optional)"
-                value={platform}
-                onChangeText={setPlatform}
-                colors={colors}
-                placeholder="Zerodha Coin, Groww, Post office"
-              />
-              <View className="flex-row gap-3">
-                <View className="flex-1">
-                  <DateRow
-                    label="Started on (optional)"
-                    value={startDate}
-                    onPress={openStartDatePicker}
-                    colors={colors}
-                    muted={muted}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Field
-                    label="Yearly step-up %"
-                    value={stepUpPct}
-                    onChangeText={(value) => setStepUpPct(sanitizeAmount(value))}
-                    keyboardType="decimal-pad"
-                    colors={colors}
-                    placeholder="10"
-                  />
-                </View>
-              </View>
-            </View>
+            <SubscriptionInvestmentFields
+              colors={colors}
+              muted={muted}
+              openStartDatePicker={openStartDatePicker}
+              platform={platform}
+              setPlatform={setPlatform}
+              setStepUpPct={setStepUpPct}
+              startDate={startDate}
+              stepUpPct={stepUpPct}
+            />
           ) : null}
 
           <Pressable
@@ -972,203 +848,36 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           </Pressable>
 
           {showAdvanced && (
-            <View>
-              {editing && (
-                <SegmentedControl
-                  label="Status"
-                  values={statusOptions}
-                  active={status}
-                  onSelect={setStatus}
-                  colors={colors}
-                />
-              )}
-
-              <Field
-                label="Display name"
-                value={name}
-                onChangeText={setName}
-                colors={colors}
-                placeholder={merchant.trim() || 'Same as merchant'}
-              />
-
-              <ChipPicker
-                label="Category"
-                options={categoryOptions}
-                active={category}
-                onSelect={setCategory}
-                colors={colors}
-              />
-
-              <View className="mb-4">
-                <ThemedText
-                  className="mb-2 text-[11px] font-black uppercase"
-                  style={{ color: muted }}>
-                  Other intervals
-                </ThemedText>
-                <View className="flex-row flex-wrap gap-2">
-                  {advancedIntervalOptions.map((option) => (
-                    <Pill
-                      key={option.value}
-                      label={option.label}
-                      selected={interval === option.value}
-                      onPress={() => {
-                        setInterval(option.value);
-                        if (option.value === 'daily') {
-                          setAutopay(true);
-                          setReminderDays(0);
-                        }
-                      }}
-                      colors={colors}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {interval !== 'daily' && interval !== 'business_daily' ? (
-                <View className="mb-4">
-                  <ThemedText
-                    className="mb-2 text-[11px] font-black uppercase"
-                    style={{ color: muted }}>
-                    Reminder
-                  </ThemedText>
-                  <View className="flex-row flex-wrap gap-2">
-                    {reminderOptions.map((days) => (
-                      <Pill
-                        key={days}
-                        label={reminderLabel(days)}
-                        selected={reminderDays === days}
-                        onPress={() => setReminderDays(days)}
-                        colors={colors}
-                      />
-                    ))}
-                  </View>
-                </View>
-              ) : (
-                <View
-                  className="mb-4 rounded-2xl p-3"
-                  style={{ backgroundColor: colors.secondary }}>
-                  <ThemedText className="text-xs font-bold" style={{ color: colors.accent }}>
-                    Daily transactions are added automatically. No daily reminder is sent.
-                  </ThemedText>
-                </View>
-              )}
-
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between">
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-black">Autopay</ThemedText>
-                    <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-                      Add each recurring payment automatically and ask you to confirm it.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={autopay}
-                    onValueChange={setAutopay}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
-                  />
-                </View>
-                {autopay && (
-                  <>
-                    <View className="mt-4 flex-row flex-wrap gap-2">
-                      {['Bank Account', 'UPI', 'Credit Card'].map((mode) => (
-                        <Pill
-                          key={mode}
-                          label={mode}
-                          selected={paymentMode === mode}
-                          onPress={() => {
-                            setPaymentMode(mode);
-                            setAccountID(null);
-                          }}
-                          colors={colors}
-                        />
-                      ))}
-                    </View>
-                    <View className="mt-3 flex-row flex-wrap gap-2">
-                      {getAccountsForPaymentMode(accounts, paymentMode).map((account) => (
-                        <Pill
-                          key={account.id}
-                          label={account.name}
-                          selected={accountID === account.id}
-                          onPress={() => setAccountID(account.id)}
-                          colors={colors}
-                        />
-                      ))}
-                    </View>
-                    <Pressable
-                      className="mt-3 flex-row items-center gap-2"
-                      onPress={() => router.push('/accounts/manage')}>
-                      <MaterialCommunityIcons
-                        name="plus-circle-outline"
-                        size={18}
-                        color={colors.accent}
-                      />
-                      <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                        Add or manage payment account
-                      </ThemedText>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between gap-4">
-                  <View className="flex-1">
-                    <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
-                      Remind me to cancel
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-                      Reminder notification will explicitly ask you to cancel before the next
-                      payment.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={cancelBeforeDue}
-                    onValueChange={(enabled) => {
-                      setCancelBeforeDue(enabled);
-                      if (enabled && reminderDays === 0) setReminderDays(1);
-                    }}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
-                  />
-                </View>
-              </View>
-
-              {cancelBeforeDue && (
-                <Pressable
-                  onPress={openCancellationDatePicker}
-                  className="mb-4 flex-row items-center justify-between rounded-2xl border p-4"
-                  style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                  <View>
-                    <ThemedText
-                      className="text-[11px] font-black uppercase"
-                      style={{ color: muted }}>
-                      Cancellation reminder date
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-sm font-black">
-                      {cancelOnDate || 'Choose date'}
-                    </ThemedText>
-                  </View>
-                  <MaterialCommunityIcons
-                    name="calendar-month-outline"
-                    size={22}
-                    color={colors.accent}
-                  />
-                </Pressable>
-              )}
-
-              <Field
-                label="Notes"
-                value={notes}
-                onChangeText={setNotes}
-                colors={colors}
-                placeholder="Plan tier, cancellation link, family plan details"
-              />
-            </View>
+            <SubscriptionAdvancedFields
+              accountID={accountID}
+              accounts={accounts}
+              autopay={autopay}
+              cancelBeforeDue={cancelBeforeDue}
+              cancelOnDate={cancelOnDate}
+              category={category}
+              colors={colors}
+              interval={interval}
+              isEditing={Boolean(editing)}
+              merchant={merchant}
+              muted={muted}
+              name={name}
+              notes={notes}
+              onAddAccount={() => router.push('/accounts/manage')}
+              openCancellationDatePicker={openCancellationDatePicker}
+              paymentMode={paymentMode}
+              reminderDays={reminderDays}
+              setAccountID={setAccountID}
+              setAutopay={setAutopay}
+              setCancelBeforeDue={setCancelBeforeDue}
+              setCategory={setCategory}
+              setInterval={setInterval}
+              setName={setName}
+              setNotes={setNotes}
+              setPaymentMode={setPaymentMode}
+              setReminderDays={setReminderDays}
+              setStatus={setStatus}
+              status={status}
+            />
           )}
 
           {error && (
@@ -1198,52 +907,21 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         </ScrollView>
       </AnimatedBottomSheet>
 
-      <Modal
-        transparent
-        animationType="slide"
+      <SubscriptionDatePickerModal
         visible={isDatePickerVisible}
-        onRequestClose={() => setIsDatePickerVisible(false)}>
-        <View className="flex-1 justify-end bg-black/40">
-          <View className="rounded-t-[28px] p-5" style={{ backgroundColor: colors.card }}>
-            <View className="mb-4 flex-row items-center justify-between">
-              <Pressable onPress={() => setIsDatePickerVisible(false)}>
-                <ThemedText className="text-sm font-black" style={{ color: muted }}>
-                  Cancel
-                </ThemedText>
-              </Pressable>
-              <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-                {datePickerTarget === 'cancel'
-                  ? 'Cancellation reminder'
-                  : datePickerTarget === 'start'
-                    ? 'Started on'
-                    : 'Next payment on'}
-              </ThemedText>
-              <Pressable
-                onPress={() => {
-                  if (datePickerTarget === 'cancel') setCancelOnDate(dateToApiDate(pendingDate));
-                  else if (datePickerTarget === 'start') setStartDate(dateToApiDate(pendingDate));
-                  else setNextDueDate(dateToApiDate(pendingDate));
-                  setIsDatePickerVisible(false);
-                }}>
-                <ThemedText className="text-sm font-black" style={{ color: colors.accent }}>
-                  Done
-                </ThemedText>
-              </Pressable>
-            </View>
-            <DateTimePicker
-              value={pendingDate}
-              mode="date"
-              display="spinner"
-              // A loan or SIP started in the past; only upcoming dates are bounded.
-              minimumDate={datePickerTarget === 'start' ? undefined : new Date()}
-              onValueChange={(_, selectedDate) => {
-                if (selectedDate) setPendingDate(selectedDate);
-              }}
-              onDismiss={() => setIsDatePickerVisible(false)}
-            />
-          </View>
-        </View>
-      </Modal>
+        target={datePickerTarget}
+        pendingDate={pendingDate}
+        onChangePendingDate={setPendingDate}
+        onClose={() => setIsDatePickerVisible(false)}
+        onDone={() => {
+          if (datePickerTarget === 'cancel') setCancelOnDate(dateToApiDate(pendingDate));
+          else if (datePickerTarget === 'start') setStartDate(dateToApiDate(pendingDate));
+          else setNextDueDate(dateToApiDate(pendingDate));
+          setIsDatePickerVisible(false);
+        }}
+        colors={colors}
+        muted={muted}
+      />
     </View>
   );
 }
