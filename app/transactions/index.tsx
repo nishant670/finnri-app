@@ -307,7 +307,8 @@ export default function TransactionsScreen() {
       0
     );
 
-  const openDetail = useCallback((item: Transaction, edit?: boolean, origin?: RowOrigin) => {
+  const openDetail = useCallback(
+    (item: Transaction, intent?: 'edit' | 'repeat', origin?: RowOrigin) => {
     router.push({
       pathname: '/entry/[id]',
       params: {
@@ -325,16 +326,20 @@ export default function TransactionsScreen() {
         tag: item.tag ?? '',
         // Edit is the detail screen's job — it owns the form, the receipt upload
         // and the split editor. Building a second one here to save a push would
-        // be two edit screens to keep in step.
-        ...(edit ? { edit: '1' } : {}),
+        // be two edit screens to keep in step. Repeat is the same form, so the
+        // same argument puts it there too.
+        ...(intent ? { [intent]: '1' } : {}),
         // C9: where the row's icon and amount were when it was tapped. Absent
-        // when Edit was used — that push lands on a sheet, and an icon flying
-        // to a place the sheet is about to cover is motion with nothing to say.
-        ...(origin?.icon && !edit ? { originIcon: encodeFrame(origin.icon) } : {}),
-        ...(origin?.amount && !edit ? { originAmount: encodeFrame(origin.amount) } : {}),
+        // when a swipe action was used — that push lands on a sheet, and an icon
+        // flying to a place the sheet is about to cover is motion with nothing
+        // to say.
+        ...(origin?.icon && !intent ? { originIcon: encodeFrame(origin.icon) } : {}),
+        ...(origin?.amount && !intent ? { originAmount: encodeFrame(origin.amount) } : {}),
       },
     });
-  }, []);
+    },
+    []
+  );
 
   const renderTransactionCard = useCallback(
     (item: Transaction, index: number) => {
@@ -359,13 +364,17 @@ export default function TransactionsScreen() {
         entranceIndex={index}
         onEdit={() => {
           setOpenSwipeId(null);
-          openDetail(item, true);
+          openDetail(item, 'edit');
         }}
         onDelete={() => requestDelete(item)}
+        onRepeat={() => {
+          setOpenSwipeId(null);
+          openDetail(item, 'repeat');
+        }}
         swipeOpen={openSwipeId === item.id}
         onSwipeOpenChange={(open) => setOpenSwipeId(open ? item.id : null)}
         collapsed={pendingDelete?.id === item.id}
-        onPress={(origin) => openDetail(item, false, origin)}
+        onPress={(origin) => openDetail(item, undefined, origin)}
       />
     );
     },

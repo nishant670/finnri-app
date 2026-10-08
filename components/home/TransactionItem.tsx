@@ -86,13 +86,10 @@ const CARD_RADIUS = 24;
 /** One action's width. Wide enough to be a thumb target with a label under it. */
 const SWIPE_ACTION_WIDTH = 76;
 
-/** How far the row travels with both actions fully showing. */
-const SWIPE_OPEN = SWIPE_ACTION_WIDTH * 2;
-
 /**
  * Past fully open the row keeps following the finger, at a fifth of its speed.
  *
- * Without this the row stops dead at -152 and the gesture reads as broken —
+ * Without this the row stops dead at full travel and the gesture reads as broken —
  * the finger is still moving and nothing is. With it, the row is obviously at
  * the end of its travel and obviously still being held. The same factor applies
  * to a rightward pull on a closed row, which has nothing to reveal at all.
@@ -154,6 +151,12 @@ interface TransactionItemProps {
   onEdit?: () => void;
   onDelete?: () => void;
   /**
+   * A third action, ahead of the other two: the same transaction again, dated
+   * today. Optional on its own — it needs Edit and Delete to have a row to
+   * swipe at all.
+   */
+  onRepeat?: () => void;
+  /**
    * Open state is the list's to hold, so that opening one row closes the last.
    * Two rows showing Delete at once is two rows claiming the next tap.
    */
@@ -186,6 +189,7 @@ export function TransactionItem({
   entranceIndex,
   onEdit,
   onDelete,
+  onRepeat,
   swipeOpen = false,
   onSwipeOpenChange,
   collapsed = false,
@@ -195,6 +199,8 @@ export function TransactionItem({
   const motion = useMotion();
   const isList = variant === 'list';
   const swipeable = Boolean(onEdit && onDelete);
+  /** How far the row travels with every action fully showing. */
+  const swipeOpenDistance = SWIPE_ACTION_WIDTH * (onRepeat ? 3 : 2);
   // The two halves C9 carries across. They are refs rather than state because
   // nothing renders from them — they are read once, on the way out.
   const iconRef = useRef<View>(null);
@@ -249,9 +255,9 @@ export function TransactionItem({
   // gesture — which is also what closes this row when another one opens.
   useEffect(() => {
     if (!swipeable) return;
-    swipe.value = motion.springTo(swipeOpen ? -SWIPE_OPEN : 0);
+    swipe.value = motion.springTo(swipeOpen ? -swipeOpenDistance : 0);
     if (!swipeOpen) setEngaged(false);
-  }, [motion, swipe, swipeOpen, swipeable]);
+  }, [motion, swipe, swipeOpen, swipeOpenDistance, swipeable]);
 
   /**
    * Latched on the first collapse and never unset, because it is what decides
@@ -311,10 +317,10 @@ export function TransactionItem({
       runOnJS(setEngaged)(true);
     })
     .onUpdate((event) => {
-      const from = swipeOpen ? -SWIPE_OPEN : 0;
+      const from = swipeOpen ? -swipeOpenDistance : 0;
       const next = from + event.translationX;
-      if (next < -SWIPE_OPEN) {
-        swipe.value = -SWIPE_OPEN + (next + SWIPE_OPEN) * SWIPE_RESISTANCE;
+      if (next < -swipeOpenDistance) {
+        swipe.value = -swipeOpenDistance + (next + swipeOpenDistance) * SWIPE_RESISTANCE;
       } else if (next > 0) {
         swipe.value = next * SWIPE_RESISTANCE;
       } else {
@@ -322,8 +328,8 @@ export function TransactionItem({
       }
     })
     .onEnd(() => {
-      const open = swipe.value <= -SWIPE_OPEN * SWIPE_SNAP_FRACTION;
-      swipe.value = motion.springTo(open ? -SWIPE_OPEN : 0);
+      const open = swipe.value <= -swipeOpenDistance * SWIPE_SNAP_FRACTION;
+      swipe.value = motion.springTo(open ? -swipeOpenDistance : 0);
       // C8's, deferred from C5 on purpose. It fires on the snap in *both*
       // directions: the row springing shut is as much a decision landing as the
       // row springing open, and buzzing only one of them would say the gesture
@@ -356,7 +362,7 @@ export function TransactionItem({
    * aside.
    */
   const actionsStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(swipe.value, [0, -SWIPE_OPEN * 0.6], [0, 1], 'clamp'),
+    opacity: interpolate(swipe.value, [0, -swipeOpenDistance * 0.6], [0, 1], 'clamp'),
   }));
 
   const highlightStyle = useAnimatedStyle(() => ({ opacity: highlight.value }));
@@ -386,6 +392,15 @@ export function TransactionItem({
             { bottom: isList ? 0 : CARD_GAP, borderRadius: isList ? 0 : CARD_RADIUS },
             actionsStyle,
           ]}>
+          {onRepeat && (
+            <SwipeAction
+              icon="repeat"
+              label="Repeat"
+              color="#FFFFFF"
+              background={theme.colors.accent}
+              onPress={onRepeat}
+            />
+          )}
           <SwipeAction
             icon="pencil-outline"
             label="Edit"
