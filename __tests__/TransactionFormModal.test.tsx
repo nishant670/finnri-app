@@ -205,6 +205,73 @@ describe('TransactionFormModal', () => {
     expect(await findByText('New Quick Prompt')).toBeTruthy();
   });
 
+  describe('editing a quick prompt', () => {
+    const paytm: Account = {
+      id: 7,
+      type: 'wallet',
+      name: 'Paytm Wallet',
+      color: '#00BAF2',
+      is_default: true,
+    };
+    const amazon: Account = { id: 8, type: 'wallet', name: 'Amazon Pay', color: '#FF9900' };
+    const metroPrompt: Partial<EntryForm> = {
+      title: 'Metro Recharge',
+      amount: '300',
+      type: 'Expense',
+      mode: 'Wallets',
+      category: 'Travel',
+      accountId: null,
+      account: '',
+      date: '11 July 2026',
+    };
+
+    it('offers the account picker, but no date and no receipt', async () => {
+      // The report: switching a prompt to Wallets gave no way to say which one.
+      const { findByTestId, queryByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByTestId('entry-account-picker')).toBeTruthy();
+      // A template is used on whatever day it is used; it has no date of its own.
+      expect(queryByText('Date & Time')).toBeNull();
+    });
+
+    it('defaults to the wallet marked default, and saves the one picked instead', async () => {
+      const { findByTestId, findByText, findAllByText, onSave } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByText('Paytm Wallet')).toBeTruthy();
+
+      await fireEvent.press(await findByTestId('entry-account-picker'));
+      const amazonRows = await findAllByText('Amazon Pay');
+      await fireEvent.press(amazonRows[amazonRows.length - 1]);
+      await fireEvent.press(await findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ mode: 'Wallets', accountId: 8, account: 'Amazon Pay' })
+      );
+    });
+
+    it('keeps the wallet a prompt was saved with', async () => {
+      const { findByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: { ...metroPrompt, accountId: 8, account: 'Amazon Pay' },
+      });
+
+      expect(await findByText('Amazon Pay')).toBeTruthy();
+    });
+  });
+
   it('validates required fields before saving', async () => {
     const { findByTestId, findByText, onSave } = await renderModal({
       mode: 'audio',

@@ -570,9 +570,6 @@ export function TransactionFormModal({
   const resolveEntryFormAccount = useCallback(
     (nextForm: EntryForm): EntryForm => {
       if (!personalPayment) return { ...nextForm, accountId: null, account: '' };
-      if (mode === 'quick-prompt') {
-        return nextForm;
-      }
       const preferredAccount = getPreferredAccountForPaymentMode(accounts, nextForm.mode);
       if (nextForm.accountId !== null) {
         const selectedAccount = accounts.find((account) => account.id === nextForm.accountId);
@@ -591,7 +588,7 @@ export function TransactionFormModal({
       }
       return { ...nextForm, accountId: null, account: '' };
     },
-    [accounts, mode, personalPayment]
+    [accounts, personalPayment]
   );
 
   const [form, setForm] = useState<EntryForm>(() =>
@@ -1296,14 +1293,14 @@ export function TransactionFormModal({
   }, [isParsing, seedForm, visible]);
 
   useEffect(() => {
-    if (!visible || mode === 'quick-prompt') {
+    if (!visible) {
       return;
     }
     setForm((prev) => {
       const next = resolveEntryFormAccount(prev);
       return next.accountId === prev.accountId && next.account === prev.account ? prev : next;
     });
-  }, [visible, mode, form.mode, resolveEntryFormAccount]);
+  }, [visible, form.mode, resolveEntryFormAccount]);
 
   const animateTypeSwitch = useCallback(
     (isIncome: boolean) => {
@@ -2822,31 +2819,40 @@ export function TransactionFormModal({
                     </>
                   )}
 
-                  {mode !== 'quick-prompt' && showFullForm && (
+                  {showFullForm && (
                     <>
-                      <Pressable
-                        onPress={handleOpenDatePicker}
-                        className="w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <View>
-                          <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
-                            Date & Time
-                          </ThemedText>
-                          <View className="flex-row items-center gap-3">
-                            <View className="h-9 w-9 rounded-xl bg-purple-50 items-center justify-center">
-                              <MaterialCommunityIcons
-                                name="calendar-multiselect"
-                                size={18}
-                                color="#8B5CF6"
-                              />
-                            </View>
-                            <ThemedText className="text-sm font-bold" style={{ color: theme.text }}>
-                              {form.date}, {form.time}
+                      {/* A quick prompt is a template: the date is whenever it is used,
+                          so it has none. Which account it pays from is part of the
+                          template, though, so the picker stays. */}
+                      {mode !== 'quick-prompt' && (
+                        <Pressable
+                          onPress={handleOpenDatePicker}
+                          className="w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
+                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                          <View>
+                            <ThemedText
+                              tone="muted"
+                              className="text-[10px] font-bold uppercase mb-2">
+                              Date & Time
                             </ThemedText>
+                            <View className="flex-row items-center gap-3">
+                              <View className="h-9 w-9 rounded-xl bg-purple-50 items-center justify-center">
+                                <MaterialCommunityIcons
+                                  name="calendar-multiselect"
+                                  size={18}
+                                  color="#8B5CF6"
+                                />
+                              </View>
+                              <ThemedText
+                                className="text-sm font-bold"
+                                style={{ color: theme.text }}>
+                                {form.date}, {form.time}
+                              </ThemedText>
+                            </View>
                           </View>
-                        </View>
-                        <MaterialCommunityIcons name="pencil-outline" size={18} color="#D1D5DB" />
-                      </Pressable>
+                          <MaterialCommunityIcons name="pencil-outline" size={18} color="#D1D5DB" />
+                        </Pressable>
+                      )}
                       {personalPayment && (
                         <Pressable
                           testID="entry-account-picker"
@@ -3942,7 +3948,8 @@ export function TransactionFormModal({
                           />
                         </View>
 
-                        {renderReceiptField(true)}
+                        {/* A receipt belongs to one purchase, not to a shortcut. */}
+                        {mode !== 'quick-prompt' && renderReceiptField(true)}
                       </View>
                     )}
                   </View>
