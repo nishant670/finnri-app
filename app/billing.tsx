@@ -18,6 +18,8 @@ import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
 import {
   createBillingCheckout,
+  describeAccess,
+  endedAccessLine,
   fetchBillingPlans,
   fetchBillingStatus,
   fetchCheckoutOrderStatus,
@@ -299,23 +301,34 @@ export default function BillingScreen() {
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
   const trialExpiry = formatCreditDate(status?.credits.trial_expires_at);
-  const trialHasExpired = useHasPassed(status?.credits.trial_expires_at);
-  const hasPaidPlan = status?.subscription_status === 'active' || status?.subscription_status === 'cancelled';
+  // Read so the screen redraws the moment the trial runs out.
+  useHasPassed(status?.credits.trial_expires_at);
+  const access = describeAccess(status);
   // "Free trial" stops being the current access the day it runs out. Leaving
   // the name as-is under a heading that says CURRENT ACCESS tells someone they
   // still have something they do not.
-  const currentPlanName = status?.plan?.name ?? (trialHasExpired && !hasPaidPlan ? 'No active plan' : 'Free trial');
+  const currentPlanName =
+    access.kind === 'pass'
+      ? access.planName
+      : access.kind === 'trial' || (isGuest && access.kind === 'none')
+        ? 'Free trial'
+        : 'No active plan';
   const subscriptionCopy =
-    status?.subscription_status === 'active' && periodEnd
-      ? `Renews or ends ${periodEnd}`
-      : status?.subscription_status === 'cancelled' && periodEnd
-        ? `Access remains until ${periodEnd}`
-        : isGuest
-          ? 'Guest credits stay on this device'
-          : trialExpiry
-            ? trialHasExpired
-              ? `Free trial ended ${trialExpiry} — choose a pass to carry on`
-              : `Trial expires ${trialExpiry}`
+    access.kind === 'pass'
+      ? periodEnd
+        ? access.cancelled
+          ? `Access remains until ${periodEnd}`
+          : // A pass is one payment for a fixed span. "Renews or ends" left
+            // people wondering whether they would be charged again; nothing
+            // renews on its own.
+            `Active until ${periodEnd} · it won't renew on its own`
+        : 'Active now'
+      : isGuest
+        ? 'Guest credits stay on this device'
+        : access.kind === 'trial'
+          ? `Trial expires ${trialExpiry}`
+          : access.kind === 'ended'
+            ? `${access.ended.kind === 'pass' ? 'Your ' : ''}${endedAccessLine(access.ended)} — choose a pass to carry on`
             : 'No active paid plan';
 
   const recommendedPlanCode = useMemo(() => {
@@ -423,7 +436,7 @@ export default function BillingScreen() {
                 {formatCount(status?.credits.daily_credits_used)} used today
               </ThemedText>
               {/* Nothing refills once the trial is over and no pass is held. */}
-              {trialHasExpired && !hasPaidPlan ? null : (
+              {access.kind === 'ended' ? null : (
                 <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
                   {resetAt ? `Resets ${resetAt}` : 'Daily reset'}
                 </ThemedText>
@@ -431,6 +444,36 @@ export default function BillingScreen() {
             </View>
           </View>
         </View>
+
+        {!isGuest && token ? (
+          <Pressable
+            testID="purchase-history-link"
+            accessibilityRole="button"
+            accessibilityHint="Shows every pass you bought, with dates and payment references"
+            onPress={() => router.push('/purchase-history')}
+            style={({ pressed }) => ({ opacity: pressed ? 0.86 : 1 })}>
+            <Card
+              compact
+              style={{
+                padding: theme.spacing.lg,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: theme.spacing.md,
+              }}>
+              <MaterialCommunityIcons name="receipt-text-outline" size={22} color={colors.accent} />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <ThemedText
+                  style={{ color: colors.text, fontFamily: Fonts.title, fontWeight: '800' }}>
+                  Purchase history
+                </ThemedText>
+                <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
+                  Passes you bought, payments and refunds
+                </ThemedText>
+              </View>
+              <MaterialCommunityIcons name="chevron-right" size={22} color={`${colors.text}66`} />
+            </Card>
+          </Pressable>
+        ) : null}
 
         {isGuest ? (
           <Card compact style={{ padding: theme.spacing.lg, gap: theme.spacing.sm }}>

@@ -1874,7 +1874,7 @@ export default function HomeScreen() {
           {shouldShowLowCreditNotice ? (
             <View style={{ marginHorizontal: 24, marginBottom: themeTokens.spacing.md }}>
               <CreditStatusCard
-                credits={billingStatus?.credits ?? null}
+                status={billingStatus}
                 loading={isBillingLoading}
                 compact
                 onPress={() => router.push('/billing')}
