@@ -171,6 +171,8 @@ interface TransactionFormModalProps {
    */
   emiLink?: EMILink | null;
   mode?: 'audio' | 'manual' | 'quick-prompt';
+  /** Replaces the sheet's title, for a new entry that is not a blank one. */
+  heading?: string;
   /**
    * Offers "scan a bill" on a new manual entry. Gets the picked photo's local
    * URI; the parent reads it and drives the sheet into draft review.
@@ -494,6 +496,7 @@ export function TransactionFormModal({
   isEdit,
   emiLink = null,
   mode = 'manual',
+  heading,
   onScanReceipt,
   isParsing = false,
   aiReview,
@@ -2191,19 +2194,20 @@ export function TransactionFormModal({
                       fastEntry ? 'text-base font-black mt-2' : 'text-xl font-black mt-4 mb-1.5'
                     }
                     style={{ color: theme.text }}>
-                    {isEdit
-                      ? mode === 'quick-prompt'
-                        ? 'Edit Quick Prompt'
-                        : 'Update Details'
-                      : mode === 'audio'
-                        ? aiReview?.smartSortingDisabled
-                          ? 'Review AI Draft'
-                          : "I've sorted the details!"
-                        : mode === 'quick-prompt'
-                          ? 'New Quick Prompt'
-                          : splitContext
-                            ? 'New split expense'
-                            : 'New Transaction'}
+                    {heading ??
+                      (isEdit
+                        ? mode === 'quick-prompt'
+                          ? 'Edit Quick Prompt'
+                          : 'Update Details'
+                        : mode === 'audio'
+                          ? aiReview?.smartSortingDisabled
+                            ? 'Review AI Draft'
+                            : "I've sorted the details!"
+                          : mode === 'quick-prompt'
+                            ? 'New Quick Prompt'
+                            : splitContext
+                              ? 'New split expense'
+                              : 'New Transaction')}
                   </ThemedText>
                   {canScanReceipt && scanError ? (
                     <ThemedText tone="negative" className="mt-1 text-center text-xs">
