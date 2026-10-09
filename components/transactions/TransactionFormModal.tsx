@@ -21,11 +21,10 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
-import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -47,11 +46,10 @@ import { calculateEMI, type EMICalculation } from '@/lib/emi';
 import { formatTime, uses24HourClock } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
 import { formatMoney, toAmount, toAmountInputValue, toKeypadValue } from '@/lib/money';
-import { ATTACHMENT_PICKER_TYPES, isLocalAttachmentUri } from '@/lib/uploads';
+import { ATTACHMENT_PICKER_TYPES } from '@/lib/uploads';
 import type { SplitFriend, SplitGroup } from '@/lib/splits';
-import { formatEMIProgress, type EMIPlan } from '@/lib/emi-plans';
+import type { EMIPlan } from '@/lib/emi-plans';
 import type { BillingInterval, Subscription } from '@/lib/subscriptions';
-import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import { formatDateLabel, parseDateLabel } from '@/lib/transactions';
 import {
   DEFAULT_CATEGORY,
@@ -62,7 +60,7 @@ import {
 } from '@/lib/categories';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
-import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
+import { PAYMENT_MODES } from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
   draftSummaryParts,
@@ -72,6 +70,20 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { DraftFieldCard } from './DraftFieldCard';
+import { TransactionAccountPicker } from './TransactionAccountPicker';
+import { TransactionCategoryPicker } from './TransactionCategoryPicker';
+import {
+  TransactionCancellationDateSheet,
+  TransactionDateTimeSheet,
+  TransactionSubscriptionDateSheet,
+} from './TransactionDateSheets';
+import { TransactionDraftField, tagOptions } from './TransactionDraftField';
+import { TransactionDraftBanner, TransactionDraftSource } from './TransactionDraftHeader';
+import { TransactionEmiFields } from './TransactionEmiFields';
+import { TransactionModePicker } from './TransactionModePicker';
+import { TransactionReceiptField } from './TransactionReceiptField';
+import { TransactionRefundFields } from './TransactionRefundFields';
+import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
 import {
   shareFromPercent,
   TransactionSplitFields,
@@ -281,20 +293,6 @@ const getPaymentLanguage = (entryType: string) =>
         modeAccessibilityPrefix: 'Paid via',
         accountAccessibilityPrefix: 'Paid from',
       };
-// `business_daily` — "Market days", which skips weekends and market holidays —
-// is an SIP concept and is no longer offered anywhere subscriptions are
-// created. Existing rows can still hold it, so `formatSubscriptionInterval`
-// below still knows how to render it.
-const subscriptionIntervalOptions: BillingInterval[] = [
-  'daily',
-  'weekly',
-  'biweekly',
-  'monthly',
-  'quarterly',
-  'yearly',
-];
-const tagOptions = ['Investment', 'Lending', 'EMI', 'Refundable', 'Subscription', 'General'];
-const emiTenureOptions = [3, 6, 9, 12, 18, 24];
 
 const nextMonthClamped = (value: string) => {
   const purchased = parseDateLabel(value);
@@ -330,13 +328,6 @@ const nextMonthlyAfterToday = (value: string, now = new Date()) => {
     if (candidate > today) return candidate;
   }
   return null;
-};
-
-const formatNiceDate = (iso: string) => {
-  const parsed = parseDateLabel(iso);
-  return parsed
-    ? parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
-    : iso;
 };
 
 const splitParticipantDivisor = (participantCount: number) => participantCount + 1;
@@ -483,9 +474,6 @@ function DraftSkeleton() {
     </View>
   );
 }
-
-const formatSubscriptionInterval = (interval: BillingInterval) =>
-  interval === 'business_daily' ? 'Market days' : interval;
 
 export function TransactionFormModal({
   visible,
@@ -1731,319 +1719,37 @@ export function TransactionFormModal({
 
   if (!showModal) return null;
 
-  /**
-   * Pulled out of More details because the AI draft review shows it too,
-   * inside its expanded summary. Only ever one of the two is mounted.
-   *
-   * The heading is a section label, which is how More details reads; in the
-   * review list every other row carries its label inside the card, so there
-   * the row speaks for itself.
-   */
   const renderReceiptField = (withSectionLabel: boolean) => (
-    <View>
-      {withSectionLabel && (
-        <ThemedText
-          tone="muted"
-          className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-          Receipt
-        </ThemedText>
-      )}
-      <Pressable
-        onPress={handlePickAttachment}
-        accessibilityRole="button"
-        accessibilityLabel={form.attachment ? 'Change receipt' : 'Attach a receipt'}
-        className="w-full min-h-[64px] rounded-[20px] border px-4 py-3 flex-row items-center justify-between shadow-sm"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <View className="flex-row items-center gap-3 flex-1 pr-3">
-          <MaterialCommunityIcons
-            name={form.attachment ? 'file-check-outline' : 'file-upload-outline'}
-            size={22}
-            color={form.attachment ? accent : detailInputPlaceholderColor}
-          />
-          <View className="flex-1">
-            <ThemedText
-              className="text-sm font-bold"
-              numberOfLines={1}
-              style={{ color: form.attachment ? theme.text : detailInputPlaceholderColor }}>
-              {form.attachment
-                ? decodeURIComponent(form.attachment.split('?')[0].split('/').pop() ?? 'Receipt')
-                : 'Attach a photo or PDF'}
-            </ThemedText>
-            {form.attachment ? (
-              <ThemedText tone="muted" className="text-[10px] font-bold mt-0.5">
-                {isLocalAttachmentUri(form.attachment)
-                  ? 'Uploads when you save'
-                  : 'Saved to this transaction'}
-              </ThemedText>
-            ) : null}
-          </View>
-        </View>
-        {form.attachment ? (
-          <Pressable
-            onPress={handleRemoveAttachment}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Remove receipt">
-            <MaterialCommunityIcons name="close-circle" size={20} color="#EF4444" />
-          </Pressable>
-        ) : (
-          <MaterialCommunityIcons
-            name="plus-circle-outline"
-            size={20}
-            color={detailInputPlaceholderColor}
-          />
-        )}
-      </Pressable>
-      {attachmentError ? (
-        <ThemedText tone="negative" className="text-[11px] font-bold mt-2 ml-1">
-          {attachmentError}
-        </ThemedText>
-      ) : null}
-    </View>
+    <TransactionReceiptField
+      attachment={form.attachment}
+      error={attachmentError}
+      withSectionLabel={withSectionLabel}
+      onPick={handlePickAttachment}
+      onRemove={handleRemoveAttachment}
+    />
   );
 
-  /**
-   * One field of the AI draft, as a card that says how sure the parser was.
-   *
-   * A picker counts as checked the moment it is opened — the chip asks the
-   * user to look, and they looked, whether or not they changed anything. A
-   * text field counts when it is actually edited, because opening a keyboard
-   * over it proves nothing.
-   */
-  const renderDraftField = (field: DraftFieldKey) => {
-    const flagged = draftPlan?.flagged.includes(field) ?? false;
-    const checked = checkedDraftFields.includes(field);
-
-    switch (field) {
-      case 'type':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Type"
-            icon="swap-vertical"
-            flagged={flagged}
-            checked={checked}>
-            <View className="mt-1.5 flex-row gap-2">
-              {(['Expense', 'Income'] as const).map((option) => {
-                const isSelected = form.type === option;
-                return (
-                  <Pressable
-                    key={option}
-                    testID={`draft-type-${option.toLowerCase()}`}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                    onPress={() => {
-                      setForm((previous) => ({
-                        ...previous,
-                        type: option,
-                        category: defaultCategoryForType(option),
-                      }));
-                      animateTypeSwitch(option === 'Income');
-                      markDraftFieldChecked('type');
-                    }}
-                    className="rounded-full border px-3 py-1.5"
-                    style={{
-                      backgroundColor: isSelected ? accentSurface : theme.card,
-                      borderColor: isSelected ? accent : theme.border,
-                    }}>
-                    <ThemedText
-                      className="text-[11px] font-black"
-                      style={{ color: isSelected ? accent : theme.text }}>
-                      {option}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </DraftFieldCard>
-        );
-      case 'title':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Transaction Title"
-            icon="label-variant-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-title-input"
-              value={form.title}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, title: text }));
-                markDraftFieldChecked('title');
-              }}
-              className="p-0 text-sm font-black"
-              placeholder="Short title"
-              placeholderTextColor="#9CA3AF"
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      case 'category':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-category-picker"
-            label="Category"
-            value={displayedCategory}
-            icon={displayedCategoryVisual.icon}
-            iconColor={displayedCategoryVisual.color}
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`Category ${displayedCategory}`}
-            onPress={() => {
-              markDraftFieldChecked('category');
-              setIsCategoryPickerVisible(true);
-            }}
-          />
-        );
-      case 'mode':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-mode-picker"
-            label={paymentLanguage.modeLabel}
-            value={form.mode}
-            placeholder="Choose a payment mode"
-            icon={paymentModeVisual(form.mode).icon}
-            iconColor={paymentModeVisual(form.mode).color}
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`${paymentLanguage.modeAccessibilityPrefix} ${form.mode || 'not set'}`}
-            onPress={() => {
-              markDraftFieldChecked('mode');
-              setIsModePickerVisible(true);
-            }}
-          />
-        );
-      case 'account':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-account-picker"
-            label={paymentLanguage.accountLabel}
-            value={form.account}
-            placeholder={
-              compatibleAccounts.length === 0
-                ? `Add a ${form.mode || 'matching'} account`
-                : 'Select an account'
-            }
-            icon="wallet-outline"
-            iconColor="#3B82F6"
-            flagged={flagged}
-            checked={checked}
-            accessibilityLabel={`${paymentLanguage.accountAccessibilityPrefix} ${form.account || 'no account yet'}`}
-            onPress={() => {
-              markDraftFieldChecked('account');
-              setIsAccountPickerVisible(true);
-            }}
-          />
-        );
-      case 'date':
-        return (
-          <DraftFieldCard
-            key={field}
-            testID="entry-date-picker"
-            label="Date & time"
-            value={form.date ? `${draftDateLabel}, ${form.time}` : ''}
-            placeholder="Pick a date"
-            icon="calendar-multiselect"
-            iconColor="#8B5CF6"
-            flagged={flagged}
-            checked={checked}
-            onPress={() => {
-              markDraftFieldChecked('date');
-              handleOpenDatePicker();
-            }}
-          />
-        );
-      case 'merchant':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Merchant"
-            icon="storefront-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-merchant-input"
-              value={form.merchant}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, merchant: text }));
-                markDraftFieldChecked('merchant');
-              }}
-              className="p-0 text-sm font-black"
-              placeholder="Merchant or store name"
-              placeholderTextColor={detailInputPlaceholderColor}
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      case 'tag':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Tag"
-            icon="tag-outline"
-            flagged={flagged}
-            checked={checked}>
-            <View className="mt-1.5 flex-row flex-wrap gap-2">
-              {tagOptions.map((tag) => {
-                const isSelected = form.tag === tag;
-                return (
-                  <Pressable
-                    key={tag}
-                    onPress={() => {
-                      setForm((previous) => ({ ...previous, tag }));
-                      markDraftFieldChecked('tag');
-                    }}
-                    className="rounded-full border px-3 py-1.5"
-                    style={{
-                      backgroundColor: isSelected ? accentSurface : theme.card,
-                      borderColor: isSelected ? accent : theme.border,
-                    }}>
-                    <ThemedText
-                      className="text-[11px] font-black"
-                      style={{ color: isSelected ? accent : '#6B7280' }}>
-                      {tag}
-                    </ThemedText>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </DraftFieldCard>
-        );
-      case 'notes':
-        return (
-          <DraftFieldCard
-            key={field}
-            label="Notes"
-            icon="note-text-outline"
-            flagged={flagged}
-            checked={checked}>
-            <TextInput
-              testID="entry-notes-input"
-              multiline
-              value={form.notes}
-              onChangeText={(text) => {
-                setForm((previous) => ({ ...previous, notes: text }));
-                markDraftFieldChecked('notes');
-              }}
-              className="p-0 text-sm font-bold"
-              placeholder="Add a note..."
-              placeholderTextColor={detailInputPlaceholderColor}
-              selectionColor={accent}
-              style={{ color: theme.text, minHeight: 22 }}
-            />
-          </DraftFieldCard>
-        );
-      default:
-        // `amount` is the headline above this list and never a row in it.
-        return null;
-    }
-  };
+  const renderDraftField = (field: DraftFieldKey) => (
+    <TransactionDraftField
+      key={field}
+      field={field}
+      form={form}
+      setForm={setForm}
+      flagged={draftPlan?.flagged.includes(field) ?? false}
+      checked={checkedDraftFields.includes(field)}
+      paymentLanguage={paymentLanguage}
+      category={displayedCategory}
+      categoryVisual={displayedCategoryVisual}
+      dateLabel={draftDateLabel}
+      compatibleAccountCount={compatibleAccounts.length}
+      onChecked={markDraftFieldChecked}
+      onSwitchType={animateTypeSwitch}
+      onOpenCategoryPicker={() => setIsCategoryPickerVisible(true)}
+      onOpenModePicker={() => setIsModePickerVisible(true)}
+      onOpenAccountPicker={() => setIsAccountPickerVisible(true)}
+      onOpenDatePicker={handleOpenDatePicker}
+    />
+  );
 
   // Rendered inside the scroll view everywhere except the amount-first path,
   // where it is pinned above the keypad so a save never needs a scroll.
@@ -2232,100 +1938,28 @@ export function TransactionFormModal({
 
                 <View className="px-5 mb-6">
                   {draftReview && aiReview?.sourceText ? (
-                    <View
-                      className="mb-3 rounded-[20px] border px-4 py-3"
-                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      <View className="flex-row items-center gap-1.5">
-                        <MaterialCommunityIcons
-                          name={
-                            aiReview.inputSource === 'receipt'
-                              ? 'receipt-text-outline'
-                              : aiReview.inputSource === 'text'
-                                ? 'keyboard-outline'
-                                : 'microphone-outline'
-                          }
-                          size={13}
-                          color="#9CA3AF"
-                        />
-                        <ThemedText
-                          tone="muted"
-                          className="text-[10px] font-black uppercase tracking-widest">
-                          {aiReview.inputSource === 'receipt'
-                            ? 'Read from your receipt'
-                            : aiReview.inputSource === 'text'
-                              ? 'You typed'
-                              : 'You said'}
-                        </ThemedText>
-                      </View>
-                      <ThemedText
-                        testID="draft-source-text"
-                        className="mt-1.5 text-sm font-bold italic"
-                        style={{ color: theme.text }}>
-                        “{aiReview.sourceText}”
-                      </ThemedText>
-                    </View>
+                    <TransactionDraftSource
+                      inputSource={aiReview.inputSource}
+                      sourceText={aiReview.sourceText}
+                    />
                   ) : null}
 
                   {mode === 'audio' && (
-                    <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
-                      <View className="flex-row items-center justify-between">
-                        <View className="flex-row items-center">
-                          <MaterialCommunityIcons
-                            name="creation-outline"
-                            size={18}
-                            color="#D97706"
-                          />
-                          <ThemedText
-                            tone="warning"
-                            className="ml-2 text-[11px] font-black uppercase tracking-widest">
-                            AI draft
-                          </ThemedText>
-                        </View>
-                        <View className="rounded-full border border-amber-200 bg-white px-2 py-1 dark:border-amber-800 dark:bg-gray-800">
-                          <ThemedText tone="warning" className="text-[9px] font-black uppercase">
-                            {/* Mid-parse the chip has no fields to count, and
-                                the fallback "Review all fields" is a claim about
-                                a draft that does not exist yet. */}
-                            {isParsing
-                              ? 'Reading'
-                              : (draftReview ? draftPendingCount : reviewFields.length) > 0
-                                ? `${draftReview ? draftPendingCount : reviewFields.length} field${(draftReview ? draftPendingCount : reviewFields.length) === 1 ? '' : 's'} to check`
-                                : hasReviewMetadata
-                                  ? 'No issues flagged'
-                                  : 'Review all fields'}
-                          </ThemedText>
-                        </View>
-                      </View>
-                      {/* The review sheet gives every flagged field its own card
-                          below, so naming them here as well would say it twice. */}
-                      {!draftReview && reviewFields.length > 0 && (
-                        <ThemedText tone="warning" className="mt-3 text-sm font-bold">
-                          Check: {reviewFields.map(formatFieldName).join(', ')}
-                        </ThemedText>
-                      )}
-                      {/* On the review sheet these exist to prompt the checks
-                          below; once every flagged field has been answered the
-                          banner reads "No issues flagged", and a question left
-                          sitting under that line contradicts it. */}
-                      {(!draftReview || draftPendingCount > 0) &&
-                        aiReview?.clarifications?.map((clarification) => (
-                          <View key={clarification} className="mt-2 flex-row items-start">
-                            <MaterialCommunityIcons
-                              name="help-circle-outline"
-                              size={16}
-                              color="#D97706"
-                            />
-                            <ThemedText tone="warning" className="ml-2 flex-1 text-sm">
-                              {clarification}
-                            </ThemedText>
-                          </View>
-                        ))}
-                      <ThemedText tone="warning" className="mt-3 text-xs">
-                        {isParsing
-                          ? 'Picking out the amount, category and account. You can review everything before it is saved.'
-                          : 'AI suggestions are never saved until you confirm.'}
-                      </ThemedText>
-                    </View>
+                    <TransactionDraftBanner
+                      isParsing={isParsing}
+                      fieldsToCheck={draftReview ? draftPendingCount : reviewFields.length}
+                      hasReviewMetadata={hasReviewMetadata}
+                      // The review sheet gives every flagged field its own card
+                      // below, so naming them here as well would say it twice.
+                      checkList={draftReview ? [] : reviewFields.map(formatFieldName)}
+                      // On the review sheet these exist to prompt the checks
+                      // below; once every flagged field has been answered the
+                      // banner reads "No issues flagged", and a question left
+                      // sitting under that line contradicts it.
+                      clarifications={
+                        !draftReview || draftPendingCount > 0 ? aiReview?.clarifications : undefined
+                      }
+                    />
                   )}
 
                   {draftReview && isParsing && <DraftSkeleton />}
@@ -2988,417 +2622,62 @@ export function TransactionFormModal({
                   mode !== 'quick-prompt' &&
                   (showFullForm || draftReview) &&
                   form.tag === 'EMI' && (
-                    <View className="px-5 mb-6">
-                      <View
-                        className="rounded-[24px] border p-4"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <View className="flex-row items-start gap-3">
-                          <View
-                            className="h-10 w-10 items-center justify-center rounded-2xl"
-                            style={{ backgroundColor: accentSurface }}>
-                            <MaterialCommunityIcons
-                              name="calendar-month-outline"
-                              size={20}
-                              color={accent}
-                            />
-                          </View>
-                          <View className="flex-1">
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              EMI schedule
-                            </ThemedText>
-                            <ThemedText tone="muted" className="mt-1 text-xs">
-                              {isEMICreditCard
-                                ? `Convert this purchase on ${selectedAccount?.name ?? 'the selected card'}.`
-                                : isEdit && emiLink?.kind === 'plan'
-                                  ? 'This purchase is on an EMI plan.'
-                                  : isEdit && emiLink?.kind === 'recurring'
-                                    ? 'This EMI repeats automatically.'
-                                    : canRepeatEmi
-                                    ? 'Saved as a normal payment. Turn on the repeat below to get a reminder and a ready-to-confirm entry each month.'
-                                    : form.mode === 'Cash'
-                                      ? 'Saved as an EMI-tagged payment. Pick a bank or UPI account to repeat it automatically each month.'
-                                      : 'Saved as an EMI-tagged payment.'}
-                            </ThemedText>
-                          </View>
-                        </View>
-
-                        {isEdit && emiLink?.kind === 'plan' ? (
-                          <View
-                            testID="emi-link-plan"
-                            className="mt-4 gap-2 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                              {formatMoney(emiLink.plan.monthly_amount)} × {emiLink.plan.tenure_months} months
-                              {emiLink.plan.annual_rate_pct === 0
-                                ? ' · No-cost'
-                                : ` · ${emiLink.plan.annual_rate_pct}% a year`}
-                            </ThemedText>
-                            <ThemedText tone="muted" className="text-xs">
-                              {formatEMIProgress(emiLink.plan.progress)}
-                              {emiLink.plan.progress.next_due_date
-                                ? ` · next ${formatNiceDate(emiLink.plan.progress.next_due_date)}`
-                                : ''}
-                            </ThemedText>
-                            <Pressable
-                              accessibilityRole="button"
-                              onPress={emiLink.onOpen}
-                              className="mt-1 self-start rounded-full border px-4 py-2"
-                              style={{ borderColor: accent }}>
-                              <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                                View full schedule
-                              </ThemedText>
-                            </Pressable>
-                          </View>
-                        ) : null}
-
-                        {isEdit && emiLink?.kind === 'recurring' ? (
-                          <View
-                            testID="emi-link-recurring"
-                            className="mt-4 gap-1 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                              Auto-debit {formatMoney(emiLink.subscription.amount)} every month
-                            </ThemedText>
-                            <ThemedText tone="muted" className="text-xs">
-                              {emiLink.subscription.total_instalments > 0
-                                ? `${emiLink.subscription.instalments_paid} of ${emiLink.subscription.total_instalments} paid · ${Math.max(emiLink.subscription.total_instalments - emiLink.subscription.instalments_paid, 0)} left`
-                                : 'No end date set'}
-                              {emiLink.subscription.status === 'active'
-                                ? ` · next ${formatNiceDate(String(emiLink.subscription.next_due_date).slice(0, 10))}`
-                                : ' · finished'}
-                            </ThemedText>
-                          </View>
-                        ) : null}
-
-                        {canRepeatEmi ? (
-                          <View
-                            className="mt-4 flex-row items-center justify-between gap-3 rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <View className="flex-1">
-                              <ThemedText
-                                className="text-sm font-black"
-                                style={{ color: theme.text }}>
-                                Repeats monthly (auto-debit)
-                              </ThemedText>
-                              <ThemedText tone="muted" className="mt-0.5 text-xs">
-                                {emiRepeatActive
-                                  ? `Next debit ${formatNiceDate(emiNextDebit)}. You'll be reminded 3 days before and asked to confirm it.`
-                                  : 'For loan EMIs the bank takes automatically.'}
-                              </ThemedText>
-                            </View>
-                            <HapticSwitch
-                              value={emiRepeatActive}
-                              onValueChange={setEmiRepeats}
-                              trackColor={{ false: theme.border, true: accent }}
-                            />
-                          </View>
-                        ) : null}
-
-                        {emiRepeatActive ? (
-                          <View className="mt-3 flex-row gap-3">
-                            <View
-                              className="flex-1 rounded-2xl border p-3"
-                              style={{ borderColor: theme.border }}>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
-                                Total EMIs
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiTotalInstalments}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({
-                                    ...previous,
-                                    emiTotalInstalments: text.replace(/\D/g, '').slice(0, 3),
-                                  }))
-                                }
-                                placeholder="Leave empty if unknown"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="number-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                            <View
-                              className="flex-1 rounded-2xl border p-3"
-                              style={{ borderColor: theme.border }}>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-1 text-[10px] font-black uppercase tracking-widest">
-                                Paid so far
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiPaidInstalments}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({
-                                    ...previous,
-                                    emiPaidInstalments: text.replace(/\D/g, '').slice(0, 3),
-                                  }))
-                                }
-                                placeholder="1 (this one)"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="number-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                          </View>
-                        ) : null}
-
-                        {isEMICreditCard ? (
-                          <View className="mt-4 gap-4">
-                            <View>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                                Tenure
-                              </ThemedText>
-                              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                <View className="flex-row gap-2">
-                                  {emiTenureOptions.map((months) => (
-                                    <Pressable
-                                      key={months}
-                                      accessibilityRole="button"
-                                      accessibilityState={{
-                                        selected: form.emiTenureMonths === String(months),
-                                      }}
-                                      onPress={() =>
-                                        setForm((previous) => ({
-                                          ...previous,
-                                          emiTenureMonths: String(months),
-                                        }))
-                                      }
-                                      className="rounded-full border px-4 py-2"
-                                      style={{
-                                        borderColor:
-                                          form.emiTenureMonths === String(months)
-                                            ? accent
-                                            : theme.border,
-                                        backgroundColor:
-                                          form.emiTenureMonths === String(months)
-                                            ? accent
-                                            : theme.card,
-                                      }}>
-                                      <ThemedText
-                                        className="text-xs font-black"
-                                        style={{
-                                          color:
-                                            form.emiTenureMonths === String(months)
-                                              ? '#FFFFFF'
-                                              : theme.text,
-                                        }}>
-                                        {months} mo
-                                      </ThemedText>
-                                    </Pressable>
-                                  ))}
-                                </View>
-                              </ScrollView>
-                            </View>
-                            <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                              <ThemedText
-                                tone="muted"
-                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                                Annual interest rate
-                              </ThemedText>
-                              <TextInput
-                                value={form.emiRatePct}
-                                onChangeText={(text) =>
-                                  setForm((previous) => ({ ...previous, emiRatePct: text }))
-                                }
-                                placeholder="0 for no-cost EMI"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                keyboardType="decimal-pad"
-                                className="p-0 text-sm font-bold"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                            <View
-                              className="rounded-2xl p-4"
-                              style={{ backgroundColor: theme.secondary }}>
-                              {isCalculatingEMI ? (
-                                <View className="flex-row items-center gap-2">
-                                  <ActivityIndicator size="small" color={accent} />
-                                  <ThemedText tone="muted" className="text-xs">
-                                    Calculating schedule…
-                                  </ThemedText>
-                                </View>
-                              ) : emiCalculation ? (
-                                <>
-                                  <ThemedText
-                                    className="text-base font-black"
-                                    style={{ color: theme.text }}>
-                                    {formatMoney(emiCalculation.principal_amount)} ÷{' '}
-                                    {emiCalculation.tenure_months} ={' '}
-                                    {formatMoney(emiCalculation.monthly_emi)}/mo
-                                  </ThemedText>
-                                  <ThemedText tone="muted" className="mt-1 text-xs">
-                                    First instalment{' '}
-                                    {emiFirstInstallment || 'one month after purchase'}
-                                    {emiCalculation.total_interest > 0
-                                      ? ` · ${formatMoney(emiCalculation.total_interest)} total interest`
-                                      : ' · No-cost EMI'}
-                                  </ThemedText>
-                                </>
-                              ) : (
-                                <ThemedText
-                                  tone={emiCalculationError ? 'negative' : 'muted'}
-                                  className="text-xs">
-                                  {emiCalculationError ??
-                                    'Choose a tenure to preview the monthly schedule.'}
-                                </ThemedText>
-                              )}
-                            </View>
-                            <View className="rounded-2xl bg-amber-50 p-3 dark:bg-amber-900/20">
-                              <ThemedText tone="warning" className="text-xs font-bold">
-                                Saving replaces this purchase entry with the EMI plan. Only each
-                                monthly instalment will appear as spending, so the purchase is not
-                                counted twice.
-                              </ThemedText>
-                            </View>
-                          </View>
-                        ) : null}
-                      </View>
-                    </View>
+                    <TransactionEmiFields
+                      isEdit={isEdit}
+                      emiLink={emiLink}
+                      paymentMode={form.mode}
+                      isCardConversion={isEMICreditCard}
+                      cardName={selectedAccount?.name}
+                      canRepeat={canRepeatEmi}
+                      repeatActive={emiRepeatActive}
+                      nextDebit={emiNextDebit}
+                      totalInstalments={form.emiTotalInstalments}
+                      paidInstalments={form.emiPaidInstalments}
+                      tenureMonths={form.emiTenureMonths}
+                      ratePct={form.emiRatePct}
+                      firstInstallment={emiFirstInstallment}
+                      calculation={emiCalculation}
+                      calculationError={emiCalculationError}
+                      isCalculating={isCalculatingEMI}
+                      onChangeRepeat={setEmiRepeats}
+                      onChangeTotalInstalments={(emiTotalInstalments) =>
+                        setForm((previous) => ({ ...previous, emiTotalInstalments }))
+                      }
+                      onChangePaidInstalments={(emiPaidInstalments) =>
+                        setForm((previous) => ({ ...previous, emiPaidInstalments }))
+                      }
+                      onChangeTenure={(emiTenureMonths) =>
+                        setForm((previous) => ({ ...previous, emiTenureMonths }))
+                      }
+                      onChangeRate={(emiRatePct) =>
+                        setForm((previous) => ({ ...previous, emiRatePct }))
+                      }
+                    />
                   )}
 
                 {mode !== 'quick-prompt' &&
                   (showFullForm || draftReview) &&
                   personalPayment &&
                   form.tag === 'Refundable' && (
-                    <View className="px-5 mb-6">
-                      <View
-                        className="rounded-[24px] border p-4"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <View className="flex-row items-center gap-3">
-                          <View
-                            className="h-10 w-10 items-center justify-center rounded-2xl"
-                            style={{ backgroundColor: accentSurface }}>
-                            <MaterialCommunityIcons name="cash-refund" size={20} color={accent} />
-                          </View>
-                          <View className="flex-1">
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              Refund tracking
-                            </ThemedText>
-                            <ThemedText tone="muted" className="text-xs">
-                              Track the part of this payment expected back.
-                            </ThemedText>
-                          </View>
-                        </View>
-                        <View className="mt-4 gap-3">
-                          <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                            <ThemedText
-                              tone="muted"
-                              className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                              How much is refundable?
-                            </ThemedText>
-                            <TextInput
-                              value={form.refundableAmount}
-                              onChangeText={(text) =>
-                                setForm((previous) => ({ ...previous, refundableAmount: text }))
-                              }
-                              placeholder="5,000"
-                              placeholderTextColor={detailInputPlaceholderColor}
-                              keyboardType="decimal-pad"
-                              className="p-0 text-sm font-bold"
-                              style={{ color: theme.text }}
-                            />
-                          </View>
-                          <Pressable
-                            accessibilityRole="button"
-                            onPress={() => {
-                              const current = parseDateLabel(form.refundExpectedOn) ?? new Date();
-                              if (Platform.OS === 'android') {
-                                DateTimePickerAndroid.open({
-                                  value: current,
-                                  mode: 'date',
-                                  onValueChange: (_event, selected) => {
-                                    if (selected)
-                                      setForm((previous) => ({
-                                        ...previous,
-                                        refundExpectedOn: formatDateLabel(selected),
-                                      }));
-                                  },
-                                  onDismiss: () => undefined,
-                                });
-                              } else {
-                                setIsRefundDatePickerVisible(true);
-                              }
-                            }}
-                            className="flex-row items-center justify-between rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                            <View>
-                              <ThemedText
-                                tone="muted"
-                                className="text-[10px] font-black uppercase tracking-widest">
-                                Expected back
-                              </ThemedText>
-                              <ThemedText
-                                className="mt-1 text-sm font-bold"
-                                style={{ color: theme.text }}>
-                                {form.refundExpectedOn || 'Choose a date'}
-                              </ThemedText>
-                            </View>
-                            <MaterialCommunityIcons
-                              name="calendar-outline"
-                              size={20}
-                              color={accent}
-                            />
-                          </Pressable>
-                          {isRefundDatePickerVisible && Platform.OS !== 'android' ? (
-                            <DateTimePicker
-                              value={parseDateLabel(form.refundExpectedOn) ?? new Date()}
-                              mode="date"
-                              display="inline"
-                              onChange={(_event, selected) => {
-                                if (selected)
-                                  setForm((previous) => ({
-                                    ...previous,
-                                    refundExpectedOn: formatDateLabel(selected),
-                                  }));
-                                setIsRefundDatePickerVisible(false);
-                              }}
-                            />
-                          ) : null}
-                          <View
-                            className="flex-row items-center justify-between rounded-2xl border p-3"
-                            style={{ borderColor: theme.border }}>
-                            <View className="flex-1 pr-3">
-                              <ThemedText
-                                className="text-sm font-black"
-                                style={{ color: theme.text }}>
-                                Remind me
-                              </ThemedText>
-                              <ThemedText tone="muted" className="text-xs">
-                                Notify me on the expected date.
-                              </ThemedText>
-                            </View>
-                            <Pressable
-                              accessibilityRole="switch"
-                              accessibilityState={{ checked: form.refundReminderEnabled }}
-                              onPress={() =>
-                                setForm((previous) => ({
-                                  ...previous,
-                                  refundReminderEnabled: !previous.refundReminderEnabled,
-                                }))
-                              }
-                              className="h-8 w-14 justify-center rounded-full px-1"
-                              style={{
-                                backgroundColor: form.refundReminderEnabled ? accent : '#E5E7EB',
-                              }}>
-                              <View
-                                className="h-6 w-6 rounded-full bg-white"
-                                style={{
-                                  alignSelf: form.refundReminderEnabled ? 'flex-end' : 'flex-start',
-                                }}
-                              />
-                            </Pressable>
-                          </View>
-                        </View>
-                      </View>
-                    </View>
+                    <TransactionRefundFields
+                      refundableAmount={form.refundableAmount}
+                      expectedOn={form.refundExpectedOn}
+                      reminderEnabled={form.refundReminderEnabled}
+                      isPickerVisible={isRefundDatePickerVisible}
+                      onChangeAmount={(refundableAmount) =>
+                        setForm((previous) => ({ ...previous, refundableAmount }))
+                      }
+                      onChangeExpectedOn={(refundExpectedOn) =>
+                        setForm((previous) => ({ ...previous, refundExpectedOn }))
+                      }
+                      onToggleReminder={() =>
+                        setForm((previous) => ({
+                          ...previous,
+                          refundReminderEnabled: !previous.refundReminderEnabled,
+                        }))
+                      }
+                      onChangePickerVisible={setIsRefundDatePickerVisible}
+                    />
                   )}
 
                 {mode !== 'quick-prompt' &&
@@ -3407,348 +2686,19 @@ export function TransactionFormModal({
                   personalPayment &&
                   !emiRepeatActive &&
                   (form.subscriptionEnabled || form.tag === 'Subscription') && (
-                    <View className="px-5 mb-6">
-                      <View
-                        className="rounded-[24px] border p-3"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <View className="flex-row items-center justify-between">
-                          <View className="flex-row items-center gap-3">
-                            <View
-                              className="h-10 w-10 items-center justify-center rounded-2xl"
-                              style={{ backgroundColor: accentSurface }}>
-                              <MaterialCommunityIcons
-                                name="calendar-sync-outline"
-                                size={20}
-                                color={accent}
-                              />
-                            </View>
-                            <View>
-                              <ThemedText
-                                className="text-sm font-black"
-                                style={{ color: theme.text }}>
-                                Add subscription
-                              </ThemedText>
-                              <ThemedText tone="muted" className="text-xs">
-                                Save recurring details with this payment.
-                              </ThemedText>
-                            </View>
-                          </View>
-                          <Pressable
-                            accessibilityRole="switch"
-                            accessibilityState={{ checked: form.subscriptionEnabled }}
-                            onPress={() =>
-                              setForm((prev) => ({
-                                ...prev,
-                                subscriptionEnabled: !prev.subscriptionEnabled,
-                                subscriptionName:
-                                  !prev.subscriptionEnabled && !prev.subscriptionName
-                                    ? prev.merchant || prev.title
-                                    : prev.subscriptionName,
-                                subscriptionAmount:
-                                  !prev.subscriptionEnabled && !prev.subscriptionAmount
-                                    ? prev.amount
-                                    : prev.subscriptionAmount,
-                                subscriptionCategory:
-                                  !prev.subscriptionEnabled && !prev.subscriptionCategory
-                                    ? prev.category
-                                    : prev.subscriptionCategory,
-                              }))
-                            }
-                            className="h-8 w-14 justify-center rounded-full px-1"
-                            style={{
-                              backgroundColor: form.subscriptionEnabled ? accent : '#E5E7EB',
-                            }}>
-                            <View
-                              className="h-6 w-6 rounded-full bg-white"
-                              style={{
-                                alignSelf: form.subscriptionEnabled ? 'flex-end' : 'flex-start',
-                              }}
-                            />
-                          </Pressable>
-                        </View>
-
-                        {form.subscriptionEnabled && (
-                          <View className="mt-5 gap-4">
-                            <View className="flex-row gap-3">
-                              <TextInput
-                                value={form.subscriptionName}
-                                onChangeText={(text) =>
-                                  setForm((p) => ({ ...p, subscriptionName: text }))
-                                }
-                                placeholder="Subscription name"
-                                placeholderTextColor="#9CA3AF"
-                                className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                                style={{ color: theme.text }}
-                              />
-                              <TextInput
-                                value={form.subscriptionAmount}
-                                onChangeText={(text) =>
-                                  setForm((p) => ({
-                                    ...p,
-                                    subscriptionAmount: text.replace(/[^0-9.]/g, ''),
-                                  }))
-                                }
-                                keyboardType="decimal-pad"
-                                placeholder="Amount"
-                                placeholderTextColor="#9CA3AF"
-                                className="w-28 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-                            <View className="flex-row gap-3">
-                              <TextInput
-                                value={form.subscriptionMerchant}
-                                onChangeText={(text) =>
-                                  setForm((p) => ({ ...p, subscriptionMerchant: text }))
-                                }
-                                placeholder="Merchant"
-                                placeholderTextColor="#9CA3AF"
-                                className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                                style={{ color: theme.text }}
-                              />
-                              <TextInput
-                                value={form.subscriptionCategory}
-                                onChangeText={(text) =>
-                                  setForm((p) => ({ ...p, subscriptionCategory: text }))
-                                }
-                                placeholder="Category"
-                                placeholderTextColor="#9CA3AF"
-                                className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                                style={{ color: theme.text }}
-                              />
-                            </View>
-
-                            <View>
-                              <ThemedText
-                                tone="muted"
-                                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                                Billing interval
-                              </ThemedText>
-                              <View className="flex-row flex-wrap gap-2">
-                                {subscriptionIntervalOptions.map((interval) => (
-                                  <Pressable
-                                    key={interval}
-                                    onPress={() =>
-                                      setForm((p) => ({
-                                        ...p,
-                                        subscriptionBillingInterval: interval,
-                                        subscriptionNextDueDate:
-                                          p.subscriptionNextDueDate ||
-                                          inferNextSubscriptionDate(p.date, interval),
-                                        subscriptionAutopay:
-                                          interval === 'daily' || interval === 'business_daily'
-                                            ? true
-                                            : p.subscriptionAutopay,
-                                        subscriptionReminderDays:
-                                          interval === 'daily' || interval === 'business_daily'
-                                            ? '0'
-                                            : p.subscriptionReminderDays || '3',
-                                      }))
-                                    }
-                                    className="rounded-full border px-3 py-2"
-                                    style={{
-                                      backgroundColor:
-                                        form.subscriptionBillingInterval === interval
-                                          ? accentSurface
-                                          : 'transparent',
-                                      borderColor:
-                                        form.subscriptionBillingInterval === interval
-                                          ? accent
-                                          : theme.border,
-                                    }}>
-                                    <ThemedText
-                                      className="text-xs font-bold capitalize"
-                                      style={{
-                                        color:
-                                          form.subscriptionBillingInterval === interval
-                                            ? accent
-                                            : theme.text,
-                                      }}>
-                                      {formatSubscriptionInterval(interval)}
-                                    </ThemedText>
-                                  </Pressable>
-                                ))}
-                              </View>
-                            </View>
-
-                            <View className="flex-row gap-3">
-                              {form.subscriptionBillingInterval !== 'daily' &&
-                              form.subscriptionBillingInterval !== 'business_daily' ? (
-                                <Pressable
-                                  testID="subscription-next-payment-picker"
-                                  accessibilityRole="button"
-                                  accessibilityLabel="Choose next payment date"
-                                  onPress={handleOpenSubscriptionDatePicker}
-                                  className="flex-1 flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
-                                  <View className="flex-1">
-                                    <ThemedText
-                                      tone="muted"
-                                      className="text-[10px] font-black uppercase tracking-widest">
-                                      Next payment date
-                                    </ThemedText>
-                                    <ThemedText
-                                      className="mt-1 text-sm font-bold"
-                                      style={{
-                                        color: form.subscriptionNextDueDate
-                                          ? theme.text
-                                          : detailInputPlaceholderColor,
-                                      }}>
-                                      {form.subscriptionNextDueDate || 'Choose date'}
-                                    </ThemedText>
-                                  </View>
-                                  <MaterialCommunityIcons
-                                    name="calendar-month-outline"
-                                    size={20}
-                                    color={accent}
-                                  />
-                                </Pressable>
-                              ) : (
-                                <View
-                                  className="flex-1 rounded-2xl px-4 py-3"
-                                  style={{ backgroundColor: accentSurface }}>
-                                  <ThemedText
-                                    className="text-[10px] font-black uppercase tracking-widest"
-                                    style={{ color: accent }}>
-                                    Automatic schedule
-                                  </ThemedText>
-                                  <ThemedText
-                                    className="mt-1 text-xs font-bold"
-                                    style={{ color: theme.text }}>
-                                    {form.subscriptionBillingInterval === 'business_daily'
-                                      ? 'Next market day; weekends and holidays are skipped.'
-                                      : 'Runs every day automatically.'}
-                                  </ThemedText>
-                                </View>
-                              )}
-                              {form.subscriptionBillingInterval !== 'daily' &&
-                              form.subscriptionBillingInterval !== 'business_daily' ? (
-                                <View className="w-28 rounded-2xl bg-gray-50 px-3 py-2 dark:bg-gray-800">
-                                  <ThemedText
-                                    tone="muted"
-                                    className="text-[9px] font-black uppercase tracking-wider">
-                                    Remind before
-                                  </ThemedText>
-                                  <TextInput
-                                    value={form.subscriptionReminderDays}
-                                    onChangeText={(text) =>
-                                      setForm((p) => ({
-                                        ...p,
-                                        subscriptionReminderDays: text.replace(/[^0-9]/g, ''),
-                                      }))
-                                    }
-                                    keyboardType="number-pad"
-                                    placeholder="Days"
-                                    placeholderTextColor="#9CA3AF"
-                                    className="p-0 pt-1 text-sm font-bold"
-                                    style={{ color: theme.text }}
-                                  />
-                                  <ThemedText tone="muted" className="text-[10px]">
-                                    days
-                                  </ThemedText>
-                                </View>
-                              ) : null}
-                            </View>
-
-                            <Pressable
-                              onPress={() =>
-                                setForm((p) => ({
-                                  ...p,
-                                  subscriptionAutopay: !p.subscriptionAutopay,
-                                }))
-                              }
-                              className="flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
-                              <View className="flex-1 pr-3">
-                                <ThemedText
-                                  className="text-sm font-bold"
-                                  style={{ color: theme.text }}>
-                                  Autopay
-                                </ThemedText>
-                                <ThemedText tone="muted" className="mt-1 text-[11px]">
-                                  Automatically add each payment from the selected account, then ask
-                                  you to confirm or correct it.
-                                </ThemedText>
-                              </View>
-                              <MaterialCommunityIcons
-                                name={
-                                  form.subscriptionAutopay
-                                    ? 'toggle-switch'
-                                    : 'toggle-switch-off-outline'
-                                }
-                                size={34}
-                                color={form.subscriptionAutopay ? accent : '#9CA3AF'}
-                              />
-                            </Pressable>
-
-                            <Pressable
-                              onPress={() =>
-                                setForm((p) => ({
-                                  ...p,
-                                  subscriptionCancelBeforeDue: !p.subscriptionCancelBeforeDue,
-                                }))
-                              }
-                              className="flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
-                              <ThemedText
-                                className="text-sm font-bold"
-                                style={{ color: theme.text }}>
-                                Remind me to cancel
-                              </ThemedText>
-                              <MaterialCommunityIcons
-                                name={
-                                  form.subscriptionCancelBeforeDue
-                                    ? 'checkbox-marked-circle'
-                                    : 'checkbox-blank-circle-outline'
-                                }
-                                size={22}
-                                color={form.subscriptionCancelBeforeDue ? accent : '#9CA3AF'}
-                              />
-                            </Pressable>
-
-                            {form.subscriptionCancelBeforeDue && (
-                              <Pressable
-                                accessibilityRole="button"
-                                onPress={() => {
-                                  setPendingCancellationDate(
-                                    form.subscriptionCancelOnDate
-                                      ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
-                                      : new Date()
-                                  );
-                                  setIsCancellationDatePickerVisible(true);
-                                }}
-                                className="flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-800">
-                                <View>
-                                  <ThemedText
-                                    tone="muted"
-                                    className="text-[10px] font-black uppercase tracking-widest">
-                                    Cancellation reminder date
-                                  </ThemedText>
-                                  <ThemedText className="mt-1 text-sm font-bold">
-                                    {form.subscriptionCancelOnDate || 'Choose date'}
-                                  </ThemedText>
-                                </View>
-                                <MaterialCommunityIcons
-                                  name="calendar-month-outline"
-                                  size={20}
-                                  color={accent}
-                                />
-                              </Pressable>
-                            )}
-
-                            <TextInput
-                              multiline
-                              value={form.subscriptionNotes}
-                              onChangeText={(text) =>
-                                setForm((p) => ({ ...p, subscriptionNotes: text }))
-                              }
-                              placeholder="Plan tier, cancellation link, or renewal notes"
-                              placeholderTextColor="#9CA3AF"
-                              className="min-h-[78px] rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                              textAlignVertical="top"
-                              style={{ color: theme.text }}
-                            />
-                          </View>
-                        )}
-                      </View>
-                    </View>
+                    <TransactionSubscriptionFields
+                      form={form}
+                      setForm={setForm}
+                      onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
+                      onOpenCancellationDatePicker={() => {
+                        setPendingCancellationDate(
+                          form.subscriptionCancelOnDate
+                            ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
+                            : new Date()
+                        );
+                        setIsCancellationDatePickerVisible(true);
+                      }}
+                    />
                   )}
 
                 {showFullForm && (
@@ -4021,376 +2971,96 @@ export function TransactionFormModal({
 
         {/* Date Picker Modal (iOS) */}
         {Platform.OS === 'ios' && isDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible={isDatePickerVisible}
+          <TransactionDateTimeSheet
+            pendingDate={pendingDate}
+            onChangePendingDate={setPendingDate}
             onClose={() => setIsDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">Select Date & Time</ThemedText>
-              <DateTimePicker
-                value={pendingDate}
-                mode="datetime"
-                display="spinner"
-                onValueChange={(_e, d) => d && setPendingDate(d)}
-                onDismiss={() => setIsDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <View className="mt-4 flex-row gap-3">
-                <Pressable
-                  className="flex-1 items-center rounded-2xl border py-3 border-gray-100"
-                  onPress={() => setIsDatePickerVisible(false)}>
-                  <ThemedText>Cancel</ThemedText>
-                </Pressable>
-                <Pressable
-                  className="flex-1 items-center rounded-2xl py-3"
-                  style={{ backgroundColor: accent }}
-                  onPress={handleConfirmDatePicker}>
-                  <ThemedText tone="onAccent" className="font-bold">
-                    Set Date
-                  </ThemedText>
-                </Pressable>
-              </View>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={handleConfirmDatePicker}
+          />
         )}
 
         {isCancellationDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible
+          <TransactionCancellationDateSheet
+            pendingDate={pendingCancellationDate}
+            onChangePendingDate={setPendingCancellationDate}
             onClose={() => setIsCancellationDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">
-                Cancellation reminder date
-              </ThemedText>
-              <DateTimePicker
-                value={pendingCancellationDate}
-                mode="date"
-                display="spinner"
-                minimumDate={new Date()}
-                onValueChange={(_event, date) => date && setPendingCancellationDate(date)}
-                onDismiss={() => setIsCancellationDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <Pressable
-                className="mt-4 items-center rounded-2xl py-3"
-                style={{ backgroundColor: accent }}
-                onPress={() => {
-                  setForm((p) => ({
-                    ...p,
-                    subscriptionCancelOnDate: formatApiDate(pendingCancellationDate),
-                  }));
-                  setIsCancellationDatePickerVisible(false);
-                }}>
-                <ThemedText tone="onAccent" className="font-bold">
-                  Set reminder date
-                </ThemedText>
-              </Pressable>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={() => {
+              setForm((p) => ({
+                ...p,
+                subscriptionCancelOnDate: formatApiDate(pendingCancellationDate),
+              }));
+              setIsCancellationDatePickerVisible(false);
+            }}
+          />
         )}
 
         {Platform.OS === 'ios' && isSubscriptionDatePickerVisible && (
-          <AnimatedBottomSheet
-            visible={isSubscriptionDatePickerVisible}
+          <TransactionSubscriptionDateSheet
+            pendingDate={pendingSubscriptionDate}
+            onChangePendingDate={setPendingSubscriptionDate}
             onClose={() => setIsSubscriptionDatePickerVisible(false)}
-            backdropOpacity={0.3}>
-            <View
-              className="rounded-t-3xl px-4 pb-6 pt-4"
-              style={{ backgroundColor: theme.background }}>
-              <ThemedText className="text-center text-sm font-bold">Next payment date</ThemedText>
-              <DateTimePicker
-                value={pendingSubscriptionDate}
-                mode="date"
-                display="spinner"
-                minimumDate={new Date()}
-                onValueChange={(_event, date) => date && setPendingSubscriptionDate(date)}
-                onDismiss={() => setIsSubscriptionDatePickerVisible(false)}
-                style={{ width: '100%' }}
-              />
-              <View className="mt-4 flex-row gap-3">
-                <Pressable
-                  className="flex-1 items-center rounded-2xl border py-3"
-                  style={{ borderColor: theme.border }}
-                  onPress={() => setIsSubscriptionDatePickerVisible(false)}>
-                  <ThemedText>Cancel</ThemedText>
-                </Pressable>
-                <Pressable
-                  className="flex-1 items-center rounded-2xl py-3"
-                  style={{ backgroundColor: accent }}
-                  onPress={() => {
-                    setForm((prev) => ({
-                      ...prev,
-                      subscriptionNextDueDate: formatApiDate(pendingSubscriptionDate),
-                    }));
-                    setIsSubscriptionDatePickerVisible(false);
-                  }}>
-                  <ThemedText tone="onAccent" className="font-bold">
-                    Set date
-                  </ThemedText>
-                </Pressable>
-              </View>
-            </View>
-          </AnimatedBottomSheet>
+            onConfirm={() => {
+              setForm((prev) => ({
+                ...prev,
+                subscriptionNextDueDate: formatApiDate(pendingSubscriptionDate),
+              }));
+              setIsSubscriptionDatePickerVisible(false);
+            }}
+          />
         )}
 
-        {/* Mode Picker */}
-        <AnimatedBottomSheet
+        <TransactionModePicker
           visible={isModePickerVisible}
+          options={modeOptions}
+          selected={form.mode}
           onClose={() => setIsModePickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">
-              Select Payment Method
-            </ThemedText>
-            <View className="gap-2">
-              {modeOptions.map((m) => (
-                <Pressable
-                  key={m}
-                  onPress={() => {
-                    setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
-                    setIsModePickerVisible(false);
-                  }}
-                  className="flex-row items-center justify-between rounded-2xl border p-4"
-                  style={{
-                    backgroundColor:
-                      form.mode === m
-                        ? accentSurface
-                        : colorScheme === 'dark'
-                          ? theme.card
-                          : '#F9FAFB',
-                    borderColor: form.mode === m ? accent : 'transparent',
-                  }}>
-                  <ThemedText
-                    className="font-bold"
-                    style={{ color: form.mode === m ? accent : theme.text }}>
-                    {m}
-                  </ThemedText>
-                  {form.mode === m && (
-                    <MaterialCommunityIcons name="check" size={20} color={accent} />
-                  )}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(m) => {
+            setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
+            setIsModePickerVisible(false);
+          }}
+        />
 
-        {/* Category Picker */}
-        <AnimatedBottomSheet
+        <TransactionCategoryPicker
           visible={isCategoryPickerVisible}
+          selected={form.category}
+          options={selectableCategoryOptions}
+          suggestions={visibleCategorySuggestions}
+          customCategory={customCategory}
+          onChangeCustomCategory={setCustomCategory}
           onClose={() => setIsCategoryPickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">
-              Select Category
-            </ThemedText>
-            <ScrollView style={{ maxHeight: 430 }}>
-              {visibleCategorySuggestions.length > 0 && (
-                <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
-                  <ThemedText
-                    tone="warning"
-                    className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                    Suggested from history
-                  </ThemedText>
-                  <View className="flex-row flex-wrap gap-2">
-                    {visibleCategorySuggestions.map((suggestion) => (
-                      <Pressable
-                        key={suggestion}
-                        accessibilityRole="button"
-                        onPress={() => {
-                          selectCategory(suggestion);
-                          setIsCategoryPickerVisible(false);
-                        }}
-                        className="rounded-full px-3 py-2"
-                        style={{ backgroundColor: theme.card }}>
-                        <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                          {suggestion}
-                        </ThemedText>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-              )}
-              <View className="flex-row flex-wrap gap-4 justify-between">
-                {selectableCategoryOptions.map((c) => (
-                  <Pressable
-                    key={c}
-                    onPress={() => {
-                      selectCategory(c);
-                      setIsCategoryPickerVisible(false);
-                    }}
-                    className="w-[47%] items-center gap-2 rounded-3xl border p-4"
-                    style={{
-                      backgroundColor:
-                        form.category === c
-                          ? accentSurface
-                          : colorScheme === 'dark'
-                            ? theme.card
-                            : '#F9FAFB',
-                      borderColor: form.category === c ? accent : 'transparent',
-                    }}>
-                    <ThemedText
-                      className="text-xs font-bold"
-                      style={{ color: form.category === c ? accent : theme.text }}>
-                      {c}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-              <View className="mt-5 rounded-3xl border p-4" style={{ borderColor: theme.border }}>
-                <ThemedText
-                  tone="muted"
-                  className="mb-3 text-[10px] font-black uppercase tracking-widest">
-                  Custom category
-                </ThemedText>
-                <View className="flex-row gap-3">
-                  <TextInput
-                    testID="entry-custom-category-input"
-                    value={customCategory}
-                    onChangeText={setCustomCategory}
-                    placeholder="Add category"
-                    placeholderTextColor="#9CA3AF"
-                    className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                    style={{ color: theme.text }}
-                  />
-                  <Pressable
-                    testID="entry-add-custom-category-button"
-                    accessibilityRole="button"
-                    onPress={() => {
-                      const nextCategory = normalizeCategoryValue(customCategory, form.type);
-                      selectCategory(nextCategory);
-                      setCustomCategory('');
-                      setIsCategoryPickerVisible(false);
-                    }}
-                    className="items-center justify-center rounded-2xl px-4"
-                    style={{ backgroundColor: accent }}>
-                    <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
-                  </Pressable>
-                </View>
-              </View>
-            </ScrollView>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(category) => {
+            selectCategory(category);
+            setIsCategoryPickerVisible(false);
+          }}
+          onAddCustom={() => {
+            const nextCategory = normalizeCategoryValue(customCategory, form.type);
+            selectCategory(nextCategory);
+            setCustomCategory('');
+            setIsCategoryPickerVisible(false);
+          }}
+        />
 
-        {/* Account Picker */}
-        <AnimatedBottomSheet
+        <TransactionAccountPicker
           visible={isAccountPickerVisible}
+          accounts={compatibleAccounts}
+          selectedAccountId={form.accountId}
+          mode={form.mode}
+          suggestion={actionableAccountSuggestion}
+          isAutoCreating={autoCreatingAccount}
+          autoCreateError={autoCreateAccountError}
           onClose={() => setIsAccountPickerVisible(false)}
-          backdropOpacity={0.3}>
-          <View
-            className="rounded-t-3xl px-4 pb-10 pt-4"
-            style={{ backgroundColor: theme.background }}>
-            <ThemedText className="text-center text-base font-bold mb-6">Select Account</ThemedText>
-            <View className="gap-2">
-              {compatibleAccounts.map((account) => (
-                <Pressable
-                  key={account.id}
-                  onPress={() => {
-                    setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
-                    setIsAccountPickerVisible(false);
-                  }}
-                  className="p-4 rounded-2xl flex-row items-center justify-between border"
-                  style={{
-                    // Theme tokens, not bg-gray-50 / text-gray-700: those are
-                    // fixed light-mode colours, so in dark mode the rows were
-                    // near-white with near-white labels.
-                    backgroundColor: form.accountId === account.id ? `${accent}1F` : theme.card,
-                    borderColor: form.accountId === account.id ? accent : theme.border,
-                  }}>
-                  <View>
-                    <ThemedText
-                      className="font-bold"
-                      style={{ color: form.accountId === account.id ? accent : theme.text }}>
-                      {account.name}
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs">
-                      {account.provider || account.type}
-                    </ThemedText>
-                  </View>
-                  {form.accountId === account.id && (
-                    <MaterialCommunityIcons name="check" size={20} color={accent} />
-                  )}
-                </Pressable>
-              ))}
-              {compatibleAccounts.length === 0 && (
-                <View className="items-center gap-4 py-4">
-                  <ThemedText tone="muted" className="text-center text-sm">
-                    {`No ${form.mode || 'matching'} account found.`}
-                  </ThemedText>
-                  {actionableAccountSuggestion && onSetupSuggestedAccount ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setIsAccountPickerVisible(false);
-                        onSetupSuggestedAccount(actionableAccountSuggestion);
-                      }}
-                      className="rounded-2xl px-5 py-3"
-                      style={{ backgroundColor: accent }}>
-                      <ThemedText tone="onAccent" className="font-bold">
-                        Set up account
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                  {actionableAccountSuggestion && onAutoCreateSuggestedAccount ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      disabled={autoCreatingAccount}
-                      onPress={() =>
-                        void handleAutoCreateSuggestedAccount(actionableAccountSuggestion)
-                      }
-                      className="rounded-2xl border px-5 py-3"
-                      style={{ borderColor: accent }}>
-                      <ThemedText className="font-bold" style={{ color: accent }}>
-                        {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                  {autoCreateAccountError ? (
-                    <ThemedText tone="negative" className="text-center text-xs">
-                      {autoCreateAccountError}
-                    </ThemedText>
-                  ) : null}
-                  {onManageAccounts ? (
-                    <Pressable
-                      accessibilityRole="button"
-                      onPress={() => {
-                        setIsAccountPickerVisible(false);
-                        onManageAccounts(actionableAccountSuggestion ?? undefined);
-                      }}
-                      className="px-3 py-2">
-                      <ThemedText tone="muted" className="text-xs font-bold">
-                        Manage accounts
-                      </ThemedText>
-                    </Pressable>
-                  ) : null}
-                </View>
-              )}
-              {compatibleAccounts.length > 0 && onManageAccounts && (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => {
-                    setIsAccountPickerVisible(false);
-                    onManageAccounts();
-                  }}
-                  className="mt-2 flex-row items-center justify-center gap-2 rounded-2xl border p-4"
-                  style={{ borderColor: accent }}>
-                  <MaterialCommunityIcons name="plus-circle-outline" size={20} color={accent} />
-                  <ThemedText className="font-bold" style={{ color: accent }}>
-                    Add or manage payment accounts
-                  </ThemedText>
-                </Pressable>
-              )}
-            </View>
-          </View>
-        </AnimatedBottomSheet>
+          onSelect={(account) => {
+            setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
+            setIsAccountPickerVisible(false);
+          }}
+          onSetupSuggestedAccount={onSetupSuggestedAccount}
+          onAutoCreateSuggestedAccount={
+            onAutoCreateSuggestedAccount
+              ? (suggestion) => void handleAutoCreateSuggestedAccount(suggestion)
+              : undefined
+          }
+          onManageAccounts={onManageAccounts}
+        />
 
         <ThemedDeleteDialog
           visible={isDiscardDialogVisible}
