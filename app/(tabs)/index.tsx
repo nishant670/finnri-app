@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   getRecordingPermissionsAsync,
   RecordingPresets,
@@ -9,19 +8,26 @@ import {
 import { File } from 'expo-file-system';
 import { useRouter, useFocusEffect, useLocalSearchParams, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Animated as RNAnimated, Easing, Pressable, View } from 'react-native';
+import { Animated as RNAnimated, Easing, View } from 'react-native';
 import Animated, {
   useAnimatedRef,
   useAnimatedScrollHandler,
   useSharedValue,
 } from 'react-native-reanimated';
 
+import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
+import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
+import { CreditActionCard } from '@/components/home/CreditActionCard';
+import { HomeRecentActivity } from '@/components/home/HomeRecentActivity';
+import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
+import { HomeAddButton } from '@/components/home/HomeAddButton';
+import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
+import { FAB_BOTTOM_OFFSET, FAB_SIZE } from '@/components/home/home-layout';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { CAPTURE_COLLAPSED_HEIGHT, CollapsibleCapture } from '@/components/home/CollapsibleCapture';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { MonthStrip } from '@/components/home/MonthStrip';
 import { QuickPrompts } from '@/components/home/QuickPrompts';
-import { TransactionItem } from '@/components/home/TransactionItem';
 import { ParseErrorCard } from '@/components/home/ParseErrorCard';
 import { VoiceInputCard } from '@/components/home/VoiceInputCard';
 import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
@@ -31,12 +37,9 @@ import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
-import { StateView } from '@/components/ui/StateView';
-import { Card, Screen, SectionHeader } from '@/components/ui/theme-primitives';
+import { Screen } from '@/components/ui/theme-primitives';
 import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
-import { encodeFrame } from '@/hooks/use-shared-element';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
   fetchNotifications,
@@ -47,61 +50,25 @@ import {
   type AppNotification,
 } from '@/lib/notifications';
 import { isAccountSetupNudgeSnoozed, snoozeAccountSetupNudge } from '@/lib/account-setup-nudge';
-import {
-  API_BASE_URL,
-  formatApiDate,
-  formatDateLabel,
-  groupTransactionsBySection,
-  loadTransactionPage,
-  mapEntryToTransaction,
-  normalizeDateLabel,
-  parseDateLabel,
-  toTitleCase,
-} from '@/lib/transactions';
+import { API_BASE_URL, formatApiDate, formatDateLabel, groupTransactionsBySection, loadTransactionPage, mapEntryToTransaction, parseDateLabel } from '@/lib/transactions';
 import { Transaction } from '@/types/transaction';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
-import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import { Motion } from '@/constants/theme';
-import { DEFAULT_CATEGORY } from '@/lib/categories';
 import {
   isGuestUpgradePromptSnoozed,
   shouldShowGuestUpgradePrompt,
   snoozeGuestUpgradePrompt,
 } from '@/lib/guest-upgrade';
-import {
-  fetchAccounts as loadAccounts,
-  getAccountTypeForPaymentMode,
-  getAutoAccountPayloadForPaymentMode,
-  getPreferredAccountForPaymentMode,
-  normalizeAccountType,
-  matchAccountsToHint,
-  suggestAccountFromTransaction,
-  saveAccount,
-  type Account,
-  type AccountSuggestionHint,
-  type AccountType,
-} from '@/lib/accounts';
+import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, suggestAccountFromTransaction, saveAccount, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
 import {
   saveNewTransaction,
   type ReceivedRefund,
   type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
-import { formatTime } from '@/lib/datetime';
-import { toAmountInputValue, toAmountString } from '@/lib/money';
-import { formToQuickPromptPayload, quickPromptToForm } from '@/lib/quick-prompts';
-import {
-  isParseAnswer,
-  looksLikeQuestion,
-  ParseApiError,
-  describeParseFailure,
-  type ParseFailure,
-  parseEntryDraft,
-  parseReceiptDraft,
-  type LedgerAnswer,
-  type ParseResponse,
-} from '@/lib/parse';
+import { formToQuickPromptPayload } from '@/lib/quick-prompts';
+import { isParseAnswer, looksLikeQuestion, describeParseFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import {
   fetchSplitFriends,
   fetchSplitGroups,
@@ -110,15 +77,7 @@ import {
 } from '@/lib/splits';
 import { resolveSplitDraft } from '@/lib/split-draft';
 import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
-import {
-  confirmSubscriptionOccurrence,
-  fetchSubscriptionOccurrences,
-  revertSubscriptionOccurrence,
-  syncSubscriptionAutomation,
-  type BillingInterval,
-  type SubscriptionOccurrence,
-} from '@/lib/subscriptions';
-import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
+import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubscriptionOccurrence, syncSubscriptionAutomation, type SubscriptionOccurrence } from '@/lib/subscriptions';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { creditGateFor } from '@/lib/credit-gate';
@@ -126,20 +85,22 @@ import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import {
+  applyParsedDraftToForm,
+  buildAiReview,
+  createDefaultEntryForm,
+  creditActionForParseError,
+  quickPromptEditorData,
+  quickPromptForm,
+  resolveAccountForEntry,
+  saveConfirmationLabel,
+  type CreditActionState,
+} from '@/lib/home-capture';
+import {
   TransactionFormModal,
   type AiReviewMetadata,
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 
-/**
- * The FAB floats above the scroll view, so anything that scrolls under it has
- * to stop short of its footprint. Its geometry is written here once and nowhere
- * else: the button reads these, and so do the list's bottom padding and the
- * save toast that has to clear it. Change FAB_SIZE and all three follow.
- */
-const FAB_SIZE = 64;
-const FAB_BOTTOM_OFFSET = 40;
-const FAB_RIGHT_OFFSET = 24;
 /** The button's full footprint, plus a gap of air so the last row breathes. */
 const LIST_BOTTOM_PADDING = FAB_SIZE + FAB_BOTTOM_OFFSET + 24;
 /**
@@ -171,8 +132,6 @@ const EMPTY_BOTTOM_PADDING = 24;
  * keeps the animation from running at all when it has nothing to buy.
  */
 const MIN_ENTRIES_FOR_COLLAPSE = 3;
-/** Just above the FAB, so the toast never lands on top of it. */
-const SAVE_TOAST_BOTTOM_OFFSET = FAB_BOTTOM_OFFSET + FAB_SIZE + 8;
 
 /** Roughly how long ScrollView's animated scrollTo takes to settle. */
 const CAPTURE_EXPAND_MS = 260;
@@ -208,38 +167,9 @@ const SAVE_TOAST_DWELL_MS = 2200;
 const TOAST_IN_EASING = Easing.bezier(...Motion.ease.standard);
 const TOAST_OUT_EASING = Easing.bezier(...Motion.ease.exit);
 
-const billingIntervals: BillingInterval[] = [
-  'daily',
-  'business_daily',
-  'weekly',
-  'biweekly',
-  'monthly',
-  'quarterly',
-  'yearly',
-];
-
-const isBillingInterval = (value?: string | null): value is BillingInterval =>
-  billingIntervals.includes(value as BillingInterval);
-
-type CreditActionState = {
-  title: string;
-  message: string;
-  actionLabel: string;
-  action: 'upgrade' | 'login';
-};
-
-const DRAFT_NOTE_MAX = 200;
-
-/** The user's own words, trimmed, for when the parser returned no note. */
-const fallbackDraftNote = (sourceText: string) => {
-  const text = sourceText.replace(/\s+/g, ' ').trim();
-  return text.length > DRAFT_NOTE_MAX ? `${text.slice(0, DRAFT_NOTE_MAX - 1).trimEnd()}…` : text;
-};
 
 export default function HomeScreen() {
   const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const isDark = themeTokens.mode === 'dark';
   const dialog = useAppDialog();
   const router = useRouter();
   const {
@@ -274,50 +204,7 @@ export default function HomeScreen() {
   const smartSorting = useAppSettingsStore((state) => state.smartSorting);
   const isStealthMode = !!user?.stealth_mode;
 
-  const defaultForm = useMemo<EntryForm>(
-    () => ({
-      title: '',
-      amount: '',
-      type: 'Expense',
-      mode: 'Cash',
-      // S2 left this behind: 'Food' is a legacy alias, and the amount-first
-      // sheet shows the seeded category on a chip and saves it as the title.
-      category: DEFAULT_CATEGORY,
-      date: formatDateLabel(new Date()),
-      time: formatTime(new Date()) ?? '',
-      notes: '',
-      tag: 'General',
-      currency: DEFAULT_CURRENCY,
-      accountId: null,
-      account: '',
-      merchant: '',
-      attachment: null,
-      splitEnabled: false,
-      splitGroupId: null,
-      splitGroupName: '',
-      splitParticipants: [],
-      refundableAmount: '',
-      refundExpectedOn: '',
-      refundReminderEnabled: true,
-      emiTenureMonths: '',
-      emiRatePct: '',
-      emiTotalInstalments: '',
-      emiPaidInstalments: '',
-      subscriptionEnabled: false,
-      subscriptionName: '',
-      subscriptionMerchant: '',
-      subscriptionCategory: '',
-      subscriptionAmount: '',
-      subscriptionBillingInterval: '',
-      subscriptionNextDueDate: '',
-      subscriptionReminderDays: '3',
-      subscriptionCancelBeforeDue: false,
-      subscriptionCancelOnDate: '',
-      subscriptionAutopay: false,
-      subscriptionNotes: '',
-    }),
-    []
-  );
+  const defaultForm = useMemo<EntryForm>(() => createDefaultEntryForm(), []);
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   // A refund the user said already came back, and whether to record it with the
@@ -520,15 +407,8 @@ export default function HomeScreen() {
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
-      const blank = createBlankForm();
-      const now = new Date();
       setAiReview(null);
-      setForm({
-        ...blank,
-        ...quickPromptToForm(prompt, accounts),
-        date: formatDateLabel(now),
-        time: formatTime(now) ?? '',
-      });
+      setForm(quickPromptForm(createBlankForm(), prompt, accounts, new Date()));
       setModalMode('manual');
       setIsEditOpen(true);
     },
@@ -596,21 +476,7 @@ export default function HomeScreen() {
   const [unreadNotifications, setUnreadNotifications] = useState(0);
   const [accountSetupNudge, setAccountSetupNudge] = useState<AppNotification | null>(null);
 
-  const getInitialPromptData = (): Partial<
-    import('@/components/transactions/TransactionFormModal').EntryForm
-  > => {
-    if (!editingPrompt)
-      return {
-        category: 'Food & Drinks',
-        mode: 'Cash',
-        type: 'Expense',
-        date: formatDateLabel(new Date()),
-      };
-    return {
-      ...quickPromptToForm(editingPrompt, accounts),
-      date: formatDateLabel(new Date()),
-    };
-  };
+  const getInitialPromptData = () => quickPromptEditorData(editingPrompt, accounts, new Date());
 
   const fetchEntries = useCallback(
     async (silent = false) => {
@@ -1071,26 +937,7 @@ export default function HomeScreen() {
   ]);
 
   const ensureAccountForEntry = useCallback(
-    async (formData: EntryForm) => {
-      const requiredType = getAccountTypeForPaymentMode(formData.mode);
-      const selectedAccount =
-        formData.accountId === null
-          ? null
-          : (accounts.find((account) => account.id === formData.accountId) ?? null);
-      if (
-        selectedAccount &&
-        (!requiredType || selectedAccount.type?.toLowerCase() === requiredType)
-      ) {
-        return selectedAccount;
-      }
-
-      const preferredAccount = getPreferredAccountForPaymentMode(accounts, formData.mode);
-      if (preferredAccount) {
-        return preferredAccount;
-      }
-
-      return null;
-    },
+    async (formData: EntryForm) => resolveAccountForEntry(accounts, formData),
     [accounts]
   );
 
@@ -1132,11 +979,10 @@ export default function HomeScreen() {
             ...current.filter((transaction) => transaction.id !== createdTransaction.id),
           ]);
           setSaveConfirmation(
-            formData.subscriptionEnabled
-              ? 'Saved with subscription'
-              : modalMode === 'audio' && recordRefund && refundReceived
-                ? 'Saved with refund'
-                : 'Saved'
+            saveConfirmationLabel({
+              subscriptionEnabled: formData.subscriptionEnabled,
+              recordsRefund: modalMode === 'audio' && recordRefund && Boolean(refundReceived),
+            })
           );
           setNewTransactionId(createdTransaction.id);
         }
@@ -1191,42 +1037,16 @@ export default function HomeScreen() {
    */
   const showCreditParseError = useCallback(
     (error: unknown): boolean => {
-      if (error instanceof ParseApiError) {
-        /*
-         * A guest running out of credits is the one moment they have a reason
-         * to make an account, so the prompt says what signing in buys rather
-         * than just reporting the balance — and it points at sign-in, not at a
-         * plans screen a guest cannot buy from anyway.
-         */
-        const isGuestUser = !!user?.is_guest;
-        if (error.code === 'insufficient_ai_credits') {
-          setCreditAction({
-            title: isGuestUser ? 'You have used up your guest AI credits' : 'AI credits are low',
-            message: isGuestUser
-              ? `Dear guest, this capture needs ${error.requiredCredits ?? 5} credits and you have ${error.availableCredits ?? 0} left. Sign in to keep going with more AI credits — everything you have added so far comes with you.`
-              : `This capture needs ${error.requiredCredits ?? 5} credits. You have ${error.availableCredits ?? 0} available.`,
-            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-            action: isGuestUser ? 'login' : 'upgrade',
-          });
-          if (!isGuestUser) void offerPlansForBlockedAI('out_of_credits');
-          void fetchCredits(true);
-          return true;
-        }
-        if (error.code === 'daily_ai_limit_reached') {
-          const usedToday = error.usedToday ?? billingStatus?.credits.daily_credits_used ?? 0;
-          const dailyLimit = error.dailyLimit ?? billingStatus?.credits.daily_limit ?? 0;
-          setCreditAction({
-            title: isGuestUser ? 'You have reached your guest AI limit' : 'Daily AI limit reached',
-            message: isGuestUser
-              ? `Dear guest, you have used all ${dailyLimit} AI credits for today. Sign in to continue enjoying more AI credits — everything you have added so far comes with you.`
-              : `You used ${usedToday} of ${dailyLimit} credits today.`,
-            actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-            action: isGuestUser ? 'login' : 'upgrade',
-          });
-          if (!isGuestUser) void offerPlansForBlockedAI('daily_limit');
-          void fetchCredits(true);
-          return true;
-        }
+      const creditAction = creditActionForParseError(error, {
+        isGuestUser: !!user?.is_guest,
+        dailyCreditsUsed: billingStatus?.credits.daily_credits_used,
+        dailyLimit: billingStatus?.credits.daily_limit,
+      });
+      if (creditAction) {
+        setCreditAction(creditAction);
+        if (!user?.is_guest) void offerPlansForBlockedAI(creditAction.reason);
+        void fetchCredits(true);
+        return true;
       }
       return false;
     },
@@ -1268,96 +1088,16 @@ export default function HomeScreen() {
           { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
           accounts
         )[0]?.account ?? null;
-      setAiReview({
-        confidence: data.confidence,
-        needsConfirmation: data.needs_confirmation,
-        missingFields: smartSorting
-          ? data.missing_fields
-          : Array.from(
-              new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])
-            ),
-        clarifications: [
-          ...(data.clarifications ?? []),
-          ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
-        ],
-        smartSortingDisabled: !smartSorting,
-        // What the AI worked from, so the review sheet can show it back. A
-        // wrong field is usually a misheard word, and the phrase is the only
-        // place that is visible.
-        sourceText: data.source_text ?? fallbackText,
-        inputSource,
-      });
-      setForm((prev) => {
-        const missing = new Set(data.missing_fields ?? []);
-        const formattedDate =
-          missing.has('date') || !data.date
-            ? formatDateLabel(new Date())
-            : normalizeDateLabel(data.date, formatDateLabel(new Date()));
-        const tagValue = data.tag ?? data.tags?.[0] ?? '';
-        const newType = missing.has('type') ? '' : (toTitleCase(data.type) ?? '');
-        const subscriptionCandidate = data.subscription_candidate;
-        const subscriptionInterval = isBillingInterval(subscriptionCandidate?.billing_interval)
-          ? subscriptionCandidate.billing_interval
-          : '';
-        const subscriptionPaidDate =
-          subscriptionCandidate?.last_charged_date ?? data.date ?? formatApiDate(new Date());
-        const inferredNextDueDate =
-          subscriptionCandidate?.next_due_date ??
-          inferNextSubscriptionDate(subscriptionPaidDate, subscriptionInterval);
-        return {
-          ...prev,
-          title: smartSorting && !missing.has('title') ? (data.title ?? '') : '',
-          amount:
-            missing.has('amount') || data.amount == null ? '' : toAmountInputValue(data.amount),
-          currency: data.currency ?? prev.currency,
-          // The parser emits `HH:MM`; the form shows and stores a display string.
-          time: formatTime(data.time) ?? prev.time,
-          type: newType,
-          mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
-          category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
-          merchant: data.merchant ?? '',
-          // The account the user named, when they named one we know. Without
-          // this the form fell back to the default card for the mode.
-          ...(hintedAccount ? { accountId: hintedAccount.id, account: hintedAccount.name } : {}),
-          // Never leave the note empty on an AI draft: the parser's own one-liner,
-          // or failing that what the user actually said.
-          notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? fallbackText),
-          date: formattedDate,
-          tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
-          splitEnabled: splitDraft.splitEnabled,
-          splitGroupId: splitDraft.splitGroupId,
-          splitGroupName: splitDraft.splitGroupName,
-          splitParticipants: splitDraft.splitParticipants,
-          refundableAmount:
-            data.refundable_amount != null ? toAmountInputValue(data.refundable_amount) : '',
-          refundExpectedOn: data.refund_expected_on ?? '',
-          refundReminderEnabled: true,
-          emiTenureMonths: data.emi_tenure_months != null ? String(data.emi_tenure_months) : '',
-          emiRatePct: data.emi_rate_pct != null ? String(data.emi_rate_pct) : '',
-          subscriptionEnabled: Boolean(subscriptionCandidate),
-          subscriptionName: subscriptionCandidate?.name ?? data.merchant ?? data.title ?? '',
-          subscriptionMerchant: subscriptionCandidate?.merchant ?? data.merchant ?? '',
-          subscriptionCategory: subscriptionCandidate?.category ?? data.category ?? 'Misc',
-          subscriptionAmount:
-            subscriptionCandidate?.amount != null
-              ? toAmountInputValue(subscriptionCandidate.amount)
-              : data.amount != null
-                ? toAmountInputValue(data.amount)
-                : '',
-          subscriptionBillingInterval: subscriptionInterval,
-          subscriptionNextDueDate: inferredNextDueDate,
-          subscriptionReminderDays:
-            subscriptionCandidate?.reminder_days != null
-              ? String(subscriptionCandidate.reminder_days)
-              : '3',
-          subscriptionCancelBeforeDue: Boolean(subscriptionCandidate?.cancel_before_due),
-          subscriptionCancelOnDate: subscriptionCandidate?.cancel_on_date ?? '',
-          subscriptionAutopay: Boolean(subscriptionCandidate?.autopay),
-          subscriptionNotes: subscriptionCandidate?.notes ?? '',
-          // A scanned bill is kept as the entry's receipt; it uploads on save.
-          attachment: attachment ?? prev.attachment,
-        };
-      });
+      setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
+      setForm((prev) =>
+        applyParsedDraftToForm(prev, data, {
+          fallbackText,
+          attachment,
+          smartSorting,
+          splitDraft,
+          hintedAccount,
+        })
+      );
     },
     [accounts, smartSorting, splitFriends, splitGroups]
   );
@@ -1591,151 +1331,21 @@ export default function HomeScreen() {
     handleOpenManualEntry();
   }, [handleOpenManualEntry]);
 
-  const renderRecentActivity = () => {
-    if (isEntriesLoading) {
-      return (
-        <SkeletonFrame label="Loading activity" testID="home-activity-skeleton">
-          <SkeletonRows count={4} />
-        </SkeletonFrame>
-      );
-    }
-
-    if (entriesError) {
-      return (
-        <StateView
-          icon="wifi-off"
-          title="Activity did not load"
-          message={entriesError}
-          actionLabel="Try again"
-          onAction={() => {
-            // Retry everything the outage took down, not just the feed. The
-            // month strip hides itself on failure rather than showing an
-            // error, so without this it would stay missing until the next
-            // time the screen regained focus.
-            void fetchEntries();
-            void fetchMonthSummary();
-          }}
-        />
-      );
-    }
-
-    if (!hasTransactions) {
-      return (
-        <StateView
-          icon="receipt-text-plus-outline"
-          title="No activity yet"
-          message="Say it, type it, or tap + to log your first transaction."
-          actionLabel="Add"
-          onAction={handleOpenManualEntry}
-        />
-      );
-    }
-
-    const recentTransactions = transactions.slice(0, 5);
-    const groupedRecentTransactions = groupTransactionsBySection(recentTransactions);
-    // The stagger counts down the feed rather than restarting at every date
-    // heading — see the same note on the full list in app/transactions/index.tsx.
-    let rowsAbove = 0;
-
-    return (
-      <View>
-        <SectionHeader
-          title="Recent activity"
-          actionLabel="See all"
-          onAction={() => router.push('/transactions')}
-        />
-
-        <View className="px-6">
-          {groupedRecentTransactions.map((group, groupIndex) => {
-            const groupOffset = rowsAbove;
-            rowsAbove += group.data.length;
-
-            return (
-              // Changing the month rewrites the feed under whatever survives it.
-              <Animated.View key={group.title} layout={motion.reflow()}>
-                <Card
-                  compact
-                  style={{
-                    overflow: 'hidden',
-                    padding: 0,
-                    marginBottom:
-                      groupIndex === groupedRecentTransactions.length - 1
-                        ? 0
-                        : themeTokens.spacing.md,
-                  }}>
-                  <View
-                    style={{
-                      paddingHorizontal: themeTokens.spacing.lg,
-                      paddingTop: themeTokens.spacing.md,
-                      paddingBottom: themeTokens.spacing.xs,
-                    }}>
-                    <ThemedText
-                      variant="micro"
-                      style={{
-                        color: isDark ? 'rgba(255,255,255,0.5)' : '#9A9697',
-                        textTransform: 'uppercase',
-                        letterSpacing: 1,
-                      }}>
-                      {group.title}
-                    </ThemedText>
-                  </View>
-                  {group.data.map((item, index) => {
-                    const isLastInSection = index === group.data.length - 1;
-                    return (
-                      <TransactionItem
-                        key={item.id}
-                        title={item.name}
-                        icon={item.icon}
-                        category={item.category}
-                        subtitle={item.accountName ?? item.mode ?? ''}
-                        amount={Math.abs(item.amount)}
-                        maskAmount={isStealthMode}
-                        date={item.timeLabel ?? item.dateLabel ?? ''}
-                        color={item.color}
-                        bgColor={item.bgColor}
-                        isIncome={item.entryType === 'income'}
-                        unlinked={item.accountId == null}
-                        variant="list"
-                        isNew={item.id === newTransactionId}
-                        entranceIndex={groupOffset + index}
-                        showDivider={!isLastInSection}
-                        onPress={(origin) => {
-                          router.push({
-                            pathname: '/entry/[id]',
-                            params: {
-                              id: item.id,
-                              name: item.name,
-                              category: item.category,
-                              amount: toAmountString(Math.abs(item.amount)),
-                              entryType: item.entryType ?? 'expense',
-                              section: item.section,
-                              mode: item.mode ?? '',
-                              notes: item.notes ?? '',
-                              merchant: item.merchant ?? '',
-                              dateLabel: item.dateLabel ?? '',
-                              rawDate: item.rawDate ?? '',
-                              tag: item.tag ?? '',
-                              // C9 — the feed's rows travel into detail the same
-                              // way the transaction list's do.
-                              ...(origin?.icon ? { originIcon: encodeFrame(origin.icon) } : {}),
-                              ...(origin?.amount
-                                ? { originAmount: encodeFrame(origin.amount) }
-                                : {}),
-                            },
-                          });
-                        }}
-                      />
-                    );
-                  })}
-                </Card>
-              </Animated.View>
-            );
-          })}
-        </View>
-      </View>
-    );
-  };
-
+  const renderRecentActivity = () => (
+    <HomeRecentActivity
+      isEntriesLoading={isEntriesLoading}
+      entriesError={entriesError}
+      hasTransactions={hasTransactions}
+      transactions={transactions}
+      newTransactionId={newTransactionId}
+      isStealthMode={isStealthMode}
+      onRetry={() => {
+        void fetchEntries();
+        void fetchMonthSummary();
+      }}
+      onAdd={handleOpenManualEntry}
+    />
+  );
   return (
     <Screen>
       {/* One positioning context for the pinned block and the feed it floats
@@ -1778,63 +1388,25 @@ export default function HomeScreen() {
               : null),
           }}>
           {autopayReviews[0] ? (
-            <View
-              className="mx-6 mb-4 rounded-3xl border p-4"
-              style={{
-                backgroundColor: themeTokens.colors.card,
-                borderColor: themeTokens.colors.accent,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <MaterialCommunityIcons
-                  name="bank-check"
-                  size={24}
-                  color={themeTokens.colors.accent}
-                />
-                <View className="flex-1">
-                  <ThemedText className="font-black">Autopay transaction added</ThemedText>
-                  <ThemedText className="mt-1 text-xs opacity-60">
-                    Review the recurring payment. It is already in your transaction list.
-                  </ThemedText>
-                  <View className="mt-3 flex-row gap-2">
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      style={{ backgroundColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const item = autopayReviews[0];
-                        if (!token) return;
-                        void confirmSubscriptionOccurrence(token, item.id).then(() =>
-                          setAutopayReviews((items) =>
-                            items.filter((entry) => entry.id !== item.id)
-                          )
-                        );
-                      }}>
-                      <ThemedText tone="onAccent" className="text-xs font-black">
-                        Confirm
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      className="rounded-xl border px-4 py-2"
-                      style={{ borderColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const item = autopayReviews[0];
-                        if (!token) return;
-                        void revertSubscriptionOccurrence(token, item.id).then((result) =>
-                          router.push({
-                            pathname: '/entry/[id]',
-                            params: { id: String(result.entry_id), edit: '1' },
-                          })
-                        );
-                      }}>
-                      <ThemedText
-                        className="text-xs font-black"
-                        style={{ color: themeTokens.colors.accent }}>
-                        Fix it
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            </View>
+            <AutopayReviewCard
+              onConfirm={() => {
+                const item = autopayReviews[0];
+                if (!token) return;
+                void confirmSubscriptionOccurrence(token, item.id).then(() =>
+                  setAutopayReviews((items) => items.filter((entry) => entry.id !== item.id))
+                );
+              }}
+              onRevert={() => {
+                const item = autopayReviews[0];
+                if (!token) return;
+                void revertSubscriptionOccurrence(token, item.id).then((result) =>
+                  router.push({
+                    pathname: '/entry/[id]',
+                    params: { id: String(result.entry_id), edit: '1' },
+                  })
+                );
+              }}
+            />
           ) : null}
 
           {showGuestUpgradePrompt ? (
@@ -1861,22 +1433,7 @@ export default function HomeScreen() {
 
           {/* Questions answer here, at the top of the feed, directly under the
               capture field that asked them — not in a sheet. */}
-          {pendingQuestion ? (
-            <View
-              className="mx-6 mb-4 flex-row items-center gap-3 rounded-3xl border p-4"
-              style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
-                borderColor: themeTokens.colors.border,
-              }}>
-              <ActivityIndicator size="small" color={themeTokens.colors.accent} />
-              <ThemedText
-                variant="caption"
-                numberOfLines={2}
-                style={{ flex: 1, color: `${themeTokens.colors.text}99` }}>
-                Looking through your transactions…
-              </ThemedText>
-            </View>
-          ) : null}
+          {pendingQuestion ? <PendingQuestionNotice /> : null}
 
           {answer ? (
             <AnswerCard
@@ -1910,55 +1467,21 @@ export default function HomeScreen() {
           )}
 
           {accountSetupNudge ? (
-            <View
-              className="mx-6 mb-4 rounded-3xl border p-4"
-              style={{
-                backgroundColor: themeTokens.colors.card,
-                borderColor: themeTokens.colors.border,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <MaterialCommunityIcons
-                  name="wallet-plus-outline"
-                  size={24}
-                  color={themeTokens.colors.accent}
-                />
-                <View className="flex-1">
-                  <ThemedText className="font-black">{accountSetupNudge.title}</ThemedText>
-                  <ThemedText className="mt-1 text-xs opacity-60">
-                    {accountSetupNudge.body}
-                  </ThemedText>
-                  <View className="mt-3 flex-row gap-2">
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      style={{ backgroundColor: themeTokens.colors.accent }}
-                      onPress={() => {
-                        const accountID =
-                          accountSetupNudge.action_url?.match(/^\/accounts\/(\d+)$/)?.[1];
-                        if (!accountID || !token) return;
-                        void markNotificationRead(token, accountSetupNudge.id).catch(
-                          () => undefined
-                        );
-                        setAccountSetupNudge(null);
-                        router.push({ pathname: '/accounts/[id]', params: { id: accountID } });
-                      }}>
-                      <ThemedText tone="onAccent" className="text-xs font-black">
-                        Complete setup
-                      </ThemedText>
-                    </Pressable>
-                    <Pressable
-                      className="rounded-xl px-4 py-2"
-                      onPress={() => {
-                        void snoozeAccountSetupNudge();
-                        setAccountSetupNudge(null);
-                      }}>
-                      <ThemedText tone="muted" className="text-xs font-black">
-                        Later
-                      </ThemedText>
-                    </Pressable>
-                  </View>
-                </View>
-              </View>
-            </View>
+            <AccountSetupNudgeCard
+              title={accountSetupNudge.title}
+              body={accountSetupNudge.body}
+              onComplete={() => {
+                const accountID = accountSetupNudge.action_url?.match(/^\/accounts\/(\d+)$/)?.[1];
+                if (!accountID || !token) return;
+                void markNotificationRead(token, accountSetupNudge.id).catch(() => undefined);
+                setAccountSetupNudge(null);
+                router.push({ pathname: '/accounts/[id]', params: { id: accountID } });
+              }}
+              onLater={() => {
+                void snoozeAccountSetupNudge();
+                setAccountSetupNudge(null);
+              }}
+            />
           ) : null}
 
           {errorMessage && (
@@ -1969,45 +1492,12 @@ export default function HomeScreen() {
           )}
 
           {creditAction && (
-            <View
-              className="mx-6 mb-6 rounded-2xl border p-4"
-              style={{
-                backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
-                borderColor: themeTokens.colors.border,
-              }}>
-              <View className="flex-row items-start gap-3">
-                <View
-                  className="h-9 w-9 items-center justify-center rounded-full"
-                  style={{ backgroundColor: themeTokens.colors.secondary }}>
-                  <MaterialCommunityIcons
-                    name="creation"
-                    size={18}
-                    color={themeTokens.colors.accent}
-                  />
-                </View>
-                <View className="min-w-0 flex-1">
-                  <ThemedText className="font-bold" style={{ color: themeTokens.colors.text }}>
-                    {creditAction.title}
-                  </ThemedText>
-                  <ThemedText
-                    className="mt-1 text-xs"
-                    style={{ color: `${themeTokens.colors.text}99` }}>
-                    {creditAction.message}
-                  </ThemedText>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() =>
-                      router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
-                    }
-                    className="mt-3 self-start rounded-full px-4 py-2"
-                    style={{ backgroundColor: themeTokens.colors.accent }}>
-                    <ThemedText tone="onAccent" className="text-xs font-bold">
-                      {creditAction.actionLabel}
-                    </ThemedText>
-                  </Pressable>
-                </View>
-              </View>
-            </View>
+            <CreditActionCard
+              creditAction={creditAction}
+              onPress={() =>
+                router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
+              }
+            />
           )}
 
           {renderRecentActivity()}
@@ -2068,49 +1558,10 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {hasTransactions && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={handleOpenManualEntry}
-          style={[
-            {
-              backgroundColor: theme.accent,
-              height: FAB_SIZE,
-              width: FAB_SIZE,
-              borderRadius: FAB_SIZE / 2,
-              bottom: FAB_BOTTOM_OFFSET,
-              right: FAB_RIGHT_OFFSET,
-            },
-            themeTokens.shadows.soft,
-          ]}
-          className="items-center justify-center absolute elevation-5">
-          <MaterialCommunityIcons name="plus" size={32} color="white" />
-        </Pressable>
-      )}
+      {hasTransactions && <HomeAddButton onPress={handleOpenManualEntry} />}
 
       {saveConfirmation && (
-        <RNAnimated.View
-          accessibilityLiveRegion="polite"
-          className="absolute self-center z-50 flex-row items-center gap-2 rounded-full px-3 py-2 shadow-md"
-          style={{
-            bottom: SAVE_TOAST_BOTTOM_OFFSET,
-            backgroundColor: theme.accent,
-            opacity: saveConfirmationAnim,
-            transform: [
-              {
-                translateY: saveConfirmationAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [10, 0],
-                }),
-              },
-            ],
-          }}
-          pointerEvents="none">
-          <MaterialCommunityIcons name="check" size={15} color="white" />
-          <ThemedText tone="onAccent" className="text-xs font-bold">
-            {saveConfirmation}
-          </ThemedText>
-        </RNAnimated.View>
+        <SaveConfirmationToast message={saveConfirmation} anim={saveConfirmationAnim} />
       )}
 
       <TransactionFormModal
