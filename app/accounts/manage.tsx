@@ -86,6 +86,11 @@ export default function ManageAccountScreen() {
   const [annualFee, setAnnualFee] = useState('');
   const [feeWaiverSpend, setFeeWaiverSpend] = useState('');
 
+  // Folds: the optional settings each screen keeps out of the way.
+  const [showStyleOptions, setShowStyleOptions] = useState(false);
+  const [showReminderOptions, setShowReminderOptions] = useState(false);
+  const [showAnnualFee, setShowAnnualFee] = useState(false);
+
   // Modal States
   const [showDayModal, setShowDayModal] = useState(false);
   const [showMonthModal, setShowMonthModal] = useState(false);
@@ -144,7 +149,7 @@ export default function ManageAccountScreen() {
         }
       })
       .catch((error) => {
-        setSaveError(getFriendlyErrorMessage(error, 'Unable to load account.'));
+        setSaveError(getFriendlyErrorMessage(error, "Couldn't load this account."));
         router.back();
       })
       .finally(() => {
@@ -248,7 +253,7 @@ export default function ManageAccountScreen() {
     if (!token) return;
     if (!name) {
       haptics.rejected();
-      setSaveError('Please enter a name for the account.');
+      setSaveError('Give this account a name.');
       return;
     }
 
@@ -297,9 +302,11 @@ export default function ManageAccountScreen() {
       haptics.rejected();
       if (err instanceof AccountApiError && err.fields?.type) {
         setStep(1);
-        setTypeError('Choose an account type and try again.');
+        setTypeError('Pick an account type, then try again.');
       }
-      setSaveError(getFriendlyErrorMessage(err, 'Failed to save account.'));
+      setSaveError(
+        getFriendlyErrorMessage(err, "Couldn't save this account. Check your connection and try again.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -330,7 +337,7 @@ export default function ManageAccountScreen() {
       setCreatedAccount(updatedAccount);
       setIsDefault(true);
     } catch (err: unknown) {
-      setSaveError(getFriendlyErrorMessage(err, 'Unable to set default account.'));
+      setSaveError(getFriendlyErrorMessage(err, "Couldn't make this your default. Try again."));
     } finally {
       setIsSaving(false);
     }
@@ -391,7 +398,9 @@ export default function ManageAccountScreen() {
             setIsDefault={setIsDefault}
             setName={setName}
             setSelectedColor={setSelectedColor}
+            setShowStyleOptions={setShowStyleOptions}
             setStep={setStep}
+            showStyleOptions={showStyleOptions}
             typeError={typeError}
             updateSelectedType={updateSelectedType}
           />
@@ -410,6 +419,7 @@ export default function ManageAccountScreen() {
             isSaving={isSaving}
             issuerQuery={issuerQuery}
             last4={last4}
+            name={name}
             providerOptions={providerOptions}
             reminderDaysBefore={reminderDaysBefore}
             reminderEnabled={reminderEnabled}
@@ -426,13 +436,17 @@ export default function ManageAccountScreen() {
             setReminderDaysBefore={setReminderDaysBefore}
             setReminderEnabled={setReminderEnabled}
             setSelectedIssuer={setSelectedIssuer}
+            setShowAnnualFee={setShowAnnualFee}
             setShowDayModal={setShowDayModal}
             setShowIssuerResults={setShowIssuerResults}
             setShowMonthModal={setShowMonthModal}
+            setShowReminderOptions={setShowReminderOptions}
             setStep={setStep}
+            showAnnualFee={showAnnualFee}
             showDayModal={showDayModal}
             showIssuerResults={showIssuerResults}
             showMonthModal={showMonthModal}
+            showReminderOptions={showReminderOptions}
             updateIdentifier={updateIdentifier}
           />
         ) : (

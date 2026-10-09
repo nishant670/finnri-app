@@ -58,7 +58,7 @@ export function NeedsReview({
 
   return (
     <SectionHeader
-      title="Needs Review"
+      title="Needs review"
       actionLabel={totalCount > entries.length ? `View all ${totalCount}` : `${totalCount} Items`}
       onAction={() =>
         router.push({

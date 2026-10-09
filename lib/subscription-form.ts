@@ -27,14 +27,14 @@ export const intervalOptions: { value: BillingInterval; label: string }[] = [
 ];
 
 /**
- * Daily and biweekly renewals are real but rare, and putting six segments in
- * the control makes every label unreadable to serve two of them. They live
- * under Advanced, where choosing Daily also meets its Autopay requirement in
- * the same section.
+ * Daily and every-two-weeks renewals are real but rare, and putting six
+ * segments in the control makes every label unreadable to serve two of them.
+ * They live under More options, where choosing Daily also meets its Autopay
+ * requirement in the same section.
  */
 export const advancedIntervalOptions: { value: BillingInterval; label: string }[] = [
   { value: 'daily', label: 'Daily' },
-  { value: 'biweekly', label: 'Biweekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
 ];
 
 export const statusOptions: { value: SubscriptionStatus; label: string }[] = [
@@ -239,7 +239,21 @@ export type RecurringFormValues = {
   kindMeta: (typeof recurringKindMeta)[RecurringKind];
 };
 
-/** Everything wrong with the form as filled in, in the order the user meets it. */
+/** What {@link validateRecurringForm} found, and which folds hide the fields it names. */
+export type RecurringFormValidation = {
+  /** Everything wrong with the form as filled in, in the order the user meets it. */
+  messages: string[];
+  /** A message names a control under More options. */
+  opensMoreOptions: boolean;
+  /** A message names a control in the loan's own details. */
+  opensKindDetails: boolean;
+};
+
+/**
+ * Checks the form. A failure caused by something folded away has to open the
+ * fold, or the message names a control the user cannot see — so the result
+ * says which folds those are.
+ */
 export const validateRecurringForm = ({
   name,
   merchant,
@@ -255,7 +269,7 @@ export const validateRecurringForm = ({
   totalEmis,
   emisPaid,
   ratePct,
-  nameLabel,
+  namePlaceholder,
 }: Pick<
   RecurringFormValues,
   | 'name'
@@ -272,38 +286,50 @@ export const validateRecurringForm = ({
   | 'totalEmis'
   | 'emisPaid'
   | 'ratePct'
-> & { nameLabel: string }) => {
+> & { namePlaceholder: string }): RecurringFormValidation => {
   const amountValue = parseAmount(amount);
   // The sheet asks for a merchant, not a name — "Netflix" is both. A display
-  // name is only ever entered under Advanced, so the merchant stands in for
+  // name is only ever entered under More options, so the merchant stands in for
   // it and the backend's required `name` is satisfied without a field.
   const resolvedName = name.trim() || merchant.trim();
   const validation: string[] = [];
-  if (!resolvedName) validation.push(`${nameLabel} name is required.`);
+  let opensMoreOptions = false;
+  let opensKindDetails = false;
+  if (!resolvedName) validation.push(`Add a name — like ${namePlaceholder.split(',')[0]}.`);
   if (!Number.isFinite(amountValue) || amountValue <= 0)
-    validation.push('Amount must be positive.');
-  if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Choose a valid renewal date.');
+    validation.push('Enter an amount above zero.');
+  if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Pick the next payment date.');
   if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-    validation.push('Reminder must be between 0 and 30 days.');
+    validation.push('Reminders can be 0 to 30 days before.');
+    opensMoreOptions = true;
   }
-  if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/))
-    validation.push('Choose a cancellation reminder date.');
-  if ((interval === 'daily' || interval === 'business_daily') && !autopay)
-    validation.push('Daily schedules require Autopay.');
-  if (autopay && !accountID) validation.push('Select the account used for Autopay.');
+  if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    validation.push('Pick when to remind you to cancel.');
+    opensMoreOptions = true;
+  }
+  if ((interval === 'daily' || interval === 'business_daily') && !autopay) {
+    validation.push('Daily payments need Autopay turned on.');
+    opensMoreOptions = true;
+  }
+  if (autopay && !accountID) {
+    validation.push('Choose the account Autopay should use.');
+    opensMoreOptions = true;
+  }
   const totalEmiCount = totalEmis.trim() ? Number(totalEmis) : 0;
   const paidEmiCount = emisPaid.trim() ? Number(emisPaid) : 0;
   if (formKind === 'loan') {
+    const loanErrorsBefore = validation.length;
     if (!Number.isInteger(totalEmiCount) || totalEmiCount < 0 || totalEmiCount > 600)
-      validation.push('Total EMIs must be a whole number up to 600.');
+      validation.push('Total EMIs should be a whole number up to 600.');
     if (!Number.isInteger(paidEmiCount) || paidEmiCount < 0)
-      validation.push('EMIs paid must be a whole number.');
+      validation.push('EMIs paid should be a whole number.');
     if (totalEmiCount > 0 && paidEmiCount > totalEmiCount)
-      validation.push('EMIs paid cannot be more than the total.');
+      validation.push("EMIs paid can't be more than the total.");
     if (ratePct.trim() && !(Number(ratePct) >= 0 && Number(ratePct) <= 60))
-      validation.push('Interest rate must be between 0 and 60%.');
+      validation.push('Enter an interest rate between 0 and 60%.');
+    opensKindDetails = validation.length > loanErrorsBefore;
   }
-  return validation;
+  return { messages: validation, opensMoreOptions, opensKindDetails };
 };
 
 /** The body sent to create or update a recurring payment. */

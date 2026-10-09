@@ -164,7 +164,7 @@ export function SubscriptionAdvancedFields({
           <View className="flex-1 pr-3">
             <ThemedText className="text-sm font-black">Autopay</ThemedText>
             <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-              Add each recurring payment automatically and ask you to confirm it.
+              Finnri adds each payment for you, then asks you to confirm it.
             </ThemedText>
           </View>
           <HapticSwitch
@@ -204,7 +204,7 @@ export function SubscriptionAdvancedFields({
             <Pressable className="mt-3 flex-row items-center gap-2" onPress={onAddAccount}>
               <MaterialCommunityIcons name="plus-circle-outline" size={18} color={colors.accent} />
               <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                Add or manage payment account
+                Add a payment account
               </ThemedText>
             </Pressable>
           </>
@@ -220,7 +220,7 @@ export function SubscriptionAdvancedFields({
               Remind me to cancel
             </ThemedText>
             <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-              Reminder notification will explicitly ask you to cancel before the next payment.
+              For a trial or a plan you mean to stop. You’ll get a nudge before it renews.
             </ThemedText>
           </View>
           <HapticSwitch

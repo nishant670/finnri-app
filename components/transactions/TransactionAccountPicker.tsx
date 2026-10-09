@@ -45,7 +45,7 @@ export function TransactionAccountPicker({
   return (
     <AnimatedBottomSheet visible={visible} onClose={onClose} backdropOpacity={0.3}>
       <View className="rounded-t-3xl px-4 pb-10 pt-4" style={{ backgroundColor: theme.background }}>
-        <ThemedText className="text-center text-base font-bold mb-6">Select Account</ThemedText>
+        <ThemedText className="text-center text-base font-bold mb-6">Choose an account</ThemedText>
         <View className="gap-2">
           {accounts.map((account) => (
             <Pressable

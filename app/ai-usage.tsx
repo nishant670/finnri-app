@@ -77,7 +77,7 @@ export default function AIUsageScreen() {
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={['top', 'left', 'right']}>
-      <AppHeader title="AI Usage" onBack={() => router.back()} />
+      <AppHeader title="AI usage" onBack={() => router.back()} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 42 }}>

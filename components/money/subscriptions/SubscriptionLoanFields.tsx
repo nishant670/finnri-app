@@ -83,7 +83,7 @@ export function SubscriptionLoanFields({
         ))}
       </View>
       <Field
-        label="Lender (optional)"
+        label="Lender"
         value={lender}
         onChangeText={setLender}
         colors={colors}
@@ -165,7 +165,7 @@ export function SubscriptionLoanFields({
         </Pressable>
       ) : null}
       <DateRow
-        label="First EMI on (optional)"
+        label="First EMI on"
         value={startDate}
         onPress={openStartDatePicker}
         colors={colors}

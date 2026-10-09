@@ -30,7 +30,7 @@ export function SubscriptionInvestmentFields({
   return (
     <View testID="recurring-investment-fields">
       <Field
-        label="Fund or platform (optional)"
+        label="Fund or platform"
         value={platform}
         onChangeText={setPlatform}
         colors={colors}
@@ -39,7 +39,7 @@ export function SubscriptionInvestmentFields({
       <View className="flex-row gap-3">
         <View className="flex-1">
           <DateRow
-            label="Started on (optional)"
+            label="Started on"
             value={startDate}
             onPress={openStartDatePicker}
             colors={colors}

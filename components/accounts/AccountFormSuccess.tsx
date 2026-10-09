@@ -46,8 +46,7 @@ export function AccountFormSuccess({
             {accountName}
           </ThemedText>
           <ThemedText style={styles.successMessage}>
-            This account is ready for transaction tracking. You can view it now or add another
-            payment source.
+            All set. Finnri will use it whenever a payment matches.
           </ThemedText>
         </View>
       </View>
@@ -86,7 +85,7 @@ export function AccountFormSuccess({
                 { backgroundColor: theme.card, borderColor: theme.border },
               ]}>
               <ThemedText style={styles.secondaryFullWidthText}>
-                Complete {missingSetupCount} detail{missingSetupCount > 1 ? 's' : ''}
+                Add {missingSetupCount} more detail{missingSetupCount > 1 ? 's' : ''}
               </ThemedText>
               <MaterialCommunityIcons
                 name="clipboard-check-outline"

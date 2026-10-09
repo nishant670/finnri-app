@@ -18,7 +18,7 @@ describe('auth errors', () => {
         new TypeError('Network request failed'),
         'Unable to continue as guest.',
       ),
-    ).toBe('Could not connect to Finnri. Check your connection and try again.');
+    ).toBe("Can't reach Finnri right now. Check your connection and try again.");
   });
 
   it('keeps specific auth messages intact', () => {

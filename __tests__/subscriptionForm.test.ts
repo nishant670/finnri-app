@@ -149,7 +149,7 @@ const base = (over: Partial<RecurringFormValues> = {}): RecurringFormValues => (
 });
 const validate = (over: Partial<RecurringFormValues> = {}) => {
   const v = base(over);
-  return validateRecurringForm({ ...v, nameLabel: v.kindMeta.nameLabel });
+  return validateRecurringForm({ ...v, namePlaceholder: v.kindMeta.namePlaceholder }).messages;
 };
 
 describe('validateRecurringForm', () => {
@@ -160,32 +160,32 @@ describe('validateRecurringForm', () => {
   it('requires a name, an amount and a valid renewal date', () => {
     const messages = validate({ merchant: ' ', amount: '0', nextDueDate: 'soon' });
     expect(messages).toEqual([
-      `${recurringKindMeta.subscription.nameLabel} name is required.`,
-      'Amount must be positive.',
-      'Choose a valid renewal date.',
+      'Add a name — like Netflix.',
+      'Enter an amount above zero.',
+      'Pick the next payment date.',
     ]);
   });
 
   it('rejects an unparseable amount', () => {
-    expect(validate({ amount: 'abc' })).toContain('Amount must be positive.');
+    expect(validate({ amount: 'abc' })).toContain('Enter an amount above zero.');
   });
 
   it('bounds the reminder to whole days between 0 and 30', () => {
-    expect(validate({ reminderDays: 31 })).toContain('Reminder must be between 0 and 30 days.');
-    expect(validate({ reminderDays: -1 })).toContain('Reminder must be between 0 and 30 days.');
-    expect(validate({ reminderDays: 1.5 })).toContain('Reminder must be between 0 and 30 days.');
+    expect(validate({ reminderDays: 31 })).toContain('Reminders can be 0 to 30 days before.');
+    expect(validate({ reminderDays: -1 })).toContain('Reminders can be 0 to 30 days before.');
+    expect(validate({ reminderDays: 1.5 })).toContain('Reminders can be 0 to 30 days before.');
     expect(validate({ reminderDays: 0 })).toEqual([]);
   });
 
   it('wants a cancellation date only when cancellation reminders are on', () => {
-    expect(validate({ cancelBeforeDue: true })).toContain('Choose a cancellation reminder date.');
+    expect(validate({ cancelBeforeDue: true })).toContain('Pick when to remind you to cancel.');
     expect(validate({ cancelBeforeDue: true, cancelOnDate: '2026-11-01' })).toEqual([]);
   });
 
   it('requires Autopay for daily schedules and an account for Autopay', () => {
-    expect(validate({ interval: 'daily' })).toContain('Daily schedules require Autopay.');
-    expect(validate({ interval: 'business_daily' })).toContain('Daily schedules require Autopay.');
-    expect(validate({ autopay: true })).toContain('Select the account used for Autopay.');
+    expect(validate({ interval: 'daily' })).toContain('Daily payments need Autopay turned on.');
+    expect(validate({ interval: 'business_daily' })).toContain('Daily payments need Autopay turned on.');
+    expect(validate({ autopay: true })).toContain('Choose the account Autopay should use.');
     expect(validate({ interval: 'daily', autopay: true, accountID: 4 })).toEqual([]);
   });
 
@@ -194,11 +194,11 @@ describe('validateRecurringForm', () => {
       validate({ formKind: 'loan', kindMeta: recurringKindMeta.loan, ...over });
 
     it('checks the EMI counts', () => {
-      expect(loan({ totalEmis: '601' })).toContain('Total EMIs must be a whole number up to 600.');
-      expect(loan({ totalEmis: '12.5' })).toContain('Total EMIs must be a whole number up to 600.');
-      expect(loan({ emisPaid: '-1' })).toContain('EMIs paid must be a whole number.');
+      expect(loan({ totalEmis: '601' })).toContain('Total EMIs should be a whole number up to 600.');
+      expect(loan({ totalEmis: '12.5' })).toContain('Total EMIs should be a whole number up to 600.');
+      expect(loan({ emisPaid: '-1' })).toContain('EMIs paid should be a whole number.');
       expect(loan({ totalEmis: '12', emisPaid: '13' })).toContain(
-        'EMIs paid cannot be more than the total.'
+        "EMIs paid can't be more than the total."
       );
       expect(loan({ totalEmis: '12', emisPaid: '12' })).toEqual([]);
     });
@@ -208,14 +208,31 @@ describe('validateRecurringForm', () => {
     });
 
     it('keeps the interest rate within 0–60%', () => {
-      expect(loan({ ratePct: '61' })).toContain('Interest rate must be between 0 and 60%.');
-      expect(loan({ ratePct: '-1' })).toContain('Interest rate must be between 0 and 60%.');
+      expect(loan({ ratePct: '61' })).toContain('Enter an interest rate between 0 and 60%.');
+      expect(loan({ ratePct: '-1' })).toContain('Enter an interest rate between 0 and 60%.');
       expect(loan({ ratePct: '12.5' })).toEqual([]);
     });
 
     it('does not apply loan rules to other kinds', () => {
       expect(validate({ totalEmis: '9999', ratePct: '99' })).toEqual([]);
     });
+  });
+
+  it('says which fold holds the field a message names', () => {
+    const folds = (over: Partial<RecurringFormValues>) => {
+      const v = base(over);
+      const { opensMoreOptions, opensKindDetails } = validateRecurringForm({
+        ...v,
+        namePlaceholder: v.kindMeta.namePlaceholder,
+      });
+      return { opensMoreOptions, opensKindDetails };
+    };
+    expect(folds({})).toEqual({ opensMoreOptions: false, opensKindDetails: false });
+    expect(folds({ amount: '0' })).toEqual({ opensMoreOptions: false, opensKindDetails: false });
+    expect(folds({ autopay: true })).toEqual({ opensMoreOptions: true, opensKindDetails: false });
+    expect(
+      folds({ formKind: 'loan', kindMeta: recurringKindMeta.loan, ratePct: '99' })
+    ).toEqual({ opensMoreOptions: false, opensKindDetails: true });
   });
 });
 

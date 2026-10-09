@@ -19,8 +19,8 @@ const setup = async (Sheet: typeof TransactionDateTimeSheet) => {
 describe('TransactionDateTimeSheet', () => {
   it('confirms or cancels', async () => {
     const { screen, onClose, onConfirm } = await setup(TransactionDateTimeSheet);
-    expect(screen.getByText('Select Date & Time')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Set Date'));
+    expect(screen.getByText('Date & time')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Done'));
     expect(onConfirm).toHaveBeenCalledTimes(1);
     await fireEvent.press(screen.getByText('Cancel'));
     expect(onClose).toHaveBeenCalledTimes(1);

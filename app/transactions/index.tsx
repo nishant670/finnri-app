@@ -395,7 +395,7 @@ export default function TransactionsScreen() {
         </Pressable>
 
         <ThemedText className="text-base font-bold" style={{ color: theme.text }}>
-          &nbsp; {reviewMode ? 'Needs Review' : 'Transactions'}&nbsp;
+          &nbsp; {reviewMode ? 'Needs review' : 'Transactions'}&nbsp;
         </ThemedText>
         <Pressable
           accessibilityRole="button"
@@ -416,7 +416,7 @@ export default function TransactionsScreen() {
           <View className="flex-1 flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm">
             <Ionicons name="search" size={20} color="#9CA3AF" />
             <TextInput
-              placeholder="Search transactions..."
+              placeholder="Search transactions…"
               placeholderTextColor="#9CA3AF"
               className="flex-1 ml-3 text-sm text-gray-900 font-medium"
               value={searchQuery}
@@ -581,7 +581,7 @@ export default function TransactionsScreen() {
                 <MaterialCommunityIcons name="history" size={20} color={theme.text} />
               </View>
               <ThemedText className="text-xs" style={{ color: theme.text }}>
-                End of your story for now!
+                That’s everything for now.
               </ThemedText>
             </View>
           </View>

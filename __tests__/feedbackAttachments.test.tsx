@@ -67,18 +67,22 @@ describe('feedback attachments', () => {
     });
     expect(screen.getAllByTestId('feedback-attachment')).toHaveLength(1);
 
+    // The title sits in the details fold; open it to write one.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('feedback-details'));
+    });
     await act(async () => {
       fireEvent.changeText(
-        screen.getByPlaceholderText('Short title'),
+        screen.getByPlaceholderText('Short title (optional)'),
         'Show AI credits purchase popup'
       );
       fireEvent.changeText(
-        screen.getByPlaceholderText('What should we improve, add, or fix?'),
+        screen.getByPlaceholderText('What happened, or what would you like to see?'),
         'Offer to buy credits when I run out.'
       );
     });
     await act(async () => {
-      fireEvent.press(screen.getByText('Send Feedback'));
+      fireEvent.press(screen.getByText('Send feedback'));
     });
 
     await waitFor(() => expect(mockedSubmit).toHaveBeenCalledTimes(1));
@@ -116,18 +120,21 @@ describe('feedback attachments', () => {
   it('sends feedback without attachments exactly as before', async () => {
     const screen = await render(<FeedbackScreen />);
     await act(async () => {
-      fireEvent.changeText(screen.getByPlaceholderText('Short title'), 'Weekly summary');
       fireEvent.changeText(
-        screen.getByPlaceholderText('What should we improve, add, or fix?'),
+        screen.getByPlaceholderText('What happened, or what would you like to see?'),
         'A weekly summary would help.'
       );
     });
     await act(async () => {
-      fireEvent.press(screen.getByText('Send Feedback'));
+      fireEvent.press(screen.getByText('Send feedback'));
     });
 
     await waitFor(() => expect(mockedSubmit).toHaveBeenCalledTimes(1));
     expect(mockedUpload).not.toHaveBeenCalled();
     expect(mockedSubmit.mock.calls[0][1]).not.toHaveProperty('attachments');
+    // No title written, so one is made from the message.
+    expect(mockedSubmit.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ title: 'A weekly summary would help.' })
+    );
   });
 });

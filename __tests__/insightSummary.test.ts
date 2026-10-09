@@ -114,7 +114,7 @@ describe('getPeriodPulse', () => {
       }),
       0
     );
-    expect(pulse.label).toBe('Watch spending');
+    expect(pulse.label).toBe('Spending ahead of income');
   });
 
   it('is on track when income exceeds what left', () => {

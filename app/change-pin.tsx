@@ -24,7 +24,7 @@ export default function ChangePinScreen() {
             router.back();
         } catch (error) {
             console.error('Failed to update PIN:', error);
-            setError(getFriendlyErrorMessage(error, 'Failed to update PIN.'));
+            setError(getFriendlyErrorMessage(error, "Couldn't update your PIN. Try again."));
         } finally {
             setLoading(false);
         }

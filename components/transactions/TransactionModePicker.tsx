@@ -31,7 +31,7 @@ export function TransactionModePicker({
     <AnimatedBottomSheet visible={visible} onClose={onClose} backdropOpacity={0.3}>
       <View className="rounded-t-3xl px-4 pb-10 pt-4" style={{ backgroundColor: theme.background }}>
         <ThemedText className="text-center text-base font-bold mb-6">
-          Select Payment Method
+          Choose a payment method
         </ThemedText>
         <View className="gap-2">
           {options.map((m) => (

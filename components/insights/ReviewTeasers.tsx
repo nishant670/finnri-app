@@ -52,7 +52,7 @@ export function MonthlyReviewTeaser() {
         </View>
         <View className="flex-1">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Monthly Review
+            Monthly review
           </ThemedText>
           <ThemedText className="mt-1 text-base font-black">{label} in review</ThemedText>
           <ThemedText tone="muted" className="mt-1 text-xs leading-5">
@@ -102,9 +102,9 @@ export function WeeklyReviewTeaser({
         </View>
         <View className="flex-1">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Weekly Review
+            Weekly review
           </ThemedText>
-          <ThemedText className="mt-1 text-base font-black">Review the money story</ThemedText>
+          <ThemedText className="mt-1 text-base font-black">See how your week went</ThemedText>
           <ThemedText tone="muted" className="mt-1 text-xs leading-5">
             {budgetRisks} budget risk{budgetRisks === 1 ? '' : 's'} · {recurringCount} recurring ·{' '}
             {warningCount} alert{warningCount === 1 ? '' : 's'}
@@ -130,7 +130,7 @@ export function RecurringReviewTeaser({
 
   return (
     <SectionHeader
-      title="Recurring Review"
+      title="Recurring review"
       actionLabel="Review"
       onAction={() =>
         router.push({

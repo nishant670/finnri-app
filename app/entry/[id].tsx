@@ -410,14 +410,14 @@ export default function TransactionDetailsScreen() {
 
   const handleSaveUpdate = async (formData: EntryForm) => {
     try {
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
 
       const payload = await buildTransactionPayload(token, formData, {
         refundStatus: displayData.refund_status ?? 'pending',
       });
       if (!formData.splitEnabled && splitBill) payload.split = null;
 
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
       const budgetNotificationIds =
         formData.type === 'Expense'
           ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
@@ -445,7 +445,7 @@ export default function TransactionDetailsScreen() {
       }
     } catch (error) {
       console.error(error);
-      throw error instanceof Error ? error : new Error('Failed to update transaction');
+      throw error instanceof Error ? error : new Error("Couldn't update this transaction.");
     }
   };
 
@@ -693,7 +693,7 @@ export default function TransactionDetailsScreen() {
           </Animated.View>
 
           <ThemedText className="text-lg font-black mb-3" style={{ color: theme.text }}>
-            {displayData.title || 'Untitled Transaction'}
+            {displayData.title || 'Untitled transaction'}
           </ThemedText>
 
           {hasMerchant && (
@@ -947,7 +947,7 @@ export default function TransactionDetailsScreen() {
             <ThemedText
               tone="muted"
               className="text-[10px] font-black uppercase tracking-[2px] mb-4 ml-6">
-              THE PAPER TRAIL
+              RECEIPT
             </ThemedText>
             {isPdfAttachment(receiptUrl) ? (
               <Pressable

@@ -623,7 +623,7 @@ export default function HomeScreen() {
         setTransactions(mapped);
         setEntryTotal(total);
       } catch (error) {
-        setEntriesError(getFriendlyErrorMessage(error, 'Unable to load entries right now.'));
+        setEntriesError(getFriendlyErrorMessage(error, "Couldn't load your activity."));
       } finally {
         if (!silent) setIsEntriesLoading(false);
       }
@@ -834,7 +834,7 @@ export default function HomeScreen() {
   const startRecording = useCallback(async () => {
     const hasPermission = await ensureMicPermission();
     if (!hasPermission) {
-      setErrorMessage('Microphone permission is required to record audio.');
+      setErrorMessage('Finnri needs microphone access to hear you. You can turn it on in Settings.');
       return;
     }
     try {
@@ -850,7 +850,7 @@ export default function HomeScreen() {
       setIsRecording(true);
       haptics.captureStart();
     } catch {
-      setErrorMessage('Unable to start recording. Please try again.');
+      setErrorMessage("Couldn't start recording. Try again.");
       setIsRecording(false);
     }
   }, [audioRecorder, ensureMicPermission]);
@@ -862,7 +862,7 @@ export default function HomeScreen() {
       setRecordedUri(audioRecorder.uri);
       haptics.captureStop();
     } catch {
-      setErrorMessage('Unable to stop recording. Please try again.');
+      setErrorMessage("Couldn't stop recording. Try again.");
     } finally {
       setIsRecording(false);
       try {
@@ -1437,7 +1437,7 @@ export default function HomeScreen() {
       // A re-asked suggestion is text, so any pending recording is not part of it.
       const audioUri = overrideText ? null : recordedUri;
       if (!trimmed && !audioUri) {
-        setErrorMessage('Please type or record your expense first.');
+        setErrorMessage('Type or say what you spent first.');
         return;
       }
       // The same gate as the microphone, for the typed and quick-prompt paths
@@ -1624,7 +1624,7 @@ export default function HomeScreen() {
         <StateView
           icon="receipt-text-plus-outline"
           title="No activity yet"
-          message="Record, type, or add your first transaction to start building your money story."
+          message="Say it, type it, or tap + to log your first transaction."
           actionLabel="Add"
           onAction={handleOpenManualEntry}
         />
@@ -1640,8 +1640,8 @@ export default function HomeScreen() {
     return (
       <View>
         <SectionHeader
-          title="Recent Activity"
-          actionLabel="See All"
+          title="Recent activity"
+          actionLabel="See all"
           onAction={() => router.push('/transactions')}
         />
 
@@ -1828,7 +1828,7 @@ export default function HomeScreen() {
                       <ThemedText
                         className="text-xs font-black"
                         style={{ color: themeTokens.colors.accent }}>
-                        Correct / revert
+                        Fix it
                       </ThemedText>
                     </Pressable>
                   </View>
@@ -2044,7 +2044,7 @@ export default function HomeScreen() {
             onExpandedHeightChange={setCaptureExpandedHeight}>
             <View className="px-6 pb-4">
               <ThemedText tone="muted" className="text-xs font-medium text-center">
-                Speak naturally. Finnri will organize it.
+                Talk the way you normally would. Finnri sorts it out.
               </ThemedText>
             </View>
 

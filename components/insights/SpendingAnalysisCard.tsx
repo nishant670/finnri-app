@@ -34,7 +34,7 @@ export function SpendingAnalysisCard({
   const merchants = dashboard.top_merchants.slice(0, 2);
 
   return (
-    <SectionHeader title="Spending Analysis" actionLabel="Details" onAction={onDetails}>
+    <SectionHeader title="Spending breakdown" actionLabel="Details" onAction={onDetails}>
       <View className="gap-4">
         <SpendTrendChart
           dashboard={dashboard}
@@ -70,7 +70,7 @@ export function SpendingAnalysisCard({
             <ThemedText
               tone="muted"
               className="mb-2 text-[10px] font-black uppercase tracking-widest">
-              Top Merchants
+              Top merchants
             </ThemedText>
             {merchants.map((merchant) => (
               <MerchantRow key={merchant.merchant} merchant={merchant} />

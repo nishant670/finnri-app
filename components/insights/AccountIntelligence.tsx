@@ -11,7 +11,7 @@ export function AccountIntelligence({ dashboard }: { dashboard: DashboardRespons
   const theme = useThemeTokens();
   const topCategory = dashboard.top_categories[0]?.category ?? 'Not enough data';
   return (
-    <SectionHeader title="Account Intelligence">
+    <SectionHeader title="Accounts">
       <View
         className="rounded-[24px] border p-5 shadow-sm"
         style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
@@ -38,10 +38,10 @@ export function AccountIntelligence({ dashboard }: { dashboard: DashboardRespons
         <View className="mt-2 flex-row gap-3">
           <MiniMetric
             icon="calendar-blank-outline"
-            label="Daily Average"
+            label="Daily average"
             value={formatMoney(dashboard.summary.daily_average)}
           />
-          <MiniMetric icon="chart-bar" label="Top Category" value={topCategory} />
+          <MiniMetric icon="chart-bar" label="Top category" value={topCategory} />
         </View>
       </View>
     </SectionHeader>

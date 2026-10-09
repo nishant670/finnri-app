@@ -21,7 +21,7 @@ export function SmartAlerts({
   if (cards.length === 0) return null;
 
   return (
-    <SectionHeader title="Smart Alerts">
+    <SectionHeader title="Alerts">
       <View className="gap-3">
         {cards.slice(0, 3).map((card) => (
           <AlertCard
@@ -73,13 +73,13 @@ function AlertCard({ card, params }: { card: InsightCard; params: Record<string,
           {isWarning && (
             <View className="mt-3 flex-row gap-2">
               <PillButton
-                label="View Details"
+                label="View details"
                 muted
                 onPress={() => router.push({ pathname: '/insight-detail', params })}
               />
               {params.category && (
                 <PillButton
-                  label="Set Limit"
+                  label="Set a limit"
                   onPress={() =>
                     router.push({
                       pathname: '/budgets',

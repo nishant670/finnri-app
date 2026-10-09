@@ -11,6 +11,7 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
@@ -25,8 +26,9 @@ import {
   type DashboardRecurringCandidate,
 } from '@/lib/insights';
 import { fetchMerchantSuggestions, type MerchantSuggestion } from '@/lib/merchant-suggestions';
+import { formatMoney } from '@/lib/money';
 import type { MoneyPanelProps } from '@/components/money/BudgetsPanel';
-import { fetchRecurring, kindOf, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
+import { fetchRecurring, kindOf, loanTypeOptions, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
 import {
   BillingInterval,
   LoanType,
@@ -40,7 +42,7 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, sanitizeAmount, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
+import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
@@ -106,6 +108,8 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [editing, setEditing] = useState<Subscription | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  /** The loan's or investment's own details — all optional, so folded. */
+  const [showKindDetails, setShowKindDetails] = useState(false);
   const [name, setName] = useState('');
   const [merchant, setMerchant] = useState('');
   const [merchantSuggestions, setMerchantSuggestions] = useState<MerchantSuggestion[]>([]);
@@ -221,6 +225,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setAccountID(null);
     setNotes('');
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
     setFormKind('subscription');
     setLoanType('');
@@ -336,6 +341,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setPlatform(subscription.platform ?? '');
     setStepUpPct(numberText(subscription.step_up_pct));
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
     setShowForm(true);
   };
@@ -416,7 +422,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
 
   const saveSubscription = async () => {
     if (!token || saving) return;
-    const validation = validateRecurringForm({
+    const { messages, opensMoreOptions, opensKindDetails } = validateRecurringForm({
       name,
       merchant,
       amount,
@@ -431,16 +437,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
       totalEmis,
       emisPaid,
       ratePct,
-      nameLabel: kindMeta.nameLabel,
+      namePlaceholder: kindMeta.namePlaceholder,
     });
-    if (validation.length > 0) {
+    if (messages.length > 0) {
       haptics.rejected();
-      setError(validation.join('\n'));
-      // A failure caused by something folded away has to open the fold, or the
-      // message names a control the user cannot see.
-      if (validation.some((line) => line.includes('Autopay') || line.includes('Reminder'))) {
-        setShowAdvanced(true);
-      }
+      setError(messages.join('\n'));
+      if (opensMoreOptions) setShowAdvanced(true);
+      if (opensKindDetails) setShowKindDetails(true);
       return;
     }
 
@@ -498,7 +501,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     } catch (saveError) {
       haptics.rejected();
       setError(
-        getFriendlyErrorMessage(saveError, `Unable to save this ${kindMeta.label.toLowerCase()}.`)
+        getFriendlyErrorMessage(
+          saveError,
+          `Couldn't save this ${formKind}. Check your connection and try again.`
+        )
       );
     } finally {
       setSaving(false);
@@ -566,6 +572,43 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setMerchant(suggestion.merchant);
     if (suggestion.category) setCategory(suggestion.category);
   };
+
+  const loanTypeLabel = loanTypeOptions.find((option) => option.value === loanType)?.label;
+  /** What the kind's own fold holds, read back so it can stay closed. */
+  const kindDetailsSummary =
+    formKind === 'loan'
+      ? [
+          loanTypeLabel ? `${loanTypeLabel} loan` : '',
+          lender.trim(),
+          principal.trim() ? formatMoney(parseAmount(principal)) : '',
+          ratePct.trim() ? `${ratePct}% a year` : '',
+          totalEmis.trim() ? `${emisPaid.trim() || '0'} of ${totalEmis} EMIs paid` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — loan amount, interest and EMIs left'
+      : [
+          platform.trim(),
+          startDate ? `Since ${formatDueDateLabel(startDate)}` : '',
+          stepUpPct.trim() ? `${stepUpPct}% yearly step-up` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — fund, start date and yearly step-up';
+  const autopayAccountName = accounts.find((account) => account.id === accountID)?.name;
+  const moreOptionsSummary = [
+    editing && status !== 'active'
+      ? statusOptions.find((option) => option.value === status)?.label
+      : '',
+    category || 'Uncategorized',
+    interval === 'daily' || interval === 'business_daily'
+      ? 'Added automatically'
+      : reminderDays === 0
+        ? 'Reminder on the due date'
+        : `Reminder ${reminderLabel(reminderDays)}`,
+    autopay ? `Autopay${autopayAccountName ? ` from ${autopayAccountName}` : ''}` : 'Autopay off',
+    cancelBeforeDue ? 'Cancel reminder on' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
@@ -748,48 +791,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             }
           />
 
-          {formKind === 'loan' ? (
-            <SubscriptionLoanFields
-              amount={amount}
-              colors={colors}
-              emisPaid={emisPaid}
-              foreclosurePct={foreclosurePct}
-              lender={lender}
-              loanSuggestion={loanSuggestion}
-              loanType={loanType}
-              muted={muted}
-              name={name}
-              openStartDatePicker={openStartDatePicker}
-              principal={principal}
-              processingFee={processingFee}
-              ratePct={ratePct}
-              setAmount={setAmount}
-              setEmisPaid={setEmisPaid}
-              setForeclosurePct={setForeclosurePct}
-              setLender={setLender}
-              setLoanType={setLoanType}
-              setPrincipal={setPrincipal}
-              setProcessingFee={setProcessingFee}
-              setRatePct={setRatePct}
-              setTotalEmis={setTotalEmis}
-              startDate={startDate}
-              totalEmis={totalEmis}
-            />
-          ) : null}
-
-          {formKind === 'investment' ? (
-            <SubscriptionInvestmentFields
-              colors={colors}
-              muted={muted}
-              openStartDatePicker={openStartDatePicker}
-              platform={platform}
-              setPlatform={setPlatform}
-              setStepUpPct={setStepUpPct}
-              startDate={startDate}
-              stepUpPct={stepUpPct}
-            />
-          ) : null}
-
           <Pressable
             accessibilityRole="button"
             onPress={openDueDatePicker}
@@ -829,56 +830,111 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             colors={colors}
           />
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: showAdvanced }}
-            onPress={() => {
-              haptics.toggle(!showAdvanced);
-              setShowAdvanced((current) => !current);
-            }}
-            className="mb-3 mt-1 flex-row items-center justify-between rounded-2xl px-1 py-3">
-            <ThemedText className="text-xs font-black uppercase" style={{ color: muted }}>
-              Advanced
-            </ThemedText>
-            <MaterialCommunityIcons
-              name={showAdvanced ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={muted}
-            />
-          </Pressable>
+          {/* The loan's or investment's own details. None of them is needed
+              to schedule the payment — the amount and the date do that — so
+              they fold, and the fold reads back whatever is filled in. A loan
+              used to open with all fourteen inputs on screen. */}
+          {formKind === 'loan' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-loan-details"
+                label="Loan details"
+                icon="bank-outline"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <SubscriptionLoanFields
+                  amount={amount}
+                  colors={colors}
+                  emisPaid={emisPaid}
+                  foreclosurePct={foreclosurePct}
+                  lender={lender}
+                  loanSuggestion={loanSuggestion}
+                  loanType={loanType}
+                  muted={muted}
+                  name={name}
+                  openStartDatePicker={openStartDatePicker}
+                  principal={principal}
+                  processingFee={processingFee}
+                  ratePct={ratePct}
+                  setAmount={setAmount}
+                  setEmisPaid={setEmisPaid}
+                  setForeclosurePct={setForeclosurePct}
+                  setLender={setLender}
+                  setLoanType={setLoanType}
+                  setPrincipal={setPrincipal}
+                  setProcessingFee={setProcessingFee}
+                  setRatePct={setRatePct}
+                  setTotalEmis={setTotalEmis}
+                  startDate={startDate}
+                  totalEmis={totalEmis}
+                />
+              </FormDisclosure>
+            </View>
+          ) : null}
 
-          {showAdvanced && (
-            <SubscriptionAdvancedFields
-              accountID={accountID}
-              accounts={accounts}
-              autopay={autopay}
-              cancelBeforeDue={cancelBeforeDue}
-              cancelOnDate={cancelOnDate}
-              category={category}
-              colors={colors}
-              interval={interval}
-              isEditing={Boolean(editing)}
-              merchant={merchant}
-              muted={muted}
-              name={name}
-              notes={notes}
-              onAddAccount={() => router.push('/accounts/manage')}
-              openCancellationDatePicker={openCancellationDatePicker}
-              paymentMode={paymentMode}
-              reminderDays={reminderDays}
-              setAccountID={setAccountID}
-              setAutopay={setAutopay}
-              setCancelBeforeDue={setCancelBeforeDue}
-              setCategory={setCategory}
-              setInterval={setInterval}
-              setName={setName}
-              setNotes={setNotes}
-              setPaymentMode={setPaymentMode}
-              setReminderDays={setReminderDays}
-              setStatus={setStatus}
-              status={status}
-            />
-          )}
+          {formKind === 'investment' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-investment-details"
+                label="Investment details"
+                icon="chart-line"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <SubscriptionInvestmentFields
+                  colors={colors}
+                  muted={muted}
+                  openStartDatePicker={openStartDatePicker}
+                  platform={platform}
+                  setPlatform={setPlatform}
+                  setStepUpPct={setStepUpPct}
+                  startDate={startDate}
+                  stepUpPct={stepUpPct}
+                />
+              </FormDisclosure>
+            </View>
+          ) : null}
+
+          <View className="mb-4">
+            <FormDisclosure
+              testID="recurring-more-options"
+              label="More options"
+              summary={moreOptionsSummary}
+              expanded={showAdvanced}
+              onToggle={() => setShowAdvanced((current) => !current)}>
+              <SubscriptionAdvancedFields
+                accountID={accountID}
+                accounts={accounts}
+                autopay={autopay}
+                cancelBeforeDue={cancelBeforeDue}
+                cancelOnDate={cancelOnDate}
+                category={category}
+                colors={colors}
+                interval={interval}
+                isEditing={Boolean(editing)}
+                merchant={merchant}
+                muted={muted}
+                name={name}
+                notes={notes}
+                onAddAccount={() => router.push('/accounts/manage')}
+                openCancellationDatePicker={openCancellationDatePicker}
+                paymentMode={paymentMode}
+                reminderDays={reminderDays}
+                setAccountID={setAccountID}
+                setAutopay={setAutopay}
+                setCancelBeforeDue={setCancelBeforeDue}
+                setCategory={setCategory}
+                setInterval={setInterval}
+                setName={setName}
+                setNotes={setNotes}
+                setPaymentMode={setPaymentMode}
+                setReminderDays={setReminderDays}
+                setStatus={setStatus}
+                status={status}
+              />
+            </FormDisclosure>
+          </View>
 
           {error && (
             <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
@@ -898,9 +954,9 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               <ActivityIndicator color="white" />
             ) : (
               <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                {editing
-                  ? `Update ${kindMeta.label.toLowerCase()}`
-                  : `Add ${kindMeta.label.toLowerCase()}`}
+                {/* The kind's key is its plain noun. Lower-casing the label
+                    printed "Add loan / emi". */}
+                {editing ? 'Save changes' : `Add ${formKind}`}
               </ThemedText>
             )}
           </Pressable>

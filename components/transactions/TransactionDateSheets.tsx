@@ -31,7 +31,7 @@ export function TransactionDateTimeSheet({
   return (
     <AnimatedBottomSheet visible onClose={onClose} backdropOpacity={0.3}>
       <View className="rounded-t-3xl px-4 pb-6 pt-4" style={{ backgroundColor: theme.background }}>
-        <ThemedText className="text-center text-sm font-bold">Select Date & Time</ThemedText>
+        <ThemedText className="text-center text-sm font-bold">Date & time</ThemedText>
         <DateTimePicker
           value={pendingDate}
           mode="datetime"
@@ -51,7 +51,7 @@ export function TransactionDateTimeSheet({
             style={{ backgroundColor: accent }}
             onPress={onConfirm}>
             <ThemedText tone="onAccent" className="font-bold">
-              Set Date
+              Done
             </ThemedText>
           </Pressable>
         </View>

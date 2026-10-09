@@ -25,6 +25,7 @@ import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
+import { AddDetailChips, type AddDetailOption } from '@/components/ui/AddDetailChips';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -87,6 +88,7 @@ import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
 import {
   shareFromPercent,
   TransactionSplitFields,
+  withSplitTurnedOn,
   type TransactionSplitShareMode,
 } from './TransactionSplitFields';
 
@@ -238,46 +240,37 @@ const emptySplitFriends: SplitFriend[] = [];
 const emptySplitGroups: SplitGroup[] = [];
 const emptyRecentEntries: Transaction[] = [];
 
-const requiredFields: (keyof EntryForm)[] = ['title', 'amount', 'type', 'mode', 'category', 'date'];
-const fieldLabels: Record<keyof EntryForm, string> = {
-  title: 'Transaction Title',
-  time: 'Time',
-  amount: 'Amount',
-  type: 'Type',
-  mode: 'Mode',
-  category: 'Category',
-  date: 'Date',
-  notes: 'Notes',
-  tag: 'Tag',
-  currency: 'Currency',
-  accountId: 'Account',
-  account: 'Account',
-  merchant: 'Merchant',
-  attachment: 'Attachment',
-  splitEnabled: 'Split',
-  splitGroupId: 'Split group',
-  splitGroupName: 'Split group',
-  splitParticipants: 'Split shares',
-  refundableAmount: 'Refundable amount',
-  refundExpectedOn: 'Expected refund date',
-  refundReminderEnabled: 'Refund reminder',
-  emiTenureMonths: 'EMI tenure',
-  emiRatePct: 'EMI interest rate',
-  emiTotalInstalments: 'Total EMIs',
-  emiPaidInstalments: 'EMIs paid so far',
-  subscriptionEnabled: 'Subscription',
-  subscriptionName: 'Subscription name',
-  subscriptionMerchant: 'Subscription merchant',
-  subscriptionCategory: 'Subscription category',
-  subscriptionAmount: 'Subscription amount',
-  subscriptionBillingInterval: 'Billing interval',
-  subscriptionNextDueDate: 'Next payment date',
-  subscriptionReminderDays: 'Reminder',
-  subscriptionCancelBeforeDue: 'Cancellation reminder',
-  subscriptionCancelOnDate: 'Cancellation date',
-  subscriptionAutopay: 'Autopay',
-  subscriptionNotes: 'Subscription notes',
+const requiredFields = ['title', 'amount', 'type', 'mode', 'category', 'date'] as const;
+
+/**
+ * What to say when a required field is empty — one sentence that says what to
+ * do, rather than "Please provide Transaction Title." The old line read the
+ * field's label back in title case, which named the problem in the form's own
+ * jargon and left the fix to the reader.
+ */
+const missingFieldMessages: Record<(typeof requiredFields)[number], string> = {
+  title: 'Add a title so you can spot this later.',
+  amount: 'Enter an amount.',
+  type: 'Choose expense or income.',
+  mode: 'Choose how you paid.',
+  category: 'Choose a category.',
+  date: 'Pick a date.',
 };
+
+/**
+ * The optional details a transaction can carry, each offered as a chip until
+ * it is wanted. The tag-driven cards (EMI, refund, subscription) are not in
+ * this list: they follow from the tag, so choosing the tag is what adds them.
+ */
+type EntryDetailKey = 'merchant' | 'notes' | 'tag' | 'receipt' | 'split';
+
+const ENTRY_DETAIL_OPTIONS: AddDetailOption<EntryDetailKey>[] = [
+  { key: 'notes', label: 'Note', icon: 'note-text-outline' },
+  { key: 'merchant', label: 'Merchant', icon: 'storefront-outline' },
+  { key: 'tag', label: 'Tag', icon: 'tag-outline' },
+  { key: 'receipt', label: 'Receipt', icon: 'paperclip' },
+  { key: 'split', label: 'Split', icon: 'account-multiple-outline' },
+];
 
 const getPaymentLanguage = (entryType: string) =>
   entryType === 'Income'
@@ -517,8 +510,8 @@ export function TransactionFormModal({
   const detailIconSurface = colorScheme === 'dark' ? theme.secondary : accentSurface;
 
   /**
-   * Compact entry: title, amount and transaction type stay visible, with
-   * optional fields folded behind More details.
+   * Compact entry: title, amount and transaction type stay visible, with each
+   * optional field offered as an "add" chip until it is wanted.
    *
    * Only new manual entries take this path. An AI draft is a review, not a
    * capture — the amount already exists and the job is checking it (W7 owns
@@ -622,8 +615,21 @@ export function TransactionFormModal({
     })
   );
 
-  const [isMoreDetailsExpanded, setIsMoreDetailsExpanded] = useState(false);
+  /**
+   * Optional details asked for with a chip since the sheet opened. A detail
+   * that already holds a value shows without being asked for — see
+   * `isDetailShown`.
+   */
+  const [revealedDetails, setRevealedDetails] = useState<EntryDetailKey[]>([]);
+  const [isSubscriptionOptionsOpen, setIsSubscriptionOptionsOpen] = useState(false);
   const [isTitleFocused, setIsTitleFocused] = useState(false);
+  /**
+   * Any system keyboard, not only the title's. The optional fields can now sit
+   * on the capture screen itself, and each of them — a note, a merchant, a
+   * friend's share — brings the system keyboard up over the keypad. The title
+   * flag alone could only stand the pad down for the title.
+   */
+  const [isSystemKeyboardUp, setIsSystemKeyboardUp] = useState(false);
   const titleInputRef = useRef<TextInput>(null);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
@@ -648,8 +654,17 @@ export function TransactionFormModal({
   const amountInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    const subscription = Keyboard.addListener('keyboardDidHide', () => setIsTitleFocused(false));
-    return () => subscription.remove();
+    const shown = () => setIsSystemKeyboardUp(true);
+    const subscriptions = [
+      // iOS announces the keyboard before it moves; Android only once it has.
+      Keyboard.addListener('keyboardWillShow', shown),
+      Keyboard.addListener('keyboardDidShow', shown),
+      Keyboard.addListener('keyboardDidHide', () => {
+        setIsSystemKeyboardUp(false);
+        setIsTitleFocused(false);
+      }),
+    ];
+    return () => subscriptions.forEach((subscription) => subscription.remove());
   }, []);
 
   useEffect(() => {
@@ -942,18 +957,27 @@ export function TransactionFormModal({
   }, [categorySuggestions, displayedCategory, form.type]);
 
   /**
-   * The keypad is up whenever the sheet is in its capture state. Opening More
-   * details swaps it out: every field under there wants the system keyboard,
-   * and two keyboards fighting for the same 250dp is worse than either.
+   * The keypad is up whenever the sheet is in its capture state and no text
+   * field has the system keyboard. A note or a merchant typed on the capture
+   * screen stands the pad down while it is being typed — two keyboards fighting
+   * for the same 250dp is worse than either — and tapping the amount brings it
+   * back.
+   *
+   * This used to be a mode: More details swapped the whole capture screen for
+   * the full form, so wanting a note meant being shown amount, payment mode,
+   * date, account and category a second time, plus a split card, before
+   * finding the note at the bottom. Optional details are chips now, and each
+   * one adds only itself.
    */
-  const isCompactEntry = fastEntry && !isMoreDetailsExpanded;
-  const isKeypadVisible = isCompactEntry && !isTitleFocused && keyboardInset === 0;
+  const isCompactEntry = fastEntry;
+  const isKeypadVisible =
+    isCompactEntry && !isTitleFocused && !isSystemKeyboardUp && keyboardInset === 0;
   /**
-   * The stacked full form. Amount-first folds it behind More details; the AI
-   * draft replaces it outright with the confidence-ranked list, so no field
+   * The stacked full form, for editing a saved entry and for quick prompts. The
+   * AI draft replaces it outright with the confidence-ranked list, so no field
    * ever renders twice on the same screen.
    */
-  const showFullForm = !draftReview && (!fastEntry || isMoreDetailsExpanded);
+  const showFullForm = !draftReview && !fastEntry;
   const amountEntered = hasEnteredAmount(form.amount);
   const quickFills = useMemo(
     () => (fastEntry ? buildQuickFills(recentEntries, form.type) : []),
@@ -1245,7 +1269,8 @@ export function TransactionFormModal({
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      setIsMoreDetailsExpanded(false);
+      setRevealedDetails([]);
+      setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
       setScanError(null);
@@ -1369,16 +1394,67 @@ export function TransactionFormModal({
       }
       const asset = result.assets[0];
       if (!asset?.uri) {
-        setAttachmentError('That file could not be read. Please pick another one.');
+        // The receipt row is where this message renders, so it has to be on
+        // screen even though nothing was attached.
+        revealDetail('receipt');
+        setAttachmentError("That file couldn't be read. Try another one.");
         return;
       }
       setAttachmentError(null);
       // Stored as a local URI here; it is uploaded when the entry is saved.
       setForm((prev) => ({ ...prev, attachment: asset.uri }));
     } catch {
-      setAttachmentError('That file could not be read. Please pick another one.');
+      revealDetail('receipt');
+      setAttachmentError("That file couldn't be read. Try another one.");
     }
   };
+
+  const revealDetail = (detail: EntryDetailKey) =>
+    setRevealedDetails((previous) => (previous.includes(detail) ? previous : [...previous, detail]));
+
+  /**
+   * A detail is on screen once it was asked for, or whenever it already holds
+   * something — a merchant filled by a quick-fill chip, a note on an entry
+   * being edited. A value hidden behind a chip would read as a value lost.
+   */
+  const isDetailShown = (detail: EntryDetailKey) => {
+    if (revealedDetails.includes(detail)) return true;
+    switch (detail) {
+      case 'merchant':
+        return form.merchant.trim().length > 0;
+      case 'notes':
+        return form.notes.trim().length > 0;
+      case 'tag':
+        return form.tag.trim().length > 0 && form.tag !== 'General';
+      case 'receipt':
+        return Boolean(form.attachment);
+      case 'split':
+        return form.splitEnabled;
+    }
+  };
+
+  const handleAddDetail = (detail: EntryDetailKey) => {
+    if (detail === 'receipt') {
+      // Straight to the picker. An empty "attach a file" row would only be a
+      // second tap standing between the chip and the thing it promised.
+      void handlePickAttachment();
+      return;
+    }
+    if (detail === 'split') {
+      setForm((previous) => withSplitTurnedOn(previous, splitFriends));
+    }
+    revealDetail(detail);
+  };
+
+  /** The chips still on offer: details not yet on screen that fit this entry. */
+  const availableDetailOptions = ENTRY_DETAIL_OPTIONS.filter((option) => {
+    if (isDetailShown(option.key)) return false;
+    if (option.key === 'receipt') return mode !== 'quick-prompt';
+    if (option.key === 'split') {
+      return !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
+    }
+    return true;
+  });
 
   /** Bill scanning is for a fresh personal entry; a split has its own composer. */
   const canScanReceipt = fastEntry && !splitContext && !!onScanReceipt;
@@ -1399,12 +1475,12 @@ export function TransactionFormModal({
       if (result.canceled) return;
       const asset = result.assets[0];
       if (!asset?.uri) {
-        setScanError('That photo could not be read. Please pick another one.');
+        setScanError("That photo couldn't be read. Try another one.");
         return;
       }
       onScanReceipt?.(asset.uri);
     } catch {
-      setScanError('That photo could not be opened. Please try again.');
+      setScanError("That photo couldn't be opened. Try again.");
     }
   };
 
@@ -1465,32 +1541,36 @@ export function TransactionFormModal({
         ? normalizeCategoryValue(form.subscriptionCategory || form.category, 'Expense')
         : form.subscriptionCategory,
     };
+    // The subscription's name falls back the way the entry's title does.
+    normalizedForm.subscriptionName = form.subscriptionEnabled
+      ? form.subscriptionName.trim() || form.merchant.trim() || normalizedForm.title
+      : form.subscriptionName;
     const missingField = requiredFields.find((field) => {
       const value = normalizedForm[field];
       return typeof value === 'string' ? value.trim().length === 0 : !value;
     });
 
     if (missingField) {
-      rejectSave(`Please provide ${fieldLabels[missingField]}.`);
+      rejectSave(missingFieldMessages[missingField]);
       return;
     }
     const amountValue = Number(form.amount.replace(/,/g, ''));
     if (!Number.isFinite(amountValue) || amountValue <= 0) {
-      rejectSave('Please enter a valid amount.');
+      rejectSave('Enter an amount above zero.');
       return;
     }
     if (personalPayment && form.tag === 'Refundable') {
       const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
       if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
-        rejectSave('Please enter how much is refundable.');
+        rejectSave('Enter how much you expect back.');
         return;
       }
       if (refundableAmount > amountValue) {
-        rejectSave('Refundable amount cannot exceed the transaction amount.');
+        rejectSave("The refund can't be more than what you paid.");
         return;
       }
       if (!parseDateLabel(form.refundExpectedOn)) {
-        rejectSave('Please choose when the refund is expected.');
+        rejectSave('Pick the date you expect it back.');
         return;
       }
     }
@@ -1498,25 +1578,25 @@ export function TransactionFormModal({
       const tenure = Number(form.emiTenureMonths);
       const rate = Number(form.emiRatePct || 0);
       if (!Number.isInteger(tenure) || tenure < 1 || tenure > 360) {
-        rejectSave('Please choose an EMI tenure.');
+        rejectSave('Pick how many months the EMI runs.');
         return;
       }
       if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-        rejectSave('EMI interest rate must be between 0 and 100%.');
+        rejectSave('Enter an interest rate between 0 and 100%.');
         return;
       }
       if (!emiCalculation || isCalculatingEMI) {
-        rejectSave('Wait for the EMI schedule before saving.');
+        rejectSave('One moment — the EMI schedule is still being worked out.');
         return;
       }
     }
     if (form.splitEnabled && !splitContext) {
       if (form.type !== 'Expense') {
-        rejectSave('Splits can be added only to expenses.');
+        rejectSave('Only expenses can be split.');
         return;
       }
       if (form.splitParticipants.length === 0) {
-        rejectSave('Add at least one friend share for the split.');
+        rejectSave('Add at least one friend to split with.');
         return;
       }
       const totalSplit = form.splitParticipants.reduce(
@@ -1529,11 +1609,11 @@ export function TransactionFormModal({
           (!participant.friendId && participant.friendName.trim().length === 0)
       );
       if (invalidParticipant) {
-        rejectSave('Each split share needs a friend and a positive amount.');
+        rejectSave('Everyone in the split needs a name and an amount.');
         return;
       }
       if (totalSplit > amountValue) {
-        rejectSave('Split shares cannot exceed the transaction amount.');
+        rejectSave('The shares add up to more than the total.');
         return;
       }
     }
@@ -1541,42 +1621,48 @@ export function TransactionFormModal({
       const total = Number(form.emiTotalInstalments);
       const paid = Number(form.emiPaidInstalments || 1);
       if (!Number.isInteger(total) || total < 1 || total > 600) {
-        rejectSave('Total EMIs must be between 1 and 600.');
+        rejectSave('Total EMIs should be between 1 and 600.');
         return;
       }
       if (!Number.isInteger(paid) || paid < 1 || paid > total) {
-        rejectSave('Paid so far (counting this one) cannot be more than the total EMIs.');
+        rejectSave("EMIs paid so far (counting this one) can't be more than the total.");
         return;
       }
     }
     if (personalPayment && form.subscriptionEnabled) {
       const subscriptionAmount = Number(form.subscriptionAmount || form.amount);
       const reminderDays = Number(form.subscriptionReminderDays || 0);
-      if (form.subscriptionName.trim().length === 0) {
-        rejectSave('Please provide Subscription name.');
+      // Name and amount live under the card's More options and start from the
+      // payment, so a blank one is a default nobody overrode, not a mistake.
+      if (normalizedForm.subscriptionName.trim().length === 0) {
+        setIsSubscriptionOptionsOpen(true);
+        rejectSave('Give the subscription a name.');
         return;
       }
       if (!Number.isFinite(subscriptionAmount) || subscriptionAmount <= 0) {
-        rejectSave('Please enter a valid subscription amount.');
+        setIsSubscriptionOptionsOpen(true);
+        rejectSave('Enter the amount it renews for.');
         return;
       }
       if (!form.subscriptionBillingInterval) {
-        rejectSave('Please choose Billing interval.');
+        rejectSave('Choose how often it repeats.');
         return;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionNextDueDate.trim())) {
-        rejectSave('Please enter Next payment date as YYYY-MM-DD.');
+        rejectSave('Pick the next payment date.');
         return;
       }
       if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-        rejectSave('Reminder must be between 0 and 30 days.');
+        setIsSubscriptionOptionsOpen(true);
+        rejectSave('Reminders can be 0 to 30 days before.');
         return;
       }
       if (
         form.subscriptionCancelBeforeDue &&
         !/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionCancelOnDate.trim())
       ) {
-        rejectSave('Please choose the date when you want the cancellation reminder.');
+        setIsSubscriptionOptionsOpen(true);
+        rejectSave('Pick when to remind you to cancel.');
         return;
       }
       if (
@@ -1584,7 +1670,7 @@ export function TransactionFormModal({
           form.subscriptionBillingInterval === 'business_daily') &&
         !form.subscriptionAutopay
       ) {
-        rejectSave('Enable Autopay for daily or market-day transactions.');
+        rejectSave('Daily payments need Autopay turned on.');
         return;
       }
     }
@@ -1610,7 +1696,9 @@ export function TransactionFormModal({
       if (captureEntitlement(error)) {
         return;
       }
-      rejectSave(getFriendlyErrorMessage(error, 'Something went wrong.'));
+      rejectSave(
+        getFriendlyErrorMessage(error, "Couldn't save this. Check your connection and try again.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -1779,13 +1867,13 @@ export function TransactionFormModal({
             <ThemedText tone="onAccent" className="text-base font-black">
               {isEdit
                 ? mode === 'quick-prompt'
-                  ? 'Save Prompt'
-                  : 'Update Details'
+                  ? 'Save prompt'
+                  : 'Save changes'
                 : mode === 'quick-prompt'
-                  ? 'Create Prompt'
+                  ? 'Create prompt'
                   : fastEntry
                     ? 'Save'
-                    : 'Confirm & Save'}
+                    : 'Confirm & save'}
             </ThemedText>
             <MaterialCommunityIcons name="check-circle-outline" size={24} color="white" />
           </>
@@ -1843,7 +1931,10 @@ export function TransactionFormModal({
               className="flex-1 rounded-t-[32px] shadow-2xl relative overflow-hidden"
               style={{ backgroundColor: theme.background }}>
               <View className="items-center pt-6 pb-1 relative">
-                <View className="h-1.5 w-12 rounded-full absolute top-3 bg-gray-200" />
+                <View
+                  className="h-1.5 w-12 rounded-full absolute top-3"
+                  style={{ backgroundColor: theme.border }}
+                />
                 <Pressable
                   onPress={requestClose}
                   className="absolute right-5 top-5 h-9 w-9 rounded-full items-center justify-center z-10"
@@ -1900,17 +1991,19 @@ export function TransactionFormModal({
                     {heading ??
                       (isEdit
                         ? mode === 'quick-prompt'
-                          ? 'Edit Quick Prompt'
-                          : 'Update Details'
+                          ? 'Edit quick prompt'
+                          : 'Edit transaction'
                         : mode === 'audio'
                           ? aiReview?.smartSortingDisabled
-                            ? 'Review AI Draft'
-                            : "I've sorted the details!"
+                            ? 'Review your draft'
+                            : 'Here’s your draft'
                           : mode === 'quick-prompt'
-                            ? 'New Quick Prompt'
+                            ? 'New quick prompt'
                             : splitContext
                               ? 'New split expense'
-                              : 'New Transaction')}
+                              : form.type === 'Income'
+                                ? 'New income'
+                                : 'New expense')}
                   </ThemedText>
                   {canScanReceipt && scanError ? (
                     <ThemedText tone="negative" className="mt-1 text-center text-xs">
@@ -1924,19 +2017,19 @@ export function TransactionFormModal({
                   {!fastEntry && (!draftReview || aiReview?.smartSortingDisabled) && (
                     <ThemedText tone="muted" className="text-center text-sm leading-5 px-3">
                       {isEdit
-                        ? 'Make your changes and confirm below.'
+                        ? 'Change what you need, then save.'
                         : mode === 'audio'
                           ? aiReview?.smartSortingDisabled
-                            ? 'Smart Sorting is off, so choose the category and payment details before saving.'
-                            : "Here's the AI draft. Review every field before you save."
+                            ? 'Smart Sorting is off, so pick the category and payment details yourself.'
+                            : 'Check each field before you save.'
                           : mode === 'quick-prompt'
-                            ? 'These details will be used for your shortcut.'
-                            : 'Fill in the transaction details below.'}
+                            ? 'One tap on this prompt fills all of this in for you.'
+                            : 'Add the details below.'}
                     </ThemedText>
                   )}
                 </View>
 
-                <View className="px-5 mb-6">
+                <View className={fastEntry ? 'px-5 mb-3' : 'px-5 mb-6'}>
                   {draftReview && aiReview?.sourceText ? (
                     <TransactionDraftSource
                       inputSource={aiReview.inputSource}
@@ -2216,11 +2309,22 @@ export function TransactionFormModal({
 
                   {!draftReview && (
                     <View
-                      className="rounded-[20px] p-3 border shadow-sm mb-3"
+                      className={
+                        isCompactEntry
+                          ? 'rounded-[20px] px-3 py-3 border shadow-sm mb-2'
+                          : 'rounded-[20px] p-3 border shadow-sm mb-3'
+                      }
                       style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
-                        Transaction Title
-                      </ThemedText>
+                      {/* On the capture path the title is one row, and its
+                          placeholder says it is optional — a blank one is saved
+                          as the merchant or category. Every row this screen
+                          spends on a label is a row the "add details" chips
+                          lose to the keypad. */}
+                      {!isCompactEntry && (
+                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
+                          Title
+                        </ThemedText>
+                      )}
                       <View className="flex-row items-center gap-3">
                         <MaterialCommunityIcons
                           name="label-variant-outline"
@@ -2238,8 +2342,10 @@ export function TransactionFormModal({
                           returnKeyType={isCompactEntry ? 'next' : 'done'}
                           className="text-base font-black flex-1 p-0"
                           style={{ color: theme.text, height: 24 }}
-                          placeholder="What was this for?"
-                          placeholderTextColor="#9CA3AF"
+                          placeholder={
+                            isCompactEntry ? 'What was it for? (optional)' : 'What was this for?'
+                          }
+                          placeholderTextColor={theme.muted}
                         />
                       </View>
                     </View>
@@ -2301,14 +2407,16 @@ export function TransactionFormModal({
 
                   {/* The review sheet shows the type as a card in its ranked
                       list instead, where it sits with the rest of the draft. */}
+                  {/* No label above it: a segmented Expense / Income control
+                      says what it is, and a heading saying it again was one
+                      more line to read before the amount. */}
                   {!draftReview && !splitContext && (
                     <View className="mb-4">
-                      <ThemedText
-                        tone="muted"
-                        className="text-[10px] font-black uppercase tracking-widest mb-2 italic">
-                        Transaction Type
-                      </ThemedText>
-                      <View className="flex-row bg-gray-100 dark:bg-gray-800 rounded-[22px] p-1 relative overflow-hidden">
+                      <View
+                        accessibilityRole="radiogroup"
+                        accessibilityLabel="Transaction type"
+                        className="flex-row rounded-[22px] p-1 relative overflow-hidden"
+                        style={{ backgroundColor: `${theme.text}0D` }}>
                         <Animated.View
                           style={[
                             {
@@ -2326,24 +2434,130 @@ export function TransactionFormModal({
                         />
                         <Pressable
                           testID="entry-type-expense"
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: form.type === 'Expense' }}
                           onPress={() => selectTransactionType('Expense')}
                           className="flex-1 py-3 items-center justify-center z-10">
+                          {/* Colour by tone, not class: a colour className on
+                              ThemedText is overridden by its own style, which
+                              is how the selected label used to render in the
+                              theme's ink instead of white on the accent. */}
                           <ThemedText
-                            className={`text-sm font-black tracking-tight ${form.type === 'Expense' ? 'text-white' : 'text-gray-400'}`}>
-                            EXPENSE
+                            tone={form.type === 'Expense' ? 'onAccent' : 'muted'}
+                            className="text-sm font-black tracking-tight">
+                            Expense
                           </ThemedText>
                         </Pressable>
                         <Pressable
                           testID="entry-type-income"
+                          accessibilityRole="radio"
+                          accessibilityState={{ selected: form.type === 'Income' }}
                           onPress={() => selectTransactionType('Income')}
                           className="flex-1 py-3 items-center justify-center z-10">
                           <ThemedText
-                            className={`text-sm font-black tracking-tight ${form.type === 'Income' ? 'text-white' : 'text-gray-400'}`}>
-                            INCOME
+                            tone={form.type === 'Income' ? 'onAccent' : 'muted'}
+                            className="text-sm font-black tracking-tight">
+                            Income
                           </ThemedText>
                         </Pressable>
                       </View>
                     </View>
+                  )}
+
+                  {/* Category sits with the other essentials when editing. It
+                      used to come after the split, EMI and subscription cards,
+                      so the one field every entry has was the last one found. */}
+                  {showFullForm && (
+                    <>
+                    {categoryNeedsReview && (
+                      <ThemedText
+                        tone="warning"
+                        className="text-[11px] font-black uppercase tracking-widest mb-4">
+                        Check the category
+                      </ThemedText>
+                    )}
+                    {visibleCategorySuggestions.length > 0 && (
+                      <View className="mb-3">
+                        <ThemedText
+                          tone="muted"
+                          className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                          Suggested from history
+                        </ThemedText>
+                        <View className="flex-row flex-wrap gap-2">
+                          {visibleCategorySuggestions.map((suggestion) => (
+                            <Pressable
+                              key={suggestion}
+                              accessibilityRole="button"
+                              onPress={() => selectCategory(suggestion)}
+                              className="flex-row items-center rounded-full px-3 py-2"
+                              style={{ backgroundColor: accentSurface }}>
+                              <MaterialCommunityIcons
+                                name="creation-outline"
+                                size={13}
+                                color={accent}
+                              />
+                              <ThemedText
+                                className="ml-1.5 text-[11px] font-black"
+                                style={{ color: accent }}>
+                                {suggestion}
+                              </ThemedText>
+                            </Pressable>
+                          ))}
+                        </View>
+                      </View>
+                    )}
+                    <View className="relative mb-4">
+                      {categoryNeedsReview && (
+                        <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
+                          <ThemedText className="text-[8px] font-black">Check this</ThemedText>
+                        </View>
+                      )}
+                      <Pressable
+                        testID="entry-category-picker"
+                        onPress={() => setIsCategoryPickerVisible(true)}
+                        className="w-full rounded-[24px] border p-3 flex-row items-center justify-between"
+                        style={{
+                          backgroundColor: categoryNeedsReview
+                            ? colorScheme === 'dark'
+                              ? theme.secondary
+                              : '#FFFCF0'
+                            : theme.card,
+                          borderColor: categoryNeedsReview ? '#FDE68A' : theme.border,
+                        }}>
+                        <View className="flex-row items-center gap-4">
+                          <View
+                            className="h-10 w-10 items-center justify-center"
+                            style={{
+                              backgroundColor: categoryNeedsReview ? '#FEF3C7' : accentSurface,
+                              borderRadius: themeTokens.icon.containerRadius,
+                            }}>
+                            <MaterialCommunityIcons
+                              // Was hardcoded to a car, so Misc and Bills both
+                              // showed one. The amount-first chip renders the
+                              // real icon a few dp away, which made the two
+                              // disagree on the same screen. The amber tint and
+                              // the "Check this" badge still carry the review
+                              // state; the icon does not have to.
+                              name={displayedCategoryVisual.icon}
+                              size={21}
+                              color={categoryNeedsReview ? '#F59E0B' : accent}
+                            />
+                          </View>
+                          <View>
+                            <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
+                              Category
+                            </ThemedText>
+                            <ThemedText
+                              className="text-sm font-black"
+                              style={{ color: theme.text }}>
+                              {displayedCategory}
+                            </ThemedText>
+                          </View>
+                        </View>
+                        <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
+                      </Pressable>
+                    </View>
+                    </>
                   )}
 
                   {isCompactEntry && (
@@ -2467,10 +2681,12 @@ export function TransactionFormModal({
                             <ThemedText
                               tone="muted"
                               className="text-[10px] font-bold uppercase mb-2">
-                              Date & Time
+                              Date & time
                             </ThemedText>
                             <View className="flex-row items-center gap-3">
-                              <View className="h-9 w-9 rounded-xl bg-purple-50 items-center justify-center">
+                              <View
+                                className="h-9 w-9 rounded-xl items-center justify-center"
+                                style={{ backgroundColor: accentSurface }}>
                                 <MaterialCommunityIcons
                                   name="calendar-multiselect"
                                   size={18}
@@ -2596,14 +2812,125 @@ export function TransactionFormModal({
 
                 {splitContext?.fields}
 
+                {/* Optional details. Each one is a field only once it has been
+                    asked for or already holds something; the rest wait as chips
+                    at the bottom. The review sheet has its own expandable
+                    summary, and a second place holding the same fields would
+                    compete with it. */}
+                {!draftReview &&
+                  (isDetailShown('merchant') || isDetailShown('notes') || isDetailShown('tag')) && (
+                    <View className="px-5 mb-6 gap-4">
+                      {isDetailShown('merchant') && (
+                        <Animated.View entering={motion.revealEntering()}>
+                          <ThemedText
+                            tone="muted"
+                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                            Merchant
+                          </ThemedText>
+                          <View
+                            className="rounded-[20px] border p-3 flex-row items-center gap-3"
+                            style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                            <View
+                              className="h-8 w-8 rounded-xl items-center justify-center"
+                              style={{ backgroundColor: detailIconSurface }}>
+                              <MaterialCommunityIcons
+                                name="storefront-outline"
+                                size={16}
+                                color={accent}
+                              />
+                            </View>
+                            <TextInput
+                              testID="entry-merchant-input"
+                              value={form.merchant}
+                              onChangeText={(t) => setForm((p) => ({ ...p, merchant: t }))}
+                              // Only when the chip just asked for it: a merchant
+                              // shown because it already had one stays put.
+                              autoFocus={revealedDetails.includes('merchant') && !form.merchant}
+                              className="text-sm font-black flex-1 p-0"
+                              placeholder="Merchant or store name"
+                              placeholderTextColor={detailInputPlaceholderColor}
+                              selectionColor={accent}
+                              style={{ color: theme.text, minHeight: 24 }}
+                            />
+                          </View>
+                        </Animated.View>
+                      )}
+
+                      {isDetailShown('notes') && (
+                        <Animated.View entering={motion.revealEntering()}>
+                          <ThemedText
+                            tone="muted"
+                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                            Note
+                          </ThemedText>
+                          <TextInput
+                            testID="entry-notes-input"
+                            multiline
+                            placeholder="Add a note…"
+                            placeholderTextColor={detailInputPlaceholderColor}
+                            value={form.notes}
+                            onChangeText={(t) => setForm((p) => ({ ...p, notes: t }))}
+                            autoFocus={revealedDetails.includes('notes') && !form.notes}
+                            className="rounded-[20px] border px-4 py-3 text-sm font-bold min-h-[84px]"
+                            textAlignVertical="top"
+                            selectionColor={accent}
+                            style={{
+                              backgroundColor: theme.card,
+                              borderColor: theme.border,
+                              color: theme.text,
+                            }}
+                          />
+                        </Animated.View>
+                      )}
+
+                      {isDetailShown('tag') && (
+                        <Animated.View entering={motion.revealEntering()}>
+                          <ThemedText
+                            tone="muted"
+                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                            Tag
+                          </ThemedText>
+                          <View className="flex-row flex-wrap gap-2">
+                            {tagOptions.map((tag) => {
+                              const selected = form.tag === tag;
+                              return (
+                                <Pressable
+                                  key={tag}
+                                  accessibilityRole="button"
+                                  accessibilityState={{ selected }}
+                                  onPress={() => {
+                                    haptics.select();
+                                    setForm((p) => ({ ...p, tag }));
+                                  }}
+                                  className="rounded-full border px-4 py-2 active:opacity-60"
+                                  style={{
+                                    backgroundColor: selected ? accentSurface : theme.card,
+                                    borderColor: selected ? accent : theme.border,
+                                  }}>
+                                  <ThemedText
+                                    className="text-xs font-bold"
+                                    style={{ color: selected ? accent : theme.mutedStrong }}>
+                                    {tag}
+                                  </ThemedText>
+                                </Pressable>
+                              );
+                            })}
+                          </View>
+                        </Animated.View>
+                      )}
+                    </View>
+                  )}
+
                 {!splitContext &&
                   mode !== 'quick-prompt' &&
                   form.type === 'Expense' &&
                   // On the review sheet a split the parser did not hear about
                   // is an extra, so it waits behind the summary rather than
-                  // pushing Confirm off a clean draft.
-                  (showFullForm ||
-                    (draftReview && (form.splitEnabled || isDraftSummaryExpanded))) && (
+                  // pushing Confirm off a clean draft. Everywhere else it is a
+                  // chip until it is wanted.
+                  (draftReview
+                    ? form.splitEnabled || isDraftSummaryExpanded
+                    : isDetailShown('split')) && (
                     <TransactionSplitFields
                       form={form}
                       setForm={setForm}
@@ -2620,7 +2947,6 @@ export function TransactionFormModal({
 
                 {personalPayment &&
                   mode !== 'quick-prompt' &&
-                  (showFullForm || draftReview) &&
                   form.tag === 'EMI' && (
                     <TransactionEmiFields
                       isEdit={isEdit}
@@ -2656,7 +2982,6 @@ export function TransactionFormModal({
                   )}
 
                 {mode !== 'quick-prompt' &&
-                  (showFullForm || draftReview) &&
                   personalPayment &&
                   form.tag === 'Refundable' && (
                     <TransactionRefundFields
@@ -2682,7 +3007,6 @@ export function TransactionFormModal({
 
                 {mode !== 'quick-prompt' &&
                   !isEdit &&
-                  (showFullForm || draftReview) &&
                   personalPayment &&
                   !emiRepeatActive &&
                   (form.subscriptionEnabled || form.tag === 'Subscription') && (
@@ -2690,6 +3014,8 @@ export function TransactionFormModal({
                       form={form}
                       setForm={setForm}
                       onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
+                      optionsOpen={isSubscriptionOptionsOpen}
+                      onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
                       onOpenCancellationDatePicker={() => {
                         setPendingCancellationDate(
                           form.subscriptionCancelOnDate
@@ -2701,207 +3027,23 @@ export function TransactionFormModal({
                     />
                   )}
 
-                {showFullForm && (
-                  <View className="px-5 mb-6">
-                    {categoryNeedsReview && (
-                      <ThemedText
-                        tone="muted"
-                        className="text-[11px] font-black uppercase tracking-widest italic mb-4">
-                        Needs Attention
-                      </ThemedText>
-                    )}
-                    {visibleCategorySuggestions.length > 0 && (
-                      <View className="mb-3">
-                        <ThemedText
-                          tone="muted"
-                          className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                          Suggested from history
-                        </ThemedText>
-                        <View className="flex-row flex-wrap gap-2">
-                          {visibleCategorySuggestions.map((suggestion) => (
-                            <Pressable
-                              key={suggestion}
-                              accessibilityRole="button"
-                              onPress={() => selectCategory(suggestion)}
-                              className="flex-row items-center rounded-full px-3 py-2"
-                              style={{ backgroundColor: accentSurface }}>
-                              <MaterialCommunityIcons
-                                name="creation-outline"
-                                size={13}
-                                color={accent}
-                              />
-                              <ThemedText
-                                className="ml-1.5 text-[11px] font-black"
-                                style={{ color: accent }}>
-                                {suggestion}
-                              </ThemedText>
-                            </Pressable>
-                          ))}
-                        </View>
-                      </View>
-                    )}
-                    <View className="relative mb-4">
-                      {categoryNeedsReview && (
-                        <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
-                          <ThemedText className="text-[8px] font-black">Check this</ThemedText>
-                        </View>
-                      )}
-                      <Pressable
-                        testID="entry-category-picker"
-                        onPress={() => setIsCategoryPickerVisible(true)}
-                        className="w-full rounded-[24px] border p-3 flex-row items-center justify-between"
-                        style={{
-                          backgroundColor: categoryNeedsReview
-                            ? colorScheme === 'dark'
-                              ? theme.secondary
-                              : '#FFFCF0'
-                            : theme.card,
-                          borderColor: categoryNeedsReview ? '#FDE68A' : theme.border,
-                        }}>
-                        <View className="flex-row items-center gap-4">
-                          <View
-                            className="h-10 w-10 items-center justify-center"
-                            style={{
-                              backgroundColor: categoryNeedsReview ? '#FEF3C7' : accentSurface,
-                              borderRadius: themeTokens.icon.containerRadius,
-                            }}>
-                            <MaterialCommunityIcons
-                              // Was hardcoded to a car, so Misc and Bills both
-                              // showed one. The amount-first chip renders the
-                              // real icon a few dp away, which made the two
-                              // disagree on the same screen. The amber tint and
-                              // the "Check this" badge still carry the review
-                              // state; the icon does not have to.
-                              name={displayedCategoryVisual.icon}
-                              size={21}
-                              color={categoryNeedsReview ? '#F59E0B' : accent}
-                            />
-                          </View>
-                          <View>
-                            <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                              Category
-                            </ThemedText>
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              {displayedCategory}
-                            </ThemedText>
-                          </View>
-                        </View>
-                        <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
-                      </Pressable>
-                    </View>
-                  </View>
+                {!draftReview && mode !== 'quick-prompt' && isDetailShown('receipt') && (
+                  <Animated.View entering={motion.revealEntering()} className="px-5 mb-6">
+                    {renderReceiptField(true)}
+                  </Animated.View>
                 )}
 
-                {/* The review sheet has its own expandable summary; a second
-                    disclosure holding the same fields would compete with it. */}
-                {!draftReview && (
-                  <View className="px-5 mb-4">
-                    <Pressable
-                      testID="entry-more-details-toggle"
-                      onPress={() => setIsMoreDetailsExpanded(!isMoreDetailsExpanded)}
-                      className="flex-row items-center justify-between py-3 border-b border-gray-50">
-                      <View className="flex-row items-center gap-2">
-                        <MaterialCommunityIcons name="tune-variant" size={20} color={theme.text} />
-                        <ThemedText className="text-sm font-black opacity-60">
-                          More details
-                        </ThemedText>
-                      </View>
-                      <MaterialCommunityIcons
-                        name={isMoreDetailsExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={24}
-                        color={theme.text}
-                        className="opacity-40"
-                      />
-                    </Pressable>
-                    {isMoreDetailsExpanded && (
-                      <View className="mt-4 gap-4">
-                        <View className="flex-row gap-4">
-                          <View className="flex-1">
-                            <ThemedText
-                              tone="muted"
-                              className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-                              Merchant
-                            </ThemedText>
-                            <View
-                              className="rounded-[20px] border p-3 flex-row items-center gap-3 shadow-sm"
-                              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                              <View
-                                className="h-8 w-8 rounded-xl items-center justify-center"
-                                style={{ backgroundColor: detailIconSurface }}>
-                                <MaterialCommunityIcons
-                                  name="storefront-outline"
-                                  size={16}
-                                  color={accent}
-                                />
-                              </View>
-                              <TextInput
-                                value={form.merchant}
-                                onChangeText={(t) => setForm((p) => ({ ...p, merchant: t }))}
-                                className="text-sm font-black flex-1 p-0"
-                                placeholder="Merchant or store name"
-                                placeholderTextColor={detailInputPlaceholderColor}
-                                selectionColor={accent}
-                                style={{ color: theme.text, minHeight: 24 }}
-                              />
-                            </View>
-                          </View>
-                        </View>
-
-                        <View>
-                          <ThemedText
-                            tone="muted"
-                            className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-                            Tags
-                          </ThemedText>
-                          <View className="flex-row flex-wrap gap-2">
-                            {tagOptions.map((tag) => (
-                              <Pressable
-                                key={tag}
-                                onPress={() => setForm((p) => ({ ...p, tag }))}
-                                className="rounded-full border px-4 py-2"
-                                style={{
-                                  backgroundColor: form.tag === tag ? accentSurface : theme.card,
-                                  borderColor: form.tag === tag ? accent : theme.border,
-                                }}>
-                                <ThemedText
-                                  className="text-xs font-bold"
-                                  style={{ color: form.tag === tag ? accent : '#6B7280' }}>
-                                  {tag}
-                                </ThemedText>
-                              </Pressable>
-                            ))}
-                          </View>
-                        </View>
-
-                        <View>
-                          <ThemedText
-                            tone="muted"
-                            className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-                            Notes
-                          </ThemedText>
-                          <TextInput
-                            multiline
-                            placeholder="Add a note..."
-                            placeholderTextColor={detailInputPlaceholderColor}
-                            value={form.notes}
-                            onChangeText={(t) => setForm((p) => ({ ...p, notes: t }))}
-                            className="rounded-[20px] border px-4 py-3 text-sm font-bold min-h-[92px] shadow-sm"
-                            textAlignVertical="top"
-                            selectionColor={accent}
-                            style={{
-                              backgroundColor: theme.card,
-                              borderColor: theme.border,
-                              color: theme.text,
-                            }}
-                          />
-                        </View>
-
-                        {/* A receipt belongs to one purchase, not to a shortcut. */}
-                        {mode !== 'quick-prompt' && renderReceiptField(true)}
-                      </View>
-                    )}
+                {!draftReview && availableDetailOptions.length > 0 && (
+                  <View className={isCompactEntry ? 'px-5 mb-2' : 'px-5 mb-6'}>
+                    <AddDetailChips
+                      options={availableDetailOptions}
+                      onAdd={handleAddDetail}
+                      testIDPrefix="entry-add"
+                      // On the capture screen the chips explain themselves, and
+                      // the heading's line is what kept them under the keypad.
+                      title={isCompactEntry ? '' : 'Add details'}
+                      layout={isCompactEntry ? 'scroll' : 'wrap'}
+                    />
                   </View>
                 )}
 
@@ -3064,10 +3206,10 @@ export function TransactionFormModal({
 
         <ThemedDeleteDialog
           visible={isDiscardDialogVisible}
-          title="Discard this transaction?"
-          message="Your transcribed draft and any changes you made will be lost."
+          title="Discard this draft?"
+          message="What Finnri picked up, and any changes you made, won't be saved."
           cancelLabel="Keep editing"
-          confirmLabel="Discard transaction"
+          confirmLabel="Discard"
           onCancel={() => setIsDiscardDialogVisible(false)}
           onConfirm={() => {
             setIsDiscardDialogVisible(false);

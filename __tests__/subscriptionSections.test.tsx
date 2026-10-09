@@ -103,7 +103,7 @@ describe('SubscriptionLoanFields', () => {
 
   it('opens the start-date picker', async () => {
     const { screen, openStartDatePicker } = await setup();
-    await fireEvent.press(screen.getByLabelText('First EMI on (optional)'));
+    await fireEvent.press(screen.getByLabelText('First EMI on'));
     expect(openStartDatePicker).toHaveBeenCalledTimes(1);
   });
 });
@@ -129,7 +129,7 @@ describe('SubscriptionInvestmentFields', () => {
     expect(h.setPlatform).toHaveBeenCalledWith('Groww');
     await fireEvent.changeText(screen.getByPlaceholderText('10'), '12');
     expect(h.setStepUpPct).toHaveBeenCalled();
-    await fireEvent.press(screen.getByLabelText('Started on (optional)'));
+    await fireEvent.press(screen.getByLabelText('Started on'));
     expect(h.openStartDatePicker).toHaveBeenCalledTimes(1);
   });
 });
@@ -196,7 +196,7 @@ describe('SubscriptionAdvancedFields', () => {
 
   it('keeps the account choices hidden until Autopay is on, then lists them', async () => {
     const off = await setup();
-    expect(off.screen.queryByText('Add or manage payment account')).toBeNull();
+    expect(off.screen.queryByText('Add a payment account')).toBeNull();
     const on = await setup({ autopay: true });
     expect(on.screen.getByText('GPay')).toBeTruthy();
     await fireEvent.press(on.screen.getByText('GPay'));
@@ -204,7 +204,7 @@ describe('SubscriptionAdvancedFields', () => {
     await fireEvent.press(on.screen.getByText('Bank Account'));
     expect(on.setPaymentMode).toHaveBeenCalledWith('Bank Account');
     expect(on.setAccountID).toHaveBeenCalledWith(null);
-    await fireEvent.press(on.screen.getByText('Add or manage payment account'));
+    await fireEvent.press(on.screen.getByText('Add a payment account'));
     expect(on.onAddAccount).toHaveBeenCalledTimes(1);
   });
 

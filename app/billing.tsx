@@ -349,7 +349,7 @@ export default function BillingScreen() {
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
       edges={['top', 'left', 'right']}>
-      <AppHeader title="Plans & Credits" onBack={() => router.back()} />
+      <AppHeader title="Plans & credits" onBack={() => router.back()} />
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 44, gap: theme.spacing.lg }}>

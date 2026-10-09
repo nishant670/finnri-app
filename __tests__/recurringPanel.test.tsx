@@ -136,6 +136,8 @@ describe('Recurring panel', () => {
     await fireEvent.press(await findByTestId('recurring-filter-loan'));
     await fireEvent.press((await findAllByText('New'))[0]);
 
+    // Everything about the loan beyond its EMI is optional, so it is folded.
+    await fireEvent.press(await findByTestId('recurring-loan-details'));
     await findByTestId('recurring-loan-fields');
     await fireEvent.changeText(
       await findByPlaceholderText('Car loan, Home loan, iPhone EMI'),
@@ -146,7 +148,7 @@ describe('Recurring panel', () => {
     await fireEvent.changeText(await findByPlaceholderText('36'), '36');
 
     await fireEvent.press(await findByTestId('recurring-loan-suggestion'));
-    await fireEvent.press(await findByText('Add loan / emi'));
+    await fireEvent.press(await findByText('Add loan'));
 
     await waitFor(() => expect(createSpy).toHaveBeenCalled());
     expect(createSpy.mock.calls[0][1]).toEqual(

@@ -21,6 +21,7 @@ const stepOne = async (over: Partial<One> = {}) => {
     setIsDefault: jest.fn(),
     setName: jest.fn(),
     setSelectedColor: jest.fn(),
+    setShowStyleOptions: jest.fn(),
     setStep: jest.fn(),
     updateSelectedType: jest.fn(),
   };
@@ -33,6 +34,7 @@ const stepOne = async (over: Partial<One> = {}) => {
       saveError={null}
       selectedColor="#54A0FF"
       selectedType="bank"
+      showStyleOptions
       typeError={null}
       {...h}
       {...over}
@@ -68,6 +70,14 @@ describe('AccountFormStepOne', () => {
     expect(updater(true)).toBe(false);
   });
 
+  it('folds colour and default behind a row that reads them back', async () => {
+    const { screen, setShowStyleOptions } = await stepOne({ showStyleOptions: false });
+    expect(screen.queryByText('Use as default account')).toBeNull();
+    expect(screen.getByText('Blue · Not your default')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('account-style-options'));
+    expect(setShowStyleOptions).toHaveBeenCalledTimes(1);
+  });
+
   it('shows type and save errors', async () => {
     const { screen } = await stepOne({ typeError: 'Pick a type.', saveError: 'Could not save.' });
     expect(screen.getByText('Pick a type.')).toBeTruthy();
@@ -99,9 +109,11 @@ const stepTwo = async (over: Partial<Two> = {}) => {
     setReminderDaysBefore: jest.fn(),
     setReminderEnabled: jest.fn(),
     setSelectedIssuer: jest.fn(),
+    setShowAnnualFee: jest.fn(),
     setShowDayModal: jest.fn(),
     setShowIssuerResults: jest.fn(),
     setShowMonthModal: jest.fn(),
+    setShowReminderOptions: jest.fn(),
     setStep: jest.fn(),
   };
   const selectedType = over.selectedType ?? 'bank';
@@ -119,14 +131,17 @@ const stepTwo = async (over: Partial<Two> = {}) => {
       isSaving={false}
       issuerQuery=""
       last4=""
+      name="My account"
       providerOptions={[]}
       reminderDaysBefore="3"
       reminderEnabled
       saveError={null}
       selectedType={selectedType}
+      showAnnualFee={false}
       showDayModal={false}
       showIssuerResults={false}
       showMonthModal={false}
+      showReminderOptions={false}
       {...h}
       {...over}
     />
@@ -137,7 +152,7 @@ const stepTwo = async (over: Partial<Two> = {}) => {
 describe('AccountFormStepTwo', () => {
   it('shows the per-type copy and the opening-balance field for a bank', async () => {
     const { screen, setBalance } = await stepTwo();
-    expect(screen.getByText(ACCOUNT_DETAIL_COPY.bank.message)).toBeTruthy();
+    expect(screen.getByText(`${ACCOUNT_DETAIL_COPY.bank.message} All optional — add the rest any time.`)).toBeTruthy();
     await fireEvent.changeText(screen.getByPlaceholderText('0.00'), '12a.5');
     expect(setBalance).toHaveBeenCalledWith('12.5');
   });
@@ -156,19 +171,19 @@ describe('AccountFormStepTwo', () => {
     await fireEvent.press(screen.getByText('Back'));
     expect(setStep).toHaveBeenCalledWith(1);
     expect(handleSave).not.toHaveBeenCalled();
-    await fireEvent.press(screen.getByText('Finish Setup'));
+    await fireEvent.press(screen.getByText('Save account'));
     expect(handleSave).toHaveBeenCalledTimes(1);
-    expect((await stepTwo({ isEditing: true })).screen.getByText('Save Changes')).toBeTruthy();
+    expect((await stepTwo({ isEditing: true })).screen.getByText('Save changes')).toBeTruthy();
     expect(
-      (await stepTwo({ isSaving: true })).screen.getAllByText('Saving...').length
+      (await stepTwo({ isSaving: true })).screen.getAllByText('Saving…').length
     ).toBeGreaterThan(0);
   });
 
   it('offers card limits, due day and fees only for a credit card', async () => {
     const bank = await stepTwo();
     expect(bank.screen.queryByPlaceholderText('500')).toBeNull();
-    const card = await stepTwo({ selectedType: 'credit_card' });
-    expect(card.screen.getByText(ACCOUNT_DETAIL_COPY.credit_card.message)).toBeTruthy();
+    const card = await stepTwo({ selectedType: 'credit_card', showAnnualFee: true });
+    expect(card.screen.getByText(`${ACCOUNT_DETAIL_COPY.credit_card.message} All optional — add the rest any time.`)).toBeTruthy();
     await fireEvent.changeText(card.screen.getAllByPlaceholderText('1,00,000')[0], '1,5a0000');
     expect(card.setCreditLimit).toHaveBeenCalledWith('150000');
     await fireEvent.changeText(card.screen.getByPlaceholderText('500'), '99x');
@@ -176,20 +191,37 @@ describe('AccountFormStepTwo', () => {
   });
 
   it('opens the day and month sheets', async () => {
-    const card = await stepTwo({ selectedType: 'credit_card' });
-    await fireEvent.press(card.screen.getByText('Day'));
+    const card = await stepTwo({ selectedType: 'credit_card', showAnnualFee: true });
+    await fireEvent.press(card.screen.getByText('Day of the month'));
     expect(card.setShowDayModal).toHaveBeenCalledWith(true);
     await fireEvent.press(card.screen.getByText('Month'));
     expect(card.setShowMonthModal).toHaveBeenCalledWith(true);
   });
 
   it('toggles the due reminder and reveals its day count', async () => {
-    const on = await stepTwo({ selectedType: 'credit_card', reminderEnabled: true });
-    expect(on.screen.getByText('Enabled for this card')).toBeTruthy();
-    expect(on.screen.getByText('Remind me this many days before')).toBeTruthy();
-    const off = await stepTwo({ selectedType: 'credit_card', reminderEnabled: false });
+    const on = await stepTwo({
+      selectedType: 'credit_card',
+      reminderEnabled: true,
+      showReminderOptions: true,
+    });
+    expect(on.screen.getByText('On for this card')).toBeTruthy();
+    expect(on.screen.getByText('Days before the due date')).toBeTruthy();
+    const off = await stepTwo({
+      selectedType: 'credit_card',
+      reminderEnabled: false,
+      showReminderOptions: true,
+    });
     expect(off.screen.getByText('Off for this card')).toBeTruthy();
-    expect(off.screen.queryByText('Remind me this many days before')).toBeNull();
+    expect(off.screen.queryByText('Days before the due date')).toBeNull();
+  });
+
+  it('folds the reminder and annual fee behind rows that read them back', async () => {
+    const card = await stepTwo({ selectedType: 'credit_card', annualFee: '500', feeMonth: 'March' });
+    expect(card.screen.queryByPlaceholderText('500')).toBeNull();
+    expect(card.screen.getByText('On · 3 days before the due date')).toBeTruthy();
+    expect(card.screen.getByText(/charged in March/)).toBeTruthy();
+    await fireEvent.press(card.screen.getByTestId('card-annual-fee-options'));
+    expect(card.setShowAnnualFee).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -261,10 +293,10 @@ describe('AccountSelectionSheet', () => {
         onClose={onClose}
         data={['1', '2', '3']}
         onSelect={onSelect}
-        title="Select Due Day"
+        title="Due day"
       />
     );
-    expect(screen.getByText('Select Due Day')).toBeTruthy();
+    expect(screen.getByText('Due day')).toBeTruthy();
     await fireEvent.press(screen.getByText('2'));
     expect(onSelect).toHaveBeenCalledWith('2');
     expect(onClose).toHaveBeenCalledTimes(1);

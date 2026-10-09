@@ -28,7 +28,7 @@ export function PeriodPulseCard({
       <View className="flex-row items-start justify-between">
         <View className="flex-1 pr-4">
           <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Period Pulse
+            This period
           </ThemedText>
           <ThemedText className="mt-1 text-2xl font-black">{pulse.label}</ThemedText>
           <ThemedText tone="muted" className="mt-2 text-xs leading-5">
@@ -88,7 +88,7 @@ export function PeriodPulseCard({
           <View className="flex-1">
             <ThemedText className="text-xs leading-5">
               <ThemedText className="text-xs font-black" style={{ color: theme.colors.accent }}>
-                Why this status:{' '}
+                Why:{' '}
               </ThemedText>
               {getBurnRateCopy(dashboard)}
             </ThemedText>
@@ -98,7 +98,7 @@ export function PeriodPulseCard({
 
       <View className="mt-4 flex-row items-start gap-3">
         <ThemedText tone="muted" className="flex-1 text-[11px] font-bold">
-          Insight depth grows as Finnri sees more transactions, merchants, and accounts.
+          The more you log, the sharper these get.
         </ThemedText>
         <View
           className="rounded-full px-3 py-1"

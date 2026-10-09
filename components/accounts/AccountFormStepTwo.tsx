@@ -3,11 +3,19 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ActivityIndicator, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { type AccountType } from '@/lib/accounts';
-import { DAYS, MONTHS, ACCOUNT_DETAIL_COPY, type ProviderOption } from '@/lib/account-form';
+import {
+  DAYS,
+  MONTHS,
+  ACCOUNT_DETAIL_COPY,
+  DEFAULT_ACCOUNT_NAMES,
+  type ProviderOption,
+} from '@/lib/account-form';
+import { formatMoney } from '@/lib/money';
 import { AccountSelectionSheet } from './AccountSelectionSheet';
 import { styles } from './account-form-styles';
 
@@ -25,6 +33,7 @@ type AccountFormStepTwoProps = {
   isSaving: boolean;
   issuerQuery: string;
   last4: string;
+  name: string;
   providerOptions: ProviderOption[];
   reminderDaysBefore: string;
   reminderEnabled: boolean;
@@ -41,13 +50,17 @@ type AccountFormStepTwoProps = {
   setReminderDaysBefore: Dispatch<SetStateAction<string>>;
   setReminderEnabled: Dispatch<SetStateAction<boolean>>;
   setSelectedIssuer: Dispatch<SetStateAction<ProviderOption | null>>;
+  setShowAnnualFee: Dispatch<SetStateAction<boolean>>;
   setShowDayModal: Dispatch<SetStateAction<boolean>>;
   setShowIssuerResults: Dispatch<SetStateAction<boolean>>;
   setShowMonthModal: Dispatch<SetStateAction<boolean>>;
+  setShowReminderOptions: Dispatch<SetStateAction<boolean>>;
   setStep: Dispatch<SetStateAction<number>>;
+  showAnnualFee: boolean;
   showDayModal: boolean;
   showIssuerResults: boolean;
   showMonthModal: boolean;
+  showReminderOptions: boolean;
   updateIdentifier: (value: string) => void;
 };
 
@@ -65,6 +78,7 @@ export function AccountFormStepTwo({
   isSaving,
   issuerQuery,
   last4,
+  name,
   providerOptions,
   reminderDaysBefore,
   reminderEnabled,
@@ -81,13 +95,17 @@ export function AccountFormStepTwo({
   setReminderDaysBefore,
   setReminderEnabled,
   setSelectedIssuer,
+  setShowAnnualFee,
   setShowDayModal,
   setShowIssuerResults,
   setShowMonthModal,
+  setShowReminderOptions,
   setStep,
+  showAnnualFee,
   showDayModal,
   showIssuerResults,
   showMonthModal,
+  showReminderOptions,
   updateIdentifier,
 }: AccountFormStepTwoProps) {
   const theme = useThemeTokens().colors;
@@ -97,32 +115,26 @@ export function AccountFormStepTwo({
         <ScreenHeader
           subtitle="STEP 2 OF 2"
           onBack={() => setStep(1)}
-          rightText={isSaving ? 'Saving' : 'Save basic'}
+          rightText={isSaving ? 'Saving' : 'Save now'}
           onRightPress={handleSave}
         />
         <KeyboardAvoidingScreen
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}>
-          {/* Mascot & Message Step 2 */}
-          <View style={styles.mascotSection}>
-            <View style={[styles.bubbleContainer, { backgroundColor: theme.secondary }]}>
-              <ThemedText style={[styles.bubbleText, { color: theme.text }]}>
-                {detailCopy.message}
-              </ThemedText>
-              <View style={[styles.bubbleTriangle, { backgroundColor: theme.secondary }]} />
-            </View>
-            <View style={styles.mascotRowCenter}>
-              <View
-                style={[
-                  styles.mascotAvatar,
-                  { backgroundColor: '#FFEEED', width: 56, height: 56, borderRadius: 28 },
-                ]}>
-                <MaterialCommunityIcons name="face-woman-outline" size={32} color={theme.accent} />
-              </View>
-            </View>
+          {/* A heading, not a mascot. The speech bubble said one line in
+              18pt black over a cartoon face, and it was the loudest thing on
+              a screen whose fields are all optional. */}
+          <View style={styles.stepIntro}>
+            <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Card details</ThemedText>
+            <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+              {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+            </ThemedText>
+            <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+              {detailCopy.message} All optional — add the rest any time.
+            </ThemedText>
           </View>
 
-          <ThemedText style={styles.sectionHeaderLabel}>VISUALS</ThemedText>
+          <ThemedText style={styles.sectionHeaderLabel}>Card</ThemedText>
 
           <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
             {detailCopy.providerLabel}
@@ -224,7 +236,7 @@ export function AccountFormStepTwo({
 
           <View style={{ height: 24 }} />
 
-          <ThemedText style={styles.sectionHeaderLabel}>ALERTS & LIMITS</ThemedText>
+          <ThemedText style={styles.sectionHeaderLabel}>Limit & due date</ThemedText>
 
           <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Credit limit</ThemedText>
           <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
@@ -244,79 +256,161 @@ export function AccountFormStepTwo({
             />
           </View>
 
-          <View style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Due Day</ThemedText>
-              <TouchableOpacity
-                style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
-                onPress={() => setShowDayModal(true)}>
-                <MaterialCommunityIcons
-                  name="calendar-outline"
-                  size={20}
-                  color={theme.accent}
-                  style={styles.inputIcon}
-                />
-                <ThemedText
-                  style={[
-                    styles.dropdownTextSmall,
-                    { color: theme.text },
-                    !dueDay && { color: '#AAB7C6' },
-                  ]}>
-                  {dueDay || 'Day'}
-                </ThemedText>
-                <MaterialCommunityIcons name="chevron-down" size={20} color="#AAB7C6" />
-              </TouchableOpacity>
-            </View>
-            <View style={{ width: 16 }} />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Fee Month</ThemedText>
-              <TouchableOpacity
-                style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
-                onPress={() => setShowMonthModal(true)}>
-                <MaterialCommunityIcons
-                  name="calendar-refresh-outline"
-                  size={20}
-                  color={theme.accent}
-                  style={styles.inputIcon}
-                />
-                <ThemedText
-                  style={[
-                    styles.dropdownTextSmall,
-                    { color: theme.text },
-                    !feeMonth && { color: '#AAB7C6' },
-                  ]}>
-                  {feeMonth || 'Month'}
-                </ThemedText>
-                <MaterialCommunityIcons name="chevron-down" size={20} color="#AAB7C6" />
-              </TouchableOpacity>
-            </View>
-          </View>
+          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Due day</ThemedText>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={dueDay ? `Due day ${dueDay}` : 'Choose the due day'}
+            style={[styles.dropdownContainerSmall, { backgroundColor: theme.card, marginBottom: 24 }]}
+            onPress={() => setShowDayModal(true)}>
+            <MaterialCommunityIcons
+              name="calendar-outline"
+              size={20}
+              color={theme.accent}
+              style={styles.inputIcon}
+            />
+            <ThemedText
+              style={[styles.dropdownTextSmall, { color: dueDay ? theme.text : theme.muted }]}>
+              {dueDay ? `${dueDay} of every month` : 'Day of the month'}
+            </ThemedText>
+            <MaterialCommunityIcons name="chevron-down" size={20} color={theme.muted} />
+          </TouchableOpacity>
 
-          <View style={[styles.row, { marginTop: 4 }]}>
-            <View style={{ flex: 1 }}>
-              <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Annual fee</ThemedText>
-              <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+          {/* Two settings most cards never need touched: a reminder that is
+              already on at three days, and an annual fee most people do not
+              know offhand. Each folds behind a row that reads it back. */}
+          <View style={{ gap: 12 }}>
+            <FormDisclosure
+              testID="card-reminder-options"
+              label="Due-date reminder"
+              icon={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
+              summary={
+                reminderEnabled
+                  ? `On · ${Number(reminderDaysBefore || 0)} day${Number(reminderDaysBefore) === 1 ? '' : 's'} before the due date`
+                  : 'Off'
+              }
+              expanded={showReminderOptions}
+              onToggle={() => setShowReminderOptions((open) => !open)}>
+              <TouchableOpacity
+                accessibilityRole="switch"
+                accessibilityState={{ checked: reminderEnabled }}
+                onPress={() => setReminderEnabled((current) => !current)}
+                style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
                 <MaterialCommunityIcons
-                  name="currency-inr"
-                  size={20}
-                  color={theme.accent}
+                  name={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
+                  size={24}
+                  color={reminderEnabled ? theme.accent : theme.muted}
                   style={styles.inputIcon}
                 />
-                <TextInput
-                  testID="card-annual-fee"
-                  value={annualFee}
-                  onChangeText={(val) => setAnnualFee(val.replace(/[^0-9]/g, ''))}
-                  placeholder="500"
-                  placeholderTextColor={theme.muted}
-                  keyboardType="number-pad"
-                  style={[styles.textInputSmall, { color: theme.text }]}
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }]}>
+                    Remind me before it’s due
+                  </ThemedText>
+                  <ThemedText style={[styles.fieldHintInline, { color: theme.muted }]}>
+                    {reminderEnabled ? 'On for this card' : 'Off for this card'}
+                  </ThemedText>
+                </View>
+                <MaterialCommunityIcons
+                  name={reminderEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
+                  size={34}
+                  color={reminderEnabled ? theme.accent : theme.muted}
                 />
+              </TouchableOpacity>
+
+              {reminderEnabled && (
+                <>
+                  <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                    Days before the due date
+                  </ThemedText>
+                  <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                    <MaterialCommunityIcons
+                      name="calendar-clock-outline"
+                      size={24}
+                      color={theme.accent}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      value={reminderDaysBefore}
+                      onChangeText={(value) =>
+                        setReminderDaysBefore(value.replace(/[^0-9]/g, '').slice(0, 2))
+                      }
+                      placeholder="3"
+                      placeholderTextColor={theme.muted}
+                      keyboardType="number-pad"
+                      style={[styles.textInputSmall, { color: theme.text }]}
+                    />
+                  </View>
+                </>
+              )}
+            </FormDisclosure>
+
+            <FormDisclosure
+              testID="card-annual-fee-options"
+              label="Annual fee"
+              icon="cash-clock"
+              summary={
+                annualFee
+                  ? [
+                      formatMoney(Number(annualFee)),
+                      feeMonth ? `charged in ${feeMonth}` : '',
+                      feeWaiverSpend ? `waived above ${formatMoney(Number(feeWaiverSpend))}` : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : 'Optional — see how close you are to getting it waived'
+              }
+              expanded={showAnnualFee}
+              onToggle={() => setShowAnnualFee((open) => !open)}>
+              <View style={[styles.row, { marginBottom: 12 }]}>
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Fee</ThemedText>
+                  <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                    <MaterialCommunityIcons
+                      name="currency-inr"
+                      size={20}
+                      color={theme.accent}
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      testID="card-annual-fee"
+                      value={annualFee}
+                      onChangeText={(val) => setAnnualFee(val.replace(/[^0-9]/g, ''))}
+                      placeholder="500"
+                      placeholderTextColor={theme.muted}
+                      keyboardType="number-pad"
+                      style={[styles.textInputSmall, { color: theme.text }]}
+                    />
+                  </View>
+                </View>
+                <View style={{ width: 16 }} />
+                <View style={{ flex: 1 }}>
+                  <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                    Charged in
+                  </ThemedText>
+                  <TouchableOpacity
+                    accessibilityRole="button"
+                    accessibilityLabel={feeMonth ? `Fee charged in ${feeMonth}` : 'Choose the fee month'}
+                    style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
+                    onPress={() => setShowMonthModal(true)}>
+                    <MaterialCommunityIcons
+                      name="calendar-refresh-outline"
+                      size={20}
+                      color={theme.accent}
+                      style={styles.inputIcon}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.dropdownTextSmall,
+                        { color: feeMonth ? theme.text : theme.muted },
+                      ]}>
+                      {feeMonth || 'Month'}
+                    </ThemedText>
+                    <MaterialCommunityIcons name="chevron-down" size={20} color={theme.muted} />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-            <View style={{ width: 16 }} />
-            <View style={{ flex: 1 }}>
+
               <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
-                Waived above (yearly)
+                Waived if you spend (a year)
               </ThemedText>
               <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
                 <MaterialCommunityIcons
@@ -335,65 +429,8 @@ export function AccountFormStepTwo({
                   style={[styles.textInputSmall, { color: theme.text }]}
                 />
               </View>
-            </View>
+            </FormDisclosure>
           </View>
-
-          <TouchableOpacity
-            accessibilityRole="switch"
-            accessibilityState={{ checked: reminderEnabled }}
-            onPress={() => setReminderEnabled((current) => !current)}
-            style={[styles.inputContainerSmall, { marginTop: 20 }]}>
-            <MaterialCommunityIcons
-              name={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
-              size={24}
-              color={reminderEnabled ? theme.accent : '#AAB7C6'}
-              style={styles.inputIcon}
-            />
-            <View style={{ flex: 1 }}>
-              <ThemedText style={[styles.dropdownTextSmall, { color: theme.text }]}>
-                Due reminder
-              </ThemedText>
-              <ThemedText
-                style={[
-                  styles.labelSmall,
-                  { color: theme.text },
-                  { marginTop: 2, marginBottom: 0 },
-                ]}>
-                {reminderEnabled ? 'Enabled for this card' : 'Off for this card'}
-              </ThemedText>
-            </View>
-            <MaterialCommunityIcons
-              name={reminderEnabled ? 'toggle-switch' : 'toggle-switch-off-outline'}
-              size={34}
-              color={reminderEnabled ? theme.accent : '#AAB7C6'}
-            />
-          </TouchableOpacity>
-
-          {reminderEnabled && (
-            <>
-              <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
-                Remind me this many days before
-              </ThemedText>
-              <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
-                <MaterialCommunityIcons
-                  name="calendar-clock-outline"
-                  size={24}
-                  color={theme.accent}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  value={reminderDaysBefore}
-                  onChangeText={(value) =>
-                    setReminderDaysBefore(value.replace(/[^0-9]/g, '').slice(0, 2))
-                  }
-                  placeholder="3"
-                  placeholderTextColor={theme.muted}
-                  keyboardType="number-pad"
-                  style={[styles.textInputSmall, { color: theme.text }]}
-                />
-              </View>
-            </>
-          )}
         </KeyboardAvoidingScreen>
 
         {/* Footer Step 2 */}
@@ -416,7 +453,7 @@ export function AccountFormStepTwo({
               ]}
               disabled={isSaving}>
               <ThemedText style={styles.saveButtonText}>
-                {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Done 🎉'}
+                {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
               </ThemedText>
               {isSaving && <ActivityIndicator size="small" color="white" className="ml-2" />}
             </TouchableOpacity>
@@ -429,7 +466,7 @@ export function AccountFormStepTwo({
             onClose={() => setShowDayModal(false)}
             data={DAYS}
             onSelect={setDueDay}
-            title="Select Due Day"
+            title="Due day"
           />
         }
         {
@@ -438,7 +475,7 @@ export function AccountFormStepTwo({
             onClose={() => setShowMonthModal(false)}
             data={MONTHS}
             onSelect={setFeeMonth}
-            title="Select Fee Month"
+            title="Fee month"
           />
         }
       </View>
@@ -451,19 +488,23 @@ export function AccountFormStepTwo({
       <ScreenHeader
         subtitle="STEP 2 OF 2"
         onBack={() => setStep(1)}
-        rightText={isSaving ? 'Saving' : 'Save basic'}
+        rightText={isSaving ? 'Saving' : 'Save now'}
         onRightPress={handleSave}
       />
       <KeyboardAvoidingScreen
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}>
-        <View style={styles.mascotSection}>
-          <View style={[styles.bubbleContainer, { backgroundColor: theme.secondary }]}>
-            <ThemedText style={[styles.bubbleText, { color: theme.text }]}>
-              {detailCopy.message}
-            </ThemedText>
-            <View style={[styles.bubbleTriangle, { backgroundColor: theme.secondary }]} />
-          </View>
+        {/* A heading, not a mascot. The speech bubble said one line in
+            18pt black over a cartoon face, and it was the loudest thing on
+            a screen whose fields are all optional. */}
+        <View style={styles.stepIntro}>
+          <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Details</ThemedText>
+          <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+            {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+          </ThemedText>
+          <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+            {detailCopy.message} All optional — add the rest any time.
+          </ThemedText>
         </View>
 
         {detailCopy.providerLabel && (
@@ -628,7 +669,7 @@ export function AccountFormStepTwo({
             ]}
             disabled={isSaving}>
             <ThemedText style={styles.saveButtonText}>
-              {isSaving ? 'Saving...' : isEditing ? 'Save Changes' : 'Finish Setup'}
+              {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
             </ThemedText>
             {isSaving ? (
               <ActivityIndicator size="small" color="white" />

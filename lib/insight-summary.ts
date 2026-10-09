@@ -30,7 +30,7 @@ export const getPeriodPulse = (dashboard: DashboardResponse, reviewCount: number
   if (count === 0) {
     return {
       label: 'Waiting for data',
-      reason: 'Add confirmed transactions to build this period summary.',
+      reason: 'Log a few transactions and this fills in.',
       color: '#9B9692',
       icon: 'progress-clock',
     };
@@ -46,22 +46,22 @@ export const getPeriodPulse = (dashboard: DashboardResponse, reviewCount: number
   if (income <= 0 && spent > 0) {
     return {
       label: 'No income recorded',
-      reason: 'This period has expenses but no recorded income, so surplus cannot be estimated.',
+      reason: 'Log your income too and Finnri can show what’s left over.',
       color: '#FFB020',
       icon: 'cash-remove',
     };
   }
   if (income > 0 && spent > income) {
     return {
-      label: 'Watch spending',
-      reason: 'Confirmed expenses are higher than recorded income for this period.',
+      label: 'Spending ahead of income',
+      reason: 'You’ve spent more than you’ve logged as income this period.',
       color: '#FF6680',
       icon: 'alert-circle-outline',
     };
   }
   return {
     label: 'On track',
-    reason: 'Recorded income is higher than confirmed expenses for this period.',
+    reason: 'You’ve logged more income than spending this period.',
     color: '#00B878',
     icon: 'check-decagram',
   };

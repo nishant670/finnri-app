@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,6 +8,10 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+
+// Read from the manifest. This line used to say "Finnri Playbook V3.1.2" on a
+// 1.x build — the one string here a user might quote back in a bug report.
+const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
 const values = [
   {
@@ -19,7 +24,7 @@ const values = [
   {
     icon: 'creation-outline',
     title: 'Assistive AI',
-    body: 'AI can draft categories, merchants, tags, dates, and payment modes while keeping final save under your control.',
+    body: 'AI fills in the category, merchant, date and payment method. Nothing is saved until you say so.',
     color: '#7B1FA2',
     surface: '#F3E5F5',
   },
@@ -93,10 +98,10 @@ export default function AboutFinnriScreen() {
             Version
           </ThemedText>
           <ThemedText className="mt-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
-            Finnri Playbook V3.1.2
+            Finnri {appVersion}
           </ThemedText>
           <ThemedText className="mt-1 text-xs leading-5 opacity-60">
-            Built for quick personal finance tracking with review-first AI assistance.
+            Built for quick, everyday money tracking — with AI that always asks before it saves.
           </ThemedText>
         </View>
       </ScrollView>
