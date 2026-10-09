@@ -1,3 +1,4 @@
+import { readApiError } from './api-error';
 import { API_BASE_URL } from './transactions';
 
 export type FeedbackType = 'bug' | 'idea' | 'improvement' | 'feature_request' | 'other';
@@ -9,7 +10,12 @@ export type FeedbackPayload = {
   title: string;
   message: string;
   impact: FeedbackImpact;
+  /** Upload URLs from POST /v1/upload — at most three. */
+  attachments?: string[];
 };
+
+/** How many screenshots or files one piece of feedback can carry. */
+export const MAX_FEEDBACK_ATTACHMENTS = 3;
 
 const authHeaders = (token: string) => ({
   Authorization: `Bearer ${token}`,
@@ -24,7 +30,9 @@ export const submitFeedback = async (token: string, payload: FeedbackPayload) =>
   });
 
   if (!response.ok) {
-    throw new Error('Unable to send feedback right now.');
+    throw await readApiError(response, 'Unable to send feedback right now.', {
+      attachments: 'Attachments',
+    });
   }
 
   return response.json();

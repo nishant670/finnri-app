@@ -195,7 +195,9 @@ export const discardPreparedUpload = ({ file, temporary }: PreparedUpload) => {
 export const uploadAttachment = async (
   token: string,
   uri: string,
-  declaredMimeType?: string | null
+  declaredMimeType?: string | null,
+  /** What the file is, in the error a failed upload shows. */
+  { noun = 'receipt' }: { noun?: string } = {}
 ): Promise<string> => {
   const { file, temporary } = await prepareUpload(uri, declaredMimeType);
 
@@ -219,16 +221,15 @@ export const uploadAttachment = async (
     });
 
     if (!response.ok) {
-      throw await readApiError(
-        response,
-        'Unable to upload that receipt right now.',
-        uploadFieldLabels
-      );
+      throw await readApiError(response, `Unable to upload that ${noun} right now.`, {
+        ...uploadFieldLabels,
+        file: noun.charAt(0).toUpperCase() + noun.slice(1),
+      });
     }
 
     const data = (await response.json()) as { url?: string };
     if (!data.url) {
-      throw new Error('Unable to upload that receipt right now.');
+      throw new Error(`Unable to upload that ${noun} right now.`);
     }
     return data.url;
   } finally {

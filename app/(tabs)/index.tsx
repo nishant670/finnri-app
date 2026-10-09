@@ -493,6 +493,7 @@ export default function HomeScreen() {
     ),
   });
   const considerPlansPrompt = plansPrompt.considerAfterSave;
+  const offerPlansForBlockedAI = plansPrompt.offerForBlockedAI;
   const [editingPrompt, setEditingPrompt] = useState<
     import('@/components/home/QuickPrompts').QuickPrompt | null
   >(null);
@@ -511,8 +512,11 @@ export default function HomeScreen() {
     const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest });
     if (!gate) return false;
     setCreditAction(gate);
+    // The card says what happened; the sheet is the way past it, offered at
+    // the moment it is needed. A guest's card already points at sign-in.
+    if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
     return true;
-  }, [billingStatus, user?.is_guest]);
+  }, [billingStatus, offerPlansForBlockedAI, user?.is_guest]);
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
@@ -1204,6 +1208,7 @@ export default function HomeScreen() {
             actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
             action: isGuestUser ? 'login' : 'upgrade',
           });
+          if (!isGuestUser) void offerPlansForBlockedAI('out_of_credits');
           void fetchCredits(true);
           return true;
         }
@@ -1218,6 +1223,7 @@ export default function HomeScreen() {
             actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
             action: isGuestUser ? 'login' : 'upgrade',
           });
+          if (!isGuestUser) void offerPlansForBlockedAI('daily_limit');
           void fetchCredits(true);
           return true;
         }
@@ -1228,6 +1234,7 @@ export default function HomeScreen() {
       billingStatus?.credits.daily_credits_used,
       billingStatus?.credits.daily_limit,
       fetchCredits,
+      offerPlansForBlockedAI,
       user?.is_guest,
     ]
   );

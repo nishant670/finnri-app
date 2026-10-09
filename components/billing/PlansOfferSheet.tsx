@@ -14,7 +14,7 @@ import {
   type BillingStatus,
 } from '@/lib/billing';
 import { haptics } from '@/lib/haptics';
-import type { PlansPromptReason } from '@/lib/plans-prompt';
+import type { PlansSheetReason } from '@/lib/plans-prompt';
 
 const ACCENTS: Record<string, string> = {
   weekly: '#FF8865',
@@ -45,6 +45,29 @@ const perDay = (minor: number, interval: string) => {
 const count = (value: number) => new Intl.NumberFormat('en-IN').format(value);
 
 /**
+ * What the sheet says, by why it is open. The first two answer a request that
+ * was just refused, so they say what happened before they sell anything.
+ */
+const HEADLINES: Record<PlansSheetReason, { title: string; body: string }> = {
+  out_of_credits: {
+    title: 'You’re out of AI credits',
+    body: 'Pick a pass to keep asking Finnri and capturing by voice or text. Adding entries by hand stays free.',
+  },
+  daily_limit: {
+    title: 'Today’s AI credits are used up',
+    body: 'They come back tomorrow — or pick a pass for a bigger daily limit, starting now.',
+  },
+  low_credits: {
+    title: 'Running low on AI credits',
+    body: 'Top up so your next voice or text capture goes straight through.',
+  },
+  no_plan: {
+    title: 'Let Finnri AI do the typing',
+    body: 'Speak or type an expense once — Finnri files the amount, category and account.',
+  },
+};
+
+/**
  * The plans pop-up on Home: every pass side by side, monthly first in view.
  *
  * It opens only when Home decides the moment is right (see lib/plans-prompt),
@@ -63,7 +86,7 @@ export function PlansOfferSheet({
   visible: boolean;
   plans: BillingPlan[];
   status: BillingStatus | null;
-  reason: PlansPromptReason;
+  reason: PlansSheetReason;
   onChoose: (plan: BillingPlan) => void;
   onClose: () => void;
 }) {
@@ -173,12 +196,10 @@ export function PlansOfferSheet({
             fontSize: 22,
             fontWeight: '900',
           }}>
-          {reason === 'low_credits' ? 'Running low on AI credits' : 'Let Finnri AI do the typing'}
+          {HEADLINES[reason].title}
         </ThemedText>
         <ThemedText style={{ marginTop: 4, color: muted }}>
-          {reason === 'low_credits'
-            ? 'Top up so your next voice or text capture goes straight through.'
-            : 'Speak or type an expense once — Finnri files the amount, category and account.'}
+          {HEADLINES[reason].body}
           {anyOffer ? ' Launch prices for a limited time.' : ''}
         </ThemedText>
         {anyOffer && spotsLeft != null ? (
