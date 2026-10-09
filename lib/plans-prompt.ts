@@ -21,6 +21,15 @@ import type { BillingStatus } from './billing';
 
 export type PlansPromptReason = 'low_credits' | 'no_plan';
 
+/**
+ * Why the sheet is open when the user ran into a wall — an AI request refused
+ * for credits — rather than Home picking a quiet moment. These are asked for,
+ * in effect, so they skip the cool-down and do not count towards it.
+ */
+export type BlockedAIReason = 'out_of_credits' | 'daily_limit';
+
+export type PlansSheetReason = PlansPromptReason | BlockedAIReason;
+
 export type PlansPromptMemory = {
   lastShownAt?: number;
   dismissals: number;

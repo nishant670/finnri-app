@@ -1,10 +1,25 @@
 import type { BillingStatus } from '@/lib/billing';
+import { ParseApiError } from '@/lib/parse';
+import type { BlockedAIReason } from '@/lib/plans-prompt';
 
 export type CreditGate = {
   title: string;
   message: string;
   actionLabel: string;
   action: 'upgrade' | 'login';
+  /** Which wall it is, for the plans sheet that offers a way past it. */
+  reason: BlockedAIReason;
+};
+
+/**
+ * Whether a failed AI request was refused for credits, and which way: the
+ * balance is gone, or today's share of it is. Anything else is null.
+ */
+export const blockedAIReason = (error: unknown): BlockedAIReason | null => {
+  if (!(error instanceof ParseApiError)) return null;
+  if (error.code === 'insufficient_ai_credits') return 'out_of_credits';
+  if (error.code === 'daily_ai_limit_reached') return 'daily_limit';
+  return null;
 };
 
 /**
@@ -43,6 +58,7 @@ export const creditGateFor = (
       message: `You have used all ${dailyLimit} AI credits for today. Type or add the expense manually, or come back tomorrow.`,
       actionLabel: options.isGuest ? 'Sign in for more credits' : 'View plans',
       action: options.isGuest ? 'login' : 'upgrade',
+      reason: 'daily_limit',
     };
   }
 
@@ -53,11 +69,13 @@ export const creditGateFor = (
           'Sign in to keep capturing by voice and text — everything you have added so far comes with you.',
         actionLabel: 'Sign in for more credits',
         action: 'login',
+        reason: 'out_of_credits',
       }
     : {
         title: 'Out of AI credits',
         message: 'Voice and text capture need credits. Manual entry stays free and unlimited.',
         actionLabel: 'View plans',
         action: 'upgrade',
+        reason: 'out_of_credits',
       };
 };
