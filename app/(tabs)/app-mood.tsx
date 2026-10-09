@@ -233,10 +233,10 @@ export default function AppMoodScreen() {
             </View>
             <View className="flex-1">
               <TText className="text-lg font-black" style={{ color: colors.text, fontFamily: Fonts.title }}>
-                Night Owl Mode
+                Night owl mode
               </TText>
               <TText className="text-xs font-medium" style={{ color: mutedText, fontFamily: Fonts.body }}>
-                Force a darker app mood
+                Use the dark theme everywhere
               </TText>
             </View>
           </View>

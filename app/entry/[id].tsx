@@ -15,6 +15,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
@@ -22,9 +23,17 @@ import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSk
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
+import { fetchCardEMIPlans } from '@/lib/emi-plans';
+import { fetchSubscriptions } from '@/lib/subscriptions';
 import { fetchEntry, updateEntry } from '@/lib/entries';
-import { buildTransactionPayload } from '@/lib/transaction-composer';
+import {
+  buildTransactionPayload,
+  createRecurringFromForm,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
+import { buildRepeatForm } from '@/lib/repeat-entry';
 import { isPdfAttachment, resolveAttachmentForDisplay } from '@/lib/uploads';
 import {
   fetchNewUnreadBudgetNotification,
@@ -65,6 +74,7 @@ export default function TransactionDetailsScreen() {
     dateLabel?: string;
     tag?: string;
     edit?: string;
+    repeat?: string;
     originIcon?: string;
     originAmount?: string;
     reviewFocus?: 'category' | 'account' | '';
@@ -79,6 +89,15 @@ export default function TransactionDetailsScreen() {
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const { requestDelete } = useTransactionDelete();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [isRepeatModalVisible, setIsRepeatModalVisible] = useState(false);
+  const [repeatForm, setRepeatForm] = useState<EntryForm | null>(null);
+  const repeatIdempotencyKey = useRef<string | null>(null);
+  const repeatSaveProgress = useRef<TransactionSaveProgress>({});
+  const repeatRequested = useRef(false);
+  // What an EMI-tagged entry is already tied to: a card's EMI plan, or a bank EMI
+  // that repeats as an auto-debit. Shown in the edit sheet.
+  const [emiLink, setEmiLink] = useState<EMILink | null>(null);
   const [splitBill, setSplitBill] = useState<SplitBill | null>(null);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
@@ -238,7 +257,8 @@ export default function TransactionDetailsScreen() {
     if (token) {
       fetchAccounts(token)
         .then(setAccounts)
-        .catch(() => setAccounts([]));
+        .catch(() => setAccounts([]))
+        .finally(() => setAccountsLoaded(true));
       void fetchSplitDetails();
     }
   }, [fetchSplitDetails, fetchTransactionDetails, token]);
@@ -303,12 +323,76 @@ export default function TransactionDetailsScreen() {
     }
   };
 
+  const loadEmiLink = useCallback(async () => {
+    if (!token || !transaction || transaction.tag !== 'EMI') {
+      setEmiLink(null);
+      return;
+    }
+    try {
+      const account = accounts.find((item) => item.id === transaction.account_id);
+      if (account && normalizeAccountType(account.type) === 'credit_card') {
+        const plans = await fetchCardEMIPlans(token, account.id);
+        const plan = plans.find(
+          (item) =>
+            item.source_entry_id === entryID ||
+            item.installments?.some((installment) => installment.entry_id === entryID)
+        );
+        setEmiLink(
+          plan ? { kind: 'plan', plan, onOpen: () => router.push(`/emi-plans/${plan.id}`) } : null
+        );
+        return;
+      }
+      // A bank EMI has no foreign key to its recurring payment, so it is found
+      // by what identifies one: an EMI-tagged recurring payment on the same
+      // account for the same amount, under this entry's title or merchant.
+      const subscriptions = await fetchSubscriptions(token, 'all');
+      const names = [transaction.title, transaction.merchant]
+        .map((value) => String(value ?? '').trim().toLowerCase())
+        .filter(Boolean);
+      const match = subscriptions.find(
+        (item) =>
+          item.transaction_tag === 'EMI' &&
+          item.account_id === transaction.account_id &&
+          Number(item.amount) === Number(transaction.amount) &&
+          names.includes(item.name.trim().toLowerCase())
+      );
+      setEmiLink(match ? { kind: 'recurring', subscription: match } : null);
+    } catch {
+      // The sheet still works without it; it just offers the repeat again.
+      setEmiLink(null);
+    }
+  }, [accounts, entryID, router, token, transaction]);
+
+  useEffect(() => {
+    void loadEmiLink();
+  }, [loadEmiLink]);
+
   const handleEdit = () => {
     setIsEditModalVisible(true);
   };
 
   const handleDelete = () => {
     setIsDeleteConfirmVisible(true);
+  };
+
+  /** After a save that may have crossed a budget: offer to go and look. */
+  const offerBudgetAlert = async (budgetNotificationIds: Set<number>) => {
+    if (!token) return;
+    const notification = await fetchNewUnreadBudgetNotification(token, budgetNotificationIds).catch(
+      () => null
+    );
+    if (
+      notification &&
+      (await dialog.confirm({
+        title: notification.title,
+        message: notification.body,
+        confirmLabel: 'View Budgets',
+        cancelLabel: 'Later',
+        iconName: 'wallet-outline',
+      }))
+    ) {
+      router.push('/budgets');
+    }
   };
 
   const closeDeleteConfirm = () => {
@@ -326,19 +410,26 @@ export default function TransactionDetailsScreen() {
 
   const handleSaveUpdate = async (formData: EntryForm) => {
     try {
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
 
       const payload = await buildTransactionPayload(token, formData, {
         refundStatus: displayData.refund_status ?? 'pending',
       });
       if (!formData.splitEnabled && splitBill) payload.split = null;
 
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
       const budgetNotificationIds =
         formData.type === 'Expense'
           ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
           : new Set<number>();
       await updateEntry(token, params.id, payload);
+
+      // An EMI that was not repeating can start to, from here: the same record a
+      // new transaction creates. Skipped when one is already tied to this entry.
+      if (formData.subscriptionEnabled && formData.subscriptionBillingInterval && !emiLink) {
+        const account = accounts.find((item) => item.id === formData.accountId) ?? null;
+        await createRecurringFromForm(token, formData, account);
+      }
 
       // Refresh logic
       await fetchTransactionDetails();
@@ -350,31 +441,51 @@ export default function TransactionDetailsScreen() {
         return;
       }
       if (formData.type === 'Expense') {
-        const notification = await fetchNewUnreadBudgetNotification(
-          token,
-          budgetNotificationIds
-        ).catch(() => null);
-        if (notification) {
-          if (
-            await dialog.confirm({
-              title: notification.title,
-              message: notification.body,
-              confirmLabel: 'View Budgets',
-              cancelLabel: 'Later',
-              iconName: 'wallet-outline',
-            })
-          ) {
-            router.push('/budgets');
-          }
-        }
+        await offerBudgetAlert(budgetNotificationIds);
       }
     } catch (error) {
       console.error(error);
-      throw error instanceof Error ? error : new Error('Failed to update transaction');
+      throw error instanceof Error ? error : new Error("Couldn't update this transaction.");
     }
   };
 
-  const hasMerchant = displayData.merchant && displayData.merchant !== 'Unknown Location';
+  /**
+   * A new transaction, not an update: the same save Home does, so a repeat
+   * gets the same idempotency, EMI and budget handling as any other entry.
+   */
+  const handleSaveRepeat = async (formData: EntryForm) => {
+    if (!token) throw new Error('Please sign in again before saving this transaction.');
+    if (!repeatIdempotencyKey.current) {
+      repeatIdempotencyKey.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    const budgetNotificationIds =
+      formData.type === 'Expense'
+        ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
+        : new Set<number>();
+    const { convertedToEMI } = await saveNewTransaction({
+      token,
+      form: formData,
+      account: accounts.find((account) => account.id === formData.accountId) ?? null,
+      idempotencyKey: repeatIdempotencyKey.current,
+      progress: repeatSaveProgress.current,
+    });
+    repeatIdempotencyKey.current = null;
+    repeatSaveProgress.current = {};
+    notifyTransactionsChanged();
+    setIsRepeatModalVisible(false);
+    // This entry has done its job. Back on the list, the copy is the first row
+    // under Today — which is the confirmation, without a toast to say so.
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/transactions');
+    }
+    if (formData.type === 'Expense' && !convertedToEMI) {
+      void offerBudgetAlert(budgetNotificationIds);
+    }
+  };
+
+  const hasMerchant = Boolean(displayData.merchant) && displayData.merchant !== 'Unknown Location';
   const splitParticipants = splitBill?.participants ?? [];
   const splitExpectedBack = splitParticipants
     .filter((participant) => participant.direction === 'friend_owes_user')
@@ -467,6 +578,42 @@ export default function TransactionDetailsScreen() {
   };
 
   /**
+   * Repeat waits for the saved entry and the accounts. The row's params carry
+   * no account or time, and the sheet drops an account it cannot find in its
+   * list — so opening any earlier would repeat the spend into the wrong place.
+   */
+  const repeatReady = Boolean(transaction) && accountsLoaded;
+
+  const openRepeat = () => {
+    if (!repeatReady) return;
+    repeatIdempotencyKey.current = null;
+    repeatSaveProgress.current = {};
+    setRepeatForm(
+      buildRepeatForm(
+        { ...editInitialData, category: displayData.category || 'Food' },
+        {
+          accountType:
+            displayData.account?.type ??
+            accounts.find((account) => account.id === displayData.account_id)?.type,
+        }
+      )
+    );
+    setIsRepeatModalVisible(true);
+  };
+
+  // `repeat=1` comes from the row's swipe action, and waits for the push to
+  // land for the same reason `edit=1` does. Once only: the refetch after a save
+  // must not open it again.
+  useEffect(() => {
+    if (params.repeat === '1' && !repeatRequested.current && repeatReady && pushSettled) {
+      repeatRequested.current = true;
+      openRepeat();
+    }
+    // `openRepeat` is rebuilt every render; the ref is what keeps this to once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.repeat, pushSettled, repeatReady]);
+
+  /**
    * The skeleton is for arriving with *nothing*, which on this screen is rarer
    * than it looks.
    *
@@ -546,7 +693,7 @@ export default function TransactionDetailsScreen() {
           </Animated.View>
 
           <ThemedText className="text-lg font-black mb-3" style={{ color: theme.text }}>
-            {displayData.title || 'Untitled Transaction'}
+            {displayData.title || 'Untitled transaction'}
           </ThemedText>
 
           {hasMerchant && (
@@ -800,7 +947,7 @@ export default function TransactionDetailsScreen() {
             <ThemedText
               tone="muted"
               className="text-[10px] font-black uppercase tracking-[2px] mb-4 ml-6">
-              THE PAPER TRAIL
+              RECEIPT
             </ThemedText>
             {isPdfAttachment(receiptUrl) ? (
               <Pressable
@@ -881,12 +1028,33 @@ export default function TransactionDetailsScreen() {
 
         <Pressable
           onPress={handleEdit}
-          className="w-full py-5 rounded-full items-center justify-center shadow-xl mb-6 active:opacity-90"
+          className="w-full py-5 rounded-full items-center justify-center shadow-xl mb-4 active:opacity-90"
           style={{ backgroundColor: theme.accent }}>
           <View className="flex-row items-center gap-3">
             <MaterialCommunityIcons name="pencil-outline" size={24} color="#FFF" />
             <ThemedText tone="onAccent" className="font-black text-lg">
               Edit
+            </ThemedText>
+          </View>
+        </Pressable>
+
+        <Pressable
+          testID="entry-repeat-button"
+          accessibilityRole="button"
+          accessibilityHint="Opens a copy of this transaction dated today"
+          accessibilityState={{ disabled: !repeatReady }}
+          onPress={openRepeat}
+          disabled={!repeatReady}
+          className="w-full py-4 rounded-full items-center justify-center border mb-6 active:opacity-70"
+          style={{
+            backgroundColor: theme.card,
+            borderColor: theme.border,
+            opacity: repeatReady ? 1 : 0.5,
+          }}>
+          <View className="flex-row items-center gap-3">
+            <MaterialCommunityIcons name="repeat" size={22} color={theme.accent} />
+            <ThemedText className="font-black text-base" style={{ color: theme.text }}>
+              Repeat for today
             </ThemedText>
           </View>
         </Pressable>
@@ -905,6 +1073,7 @@ export default function TransactionDetailsScreen() {
         initialData={editInitialData}
         onSave={handleSaveUpdate}
         isEdit={true}
+        emiLink={emiLink}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
@@ -921,6 +1090,19 @@ export default function TransactionDetailsScreen() {
               }
             : undefined
         }
+      />
+
+      <TransactionFormModal
+        visible={isRepeatModalVisible}
+        onClose={() => setIsRepeatModalVisible(false)}
+        initialData={repeatForm ?? undefined}
+        onSave={handleSaveRepeat}
+        heading="Repeat transaction"
+        accounts={accounts}
+        splitFriends={splitFriends}
+        splitGroups={splitGroups}
+        authToken={token}
+        onManageAccounts={() => router.push('/money?segment=accounts')}
       />
 
       <AnimatedBottomSheet

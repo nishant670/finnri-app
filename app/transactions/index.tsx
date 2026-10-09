@@ -307,7 +307,8 @@ export default function TransactionsScreen() {
       0
     );
 
-  const openDetail = useCallback((item: Transaction, edit?: boolean, origin?: RowOrigin) => {
+  const openDetail = useCallback(
+    (item: Transaction, intent?: 'edit' | 'repeat', origin?: RowOrigin) => {
     router.push({
       pathname: '/entry/[id]',
       params: {
@@ -325,16 +326,20 @@ export default function TransactionsScreen() {
         tag: item.tag ?? '',
         // Edit is the detail screen's job — it owns the form, the receipt upload
         // and the split editor. Building a second one here to save a push would
-        // be two edit screens to keep in step.
-        ...(edit ? { edit: '1' } : {}),
+        // be two edit screens to keep in step. Repeat is the same form, so the
+        // same argument puts it there too.
+        ...(intent ? { [intent]: '1' } : {}),
         // C9: where the row's icon and amount were when it was tapped. Absent
-        // when Edit was used — that push lands on a sheet, and an icon flying
-        // to a place the sheet is about to cover is motion with nothing to say.
-        ...(origin?.icon && !edit ? { originIcon: encodeFrame(origin.icon) } : {}),
-        ...(origin?.amount && !edit ? { originAmount: encodeFrame(origin.amount) } : {}),
+        // when a swipe action was used — that push lands on a sheet, and an icon
+        // flying to a place the sheet is about to cover is motion with nothing
+        // to say.
+        ...(origin?.icon && !intent ? { originIcon: encodeFrame(origin.icon) } : {}),
+        ...(origin?.amount && !intent ? { originAmount: encodeFrame(origin.amount) } : {}),
       },
     });
-  }, []);
+    },
+    []
+  );
 
   const renderTransactionCard = useCallback(
     (item: Transaction, index: number) => {
@@ -359,13 +364,17 @@ export default function TransactionsScreen() {
         entranceIndex={index}
         onEdit={() => {
           setOpenSwipeId(null);
-          openDetail(item, true);
+          openDetail(item, 'edit');
         }}
         onDelete={() => requestDelete(item)}
+        onRepeat={() => {
+          setOpenSwipeId(null);
+          openDetail(item, 'repeat');
+        }}
         swipeOpen={openSwipeId === item.id}
         onSwipeOpenChange={(open) => setOpenSwipeId(open ? item.id : null)}
         collapsed={pendingDelete?.id === item.id}
-        onPress={(origin) => openDetail(item, false, origin)}
+        onPress={(origin) => openDetail(item, undefined, origin)}
       />
     );
     },
@@ -386,7 +395,7 @@ export default function TransactionsScreen() {
         </Pressable>
 
         <ThemedText className="text-base font-bold" style={{ color: theme.text }}>
-          &nbsp; {reviewMode ? 'Needs Review' : 'Transactions'}&nbsp;
+          &nbsp; {reviewMode ? 'Needs review' : 'Transactions'}&nbsp;
         </ThemedText>
         <Pressable
           accessibilityRole="button"
@@ -407,7 +416,7 @@ export default function TransactionsScreen() {
           <View className="flex-1 flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm">
             <Ionicons name="search" size={20} color="#9CA3AF" />
             <TextInput
-              placeholder="Search transactions..."
+              placeholder="Search transactions…"
               placeholderTextColor="#9CA3AF"
               className="flex-1 ml-3 text-sm text-gray-900 font-medium"
               value={searchQuery}
@@ -572,7 +581,7 @@ export default function TransactionsScreen() {
                 <MaterialCommunityIcons name="history" size={20} color={theme.text} />
               </View>
               <ThemedText className="text-xs" style={{ color: theme.text }}>
-                End of your story for now!
+                That’s everything for now.
               </ThemedText>
             </View>
           </View>

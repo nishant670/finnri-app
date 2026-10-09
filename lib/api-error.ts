@@ -105,7 +105,9 @@ export class ApiError extends Error {
 export const entitlementFromError = (error: unknown): Entitlement | null =>
   error instanceof ApiError ? error.entitlement ?? null : null;
 
-const NETWORK_ERROR_MESSAGE = 'Could not connect to Finnri. Check your internet connection and make sure the app is online.';
+/** Exported so the auth layer can swap in its own wording by reference, not by copy. */
+export const NETWORK_ERROR_MESSAGE =
+  "Can't reach Finnri right now. Check your internet connection and try again.";
 
 const rawNetworkPatterns = [
   /fetch failed/i,
@@ -123,7 +125,7 @@ const rawNetworkPatterns = [
 ];
 
 const codeMessages: Record<string, string> = {
-  invalid_json: 'The form could not be read. Please check your details and try again.',
+  invalid_json: "Something in the form didn't come through. Check your details and try again.",
   invalid_entry: 'Please fix the highlighted transaction details.',
   invalid_account: 'Please fix the highlighted account details.',
   invalid_filters: 'Please adjust the filters and try again.',
@@ -134,6 +136,8 @@ const codeMessages: Record<string, string> = {
   invalid_or_expired_session: 'Your session expired. Please sign in again.',
   account_in_use: 'Move or delete linked transactions before deleting this account.',
   last_account: 'Create another account before deleting your only account.',
+  statement_date_taken: 'This card already has a statement on that date.',
+  statement_date_out_of_order: 'That date is past another statement on this card. Pick a date between its neighbours.',
 };
 
 /**
@@ -188,7 +192,7 @@ const tryReadPayloadMessage = (message: string) => {
 
 export const getFriendlyErrorMessage = (
   error: unknown,
-  fallback = 'Something went wrong. Please try again.',
+  fallback = 'Something went wrong. Try again in a moment.',
 ) => {
   const rawMessage =
     error instanceof Error

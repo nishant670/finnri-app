@@ -1,175 +1,57 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  TextInput,
-  View,
-} from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
 
 import { PanelActionRow } from '@/components/money/PanelActionRow';
+import { CardEMIRow, RecurringOverviewCard } from '@/components/money/RecurringParts';
 import { RecurringCandidatesCard } from '@/components/money/RecurringCandidatesCard';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { fetchAccounts, getAccountsForPaymentMode, type Account } from '@/lib/accounts';
+import { fetchAccounts, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
-import { formatMoney } from '@/lib/money';
-import { CATEGORIES } from '@/lib/categories';
 import {
   fetchDashboard,
   saveRecurringCandidateDecision,
   type DashboardRecurringCandidate,
 } from '@/lib/insights';
 import { fetchMerchantSuggestions, type MerchantSuggestion } from '@/lib/merchant-suggestions';
+import { formatMoney } from '@/lib/money';
 import type { MoneyPanelProps } from '@/components/money/BudgetsPanel';
-import { HapticSwitch } from '@/components/ui/HapticSwitch';
+import { fetchRecurring, kindOf, loanTypeOptions, recurringKindMeta, recurringKinds, type RecurringCardEMI, type RecurringFilter, type RecurringSummary } from '@/lib/recurring';
 import {
   BillingInterval,
+  LoanType,
+  RecurringKind,
   Subscription,
   SubscriptionStatus,
   createSubscription,
   deleteSubscription,
-  fetchSubscriptions,
   markSubscriptionPaid,
   syncSubscriptionReminders,
   updateSubscription,
 } from '@/lib/subscriptions';
 
-/**
- * The four cadences a subscription actually renews on, as a segmented control.
- *
- * This used to be seven full-size cards, each with a helper line, and one of
- * them was **Market days — skips weekends and market holidays**: an SIP
- * concept borrowed from the investment side of the app that has no meaning for
- * Netflix. `business_daily` is gone from subscriptions entirely — the
- * `BillingInterval` type still carries it because existing rows and the SIP
- * path in the transaction form use it, but it can no longer be chosen here.
- */
-const intervalOptions: { value: BillingInterval; label: string }[] = [
-  { value: 'weekly', label: 'Weekly' },
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'yearly', label: 'Yearly' },
-];
-/**
- * Daily and biweekly renewals are real but rare, and putting six segments in
- * the control makes every label unreadable to serve two of them. They live
- * under Advanced, where choosing Daily also meets its Autopay requirement in
- * the same section.
- */
-const advancedIntervalOptions: { value: BillingInterval; label: string }[] = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'biweekly', label: 'Biweekly' },
-];
-const statusOptions: { value: SubscriptionStatus; label: string }[] = [
-  { value: 'active', label: 'Active' },
-  { value: 'paused', label: 'Paused' },
-  { value: 'cancelled', label: 'Cancelled' },
-];
-// A subscription generates transactions, and autopay copies this straight onto
-// them, so it uses the same canonical categories as everything else. The old
-// subscription-only list (Productivity, Cloud, Membership, Learning) put values
-// into the ledger that no other screen could render or filter.
-const categoryOptions = [...CATEGORIES];
-// Most subscriptions are streaming or apps; Entertainment is the likeliest pick.
-const defaultSubscriptionCategory = 'Entertainment';
-const reminderOptions = [0, 1, 3, 7, 14, 30];
-const defaultReminderDays = 3;
-
-const todayISO = () => dateToApiDate(new Date());
-const nextMonthISO = () => {
-  const next = new Date();
-  next.setMonth(next.getMonth() + 1);
-  return dateToApiDate(next);
-};
-const parseAmount = (value: string) => Number(value.replace(/,/g, '').trim());
-const sanitizeAmount = (value: string) => value.replace(/[^0-9.]/g, '');
-const toParam = (value: string | string[] | undefined) => (Array.isArray(value) ? value[0] : value);
-
-/**
- * The API sends `next_due_date` as RFC3339 (`2026-09-13T00:00:00Z`), not as the
- * bare `YYYY-MM-DD` this screen's form state uses, so every value read off a
- * subscription is normalised here before it touches state.
- *
- * Without it the anchored parse below fell through to `new Date()` and every
- * card, and the edit form, rendered *today* as the due date — and because the
- * raw timestamp also went into form state, the save validation rejected it, so
- * `Update subscription` answered "Choose a valid next due date" with the date
- * displayed directly above the message. No existing subscription could be
- * edited at all.
- */
-export function toApiDateOnly(value?: string | null) {
-  return value?.match(/^\d{4}-\d{2}-\d{2}/)?.[0] ?? '';
-}
-
-function apiDateToLocalDate(value: string) {
-  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!match) return new Date();
-  const [, year, month, day] = match;
-  return new Date(Number(year), Number(month) - 1, Number(day));
-}
-
-function dateToApiDate(value: Date) {
-  const year = value.getFullYear();
-  const month = String(value.getMonth() + 1).padStart(2, '0');
-  const day = String(value.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
-
-function formatDueDateLabel(value: string) {
-  return apiDateToLocalDate(value).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  });
-}
-
-function reminderLabel(days: number) {
-  if (days === 0) return 'On due date';
-  if (days === 1) return '1 day before';
-  return `${days} days before`;
-}
-
-/** Legacy rows can still hold `business_daily`; only the picker dropped it. */
-function intervalLabel(value: BillingInterval) {
-  if (value === 'business_daily') return 'Market days';
-  const known = [...intervalOptions, ...advancedIntervalOptions].find(
-    (option) => option.value === value
-  );
-  return known?.label ?? value;
-}
-
-/** What a subscription costs per month, whatever cadence it renews on. */
-export function monthlyEquivalent(amount: number, interval: BillingInterval) {
-  switch (interval) {
-    case 'daily':
-    case 'business_daily':
-      return amount * 30;
-    case 'weekly':
-      return amount * 4;
-    case 'biweekly':
-      return amount * 2;
-    case 'quarterly':
-      return amount / 3;
-    case 'yearly':
-      return amount / 12;
-    default:
-      return amount;
-  }
-}
+import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
+import { Field } from '@/components/money/subscriptions/Field';
+import { Pill } from '@/components/money/subscriptions/Pill';
+import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
+import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
+import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
+import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
+import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
+import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
+export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
 /**
  * Subscriptions, as a list of what you pay for.
@@ -199,6 +81,23 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const muted = `${colors.text}99`;
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [cardEMIs, setCardEMIs] = useState<RecurringCardEMI[]>([]);
+  const [overview, setOverview] = useState<RecurringSummary | null>(null);
+  const [filter, setFilter] = useState<RecurringFilter>('all');
+  const [formKind, setFormKind] = useState<RecurringKind>('subscription');
+  // Loan details. All optional — the EMI and its date are what schedule it.
+  const [loanType, setLoanType] = useState<LoanType | ''>('');
+  const [lender, setLender] = useState('');
+  const [principal, setPrincipal] = useState('');
+  const [ratePct, setRatePct] = useState('');
+  const [totalEmis, setTotalEmis] = useState('');
+  const [emisPaid, setEmisPaid] = useState('');
+  const [processingFee, setProcessingFee] = useState('');
+  const [foreclosurePct, setForeclosurePct] = useState('');
+  // Shared by loans (first EMI) and investments (first instalment).
+  const [startDate, setStartDate] = useState('');
+  const [platform, setPlatform] = useState('');
+  const [stepUpPct, setStepUpPct] = useState('');
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [candidates, setCandidates] = useState<DashboardRecurringCandidate[]>([]);
   const [candidatesHidden, setCandidatesHidden] = useState(false);
@@ -209,6 +108,8 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [editing, setEditing] = useState<Subscription | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  /** The loan's or investment's own details — all optional, so folded. */
+  const [showKindDetails, setShowKindDetails] = useState(false);
   const [name, setName] = useState('');
   const [merchant, setMerchant] = useState('');
   const [merchantSuggestions, setMerchantSuggestions] = useState<MerchantSuggestion[]>([]);
@@ -226,7 +127,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [notes, setNotes] = useState('');
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [pendingDate, setPendingDate] = useState(apiDateToLocalDate(nextDueDate));
-  const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel'>('due');
+  const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel' | 'start'>('due');
   const source = toParam(params.source);
   const prefillName = toParam(params.name);
   const prefillMerchant = toParam(params.merchant);
@@ -237,22 +138,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const prefillNotes = toParam(params.notes);
   const candidateKey = toParam(params.candidateKey);
 
-  const dueCount = useMemo(
-    () =>
-      subscriptions.filter((item) => item.due_state === 'due_soon' || item.due_state === 'overdue')
-        .length,
-    [subscriptions]
-  );
+  const dueCount = useMemo(() => countDueSoon(subscriptions), [subscriptions]);
   const activeSubscriptions = useMemo(
     () => subscriptions.filter((item) => item.status === 'active'),
     [subscriptions]
   );
   const projectedMonthly = useMemo(
-    () =>
-      activeSubscriptions.reduce(
-        (sum, item) => sum + monthlyEquivalent(Number(item.amount || 0), item.billing_interval),
-        0
-      ),
+    () => projectMonthlyTotal(activeSubscriptions),
     [activeSubscriptions]
   );
   /**
@@ -260,15 +152,33 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
    * is visible before the list is scrolled and without a tile row competing
    * with the subscriptions themselves for the top of the screen.
    */
-  const summaryLine = useMemo(() => {
-    if (loading) return 'Loading subscriptions…';
-    if (activeSubscriptions.length === 0) return 'No subscriptions tracked yet';
-    const headline = `${formatMoney(projectedMonthly)}/month across ${activeSubscriptions.length} subscription${
-      activeSubscriptions.length === 1 ? '' : 's'
-    }`;
-    return dueCount > 0 ? `${headline} · ${dueCount} due soon` : headline;
-  }, [activeSubscriptions.length, dueCount, loading, projectedMonthly]);
-  const formTitle = editing ? 'Edit subscription' : 'New subscription';
+  const summaryLine = useMemo(
+    () =>
+      buildSummaryLine({
+        loading,
+        overview,
+        activeCount: activeSubscriptions.length,
+        projectedMonthly,
+        dueCount,
+      }),
+    [activeSubscriptions.length, dueCount, loading, overview, projectedMonthly]
+  );
+  const visibleItems = useMemo(
+    () =>
+      filter === 'all' ? subscriptions : subscriptions.filter((item) => kindOf(item) === filter),
+    [filter, subscriptions]
+  );
+  const visibleCardEMIs = filter === 'all' || filter === 'loan' ? cardEMIs : [];
+  const kindMeta = recurringKindMeta[formKind];
+  /**
+   * Whichever of loan amount, rate, tenure and EMI the user left empty, worked
+   * out from the other three. Offered, never written over what they typed.
+   */
+  const loanSuggestion = useMemo(
+    () => suggestLoanFigures({ formKind, principal, ratePct, totalEmis, amount }),
+    [amount, formKind, principal, ratePct, totalEmis]
+  );
+  const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
 
   useEffect(() => {
@@ -315,7 +225,20 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setAccountID(null);
     setNotes('');
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
+    setFormKind('subscription');
+    setLoanType('');
+    setLender('');
+    setPrincipal('');
+    setRatePct('');
+    setTotalEmis('');
+    setEmisPaid('');
+    setProcessingFee('');
+    setForeclosurePct('');
+    setStartDate('');
+    setPlatform('');
+    setStepUpPct('');
   };
 
   const load = useCallback(async () => {
@@ -329,14 +252,18 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setListError(null);
     try {
       await syncSubscriptionReminders(token);
-      const [subscriptionItems, accountItems] = await Promise.all([
-        fetchSubscriptions(token),
+      const [recurring, accountItems] = await Promise.all([
+        fetchRecurring(token),
         fetchAccounts(token),
       ]);
-      setSubscriptions(subscriptionItems);
+      setSubscriptions(recurring.items);
+      setCardEMIs(recurring.card_emis);
+      setOverview(recurring.summary);
       setAccounts(accountItems);
     } catch (loadError) {
-      setListError(getFriendlyErrorMessage(loadError, 'Unable to load subscriptions right now.'));
+      setListError(
+        getFriendlyErrorMessage(loadError, 'Unable to load recurring payments right now.')
+      );
     } finally {
       setLoading(false);
     }
@@ -399,14 +326,59 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setPaymentMode(subscription.payment_mode || 'Cash');
     setAccountID(subscription.account_id ?? null);
     setNotes(subscription.notes ?? '');
+    const numberText = (value?: number | string | null) =>
+      value != null && Number(value) > 0 ? String(Number(value)) : '';
+    setFormKind(kindOf(subscription));
+    setLoanType(subscription.loan_type ?? '');
+    setLender(subscription.lender ?? '');
+    setPrincipal(numberText(subscription.principal));
+    setRatePct(numberText(subscription.annual_rate_pct));
+    setTotalEmis(numberText(subscription.total_instalments));
+    setEmisPaid(numberText(subscription.instalments_paid));
+    setProcessingFee(numberText(subscription.processing_fee));
+    setForeclosurePct(numberText(subscription.foreclosure_charge_pct));
+    setStartDate(toApiDateOnly(subscription.start_date));
+    setPlatform(subscription.platform ?? '');
+    setStepUpPct(numberText(subscription.step_up_pct));
     setShowAdvanced(false);
+    setShowKindDetails(false);
     setError(null);
     setShowForm(true);
   };
 
   const openCreateForm = () => {
     resetForm();
+    // A filtered list is a statement of intent: "+" on Loans adds a loan.
+    const kind = filter === 'all' ? 'subscription' : filter;
+    setFormKind(kind);
+    setCategory(recurringKindMeta[kind].defaultCategory);
     setShowForm(true);
+  };
+
+  const chooseFormKind = (kind: RecurringKind) => {
+    haptics.select();
+    setFormKind(kind);
+    // Follow the kind's usual category unless the user already picked one.
+    if (category === recurringKindMeta[formKind].defaultCategory) {
+      setCategory(recurringKindMeta[kind].defaultCategory);
+    }
+  };
+
+  const openStartDatePicker = () => {
+    const currentDate = apiDateToLocalDate(startDate || todayISO());
+    if (Platform.OS === 'android') {
+      DateTimePickerAndroid.open({
+        value: currentDate,
+        mode: 'date',
+        onValueChange: (_event, selectedDate) =>
+          selectedDate && setStartDate(dateToApiDate(selectedDate)),
+        onDismiss: () => undefined,
+      });
+      return;
+    }
+    setDatePickerTarget('start');
+    setPendingDate(currentDate);
+    setIsDatePickerVisible(true);
   };
 
   const openDueDatePicker = () => {
@@ -433,7 +405,14 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const openCancellationDatePicker = () => {
     const currentDate = apiDateToLocalDate(cancelOnDate || todayISO());
     if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({ value: currentDate, mode: 'date', minimumDate: new Date(), onValueChange: (_event, selectedDate) => selectedDate && setCancelOnDate(dateToApiDate(selectedDate)), onDismiss: () => undefined });
+      DateTimePickerAndroid.open({
+        value: currentDate,
+        mode: 'date',
+        minimumDate: new Date(),
+        onValueChange: (_event, selectedDate) =>
+          selectedDate && setCancelOnDate(dateToApiDate(selectedDate)),
+        onDismiss: () => undefined,
+      });
       return;
     }
     setDatePickerTarget('cancel');
@@ -443,54 +422,64 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
 
   const saveSubscription = async () => {
     if (!token || saving) return;
-    const amountValue = parseAmount(amount);
-    // The sheet asks for a merchant, not a name — "Netflix" is both. A display
-    // name is only ever entered under Advanced, so the merchant stands in for
-    // it and the backend's required `name` is satisfied without a field.
-    const resolvedName = name.trim() || merchant.trim();
-    const validation: string[] = [];
-    if (!resolvedName) validation.push('Merchant is required.');
-    if (!Number.isFinite(amountValue) || amountValue <= 0)
-      validation.push('Amount must be positive.');
-    if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Choose a valid renewal date.');
-    if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-      validation.push('Reminder must be between 0 and 30 days.');
-    }
-    if (cancelBeforeDue && !cancelOnDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Choose a cancellation reminder date.');
-    if ((interval === 'daily' || interval === 'business_daily') && !autopay) validation.push('Daily schedules require Autopay.');
-    if (autopay && !accountID) validation.push('Select the account used for Autopay.');
-    if (validation.length > 0) {
+    const { messages, opensMoreOptions, opensKindDetails } = validateRecurringForm({
+      name,
+      merchant,
+      amount,
+      nextDueDate,
+      reminderDays,
+      cancelBeforeDue,
+      cancelOnDate,
+      interval,
+      autopay,
+      accountID,
+      formKind,
+      totalEmis,
+      emisPaid,
+      ratePct,
+      namePlaceholder: kindMeta.namePlaceholder,
+    });
+    if (messages.length > 0) {
       haptics.rejected();
-      setError(validation.join('\n'));
-      // A failure caused by something folded away has to open the fold, or the
-      // message names a control the user cannot see.
-      if (validation.some((line) => line.includes('Autopay') || line.includes('Reminder'))) {
-        setShowAdvanced(true);
-      }
+      setError(messages.join('\n'));
+      if (opensMoreOptions) setShowAdvanced(true);
+      if (opensKindDetails) setShowKindDetails(true);
       return;
     }
 
     setSaving(true);
     setError(null);
     try {
-      const payload = {
-        name: resolvedName,
-        merchant: merchant.trim(),
-        category: category.trim(),
-        amount: amountValue,
-        billing_interval: interval,
-        next_due_date: nextDueDate,
-        status: editing ? status : 'active',
-        reminder_days: reminderDays,
-        cancel_before_due: cancelBeforeDue,
-        cancel_on_date: cancelBeforeDue ? cancelOnDate : '',
+      const payload = buildRecurringPayload({
+        name,
+        merchant,
+        category,
+        amount,
+        interval,
+        nextDueDate,
+        status,
+        reminderDays,
+        cancelBeforeDue,
+        cancelOnDate,
         autopay,
-        payment_mode: paymentMode,
-        transaction_tag: editing?.transaction_tag ?? 'Subscription',
-        purpose_type: editing?.purpose_type ?? 'normal_spend',
-        account_id: accountID,
-        notes: notes.trim(),
-      } as const;
+        paymentMode,
+        accountID,
+        notes,
+        formKind,
+        startDate,
+        totalEmis,
+        emisPaid,
+        loanType,
+        lender,
+        principal,
+        ratePct,
+        processingFee,
+        foreclosurePct,
+        platform,
+        stepUpPct,
+        editing,
+        kindMeta,
+      });
       if (editing) {
         await updateSubscription(token, editing.id, payload);
       } else {
@@ -511,7 +500,12 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
       await loadCandidates();
     } catch (saveError) {
       haptics.rejected();
-      setError(getFriendlyErrorMessage(saveError, 'Unable to save this subscription.'));
+      setError(
+        getFriendlyErrorMessage(
+          saveError,
+          `Couldn't save this ${formKind}. Check your connection and try again.`
+        )
+      );
     } finally {
       setSaving(false);
     }
@@ -579,6 +573,43 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     if (suggestion.category) setCategory(suggestion.category);
   };
 
+  const loanTypeLabel = loanTypeOptions.find((option) => option.value === loanType)?.label;
+  /** What the kind's own fold holds, read back so it can stay closed. */
+  const kindDetailsSummary =
+    formKind === 'loan'
+      ? [
+          loanTypeLabel ? `${loanTypeLabel} loan` : '',
+          lender.trim(),
+          principal.trim() ? formatMoney(parseAmount(principal)) : '',
+          ratePct.trim() ? `${ratePct}% a year` : '',
+          totalEmis.trim() ? `${emisPaid.trim() || '0'} of ${totalEmis} EMIs paid` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — loan amount, interest and EMIs left'
+      : [
+          platform.trim(),
+          startDate ? `Since ${formatDueDateLabel(startDate)}` : '',
+          stepUpPct.trim() ? `${stepUpPct}% yearly step-up` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ') || 'Optional — fund, start date and yearly step-up';
+  const autopayAccountName = accounts.find((account) => account.id === accountID)?.name;
+  const moreOptionsSummary = [
+    editing && status !== 'active'
+      ? statusOptions.find((option) => option.value === status)?.label
+      : '',
+    category || 'Uncategorized',
+    interval === 'daily' || interval === 'business_daily'
+      ? 'Added automatically'
+      : reminderDays === 0
+        ? 'Reminder on the due date'
+        : `Reminder ${reminderLabel(reminderDays)}`,
+    autopay ? `Autopay${autopayAccountName ? ` from ${autopayAccountName}` : ''}` : 'Autopay off',
+    cancelBeforeDue ? 'Cancel reminder on' : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <View className="flex-1" style={{ backgroundColor: colors.background }}>
       {embedded ? (
@@ -591,7 +622,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         />
       ) : (
         <AppHeader
-          title="Subscriptions"
+          title="Recurring"
           subtitle={summaryLine}
           onBack={() => router.back()}
           rightIcon={loading ? undefined : 'plus'}
@@ -619,10 +650,14 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           />
         )}
 
+        {!loading && overview && overview.active_count > 0 ? (
+          <RecurringOverviewCard summary={overview} filter={filter} onFilter={setFilter} />
+        ) : null}
+
         {listError && (
           <StateView
             icon="wifi-off"
-            title="Subscriptions did not load"
+            title="Recurring payments did not load"
             message={listError}
             actionLabel="Try again"
             onAction={load}
@@ -634,9 +669,18 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           <SkeletonFrame label="Loading subscriptions" testID="subscriptions-skeleton">
             <SkeletonCards count={3} lines={2} radius={28} />
           </SkeletonFrame>
-        ) : subscriptions.length > 0 ? (
+        ) : visibleItems.length > 0 || visibleCardEMIs.length > 0 ? (
           <View className="gap-3">
-            {subscriptions.map((subscription) => (
+            {visibleCardEMIs.map((emi) => (
+              <CardEMIRow
+                key={`card-emi-${emi.plan_id}`}
+                emi={emi}
+                onPress={() =>
+                  router.push({ pathname: '/emi-plans/[id]', params: { id: String(emi.plan_id) } })
+                }
+              />
+            ))}
+            {visibleItems.map((subscription) => (
               <SubscriptionCard
                 key={subscription.id}
                 subscription={subscription}
@@ -652,9 +696,17 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         ) : !listError ? (
           <StateView
             icon="calendar-sync-outline"
-            title="Track your first recurring payment"
-            message="Add the next service or bill that renews automatically. It will then appear in Upcoming before it is due."
-            actionLabel="Track a subscription"
+            title={
+              filter === 'all'
+                ? 'Track your first recurring payment'
+                : `No ${recurringKindMeta[filter].plural.toLowerCase()} yet`
+            }
+            message="Loans and EMIs, subscriptions, SIPs and bills — add anything that leaves your account on a schedule. It shows in Upcoming before it is due."
+            actionLabel={
+              filter === 'all'
+                ? 'Add recurring payment'
+                : `Add ${recurringKindMeta[filter].label.toLowerCase()}`
+            }
             onAction={openCreateForm}
             compact
           />
@@ -688,12 +740,24 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             </Pressable>
           </View>
 
+          <View testID="recurring-kind-picker" className="mb-4 flex-row flex-wrap gap-2">
+            {recurringKinds.map((kind) => (
+              <Pill
+                key={kind}
+                label={recurringKindMeta[kind].label}
+                selected={formKind === kind}
+                onPress={() => chooseFormKind(kind)}
+                colors={colors}
+              />
+            ))}
+          </View>
+
           <Field
-            label="Merchant"
+            label={kindMeta.nameLabel}
             value={merchant}
             onChangeText={setMerchant}
             colors={colors}
-            placeholder="Netflix, Gym, Rent"
+            placeholder={kindMeta.namePlaceholder}
             autoFocus={!editing}
           />
           {merchantSuggestions.length > 0 && (
@@ -711,12 +775,20 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           )}
 
           <Field
-            label="Amount"
+            label={
+              formKind === 'loan'
+                ? 'EMI amount'
+                : formKind === 'investment'
+                  ? 'Instalment amount'
+                  : 'Amount'
+            }
             value={amount}
             onChangeText={(value) => setAmount(sanitizeAmount(value))}
             keyboardType="decimal-pad"
             colors={colors}
-            placeholder="199"
+            placeholder={
+              formKind === 'loan' ? '9,965' : formKind === 'investment' ? '5,000' : '199'
+            }
           />
 
           <Pressable
@@ -736,7 +808,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               </View>
               <View>
                 <ThemedText className="text-[11px] font-black uppercase" style={{ color: muted }}>
-                  Renews on
+                  {formKind === 'loan'
+                    ? 'Next EMI on'
+                    : formKind === 'subscription'
+                      ? 'Renews on'
+                      : 'Next payment on'}
                 </ThemedText>
                 <ThemedText className="mt-1 text-sm font-black" style={{ color: colors.text }}>
                   {formatDueDateLabel(nextDueDate)}
@@ -754,221 +830,111 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             colors={colors}
           />
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ expanded: showAdvanced }}
-            onPress={() => {
-              haptics.toggle(!showAdvanced);
-              setShowAdvanced((current) => !current);
-            }}
-            className="mb-3 mt-1 flex-row items-center justify-between rounded-2xl px-1 py-3">
-            <ThemedText className="text-xs font-black uppercase" style={{ color: muted }}>
-              Advanced
-            </ThemedText>
-            <MaterialCommunityIcons
-              name={showAdvanced ? 'chevron-up' : 'chevron-down'}
-              size={20}
-              color={muted}
-            />
-          </Pressable>
-
-          {showAdvanced && (
-            <View>
-              {editing && (
-                <SegmentedControl
-                  label="Status"
-                  values={statusOptions}
-                  active={status}
-                  onSelect={setStatus}
+          {/* The loan's or investment's own details. None of them is needed
+              to schedule the payment — the amount and the date do that — so
+              they fold, and the fold reads back whatever is filled in. A loan
+              used to open with all fourteen inputs on screen. */}
+          {formKind === 'loan' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-loan-details"
+                label="Loan details"
+                icon="bank-outline"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <SubscriptionLoanFields
+                  amount={amount}
                   colors={colors}
+                  emisPaid={emisPaid}
+                  foreclosurePct={foreclosurePct}
+                  lender={lender}
+                  loanSuggestion={loanSuggestion}
+                  loanType={loanType}
+                  muted={muted}
+                  name={name}
+                  openStartDatePicker={openStartDatePicker}
+                  principal={principal}
+                  processingFee={processingFee}
+                  ratePct={ratePct}
+                  setAmount={setAmount}
+                  setEmisPaid={setEmisPaid}
+                  setForeclosurePct={setForeclosurePct}
+                  setLender={setLender}
+                  setLoanType={setLoanType}
+                  setPrincipal={setPrincipal}
+                  setProcessingFee={setProcessingFee}
+                  setRatePct={setRatePct}
+                  setTotalEmis={setTotalEmis}
+                  startDate={startDate}
+                  totalEmis={totalEmis}
                 />
-              )}
-
-              <Field
-                label="Display name"
-                value={name}
-                onChangeText={setName}
-                colors={colors}
-                placeholder={merchant.trim() || 'Same as merchant'}
-              />
-
-              <ChipPicker
-                label="Category"
-                options={categoryOptions}
-                active={category}
-                onSelect={setCategory}
-                colors={colors}
-              />
-
-              <View className="mb-4">
-                <ThemedText
-                  className="mb-2 text-[11px] font-black uppercase"
-                  style={{ color: muted }}>
-                  Other intervals
-                </ThemedText>
-                <View className="flex-row flex-wrap gap-2">
-                  {advancedIntervalOptions.map((option) => (
-                    <Pill
-                      key={option.value}
-                      label={option.label}
-                      selected={interval === option.value}
-                      onPress={() => {
-                        setInterval(option.value);
-                        if (option.value === 'daily') {
-                          setAutopay(true);
-                          setReminderDays(0);
-                        }
-                      }}
-                      colors={colors}
-                    />
-                  ))}
-                </View>
-              </View>
-
-              {interval !== 'daily' && interval !== 'business_daily' ? (
-                <View className="mb-4">
-                  <ThemedText
-                    className="mb-2 text-[11px] font-black uppercase"
-                    style={{ color: muted }}>
-                    Reminder
-                  </ThemedText>
-                  <View className="flex-row flex-wrap gap-2">
-                    {reminderOptions.map((days) => (
-                      <Pill
-                        key={days}
-                        label={reminderLabel(days)}
-                        selected={reminderDays === days}
-                        onPress={() => setReminderDays(days)}
-                        colors={colors}
-                      />
-                    ))}
-                  </View>
-                </View>
-              ) : (
-                <View className="mb-4 rounded-2xl p-3" style={{ backgroundColor: colors.secondary }}>
-                  <ThemedText className="text-xs font-bold" style={{ color: colors.accent }}>
-                    Daily transactions are added automatically. No daily reminder is sent.
-                  </ThemedText>
-                </View>
-              )}
-
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between">
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-black">Autopay</ThemedText>
-                    <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-                      Add each recurring payment automatically and ask you to confirm it.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={autopay}
-                    onValueChange={setAutopay}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
-                  />
-                </View>
-                {autopay && (
-                  <>
-                    <View className="mt-4 flex-row flex-wrap gap-2">
-                      {['Bank Account', 'UPI', 'Credit Card'].map((mode) => (
-                        <Pill
-                          key={mode}
-                          label={mode}
-                          selected={paymentMode === mode}
-                          onPress={() => {
-                            setPaymentMode(mode);
-                            setAccountID(null);
-                          }}
-                          colors={colors}
-                        />
-                      ))}
-                    </View>
-                    <View className="mt-3 flex-row flex-wrap gap-2">
-                      {getAccountsForPaymentMode(accounts, paymentMode).map((account) => (
-                        <Pill
-                          key={account.id}
-                          label={account.name}
-                          selected={accountID === account.id}
-                          onPress={() => setAccountID(account.id)}
-                          colors={colors}
-                        />
-                      ))}
-                    </View>
-                    <Pressable
-                      className="mt-3 flex-row items-center gap-2"
-                      onPress={() => router.push('/accounts/manage')}>
-                      <MaterialCommunityIcons
-                        name="plus-circle-outline"
-                        size={18}
-                        color={colors.accent}
-                      />
-                      <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                        Add or manage payment account
-                      </ThemedText>
-                    </Pressable>
-                  </>
-                )}
-              </View>
-
-              <View
-                className="mb-4 rounded-2xl border p-4"
-                style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                <View className="flex-row items-center justify-between gap-4">
-                  <View className="flex-1">
-                    <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
-                      Remind me to cancel
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-                      Reminder notification will explicitly ask you to cancel before the next
-                      payment.
-                    </ThemedText>
-                  </View>
-                  <HapticSwitch
-                    value={cancelBeforeDue}
-                    onValueChange={(enabled) => {
-                      setCancelBeforeDue(enabled);
-                      if (enabled && reminderDays === 0) setReminderDays(1);
-                    }}
-                    trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                    thumbColor="white"
-                  />
-                </View>
-              </View>
-
-              {cancelBeforeDue && (
-                <Pressable
-                  onPress={openCancellationDatePicker}
-                  className="mb-4 flex-row items-center justify-between rounded-2xl border p-4"
-                  style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-                  <View>
-                    <ThemedText
-                      className="text-[11px] font-black uppercase"
-                      style={{ color: muted }}>
-                      Cancellation reminder date
-                    </ThemedText>
-                    <ThemedText className="mt-1 text-sm font-black">
-                      {cancelOnDate || 'Choose date'}
-                    </ThemedText>
-                  </View>
-                  <MaterialCommunityIcons
-                    name="calendar-month-outline"
-                    size={22}
-                    color={colors.accent}
-                  />
-                </Pressable>
-              )}
-
-              <Field
-                label="Notes"
-                value={notes}
-                onChangeText={setNotes}
-                colors={colors}
-                placeholder="Plan tier, cancellation link, family plan details"
-              />
+              </FormDisclosure>
             </View>
-          )}
+          ) : null}
+
+          {formKind === 'investment' ? (
+            <View className="mb-3">
+              <FormDisclosure
+                testID="recurring-investment-details"
+                label="Investment details"
+                icon="chart-line"
+                summary={kindDetailsSummary}
+                expanded={showKindDetails}
+                onToggle={() => setShowKindDetails((open) => !open)}>
+                <SubscriptionInvestmentFields
+                  colors={colors}
+                  muted={muted}
+                  openStartDatePicker={openStartDatePicker}
+                  platform={platform}
+                  setPlatform={setPlatform}
+                  setStepUpPct={setStepUpPct}
+                  startDate={startDate}
+                  stepUpPct={stepUpPct}
+                />
+              </FormDisclosure>
+            </View>
+          ) : null}
+
+          <View className="mb-4">
+            <FormDisclosure
+              testID="recurring-more-options"
+              label="More options"
+              summary={moreOptionsSummary}
+              expanded={showAdvanced}
+              onToggle={() => setShowAdvanced((current) => !current)}>
+              <SubscriptionAdvancedFields
+                accountID={accountID}
+                accounts={accounts}
+                autopay={autopay}
+                cancelBeforeDue={cancelBeforeDue}
+                cancelOnDate={cancelOnDate}
+                category={category}
+                colors={colors}
+                interval={interval}
+                isEditing={Boolean(editing)}
+                merchant={merchant}
+                muted={muted}
+                name={name}
+                notes={notes}
+                onAddAccount={() => router.push('/accounts/manage')}
+                openCancellationDatePicker={openCancellationDatePicker}
+                paymentMode={paymentMode}
+                reminderDays={reminderDays}
+                setAccountID={setAccountID}
+                setAutopay={setAutopay}
+                setCancelBeforeDue={setCancelBeforeDue}
+                setCategory={setCategory}
+                setInterval={setInterval}
+                setName={setName}
+                setNotes={setNotes}
+                setPaymentMode={setPaymentMode}
+                setReminderDays={setReminderDays}
+                setStatus={setStatus}
+                status={status}
+              />
+            </FormDisclosure>
+          </View>
 
           {error && (
             <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
@@ -988,319 +954,30 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               <ActivityIndicator color="white" />
             ) : (
               <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                {editing ? 'Update subscription' : 'Add subscription'}
+                {/* The kind's key is its plain noun. Lower-casing the label
+                    printed "Add loan / emi". */}
+                {editing ? 'Save changes' : `Add ${formKind}`}
               </ThemedText>
             )}
           </Pressable>
         </ScrollView>
       </AnimatedBottomSheet>
 
-      <Modal
-        transparent
-        animationType="slide"
+      <SubscriptionDatePickerModal
         visible={isDatePickerVisible}
-        onRequestClose={() => setIsDatePickerVisible(false)}>
-        <View className="flex-1 justify-end bg-black/40">
-          <View className="rounded-t-[28px] p-5" style={{ backgroundColor: colors.card }}>
-            <View className="mb-4 flex-row items-center justify-between">
-              <Pressable onPress={() => setIsDatePickerVisible(false)}>
-                <ThemedText className="text-sm font-black" style={{ color: muted }}>
-                  Cancel
-                </ThemedText>
-              </Pressable>
-              <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-                {datePickerTarget === 'cancel' ? 'Cancellation reminder' : 'Renews on'}
-              </ThemedText>
-              <Pressable
-                onPress={() => {
-                  if (datePickerTarget === 'cancel') setCancelOnDate(dateToApiDate(pendingDate));
-                  else setNextDueDate(dateToApiDate(pendingDate));
-                  setIsDatePickerVisible(false);
-                }}>
-                <ThemedText className="text-sm font-black" style={{ color: colors.accent }}>
-                  Done
-                </ThemedText>
-              </Pressable>
-            </View>
-            <DateTimePicker
-              value={pendingDate}
-              mode="date"
-              display="spinner"
-              minimumDate={new Date()}
-              onValueChange={(_, selectedDate) => {
-                if (selectedDate) setPendingDate(selectedDate);
-              }}
-              onDismiss={() => setIsDatePickerVisible(false)}
-            />
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-}
-
-type FieldProps = {
-  label: string;
-  value: string;
-  onChangeText: (value: string) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  placeholder?: string;
-  keyboardType?: 'default' | 'decimal-pad' | 'number-pad' | 'numbers-and-punctuation';
-  autoFocus?: boolean;
-};
-
-function Field({
-  label,
-  value,
-  onChangeText,
-  colors,
-  placeholder,
-  keyboardType = 'default',
-  autoFocus = false,
-}: FieldProps) {
-  return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType}
-        placeholder={placeholder}
-        placeholderTextColor={`${colors.text}66`}
-        autoFocus={autoFocus}
-        className="h-12 rounded-2xl border px-4 text-sm"
-        style={{
-          borderColor: colors.border,
-          color: colors.text,
-          backgroundColor: colors.background,
+        target={datePickerTarget}
+        pendingDate={pendingDate}
+        onChangePendingDate={setPendingDate}
+        onClose={() => setIsDatePickerVisible(false)}
+        onDone={() => {
+          if (datePickerTarget === 'cancel') setCancelOnDate(dateToApiDate(pendingDate));
+          else if (datePickerTarget === 'start') setStartDate(dateToApiDate(pendingDate));
+          else setNextDueDate(dateToApiDate(pendingDate));
+          setIsDatePickerVisible(false);
         }}
+        colors={colors}
+        muted={muted}
       />
     </View>
-  );
-}
-
-type ChipPickerProps = {
-  label: string;
-  options: string[];
-  active: string;
-  onSelect: (value: string) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function ChipPicker({ label, options, active, onSelect, colors }: ChipPickerProps) {
-  return (
-    <View className="mb-4">
-      <ThemedText
-        className="mb-2 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <View className="flex-row flex-wrap gap-2">
-        {options.map((option) => (
-          <Pill
-            key={option}
-            label={option}
-            selected={active === option}
-            onPress={() => onSelect(option)}
-            colors={colors}
-          />
-        ))}
-      </View>
-    </View>
-  );
-}
-
-type PillProps = {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function Pill({ label, selected, onPress, colors }: PillProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className="min-h-11 justify-center rounded-full border px-3 py-2"
-      style={{
-        backgroundColor: selected ? colors.secondary : colors.background,
-        borderColor: selected ? colors.accent : colors.border,
-      }}>
-      <ThemedText
-        className="text-[11px] font-black"
-        style={{ color: selected ? colors.accent : `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
-
-type SegmentedControlProps<T extends string> = {
-  label: string;
-  values: { value: T; label: string }[];
-  active: T;
-  onSelect: (value: T) => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-function SegmentedControl<T extends string>({
-  label,
-  values,
-  active,
-  onSelect,
-  colors,
-}: SegmentedControlProps<T>) {
-  return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <View className="flex-row rounded-2xl p-1" style={{ backgroundColor: colors.background }}>
-        {values.map((option) => {
-          const selected = option.value === active;
-          return (
-            <Pressable
-              key={option.value}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              onPress={() => {
-                haptics.select();
-                onSelect(option.value);
-              }}
-              className="min-h-11 flex-1 items-center justify-center rounded-xl py-2"
-              style={{ backgroundColor: selected ? colors.secondary : 'transparent' }}>
-              <ThemedText
-                className="text-[11px] font-black uppercase"
-                style={{ color: selected ? colors.accent : `${colors.text}99` }}>
-                {option.label}
-              </ThemedText>
-            </Pressable>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
-
-type SubscriptionCardProps = {
-  subscription: Subscription;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
-  onPress: () => void;
-  onMarkPaid: () => void;
-  onCancelNow: () => void;
-  onDelete: () => void;
-};
-
-function SubscriptionCard({
-  subscription,
-  colors,
-  muted,
-  onPress,
-  onMarkPaid,
-  onCancelNow,
-  onDelete,
-}: SubscriptionCardProps) {
-  const urgent = subscription.due_state === 'overdue' || subscription.due_state === 'due_soon';
-  const totalInstalments = subscription.total_instalments ?? 0;
-  const instalmentsPaid = subscription.instalments_paid ?? 0;
-  const loanFinished = totalInstalments > 0 && instalmentsPaid >= totalInstalments;
-  const stateLabel = loanFinished ? 'completed' : subscription.due_state.replace('_', ' ');
-  const instalmentLine =
-    totalInstalments > 0
-      ? loanFinished
-        ? `All ${totalInstalments} payments done`
-        : `${instalmentsPaid} of ${totalInstalments} paid · ${totalInstalments - instalmentsPaid} left`
-      : null;
-  const isActive = subscription.status === 'active';
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`Edit ${subscription.name}`}
-      onPress={onPress}
-      className="rounded-[28px] border p-4"
-      style={{
-        backgroundColor: colors.card,
-        borderColor: urgent ? '#F9A825' : colors.border,
-      }}>
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1">
-          <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-            {subscription.name}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-            {subscription.category || 'Uncategorized'} ·{' '}
-            {intervalLabel(subscription.billing_interval)}
-          </ThemedText>
-        </View>
-        <ThemedText className="text-base font-black" style={{ color: colors.accent }}>
-          {formatMoney(subscription.amount)}
-        </ThemedText>
-      </View>
-      <View className="mt-4 flex-row items-center justify-between">
-        <View className="flex-1 pr-3">
-          <ThemedText
-            className="text-xs font-bold capitalize"
-            style={{ color: urgent ? '#F57F17' : muted }}>
-            {stateLabel}
-          </ThemedText>
-          {instalmentLine ? (
-            <ThemedText className="mt-1 text-[11px] font-bold" style={{ color: colors.text }}>
-              {instalmentLine}
-            </ThemedText>
-          ) : null}
-          {loanFinished ? null : (
-            <ThemedText className="mt-1 text-[11px]" style={{ color: muted }}>
-              Due {formatDueDateLabel(subscription.next_due_date)} ·{' '}
-              {reminderLabel(subscription.reminder_days)}
-            </ThemedText>
-          )}
-          {subscription.cancel_before_due && (
-            <View
-              className="mt-2 self-start rounded-full px-2 py-1"
-              style={{ backgroundColor: '#FFF3E0' }}>
-              <ThemedText className="text-[10px] font-black uppercase" style={{ color: '#EF6C00' }}>
-                Cancel reminder
-              </ThemedText>
-            </View>
-          )}
-        </View>
-        <View className="flex-row items-center gap-4">
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Mark ${subscription.name} paid`}
-              onPress={onMarkPaid}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="check-circle-outline" size={22} color={colors.accent} />
-            </Pressable>
-          )}
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Cancel ${subscription.name}`}
-              onPress={onCancelNow}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="calendar-remove-outline" size={21} color="#EF6C00" />
-            </Pressable>
-          )}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Delete ${subscription.name}`}
-            onPress={onDelete}
-            hitSlop={12}>
-            <MaterialCommunityIcons name="trash-can-outline" size={21} color="#D32F2F" />
-          </Pressable>
-        </View>
-      </View>
-    </Pressable>
   );
 }

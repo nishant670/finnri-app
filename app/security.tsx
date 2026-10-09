@@ -161,7 +161,7 @@ export default function SecurityScreen() {
 
   return (
     <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor }}>
-      <AppHeader title="Keep it Safe" onBack={() => router.back()} />
+      <AppHeader title="Security & privacy" onBack={() => router.back()} />
 
       <KeyboardAvoidingScreen
         showsVerticalScrollIndicator={false}
@@ -221,7 +221,7 @@ export default function SecurityScreen() {
                     <TText
                       className="text-base font-black"
                       style={{ fontFamily: Fonts.title, color: theme.text }}>
-                      Enable Lock
+                      App lock
                     </TText>
                     <TText
                       className="text-xs opacity-50 font-medium"
@@ -353,7 +353,7 @@ export default function SecurityScreen() {
                   <TText
                     className="text-base font-black"
                     style={{ fontFamily: Fonts.title, color: theme.text }}>
-                    Stealth Mode
+                    Stealth mode
                   </TText>
                   <TText
                     className="text-xs opacity-50 font-medium"

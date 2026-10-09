@@ -1,72 +1,28 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts/legacy';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
-import { cssInterop } from 'nativewind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ActivityIndicator,
-  Pressable,
-  ScrollView,
-  Share,
-  View,
-} from 'react-native';
-import Animated from 'react-native-reanimated';
+import { ScrollView, Share, View } from 'react-native';
 
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
-import { AppHeader } from '@/components/navigation/AppHeader';
 import {
   AddExpenseModal,
   type ExpenseFlowScreen,
 } from '@/components/split/expense/AddExpenseModal';
 import { CreateGroupModal } from '@/components/split/modals/CreateGroupModal';
-import {
-  SearchField,
-  SegmentedSections,
-  SettledHint,
-  SplitScreenFrame,
-  type ActiveSection,
-} from '@/components/split/primitives/SplitChrome';
+import { SearchField, SegmentedSections, SplitScreenFrame, type ActiveSection } from '@/components/split/primitives/SplitChrome';
 import { FriendDetailModal } from '@/components/split/modals/FriendDetailModal';
 import { GroupDetailModal } from '@/components/split/modals/GroupDetailModal';
 import { GroupDefaultSplitModal } from '@/components/split/modals/GroupDefaultSplitModal';
 import { GroupSettingsModal } from '@/components/split/modals/GroupSettingsModal';
 import { GroupMembersModal } from '@/components/split/modals/GroupMembersModal';
-import { GroupAvatar } from '@/components/split/GroupAvatar';
-import { GroupTile } from '@/components/split/rows/GroupTile';
-import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { GroupActionModal } from '@/components/split/modals/GroupActionModal';
 import { BillDetailModal } from '@/components/split/modals/BillDetailModal';
-import {
-  AvatarCircle,
-  DirectionChip,
-  FloatingExpenseButton,
-  FormInput,
-  PrimaryModalButton,
-  SplitModal,
-} from '@/components/split/primitives/SplitPrimitives';
-import {
-  composerMemberKeys,
-  contactMatchesFriend,
-  countHiddenSettledGroups,
-  formatBalance,
-  getGroupKindConfig,
-  buildGroupRoster,
-  getGroupBalanceRows,
-  groupMatchesSearch,
-  readBillForViewer,
-  parseAmount,
-  todayApiDate,
-  zeroBalanceLabel,
-} from '@/components/split/split-utils';
-import type {
-  DeviceContactOption,
-  FriendDetailSummary,
-  GroupActionMode,
-  SplitGroupSummary,
-} from '@/components/split/split-types';
+import { FloatingExpenseButton } from '@/components/split/primitives/SplitPrimitives';
+import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
+import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import {
   billToComposerForm,
@@ -100,21 +56,15 @@ import {
 } from '@/lib/notifications';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
 import { FriendActionsSheet } from '@/components/split/sheets/FriendActionsSheet';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { submitFeedback } from '@/lib/feedback';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
-import { CountUpMoney } from '@/components/ui/CountUpMoney';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedConfirmDialog, ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { Card } from '@/components/ui/theme-primitives';
-import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { useMotion } from '@/hooks/use-motion';
 import { fetchAccounts, getPreferredAccountForPaymentMode, type Account } from '@/lib/accounts';
 import { userDisplayName } from '@/lib/display-name';
 import { fetchEntry, updateEntry } from '@/lib/entries';
@@ -142,337 +92,25 @@ import {
   type SplitSlotPerson,
   type SplitWeights,
 } from '@/lib/split-preferences';
-import {
-  SPLIT_GROUP_OWNER_SLOT,
-  archiveSplitGroup,
-  archiveSplitFriend,
-  createSplitBill,
-  createSplitFriend,
-  createSplitGroup,
-  createSplitGroupDirectInvite,
-  createSplitGroupInviteLink,
-  createSplitSettlement,
-  decideSplitSettlement,
-  deleteSplitBill,
-  fetchPendingSplitSettlements,
-  fetchSplitActivity,
-  fetchSplitBalances,
-  fetchSplitBills,
-  fetchSplitFriends,
-  fetchSplitGroups,
-  fetchSplitGroupDirectInvites,
-  leaveSplitGroup,
-  mergeSplitFriend,
-  revokeSplitGroupDirectInvite,
-  splitScreenState,
-  updateSplitBill,
-  updateSplitFriend,
-  setSplitGroupDefaultSplit,
-  updateSplitGroup,
-  type SettlementDirection,
-  type SplitActivityItem,
-  type SplitBalance,
-  type SplitBill,
-  type SplitDirection,
-  type SplitFriend,
-  type SplitGroup,
-  type SplitGroupEntryDisposition,
-  type SplitGroupDirectInvite,
-  type SplitSettlement,
-  type SplitGroupMemberInvite,
-} from '@/lib/splits';
+import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSplitBill, createSplitFriend, createSplitGroup, createSplitGroupDirectInvite, createSplitGroupInviteLink, createSplitSettlement, decideSplitSettlement, deleteSplitBill, fetchPendingSplitSettlements, fetchSplitActivity, fetchSplitBalances, fetchSplitBills, fetchSplitFriends, fetchSplitGroups, fetchSplitGroupDirectInvites, leaveSplitGroup, mergeSplitFriend, revokeSplitGroupDirectInvite, splitScreenState, updateSplitBill, updateSplitFriend, setSplitGroupDefaultSplit, updateSplitGroup, type SettlementDirection, type SettlementPaymentMode, type SplitActivityItem, type SplitBalance, type SplitBill, type SplitFriend, type SplitGroup, type SplitGroupEntryDisposition, type SplitGroupDirectInvite, type SplitSettlement, type SplitGroupMemberInvite } from '@/lib/splits';
+import { TView } from '@/components/split/primitives/themed-interop';
+import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
-const TView = cssInterop(ThemedView, { className: 'style' });
-const TText = cssInterop(ThemedText, { className: 'style' });
+import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
+import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
+import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
+import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
+import { SplitNonGroupRow } from '@/components/split/rows/SplitNonGroupRow';
+import { SplitActivitySection } from '@/components/split/SplitActivitySection';
+import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
+import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
+import { SplitGroupInviteModal } from '@/components/split/SplitGroupInviteModal';
+import { SplitGroupsSection } from '@/components/split/SplitGroupsSection';
+import { SplitHeader } from '@/components/split/SplitHeader';
+import { SplitOverallBalance } from '@/components/split/SplitOverallBalance';
+import { SplitSettlementModal } from '@/components/split/SplitSettlementModal';
 
 type ModalKind = 'friend' | 'group' | 'bill' | 'settlement' | 'group_invite' | null;
-type ParticipantDraft = {
-  friend_id: number;
-  share_amount: number;
-  direction: SplitDirection;
-};
-
-type DuplicateFriendPair = { survivor: SplitFriend; duplicate: SplitFriend };
-
-const comparablePhone = (friend: SplitFriend) => {
-  if (friend.phone_normalized) return friend.phone_normalized;
-  const digits = friend.phone?.replace(/\D/g, '') ?? '';
-  return digits.length >= 10 ? digits.slice(-10) : '';
-};
-
-const friendsLookIdentical = (left: SplitFriend, right: SplitFriend) => {
-  if (left.linked_user_id && left.linked_user_id === right.linked_user_id) return true;
-  const leftEmail = left.email?.trim().toLowerCase();
-  const rightEmail = right.email?.trim().toLowerCase();
-  if (leftEmail && leftEmail === rightEmail) return true;
-  const leftPhone = comparablePhone(left);
-  return Boolean(leftPhone && leftPhone === comparablePhone(right));
-};
-const toDeviceContactOption = (contact: Contacts.ExistingContact): DeviceContactOption | null => {
-  const fallbackName = [contact.firstName, contact.lastName].filter(Boolean).join(' ').trim();
-  const name = (contact.name || fallbackName || contact.phoneNumbers?.[0]?.number || '').trim();
-  if (!name) return null;
-  return {
-    id: contact.id,
-    name,
-    phone: contact.phoneNumbers?.find((phone) => phone.number)?.number,
-    email: contact.emails?.find((email) => email.email)?.email,
-    imageUri: contact.image?.uri,
-  };
-};
-
-const getBalanceTone = (
-  value: number,
-  colors: { positive: string; negative: string; neutral: string },
-  hasActivity = true
-) => {
-  if (value > 0) return { label: `you are owed ${formatBalance(value)}`, color: colors.positive };
-  if (value < 0) return { label: `you owe ${formatBalance(value)}`, color: colors.negative };
-  return { label: zeroBalanceLabel({ hasActivity }), color: colors.neutral };
-};
-
-/**
- * A zero balance, and which of the two things it means.
- *
- * "Settled up" is a claim about what happened: money was owed and it came back.
- * A group made ten seconds ago has a zero balance for the opposite reason —
- * nothing has happened in it at all — and saying "settled up" there is the app
- * congratulating the user on an event that never took place. It also erases
- * the one thing the row should be prompting: add the first expense.
- *
- * `hasActivity` is what tells them apart. It is false only when there is
- * nothing on the ledger to settle, so a group that genuinely balanced out to
- * zero still reads "settled up" and keeps its meaning.
- */
-function BalanceFigure({
-  value,
-  color,
-  overall = false,
-  hasActivity = true,
-}: {
-  value: number;
-  color: string;
-  overall?: boolean;
-  hasActivity?: boolean;
-}) {
-  const variant = overall ? 'sectionTitle' : 'cardTitle';
-  if (value === 0) {
-    return (
-      <TText variant={variant} style={{ color }}>
-        {zeroBalanceLabel({ hasActivity, overall })}
-      </TText>
-    );
-  }
-  const relationship = value > 0 ? 'you are owed' : 'you owe';
-  return (
-    <View className="flex-row flex-wrap items-baseline">
-      <TText variant={variant} style={{ color }}>
-        {overall ? `Overall, ${relationship} ` : `${relationship} `}
-      </TText>
-      <CountUpMoney
-        variant={variant}
-        amount={Math.abs(value)}
-        sign="never"
-        style={{ color }}
-      />
-    </View>
-  );
-}
-
-type BuiltParticipants =
-  | { ok: true; participants: ParticipantDraft[] }
-  | { ok: false; error: string };
-
-/**
- * A bill only records debts against the signed-in user, so a split they paid
- * becomes one row per friend, and a split a friend paid collapses to the single
- * row for what the user owes them. Keys here are always the composer's own:
- * `me` for the author, friend ids for everybody else.
- */
-const buildParticipantsFromSelection = (
-  selection: SplitSelection,
-  amount: number
-): BuiltParticipants => {
-  const keys = splitParticipantKeys(selection);
-  const computed = computeSplitShares({
-    amount,
-    tab: selection.tab,
-    keys,
-    weights: selection.weights,
-  });
-  if (!computed.ok) return computed;
-
-  if (selection.payerKey === CURRENT_USER_KEY) {
-    const participants = keys
-      .filter((key) => key !== CURRENT_USER_KEY)
-      .map((key) => ({
-        friend_id: Number(key),
-        share_amount: computed.shares[key] ?? 0,
-        direction: 'friend_owes_user' as SplitDirection,
-      }))
-      .filter((participant) => participant.friend_id > 0 && participant.share_amount > 0);
-    if (participants.length === 0) {
-      return { ok: false, error: 'Choose at least one friend for this split.' };
-    }
-    return { ok: true, participants };
-  }
-
-  const payerId = Number(selection.payerKey);
-  if (!payerId) return { ok: false, error: 'Choose who paid for this expense.' };
-  const userShare = computed.shares[CURRENT_USER_KEY] ?? 0;
-  if (userShare <= 0) {
-    return { ok: false, error: 'Add yourself to the split to record what you owe.' };
-  }
-  return {
-    ok: true,
-    participants: [{ friend_id: payerId, share_amount: userShare, direction: 'user_owes_friend' }],
-  };
-};
-
-const getActivityIcon = (
-  type: SplitActivityItem['type']
-): keyof typeof MaterialCommunityIcons.glyphMap => {
-  switch (type) {
-    case 'group_created':
-      return 'account-group-outline';
-    case 'friend_created':
-      return 'account-plus-outline';
-    case 'settlement':
-      return 'hand-coin-outline';
-    default:
-      return 'receipt-text-outline';
-  }
-};
-
-const csvCell = (value: string | number | null | undefined) => {
-  const normalized = value == null ? '' : String(value);
-  return `"${normalized.replace(/"/g, '""')}"`;
-};
-
-const csvRow = (values: (string | number | null | undefined)[]) =>
-  values.map(csvCell).join(',');
-
-const getSafeExportFileName = (name: string) =>
-  name
-    .trim()
-    .replace(/[^a-z0-9]+/gi, '-')
-    .replace(/^-+|-+$/g, '')
-    .toLowerCase() || 'split-group';
-
-const buildGroupExportCsv = (
-  summary: SplitGroupSummary,
-  friendById: Map<number, SplitFriend>,
-  currentUserName: string
-) => {
-  const balances = getGroupBalanceRows(summary);
-  const rows: string[] = [
-    csvRow(['Finnri Split Report']),
-    csvRow(['Group', summary.group.name]),
-    csvRow(['Exported on', todayApiDate()]),
-    csvRow(['Currency', 'INR']),
-    csvRow([]),
-    csvRow(['Who owes whom']),
-    csvRow(['Who owes', 'Who gets paid', 'Amount', 'Status']),
-  ];
-
-  const openBalances = balances.filter(({ balance }) => balance !== 0);
-  if (openBalances.length === 0) {
-    rows.push(csvRow(['Everyone', 'Everyone', 0, 'Settled up']));
-  } else {
-    openBalances.forEach(({ person, balance }) => {
-      rows.push(
-        balance > 0
-          ? csvRow([person.name, currentUserName, toAmountString(Math.abs(balance)), 'Open'])
-          : csvRow([currentUserName, person.name, toAmountString(Math.abs(balance)), 'Open'])
-      );
-    });
-  }
-
-  rows.push(csvRow([]));
-  rows.push(csvRow(['Expenses']));
-  rows.push([
-    'Date',
-    'Expense',
-    'Total amount',
-    'Paid by',
-    'Split with',
-    'Share details',
-    'Notes',
-  ].map(csvCell).join(','));
-
-  // Read through the viewer's restatement, like every other surface. Exported
-  // straight from `participants` this named the owner's friend rows and stated
-  // every direction from the owner's side, so a member's spreadsheet said she
-  // had paid for the lot.
-  summary.bills.forEach((bill) => {
-    const reading = readBillForViewer(bill, friendById, currentUserName);
-    const splitWith = reading.people
-      .filter((person) => person.share > 0)
-      .map((person) => person.name)
-      .join(', ');
-    const shareDetails = reading.people
-      .filter((person) => person.share > 0)
-      .map((person) => `${person.name} owes ${formatBalance(person.share)}`)
-      .join('; ');
-    rows.push(
-      csvRow([
-        bill.date,
-        bill.title,
-        toAmountString(bill.total_amount),
-        reading.payerName,
-        splitWith,
-        shareDetails,
-        bill.notes ?? '',
-      ])
-    );
-  });
-
-  return rows.join('\n');
-};
-
-/**
- * Neither of the two connection messages ends in "and try again" any more.
- * Both of the places they land now carry a Try again control of their own, and
- * a sentence that asks for a tap next to a button that performs it reads as two
- * different instructions.
- */
-const formatFriendlySplitError = (error: unknown, fallback: string) => {
-  const rawMessage = error instanceof Error ? error.message : '';
-  const normalized = rawMessage.toLowerCase();
-
-  if (
-    normalized.includes('network request failed') ||
-    normalized.includes('fetch failed') ||
-    normalized.includes('failed to connect') ||
-    normalized.includes('java.net') ||
-    normalized.includes('connectexception') ||
-    normalized.includes('timed out') ||
-    normalized.includes('networkerror')
-  ) {
-    return 'We could not reach Finnri. Check your internet connection.';
-  }
-
-  if (
-    normalized.includes('failed to fetch') ||
-    normalized.includes('could not resolve') ||
-    normalized.includes('connection refused')
-  ) {
-    return 'Finnri is not responding right now.';
-  }
-
-  if (!rawMessage.trim()) return fallback;
-
-  const withoutBullets = rawMessage
-    .split('\n')
-    .map((line) => line.trim().replace(/^•\s*/, ''))
-    .filter(Boolean);
-  const userSafeLines = withoutBullets.filter(
-    (line) =>
-      !/java\.net|connectexception|\/\d{1,3}(?:\.\d{1,3}){3}:\d+|stack|trace/i.test(line)
-  );
-  return userSafeLines.length > 0 ? userSafeLines.join('\n') : fallback;
-};
-
 type SplitScreenProps = {
   embedded?: boolean;
 };
@@ -485,8 +123,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const dialog = useAppDialog();
-  const motion = useMotion();
-  const borderColor = theme.border;
   const currentUserName = userDisplayName(user?.username, 'You');
   const currentUserContact = user?.email?.trim() || user?.phone?.trim() || '';
 
@@ -683,6 +319,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [settlementDirection, setSettlementDirection] =
     useState<SettlementDirection>('friend_paid_user');
   const [settlementNotes, setSettlementNotes] = useState('');
+  const [settlementPaymentMode, setSettlementPaymentMode] = useState<SettlementPaymentMode | null>(
+    null
+  );
 
   const {
     entitlement,
@@ -836,19 +475,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     };
   }, []);
 
-  const totals = useMemo(() => {
-    return balances.reduce(
-      (acc, balance) => {
-        if (balance.net_balance > 0) {
-          acc.owedByFriends += balance.net_balance;
-        } else {
-          acc.owedToFriends += Math.abs(balance.net_balance);
-        }
-        return acc;
-      },
-      { owedByFriends: 0, owedToFriends: 0 }
-    );
-  }, [balances]);
+  const totals = useMemo(() => computeBalanceTotals(balances), [balances]);
 
   const overallNetBalance = totals.owedByFriends - totals.owedToFriends;
   /**
@@ -887,62 +514,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     return new Map(balances.map((balance) => [balance.friend.id, balance]));
   }, [balances]);
 
-  const friendById = useMemo(() => {
-    const map = new Map(friends.map((friend) => [friend.id, friend]));
-    groups.forEach((group) => {
-      group.members?.forEach((member) => {
-        if (member.friend) map.set(member.friend.id, member.friend);
-      });
-    });
-    bills.forEach((bill) => {
-      bill.participants?.forEach((participant) => {
-        if (participant.friend) map.set(participant.friend.id, participant.friend);
-      });
-    });
-    return map;
-  }, [bills, friends, groups]);
+  const friendById = useMemo(() => buildFriendById(friends, groups, bills), [bills, friends, groups]);
 
-  const groupSummaries = useMemo<SplitGroupSummary[]>(() => {
-    return groups.map((group) => {
-      const kind = group.kind ?? 'other';
-      const memberIds = (group.members ?? []).map((member) => member.friend_id);
-      const groupBills = bills.filter((bill) => bill.group_id === group.id);
-      // Both figures come from the server. Summing the group's participant
-      // rows here read every bill as if its `direction` were absolute, but a
-      // bill states the debts of whoever wrote it — so an expense a member
-      // recorded arrived inverted, and the card claimed they owed money they
-      // had actually laid out. The server is the only side that can tell, so
-      // it is asked rather than guessed at.
-      const groupBalancesByFriendId = new Map<number, number>(
-        (group.viewer_balances ?? []).map((entry) => [entry.friend_id, entry.net_balance])
-      );
-      const netBalance = group.viewer_net_balance ?? 0;
-      const latestBill = [...groupBills].sort((a, b) => b.date.localeCompare(a.date))[0];
-      // Driven by the balances rather than the roster: for a member those name
-      // their own friend rows, which is the only namespace they can resolve.
-      const detailLines = [...groupBalancesByFriendId.entries()]
-        .map(([friendId, balance]) => {
-          const friend = friendById.get(friendId);
-          if (!friend || balance === 0) return null;
-          return balance > 0
-            ? `${friend.name} owes you ${formatBalance(balance)}`
-            : `You owe ${friend.name} ${formatBalance(balance)}`;
-        })
-        .filter((line): line is string => Boolean(line));
-
-      return {
-        group,
-        billCount: groupBills.length,
-        bills: [...groupBills].sort((a, b) => b.date.localeCompare(a.date)),
-        detailLines,
-        latestBill,
-        kind,
-        memberIds,
-        roster: buildGroupRoster({ group, friendById, currentUserName, currentUserContact }),
-        netBalance,
-      };
-    });
-  }, [bills, currentUserContact, currentUserName, friendById, groups]);
+  const groupSummaries = useMemo(() => buildGroupSummaries({ groups, bills, friendById, currentUserName, currentUserContact }), [bills, currentUserContact, currentUserName, friendById, groups]);
 
   const selectedGroupSummary = useMemo(
     () => groupSummaries.find((summary) => summary.group.id === selectedGroupDetailId) ?? null,
@@ -990,35 +564,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     loadPendingGroupInvites,
   ]);
 
-  const friendDetailSummaries = useMemo<FriendDetailSummary[]>(() => {
-    return friends.map((friend) => {
-      // Matched through the viewer's restatement where there is one: a bill
-      // somebody else wrote names *their* friend rows, so filtering on the raw
-      // participants hid every shared-group expense from the card for the very
-      // person it was split with.
-      const friendBills = bills
-        .filter((bill) =>
-          bill.viewer_shares && bill.viewer_shares.length > 0
-            ? bill.viewer_shares.some((share) => share.friend_id === friend.id)
-            : bill.participants?.some((participant) => participant.friend_id === friend.id)
-        )
-        .sort((a, b) => b.date.localeCompare(a.date));
-      // Matched on the roster rather than `memberIds`: those are the owner's
-      // friend rows, so in a shared group a member's own friend never lined up
-      // with one and the group never appeared on their card.
-      const sharedGroups = groupSummaries.filter((summary) =>
-        summary.roster.some((person) => person.friendId === friend.id)
-      );
-      const balance = balanceByFriendId.get(friend.id) ?? null;
-      return {
-        friend,
-        balance,
-        groups: sharedGroups,
-        bills: friendBills,
-        netBalance: balance?.net_balance ?? 0,
-      };
-    });
-  }, [balanceByFriendId, bills, friends, groupSummaries]);
+  const friendDetailSummaries = useMemo(() => buildFriendDetailSummaries({ friends, bills, groupSummaries, balanceByFriendId }), [balanceByFriendId, bills, friends, groupSummaries]);
 
   const selectedFriendDetailSummary = useMemo(
     () =>
@@ -1036,41 +582,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [groupSummaries, memberPickerGroupId]
   );
 
-  const nonGroupSummary = useMemo(() => {
-    const nonGroupBills = bills.filter((bill) => !bill.group_id);
-    const participantBalances = new Map<number, number>();
-
-    nonGroupBills.forEach((bill) => {
-      bill.participants?.forEach((participant) => {
-        const current = participantBalances.get(participant.friend_id) ?? 0;
-        const signedShare =
-          participant.direction === 'friend_owes_user'
-            ? participant.share_amount
-            : -participant.share_amount;
-        participantBalances.set(participant.friend_id, current + signedShare);
-      });
-    });
-
-    const netBalance = [...participantBalances.values()].reduce((sum, value) => sum + value, 0);
-    const detailLines = [...participantBalances.entries()]
-      .map(([friendId, value]) => {
-        const friend = friendById.get(friendId);
-        if (!friend || value === 0) return null;
-        return value > 0
-          ? `${friend.name} owes you ${formatBalance(value)}`
-          : `You owe ${friend.name} ${formatBalance(value)}`;
-      })
-      .filter((line): line is string => Boolean(line))
-      .slice(0, 2);
-    const latestBill = [...nonGroupBills].sort((a, b) => b.date.localeCompare(a.date))[0];
-
-    return {
-      billCount: nonGroupBills.length,
-      detailLines,
-      latestBill,
-      netBalance,
-    };
-  }, [bills, friendById]);
+  const nonGroupSummary = useMemo(() => buildNonGroupSummary(bills, friendById), [bills, friendById]);
 
   const selectedBillGroup = useMemo(
     () => groups.find((group) => group.id === billGroupId) ?? null,
@@ -1176,48 +688,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [billFriendOptions, currentUserContact, currentUserName]
   );
 
-  const recentActivity = useMemo(() => {
-    return activity.map((item) => {
-      const fallbackCaption =
-        item.type === 'group_created'
-          ? `${item.participant_count ?? 0} member${item.participant_count === 1 ? '' : 's'}`
-          : item.type === 'friend_created'
-            ? 'Friend added'
-            : item.type === 'bill'
-              ? item.group?.name
-                ? `${item.group.name} group`
-                : `${item.participant_count ?? item.participants?.length ?? 0} share${
-                    (item.participant_count ?? item.participants?.length ?? 0) === 1 ? '' : 's'
-                  }`
-              : 'Settlement';
-      const baseCaption = item.notes || fallbackCaption;
-      // Only on expenses. A settlement's title already names the other person
-      // ("Priya paid you"), so repeating it here reads as a stutter.
-      const caption =
-        item.type === 'bill' && item.actor_name
-          ? `${baseCaption} · added by ${item.actor_name}`
-          : baseCaption;
-      /*
-       * A claimed payment and an agreed one used to read identically here, and
-       * that is the difference the feed most needs to carry: a denial moves a
-       * balance back, and this row is the only place that says why.
-       */
-      const status =
-        item.type === 'settlement' && item.status && item.status !== 'confirmed'
-          ? item.status
-          : null;
-      return {
-        id: item.id,
-        item,
-        title: item.title,
-        date: item.date,
-        amount: item.amount,
-        icon: getActivityIcon(item.type),
-        caption,
-        status,
-      };
-    });
-  }, [activity]);
+  const recentActivity = useMemo(() => buildRecentActivity(activity), [activity]);
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 
@@ -1226,27 +697,14 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   }, [activeSection, balanceFilter, normalizedSearch]);
 
   const balanceMatchesFilter = useCallback(
-    (value: number) => {
-      if (balanceFilter === 'all') return true;
-      if (balanceFilter === 'open') return value !== 0;
-      if (balanceFilter === 'owed_to_me') return value > 0;
-      if (balanceFilter === 'i_owe') return value < 0;
-      return value === 0;
-    },
+    (value: number) => matchesBalanceFilter(balanceFilter, value),
     [balanceFilter]
   );
 
-  const visibleGroupSummaries = useMemo(() => {
-    return groupSummaries.filter((summary) => {
-      const matchesSearch = groupMatchesSearch(summary, normalizedSearch);
-      const isNewEmptyGroup = summary.billCount === 0 && summary.netBalance === 0;
-      const matchesBalance =
-        balanceFilter === 'open' && isNewEmptyGroup
-          ? true
-          : balanceMatchesFilter(summary.netBalance);
-      return matchesSearch && matchesBalance;
-    });
-  }, [balanceFilter, balanceMatchesFilter, groupSummaries, normalizedSearch]);
+  const visibleGroupSummaries = useMemo(
+    () => filterVisibleGroups({ groupSummaries, normalizedSearch, balanceFilter }),
+    [balanceFilter, groupSummaries, normalizedSearch]
+  );
 
   const hiddenSettledCount = useMemo(
     () =>
@@ -1261,23 +719,15 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     balanceMatchesFilter(nonGroupSummary.netBalance) &&
     (!normalizedSearch || 'non-group expenses'.includes(normalizedSearch));
 
-  const visibleFriends = useMemo(() => {
-    return friends.filter((friend) => {
-      const balance = balanceByFriendId.get(friend.id);
-      const netBalance = balance?.net_balance ?? 0;
-      const searchText = [friend.name, friend.phone, friend.email].filter(Boolean).join(' ');
-      const matchesSearch =
-        !normalizedSearch || searchText.toLowerCase().includes(normalizedSearch);
-      return matchesSearch && balanceMatchesFilter(netBalance);
-    });
-  }, [balanceByFriendId, balanceMatchesFilter, friends, normalizedSearch]);
+  const visibleFriends = useMemo(
+    () => filterVisibleFriends({ friends, balanceByFriendId, normalizedSearch, balanceFilter }),
+    [balanceByFriendId, balanceFilter, friends, normalizedSearch]
+  );
 
-  const visibleActivity = useMemo(() => {
-    if (!normalizedSearch) return recentActivity;
-    return recentActivity.filter((item) =>
-      [item.title, item.caption].join(' ').toLowerCase().includes(normalizedSearch)
-    );
-  }, [normalizedSearch, recentActivity]);
+  const visibleActivity = useMemo(
+    () => filterVisibleActivity(recentActivity, normalizedSearch),
+    [normalizedSearch, recentActivity]
+  );
 
   const resetFriendForm = () => {
     setFriendName('');
@@ -1321,6 +771,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setSettlementDate(todayApiDate());
     setSettlementDirection('friend_paid_user');
     setSettlementNotes('');
+    setSettlementPaymentMode(null);
   };
 
   const resetGroupInviteForm = () => {
@@ -1775,6 +1226,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       setError('Choose a friend and enter a positive settlement amount.');
       return;
     }
+    if (!settlementPaymentMode) {
+      setError('Choose how it was paid, so the other person can check it.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -1785,6 +1240,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         direction: settlementDirection,
         date: settlementDate.trim(),
         notes: settlementNotes.trim(),
+        payment_mode: settlementPaymentMode,
       });
       haptics.saved();
       closeModal();
@@ -2474,282 +1930,51 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     );
   }
 
-  const renderFriendChip = (
-    friend: SplitFriend,
-    selectedId: number | null,
-    onSelect: (id: number) => void
-  ) => {
-    const isSelected = friend.id === selectedId;
-    return (
-      <Pressable
-        key={friend.id}
-        accessibilityRole="button"
-        onPress={() => {
-          haptics.select();
-          onSelect(friend.id);
-        }}
-        className="rounded-2xl px-3 py-2"
-        style={{
-          borderWidth: 1,
-          borderColor: isSelected ? theme.accent : borderColor,
-          backgroundColor: isSelected ? theme.accent : 'transparent',
-        }}>
-        <TText
-          className="text-xs"
-          style={{ color: isSelected ? theme.onAccent : theme.text, fontFamily: Fonts.title }}>
-          {friend.name}
-        </TText>
-      </Pressable>
-    );
-  };
+  const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => (
+    <SplitFriendRow
+      key={friend.id}
+      friend={friend}
+      netBalance={balanceByFriendId.get(friend.id)?.net_balance ?? 0}
+      entranceIndex={entranceIndex}
+      isOpen={openSwipeRow === `friend-${friend.id}`}
+      onOpenChange={(open) => setOpenSwipeRow(open ? `friend-${friend.id}` : null)}
+      onEdit={() => openFriendEditor(friend)}
+      onArchive={() => handleArchiveFriend(friend)}
+      onOpen={() => openFriendDetail(friend.id)}
+      onLongPress={() => setSelectedFriendActions(friend)}
+    />
+  );
 
-  const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => {
-    const balance = balanceByFriendId.get(friend.id);
-    const netBalance = balance?.net_balance ?? 0;
-    const isReceivable = netBalance > 0;
-    const isPayable = netBalance < 0;
-    const amountColor = isReceivable
-      ? theme.positive
-      : isPayable
-        ? theme.negative
-        : theme.neutral;
-    const balanceLabel = isReceivable ? 'owes you' : isPayable ? 'you owe' : 'settled';
+  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number) => (
+    <SplitGroupCard
+      key={summary.group.id}
+      summary={summary}
+      entranceIndex={entranceIndex}
+      isOpen={openSwipeRow === `group-${summary.group.id}`}
+      onOpenChange={(open) => setOpenSwipeRow(open ? `group-${summary.group.id}` : null)}
+      onEdit={() => openGroupEditor(summary)}
+      onArchive={() => handleArchiveGroup(summary)}
+      onOpen={() => setSelectedGroupDetailId(summary.group.id)}
+    />
+  );
 
-    return (
-      <Animated.View
-        key={friend.id}
-        entering={motion.rowEntering(entranceIndex)}
-        layout={motion.reflow()}>
-        <SwipeActionRow
-          open={openSwipeRow === `friend-${friend.id}`}
-          onOpenChange={(open) => setOpenSwipeRow(open ? `friend-${friend.id}` : null)}
-          actions={[
-            {
-              label: 'Edit',
-              icon: 'pencil-outline',
-              onPress: () => openFriendEditor(friend),
-            },
-            {
-              label: 'Archive',
-              icon: 'archive-outline',
-              tone: 'destructive',
-              onPress: () => handleArchiveFriend(friend),
-            },
-          ]}>
-          <Card compact style={{ padding: 0 }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${friend.name}`}
-              onPress={() => openFriendDetail(friend.id)}
-              onLongPress={() => setSelectedFriendActions(friend)}
-              className="flex-row items-center gap-4 p-4">
-              <AvatarCircle label={friend.name} size={58} />
-              <View className="flex-1">
-                <TText variant="cardTitle" style={{ color: theme.text }}>
-                  {friend.name}
-                </TText>
-                <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
-                  {[friend.phone, friend.email].filter(Boolean).join(' • ') || 'No contact saved'}
-                </TText>
-                <TText
-                  className="mt-1 text-sm"
-                  style={{ color: amountColor, fontFamily: Fonts.title }}>
-                  {formatBalance(netBalance)} {balanceLabel}
-                </TText>
-              </View>
-            </Pressable>
-          </Card>
-        </SwipeActionRow>
-      </Animated.View>
-    );
-  };
-
-  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number) => {
-    const { group, detailLines, roster, kind, netBalance, billCount, latestBill } = summary;
-    const tone = getBalanceTone(netBalance, theme, billCount > 0);
-    const kindConfig = getGroupKindConfig(kind);
-    const memberNames = roster
-      .filter((person) => !person.isViewer)
-      .map((person) => person.name)
-      .join(', ');
-
-    return (
-      <Animated.View
-        key={group.id}
-        entering={motion.rowEntering(entranceIndex)}
-        layout={motion.reflow()}>
-        <SwipeActionRow
-          open={openSwipeRow === `group-${group.id}`}
-          onOpenChange={(open) => setOpenSwipeRow(open ? `group-${group.id}` : null)}
-          actions={
-            group.viewer_can_manage
-              ? [
-                  {
-                    label: 'Edit',
-                    icon: 'pencil-outline' as const,
-                    onPress: () => openGroupEditor(summary),
-                  },
-                  {
-                    label: 'Archive',
-                    icon: 'archive-outline' as const,
-                    tone: 'destructive' as const,
-                    onPress: () => handleArchiveGroup(summary),
-                  },
-                ]
-              : []
-          }>
-          <Card compact style={{ padding: 0 }}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setSelectedGroupDetailId(group.id)}
-              className="flex-row gap-4 p-4">
-              <GroupAvatar icon={kindConfig.icon} photoUri={group.photo_url || null} />
-              <View className="flex-1 justify-center">
-                <TText variant="cardTitle" style={{ color: theme.text }}>
-                  {group.name}
-                </TText>
-                <View className="mt-1">
-                  <BalanceFigure
-                    value={netBalance}
-                    color={tone.color}
-                    hasActivity={billCount > 0}
-                  />
-                </View>
-                {detailLines.length > 0 ? (
-                  detailLines.map((line) => (
-                    <TText
-                      key={line}
-                      className="mt-1 text-sm" style={{ color: theme.muted }}
-                      numberOfLines={1}>
-                      {line}
-                    </TText>
-                  ))
-                ) : (
-                  <TText
-                    className="mt-1 text-sm" style={{ color: theme.muted }}
-                    numberOfLines={1}>
-                    {latestBill
-                      ? `${billCount} bill${billCount === 1 ? '' : 's'} • last on ${latestBill.date}`
-                      : // The balance line above already says "No expenses yet"
-                        // when there are none, so this line spends itself on
-                        // the next thing the user needs instead of repeating it.
-                        memberNames || 'Add members or the first expense'}
-                  </TText>
-                )}
-              </View>
-            </Pressable>
-          </Card>
-        </SwipeActionRow>
-      </Animated.View>
-    );
-  };
-
-  const renderNonGroupRow = (entranceIndex: number) => {
-    const tone = getBalanceTone(
-      nonGroupSummary.netBalance,
-      theme,
-      nonGroupSummary.billCount > 0
-    );
-    return (
-      <Animated.View entering={motion.rowEntering(entranceIndex)} layout={motion.reflow()}>
-        <Card compact style={{ padding: 0 }}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => openModal('bill')}
-            className="flex-row gap-4 p-4">
-          <GroupTile icon="receipt-text-outline" />
-          <View className="flex-1 justify-center">
-          <TText variant="cardTitle" style={{ color: theme.text }}>
-            Non-group expenses
-          </TText>
-          <View className="mt-1">
-            <BalanceFigure
-              value={nonGroupSummary.netBalance}
-              color={tone.color}
-              hasActivity={nonGroupSummary.billCount > 0}
-            />
-          </View>
-          {nonGroupSummary.detailLines.length > 0 ? (
-            nonGroupSummary.detailLines.map((line) => (
-              <TText
-                key={line}
-                className="mt-1 text-sm" style={{ color: theme.muted }}
-                numberOfLines={1}>
-                {line}
-              </TText>
-            ))
-          ) : (
-            <TText className="mt-1 text-sm" style={{ color: theme.muted }} numberOfLines={1}>
-              {nonGroupSummary.latestBill
-                ? `${nonGroupSummary.billCount} bill${
-                    nonGroupSummary.billCount === 1 ? '' : 's'
-                  } • last on ${nonGroupSummary.latestBill.date}`
-                : 'Personal shared expenses'}
-            </TText>
-          )}
-          </View>
-          </Pressable>
-        </Card>
-      </Animated.View>
-    );
-  };
+  const renderNonGroupRow = (entranceIndex: number) => (
+    <SplitNonGroupRow
+      summary={nonGroupSummary}
+      entranceIndex={entranceIndex}
+      onPress={() => openModal('bill')}
+    />
+  );
 
   const renderActivityRow = (item: (typeof recentActivity)[number], entranceIndex: number) => (
-    <Animated.View
+    <SplitActivityRow
       key={item.id}
-      entering={motion.rowEntering(entranceIndex)}
-      layout={motion.reflow()}>
-      <Card compact style={{ padding: 0 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={`Open activity ${item.title}`}
-        onPress={() => openActivityTarget(item.item)}
-        className="flex-row items-center gap-4 p-4">
-      <View
-        className="h-[58px] w-[58px] items-center justify-center rounded-xl"
-        style={{ backgroundColor: theme.secondary }}>
-        <MaterialCommunityIcons name={item.icon} size={26} color={theme.accent} />
-      </View>
-      <View className="flex-1">
-        <TText variant="cardTitle" style={{ color: theme.text }}>
-          {item.title}
-        </TText>
-        <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
-          {item.caption} • {item.date}
-        </TText>
-        {item.status ? (
-          <View
-            className="mt-2 self-start rounded-full px-2 py-1"
-            style={{
-              backgroundColor:
-                item.status === 'denied' ? `${theme.negative}1F` : theme.secondary,
-            }}>
-            <TText
-              className="text-[11px]"
-              style={{
-                color: item.status === 'denied' ? theme.negative : theme.accent,
-                fontFamily: Fonts.title,
-              }}>
-              {item.status === 'denied' ? 'Denied' : 'Awaiting confirmation'}
-            </TText>
-          </View>
-        ) : null}
-      </View>
-      {item.amount != null ? (
-        <TText
-          className="text-sm"
-          style={{
-            color: theme.text,
-            fontFamily: Fonts.title,
-            textDecorationLine: item.status === 'denied' ? 'line-through' : 'none',
-          }}>
-          {formatBalance(item.amount)}
-        </TText>
-      ) : null}
-      </Pressable>
-      </Card>
-    </Animated.View>
+      item={item}
+      entranceIndex={entranceIndex}
+      onPress={() => openActivityTarget(item.item)}
+    />
   );
+
 
   return (
     <SplitScreenFrame embedded={embedded} backgroundColor={theme.background}>
@@ -2763,50 +1988,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             paddingBottom: 136,
           }}>
           {!embedded && (
-            <AppHeader
-              title="Splits"
-              style={{ marginBottom: 20, paddingHorizontal: 0, paddingVertical: 0 }}
-              rightNode={
-                <View className="ml-4 flex-row items-center gap-2">
-                  {loading ? <ActivityIndicator color={theme.accent} /> : null}
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={searchVisible ? 'Hide split search' : 'Search splits'}
-                    onPress={() => setSearchVisible((current) => !current)}
-                    className="h-10 w-10 items-center justify-center rounded-full"
-                    style={{ backgroundColor: theme.card }}>
-                    <MaterialCommunityIcons
-                      name={searchVisible ? 'close' : 'magnify'}
-                      size={22}
-                      color={theme.accent}
-                    />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      activeSection === 'friends'
-                        ? 'Add split friend'
-                        : activeSection === 'activity'
-                          ? 'Create split group'
-                          : 'Create split friend or group'
-                    }
-                    onPress={openContextCreate}
-                    className="h-10 w-10 items-center justify-center rounded-full"
-                    style={{ backgroundColor: theme.card }}>
-                    <MaterialCommunityIcons
-                      name={
-                        activeSection === 'friends'
-                          ? 'account-plus-outline'
-                          : activeSection === 'activity'
-                            ? 'account-group-outline'
-                            : 'account-multiple-plus-outline'
-                      }
-                      size={22}
-                      color={theme.accent}
-                    />
-                  </Pressable>
-                </View>
-              }
+            <SplitHeader
+              loading={loading}
+              searchVisible={searchVisible}
+              activeSection={activeSection}
+              onToggleSearch={() => setSearchVisible((current) => !current)}
+              onCreate={openContextCreate}
             />
           )}
 
@@ -2867,108 +2054,51 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             />
 
             {activeSection !== 'activity' ? (
-              <View className="mt-7 flex-row items-center justify-between gap-4">
-                <View className="flex-1">
-                  <BalanceFigure
-                    value={overallNetBalance}
-                    color={overallTone.color}
-                    overall
-                    hasActivity={hasLedgerActivity}
-                  />
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Filter split balances"
-                  onPress={() => setFilterSheetVisible(true)}
-                  className="h-12 w-12 items-center justify-center rounded-full"
-                  style={{ backgroundColor: theme.secondary }}>
-                  <MaterialCommunityIcons name="tune-variant" size={24} color={theme.text} />
-                </Pressable>
-              </View>
+              <SplitOverallBalance
+                value={overallNetBalance}
+                color={overallTone.color}
+                hasActivity={hasLedgerActivity}
+                onOpenFilter={() => setFilterSheetVisible(true)}
+              />
             ) : null}
 
-            {activeSection === 'groups' && (
-              <View className="mt-6 gap-5">
-                {visibleGroupSummaries.length > 0 || showNonGroupSummary ? (
-                  <>
-                    {visibleGroupSummaries.map(renderGroupCard)}
-                    {showNonGroupSummary
-                      ? renderNonGroupRow(visibleGroupSummaries.length)
-                      : null}
-                    <SettledHint
-                      settledCount={hiddenSettledCount}
-                      onShowSettled={() => {
-                        setBalanceFilter('settled');
-                        setFilterSheetVisible(false);
-                      }}
-                    />
 
-                  </>
-                ) : (
-                  <StateView
-                    compact
-                    icon="account-group-outline"
-                    title={normalizedSearch ? 'No matching groups' : 'Create your first group'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search or balance filter.'
-                        : 'Start a group now. Members can be added later.'
-                    }
-                    actionLabel={normalizedSearch ? undefined : 'New group'}
-                    onAction={() => openModal('group')}
-                  />
-                )}
-              </View>
+            {activeSection === 'groups' && (
+              <SplitGroupsSection
+                groups={visibleGroupSummaries}
+                showNonGroupSummary={showNonGroupSummary}
+                hiddenSettledCount={hiddenSettledCount}
+                normalizedSearch={normalizedSearch}
+                renderGroupCard={renderGroupCard}
+                renderNonGroupRow={renderNonGroupRow}
+                onShowSettled={() => {
+                  setBalanceFilter('settled');
+                  setFilterSheetVisible(false);
+                }}
+                onNewGroup={() => openModal('group')}
+              />
             )}
+
 
             {activeSection === 'friends' && (
-              <View className="mt-6 gap-4">
-                {visibleFriends.length > 0 ? (
-                  visibleFriends.map(renderFriendRow)
-                ) : (
-                  <StateView
-                    compact
-                    icon={
-                      friends.length === 0
-                        ? 'account-multiple-plus-outline'
-                        : 'account-search-outline'
-                    }
-                    title={normalizedSearch ? 'No matching friends' : 'Add friends to split bills'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search or balance filter.'
-                        : 'Create friends, then add them to groups, bills, and settlements.'
-                    }
-                    actionLabel={normalizedSearch ? undefined : 'Add friend'}
-                    onAction={() => openModal('friend')}
-                  />
-                )}
-              </View>
+              <SplitFriendsSection
+                visibleFriends={visibleFriends}
+                hasAnyFriends={friends.length > 0}
+                normalizedSearch={normalizedSearch}
+                renderFriendRow={renderFriendRow}
+                onAddFriend={() => openModal('friend')}
+              />
             )}
 
+
             {activeSection === 'activity' && (
-              <View className="mt-9 gap-4">
-                <View className="mb-2">
-                  <TText variant="sectionTitle" style={{ color: theme.text }}>
-                    Recent activity
-                  </TText>
-                </View>
-                {visibleActivity.length > 0 ? (
-                  visibleActivity.map(renderActivityRow)
-                ) : (
-                  <StateView
-                    compact
-                    icon="history"
-                    title={normalizedSearch ? 'No matching activity' : 'No activity yet'}
-                    message={
-                      normalizedSearch
-                        ? 'Try another search.'
-                        : 'Group, friend, bill, and settlement activity will appear here.'
-                    }
-                  />
-                )}
-              </View>
+              <SplitActivitySection
+                activity={visibleActivity}
+                normalizedSearch={normalizedSearch}
+                renderActivityRow={renderActivityRow}
+              />
             )}
+
             </>
           )}
         </ScrollView>
@@ -3226,44 +2356,20 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onSave={() => void handleSaveGroupMembers()}
         />
 
-        <SplitModal
+        <SplitFriendFormModal
           visible={modal === 'friend'}
-          title={editingFriendId ? 'Edit Friend' : 'Add Friend'}
+          isEditing={Boolean(editingFriendId)}
           errorMessage={modal === 'friend' ? error : null}
-          footer={
-            <PrimaryModalButton
-              label={editingFriendId ? 'Update friend' : 'Save friend'}
-              loading={saving}
-              onPress={() => void handleSaveFriend()}
-            />
-          }
-          onClose={closeModal}>
-          <FormInput label="Name" value={friendName} onChangeText={setFriendName} />
-          <FormInput
-            label="Phone (optional)"
-            value={friendPhone}
-            onChangeText={setFriendPhone}
-            keyboardType="phone-pad"
-          />
-          <FormInput
-            label="Email (optional)"
-            value={friendEmail}
-            onChangeText={setFriendEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          {/*
-            * Saying what these are *for* is the point. Typing a phone number
-            * into a friend row looks like the thing that reaches the person,
-            * and it is not — nothing is ever sent to it. It is a matching hint,
-            * and it only pays off if it happens to be the same address they
-            * sign up with.
-            */}
-          <TText className="text-xs" style={{ color: theme.muted }}>
-            Nothing is sent to these. They are how Finnri recognises this person
-            if they join, so the balance you keep for them follows them in.
-          </TText>
-        </SplitModal>
+          saving={saving}
+          name={friendName}
+          phone={friendPhone}
+          email={friendEmail}
+          onChangeName={setFriendName}
+          onChangePhone={setFriendPhone}
+          onChangeEmail={setFriendEmail}
+          onSave={() => void handleSaveFriend()}
+          onClose={closeModal}
+        />
 
         {/*
           * The button used to say "Send invite" and what happened next was the
@@ -3277,38 +2383,17 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           * link, so they land on the balance already kept for them rather than
           * on a second row of their own.
           */}
-        <SplitModal
+        <SplitGroupInviteModal
           visible={modal === 'group_invite'}
-          title="Invite a specific person"
           errorMessage={modal === 'group_invite' ? error : null}
-          footer={
-            <PrimaryModalButton
-              label="Share invite link"
-              loading={saving}
-              onPress={() => void handleSendGroupInvite()}
-            />
-          }
-          onClose={closeModal}>
-          <TText className="text-xs" style={{ color: theme.muted }}>
-            Finnri does not send emails or texts — the share sheet opens next and
-            you send the link yourself. The address here is how Finnri recognises
-            them when they open it, so they join on the balance you have already
-            been keeping for them.
-          </TText>
-          <FormInput
-            label="Email"
-            value={groupInviteEmail}
-            onChangeText={setGroupInviteEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-          />
-          <FormInput
-            label="Phone"
-            value={groupInvitePhone}
-            onChangeText={setGroupInvitePhone}
-            keyboardType="phone-pad"
-          />
-        </SplitModal>
+          saving={saving}
+          email={groupInviteEmail}
+          phone={groupInvitePhone}
+          onChangeEmail={setGroupInviteEmail}
+          onChangePhone={setGroupInvitePhone}
+          onSend={() => void handleSendGroupInvite()}
+          onClose={closeModal}
+        />
 
         <CreateGroupModal
           visible={modal === 'group'}
@@ -3400,46 +2485,26 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onClose={closeModal}
         />
 
-        <SplitModal visible={modal === 'settlement'} title="Record Settlement" onClose={closeModal}>
-          <View className="gap-2">
-            <TText className="text-xs" style={{ color: theme.muted }}>Friend</TText>
-            <View className="flex-row flex-wrap gap-2">
-              {friends.map((friend) =>
-                renderFriendChip(friend, settlementFriendId, setSettlementFriendId)
-              )}
-            </View>
-          </View>
-          <View className="flex-row gap-2">
-            <DirectionChip
-              label="Friend paid"
-              selected={settlementDirection === 'friend_paid_user'}
-              onPress={() => setSettlementDirection('friend_paid_user')}
-            />
-            <DirectionChip
-              label="You paid"
-              selected={settlementDirection === 'user_paid_friend'}
-              onPress={() => setSettlementDirection('user_paid_friend')}
-            />
-          </View>
-          <FormInput
-            label="Amount"
-            value={settlementAmount}
-            onChangeText={setSettlementAmount}
-            keyboardType="decimal-pad"
-          />
-          <FormInput label="Date" value={settlementDate} onChangeText={setSettlementDate} />
-          <FormInput
-            label="Notes"
-            value={settlementNotes}
-            onChangeText={setSettlementNotes}
-            multiline
-          />
-          <PrimaryModalButton
-            label="Save settlement"
-            loading={saving}
-            onPress={() => void handleCreateSettlement()}
-          />
-        </SplitModal>
+        <SplitSettlementModal
+          visible={modal === 'settlement'}
+          saving={saving}
+          friends={friends}
+          friendId={settlementFriendId}
+          direction={settlementDirection}
+          amount={settlementAmount}
+          date={settlementDate}
+          notes={settlementNotes}
+          paymentMode={settlementPaymentMode}
+          errorMessage={modal === 'settlement' ? error : null}
+          onChangeFriend={setSettlementFriendId}
+          onChangeDirection={setSettlementDirection}
+          onChangePaymentMode={setSettlementPaymentMode}
+          onChangeAmount={setSettlementAmount}
+          onChangeDate={setSettlementDate}
+          onChangeNotes={setSettlementNotes}
+          onSave={() => void handleCreateSettlement()}
+          onClose={closeModal}
+        />
 
         <UpgradeSheet
           visible={upgradeSheetVisible}

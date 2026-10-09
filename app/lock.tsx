@@ -72,7 +72,7 @@ export default function LockScreen() {
             );
             router.replace('/(tabs)');
         } catch (err) {
-            setError(getFriendlyErrorMessage(err, 'Unlock failed. If you reset your account, please Switch Account.'));
+            setError(getFriendlyErrorMessage(err, "Couldn't unlock. If you've reset your account, tap Switch account."));
         } finally {
             setIsLoading(false);
         }

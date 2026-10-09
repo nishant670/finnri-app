@@ -38,11 +38,11 @@ interface PeriodPickerProps {
 }
 
 const PRESETS: { key: PeriodPreset; label: string }[] = [
-  { key: 'this_month', label: 'This Month' },
-  { key: 'last_month', label: 'Last Month' },
-  { key: 'last_7_days', label: 'Last 7 Days' },
-  { key: 'last_30_days', label: 'Last 30 Days' },
-  { key: 'last_3_months', label: 'Last 3 Months' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'last_month', label: 'Last month' },
+  { key: 'last_7_days', label: 'Last 7 days' },
+  { key: 'last_30_days', label: 'Last 30 days' },
+  { key: 'last_3_months', label: 'Last 3 months' },
 ];
 
 export function PeriodPicker({ visible, onClose, onSelect, currentRange }: PeriodPickerProps) {
@@ -54,7 +54,7 @@ export function PeriodPicker({ visible, onClose, onSelect, currentRange }: Perio
     currentRange.preset
   );
 
-  // Custom Range Local State
+  // Custom range Local State
   const [customStart, setCustomStart] = useState<Date | null>(currentRange.start);
   const [customEnd, setCustomEnd] = useState<Date | null>(currentRange.end);
 
@@ -79,15 +79,15 @@ export function PeriodPicker({ visible, onClose, onSelect, currentRange }: Perio
         break;
       case 'last_7_days':
         start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        label = 'Last 7 Days';
+        label = 'Last 7 days';
         break;
       case 'last_30_days':
         start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        label = 'Last 30 Days';
+        label = 'Last 30 days';
         break;
       case 'last_3_months':
         start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        label = 'Last 3 Months';
+        label = 'Last 3 months';
         break;
     }
 
@@ -148,7 +148,7 @@ function PresetsView({
     <View style={styles.viewContainer}>
       <View style={styles.header}>
         <View>
-          <Text style={[styles.title, { color: theme.text }]}>Select Period</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Choose a period</Text>
           <Text style={styles.subtitle}>QUICK PRESETS</Text>
         </View>
         <TouchableOpacity
@@ -202,7 +202,7 @@ function PresetsView({
               size={20}
               color={theme.mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#90A4AE'}
             />
-            <Text style={[styles.customRangeText, { color: theme.text }]}>Custom Range</Text>
+            <Text style={[styles.customRangeText, { color: theme.text }]}>Custom range</Text>
           </View>
           <MaterialCommunityIcons
             name="chevron-right"
@@ -215,7 +215,7 @@ function PresetsView({
       <TouchableOpacity
         style={[styles.applyBtn, { backgroundColor: theme.accent }]}
         onPress={onApply}>
-        <Text style={styles.applyBtnText}>Apply Selection</Text>
+        <Text style={styles.applyBtnText}>Apply</Text>
       </TouchableOpacity>
     </View>
   );
@@ -258,7 +258,7 @@ function CustomRangeView({
           <MaterialCommunityIcons name="chevron-left" size={24} color={theme.text} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: theme.text, flex: 1, textAlign: 'center' }]}>
-          Select Custom Range
+          Choose dates
         </Text>
         <View style={{ width: 40 }} />
       </View>
@@ -278,7 +278,7 @@ function CustomRangeView({
                   day: '2-digit',
                   year: 'numeric',
                 })
-              : 'Select Date'}
+              : 'Choose a date'}
           </Text>
         </View>
         <View
@@ -302,7 +302,7 @@ function CustomRangeView({
                   day: '2-digit',
                   year: 'numeric',
                 })
-              : 'Select Date'}
+              : 'Choose a date'}
           </Text>
         </View>
       </View>
@@ -325,7 +325,7 @@ function CustomRangeView({
         style={[styles.applyBtn, { backgroundColor: theme.accent }]}
         onPress={onConfirm}
         disabled={!start || !end}>
-        <Text style={styles.applyBtnText}>Confirm Range</Text>
+        <Text style={styles.applyBtnText}>Confirm</Text>
       </TouchableOpacity>
     </View>
   );

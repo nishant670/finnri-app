@@ -134,7 +134,7 @@ export function ParseErrorCard({
             backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.7)',
           }}>
           <ThemedText style={{ fontSize: 11, fontWeight: '700', color: mutedText }}>
-            WHAT I HEARD
+            WHAT FINNRI HEARD
           </ThemedText>
           <ThemedText
             numberOfLines={3}

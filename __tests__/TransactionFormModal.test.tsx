@@ -5,10 +5,11 @@ import * as Haptics from 'expo-haptics';
 
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
   type AiReviewMetadata,
 } from '@/components/transactions/TransactionFormModal';
-import type { Account } from '@/lib/accounts';
+import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
 import type { Transaction } from '@/types/transaction';
 
@@ -65,7 +66,15 @@ const renderModal = async ({
   recentEntries,
   onSave = jest.fn().mockResolvedValue(undefined),
   onClose = jest.fn(),
+  emiLink,
+  accountMatches,
+  newAccountSuggestion,
+  onSetupSuggestedAccount,
 }: {
+  emiLink?: EMILink | null;
+  accountMatches?: Account[];
+  newAccountSuggestion?: AccountSuggestion | null;
+  onSetupSuggestedAccount?: jest.Mock;
   initialData?: Partial<EntryForm>;
   accounts?: Account[];
   aiReview?: AiReviewMetadata;
@@ -86,6 +95,10 @@ const renderModal = async ({
       aiReview={aiReview}
       accounts={accounts}
       recentEntries={recentEntries}
+      emiLink={emiLink}
+      accountMatches={accountMatches}
+      newAccountSuggestion={newAccountSuggestion}
+      onSetupSuggestedAccount={onSetupSuggestedAccount}
     />
   );
 
@@ -189,7 +202,74 @@ describe('TransactionFormModal', () => {
       />
     );
 
-    expect(await findByText('New Quick Prompt')).toBeTruthy();
+    expect(await findByText('New quick prompt')).toBeTruthy();
+  });
+
+  describe('editing a quick prompt', () => {
+    const paytm: Account = {
+      id: 7,
+      type: 'wallet',
+      name: 'Paytm Wallet',
+      color: '#00BAF2',
+      is_default: true,
+    };
+    const amazon: Account = { id: 8, type: 'wallet', name: 'Amazon Pay', color: '#FF9900' };
+    const metroPrompt: Partial<EntryForm> = {
+      title: 'Metro Recharge',
+      amount: '300',
+      type: 'Expense',
+      mode: 'Wallets',
+      category: 'Travel',
+      accountId: null,
+      account: '',
+      date: '11 July 2026',
+    };
+
+    it('offers the account picker, but no date and no receipt', async () => {
+      // The report: switching a prompt to Wallets gave no way to say which one.
+      const { findByTestId, queryByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByTestId('entry-account-picker')).toBeTruthy();
+      // A template is used on whatever day it is used; it has no date of its own.
+      expect(queryByText('Date & Time')).toBeNull();
+    });
+
+    it('defaults to the wallet marked default, and saves the one picked instead', async () => {
+      const { findByTestId, findByText, findAllByText, onSave } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByText('Paytm Wallet')).toBeTruthy();
+
+      await fireEvent.press(await findByTestId('entry-account-picker'));
+      const amazonRows = await findAllByText('Amazon Pay');
+      await fireEvent.press(amazonRows[amazonRows.length - 1]);
+      await fireEvent.press(await findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ mode: 'Wallets', accountId: 8, account: 'Amazon Pay' })
+      );
+    });
+
+    it('keeps the wallet a prompt was saved with', async () => {
+      const { findByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: { ...metroPrompt, accountId: 8, account: 'Amazon Pay' },
+      });
+
+      expect(await findByText('Amazon Pay')).toBeTruthy();
+    });
   });
 
   it('validates required fields before saving', async () => {
@@ -203,7 +283,7 @@ describe('TransactionFormModal', () => {
 
     await fireEvent.press(await findByTestId('entry-save-button'));
 
-    expect(await findByText('Please provide Transaction Title.')).toBeTruthy();
+    expect(await findByText('Add a title so you can spot this later.')).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -249,6 +329,52 @@ describe('TransactionFormModal', () => {
       resolveSave();
       await firstPress;
     });
+  });
+
+  it('opens the subscription options when a folded setting refuses the save', async () => {
+    const { findByTestId, findByText, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: 'Netflix',
+        subscriptionAmount: '649',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '45',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    expect(await findByText('Reminders can be 0 to 30 days before.')).toBeTruthy();
+    // The message names a setting under More options, so the fold opens.
+    expect(await findByText('Remind me before')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('names a subscription after the payment when the name was left to default', async () => {
+    const { findByTestId, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: '',
+        subscriptionAmount: '',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '3',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ subscriptionName: 'Cafe' })
+    );
   });
 
   it('uses Autopay instead of a reminder for daily subscriptions', async () => {
@@ -386,16 +512,27 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     );
   });
 
-  it('swaps the keypad for the full form under More details', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({ initialData: blankEntry });
+  it('adds a note from its chip without leaving the capture screen', async () => {
+    const { findByTestId, queryByTestId, onSave } = await renderModal({ initialData: blankEntry });
 
-    await fireEvent.press(await findByTestId('entry-more-details-toggle'));
+    await fireEvent.press(await findByTestId('entry-add-notes'));
 
-    // Two keyboards cannot share the same space, so the pad stands down.
-    expect(queryByTestId('amount-key-1')).toBeNull();
-    expect(await findByTestId('entry-title-input')).toBeTruthy();
-    expect(await findByTestId('entry-amount-input')).toBeTruthy();
-    expect(await findByTestId('entry-category-picker')).toBeTruthy();
+    // Only the note arrives. The full form — a second amount field, the
+    // category card — used to come with it, and does not any more.
+    expect(await findByTestId('entry-notes-input')).toBeTruthy();
+    expect(queryByTestId('entry-add-notes')).toBeNull();
+    expect(queryByTestId('entry-amount-input')).toBeNull();
+    expect(queryByTestId('entry-category-picker')).toBeNull();
+    expect(await findByTestId('amount-key-1')).toBeTruthy();
+
+    await fireEvent.changeText(await findByTestId('entry-notes-input'), 'Office lunch');
+    await typeAmount(findByTestId, '180');
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ amount: '180', notes: 'Office lunch' })
+    );
   });
 
   it('keeps title and amount visible while switching between the title keyboard and keypad', async () => {
@@ -410,14 +547,55 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dinner', amount: '250' }));
   });
 
-  it('shows only one category label in the expanded form and retains the title', async () => {
+  it('offers every optional detail as a chip and shows only the one asked for', async () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
-    expect(ui.getAllByText('Category')).toHaveLength(1);
+
+    for (const detail of ['notes', 'merchant', 'tag', 'receipt', 'split']) {
+      expect(await ui.findByTestId(`entry-add-${detail}`)).toBeTruthy();
+    }
+    expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
+    expect(ui.queryByText('Split this expense')).toBeNull();
+
+    await fireEvent.press(await ui.findByTestId('entry-add-merchant'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
+    expect(ui.queryByTestId('entry-notes-input')).toBeNull();
     expect(ui.getAllByTestId('entry-title-input')).toHaveLength(1);
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
     expect(await ui.findByTestId('entry-title-input')).toHaveDisplayValue('Dinner');
+  });
+
+  it('turns the split on in the same tap that adds it', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-add-split'));
+
+    expect(await ui.findByText('Split this expense')).toBeTruthy();
+    expect(ui.getByRole('switch')).toBeChecked();
+    expect(ui.queryByTestId('entry-add-split')).toBeNull();
+  });
+
+  it('does not offer a split on income', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-type-income'));
+
+    expect(ui.queryByTestId('entry-add-split')).toBeNull();
+    expect(await ui.findByTestId('entry-add-notes')).toBeTruthy();
+  });
+
+  it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
+    const ui = await renderModal({
+      initialData: blankEntry,
+      recentEntries: [
+        recentEntry({ id: '9', title: 'DMart groceries', merchant: 'DMart', category: 'Shopping' }),
+      ],
+    });
+
+    await fireEvent.press(await ui.findByTestId('quick-fill-merchant:dmart'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toHaveDisplayValue('DMart');
+    expect(ui.queryByTestId('entry-add-merchant')).toBeNull();
   });
 });
 
@@ -560,8 +738,12 @@ describe('TransactionFormModal — AI draft review', () => {
   it('leaves the manual and edit sheets on the stacked form', async () => {
     const { findByTestId, queryByTestId } = await renderModal({ isEdit: true });
 
-    expect(await findByTestId('entry-more-details-toggle')).toBeTruthy();
+    expect(await findByTestId('entry-category-picker')).toBeTruthy();
     expect(queryByTestId('draft-summary-toggle')).toBeNull();
+    // The saved merchant is a field; the empty note is an offer.
+    expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
+    expect(queryByTestId('entry-add-merchant')).toBeNull();
+    expect(await findByTestId('entry-add-notes')).toBeTruthy();
   });
 });
 
@@ -663,3 +845,95 @@ describe('TransactionFormModal — parse choreography', () => {
     expect(Haptics.notificationAsync).not.toHaveBeenCalled();
   });
 });
+
+describe('TransactionFormModal — EMI on an existing entry', () => {
+  const bankAccount: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5' };
+  const emiEdit: Partial<EntryForm> = {
+    ...completeInitialData,
+    title: 'Car loan EMI',
+    amount: '13776',
+    mode: 'Bank Account',
+    tag: 'EMI',
+    accountId: 3,
+    account: 'SBI Bank',
+    date: '05 October 2026',
+  };
+
+  it('offers the monthly auto-debit on a bank EMI that is not repeating yet', async () => {
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+    });
+    expect(await findByText('Repeats monthly (auto-debit)')).toBeTruthy();
+  });
+
+  it('shows the auto-debit it already has instead of offering a second one', async () => {
+    const { findByText, queryByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+      emiLink: {
+        kind: 'recurring',
+        subscription: {
+          amount: 13776,
+          total_instalments: 60,
+          instalments_paid: 12,
+          status: 'active',
+          next_due_date: '2026-11-05T00:00:00Z',
+        } as never,
+      },
+    });
+    expect(await findByText(/12 of 60 paid · 48 left/)).toBeTruthy();
+    expect(queryByText('Repeats monthly (auto-debit)')).toBeNull();
+  });
+
+  it('links a card EMI to its schedule', async () => {
+    const onOpen = jest.fn();
+    const card: Account = { id: 4, type: 'credit_card', name: 'One Card', color: '#000' };
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [card],
+      initialData: { ...emiEdit, mode: 'Credit Card', accountId: 4, account: 'One Card' },
+      emiLink: {
+        kind: 'plan',
+        onOpen,
+        plan: {
+          monthly_amount: 5000,
+          tenure_months: 12,
+          annual_rate_pct: 0,
+          progress: { installments_total: 12, installments_paid: 2 },
+        } as never,
+      },
+    });
+    await fireEvent.press(await findByText('View full schedule'));
+    expect(onOpen).toHaveBeenCalled();
+  });
+});
+
+describe('TransactionFormModal — which account did you mean', () => {
+  it('gives "add a new account" a button of its own', async () => {
+    const onSetup = jest.fn();
+    const suggestion: AccountSuggestion = {
+      type: 'credit_card',
+      name: 'SBI Credit Card',
+      color: '#000',
+      provider: 'SBI',
+      identifier: '',
+      reason: '',
+    };
+    const a: Account = { id: 5, type: 'credit_card', name: 'SBI BPCL', color: '#000' };
+    const b: Account = { id: 6, type: 'credit_card', name: 'SBI simply save', color: '#000' };
+    const { findByTestId } = await renderModal({
+      mode: 'audio',
+      accounts: [a, b],
+      accountMatches: [a, b],
+      newAccountSuggestion: suggestion,
+      onSetupSuggestedAccount: onSetup,
+      initialData: { ...completeInitialData, mode: 'Credit Card', accountId: 5, account: 'SBI BPCL' },
+    });
+    await fireEvent.press(await findByTestId('account-match-new'));
+    expect(onSetup).toHaveBeenCalledWith(suggestion);
+  });
+});
+

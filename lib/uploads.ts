@@ -135,7 +135,7 @@ const discardTemporary = (file: File) => {
   }
 };
 
-type PreparedUpload = {
+export type PreparedUpload = {
   file: File;
   /** True when `file` is a re-encoded copy we made and must clean up. */
   temporary: boolean;
@@ -169,6 +169,25 @@ const prepareUpload = async (
 };
 
 /**
+ * A receipt photo bound for the AI reader rather than for storage.
+ *
+ * Unlike `prepareUpload` this always re-encodes, whatever the size: the reader
+ * takes JPEG, PNG or WebP only, and an iPhone photo arrives as HEIC. The
+ * caller deletes `file` when `temporary` is set, once the request is done.
+ */
+export const prepareReceiptScanImage = async (uri: string): Promise<PreparedUpload> => {
+  try {
+    return { file: await compressImage(uri), temporary: true };
+  } catch {
+    return { file: new File(uri), temporary: false };
+  }
+};
+
+export const discardPreparedUpload = ({ file, temporary }: PreparedUpload) => {
+  if (temporary) discardTemporary(file);
+};
+
+/**
  * Uploads a locally picked receipt and resolves to the hosted URL to persist on
  * the entry. Throws on failure — callers must not fall back to storing the
  * local URI, which would be meaningless on any other device.
@@ -176,7 +195,9 @@ const prepareUpload = async (
 export const uploadAttachment = async (
   token: string,
   uri: string,
-  declaredMimeType?: string | null
+  declaredMimeType?: string | null,
+  /** What the file is, in the error a failed upload shows. */
+  { noun = 'receipt' }: { noun?: string } = {}
 ): Promise<string> => {
   const { file, temporary } = await prepareUpload(uri, declaredMimeType);
 
@@ -200,16 +221,15 @@ export const uploadAttachment = async (
     });
 
     if (!response.ok) {
-      throw await readApiError(
-        response,
-        'Unable to upload that receipt right now.',
-        uploadFieldLabels
-      );
+      throw await readApiError(response, `Unable to upload that ${noun} right now.`, {
+        ...uploadFieldLabels,
+        file: noun.charAt(0).toUpperCase() + noun.slice(1),
+      });
     }
 
     const data = (await response.json()) as { url?: string };
     if (!data.url) {
-      throw new Error('Unable to upload that receipt right now.');
+      throw new Error(`Unable to upload that ${noun} right now.`);
     }
     return data.url;
   } finally {

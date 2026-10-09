@@ -6,7 +6,7 @@ import { formatBalance } from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import type { SplitSettlement } from '@/lib/splits';
+import { settlementPaymentPhrase, type SplitSettlement } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
 
@@ -18,13 +18,17 @@ const TText = cssInterop(ThemedText, { className: 'style' });
 const settlementClaim = (settlement: SplitSettlement) => {
   const who = settlement.recorded_by_name?.trim() || 'Someone';
   const amount = formatBalance(settlement.amount);
+  // How it was paid is what the reader checks the claim against — their UPI
+  // app, their bank statement, the cash they handed over.
+  const phrase = settlementPaymentPhrase(settlement.payment_mode);
+  const how = phrase ? ` ${phrase}` : '';
   if (settlement.direction === 'friend_paid_user') {
-    return `${who} says you paid them ${amount}.`;
+    return `${who} says you paid them ${amount}${how}.`;
   }
   if (settlement.direction === 'user_paid_friend') {
-    return `${who} says they paid you ${amount}.`;
+    return `${who} says they paid you ${amount}${how}.`;
   }
-  return `${who} recorded a settlement of ${amount}.`;
+  return `${who} recorded a settlement of ${amount}${how}.`;
 };
 
 /**

@@ -5,23 +5,33 @@ import { ThemedText } from '@/components/themed-text';
 import { Card } from '@/components/ui/theme-primitives';
 import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { formatCreditDate, type CreditSummary } from '@/lib/billing';
+import {
+  describeAccess,
+  endedAccessLine,
+  formatCreditDate,
+  type BillingStatus,
+} from '@/lib/billing';
 
 type CreditStatusCardProps = {
-  credits: CreditSummary | null;
+  /**
+   * The whole billing status, not just the credits: what to say at zero
+   * depends on whether a pass is running, ran out, or was never bought.
+   */
+  status: BillingStatus | null;
   loading?: boolean;
   compact?: boolean;
   onPress?: () => void;
 };
 
 export function CreditStatusCard({
-  credits,
+  status,
   loading = false,
   compact = false,
   onPress,
 }: CreditStatusCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
+  const credits = status?.credits ?? null;
   const dailyLimit = credits?.daily_limit ?? 0;
   const dailyRemaining = credits?.daily_credits_remaining ?? 0;
   const dailyUsed = credits?.daily_credits_used ?? 0;
@@ -39,14 +49,32 @@ export function CreditStatusCard({
    * the daily allowance is not the story: having run out is.
    */
   const isOutOfCredits = !loading && credits !== null && totalRemaining <= 0;
-  const trialHasExpired = useHasPassed(credits?.trial_expires_at);
+  // Read so the card redraws the moment the trial runs out; `describeAccess`
+  // is what decides what that means.
+  useHasPassed(credits?.trial_expires_at);
+  const access = describeAccess(status);
   // A date in the past described in the future tense is the kind of small lie
-  // that makes someone distrust every other number on the screen.
-  const trialLine = trialExpiry
-    ? trialHasExpired
-      ? `Free trial ended ${trialExpiry}`
-      : `Trial expires ${trialExpiry}`
-    : null;
+  // that makes someone distrust every other number on the screen. So is
+  // naming the trial to someone whose paid pass is what actually ran out.
+  const trialLine =
+    access.kind === 'ended'
+      ? endedAccessLine(access.ended)
+      : access.kind === 'trial' && trialExpiry
+        ? `Trial expires ${trialExpiry}`
+        : null;
+  const passEnd = access.kind === 'pass' ? formatCreditDate(access.endsAt) : null;
+  // At zero, the line under the bar says what gets AI back. Someone whose pass
+  // ran out renews; someone who only ever had the trial has nothing to renew.
+  // Inside a running pass, buying another one queues behind it and adds
+  // nothing today, so it is not offered.
+  const outOfCreditsHint =
+    access.kind === 'pass'
+      ? passEnd
+        ? `${access.planName} runs until ${passEnd}`
+        : `${access.planName} credits used up`
+      : access.kind === 'ended' && access.ended.kind === 'pass'
+        ? 'Renew to keep capturing by voice and text'
+        : 'Choose a pass to keep capturing by voice and text';
   const needsAttention = isOutOfCredits || isLowDailyLimit;
   const compactContent = (
     <Card
@@ -83,7 +111,9 @@ export function CreditStatusCard({
             {loading
               ? 'Checking balance...'
               : isOutOfCredits
-                ? (trialHasExpired && trialLine) || 'Tap to see plans'
+                ? access.kind === 'pass'
+                  ? `${access.planName} credits used up`
+                  : (access.kind === 'ended' && trialLine) || 'Tap to see plans'
                 : `${dailyUsed}/${dailyLimit} used today`}
           </ThemedText>
         </View>
@@ -116,7 +146,7 @@ export function CreditStatusCard({
 
       <ThemedText numberOfLines={1} variant="micro" style={{ color: `${colors.text}7A` }}>
         {isOutOfCredits
-          ? 'Renew to keep capturing by voice and text'
+          ? outOfCreditsHint
           : `${credits?.total_credits_remaining ?? '—'} total credits left`}
       </ThemedText>
     </Card>
@@ -149,7 +179,7 @@ export function CreditStatusCard({
             {loading
               ? 'Checking balance...'
               : isOutOfCredits
-                ? (trialHasExpired && trialLine) || 'Out of credits — tap to see plans'
+                ? (access.kind === 'ended' && trialLine) || 'Out of credits — tap to see plans'
                 : trialLine
                   ? trialLine
                   : resetDate

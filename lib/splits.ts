@@ -272,6 +272,47 @@ export type SplitBill = {
  */
 export type SplitSettlementStatus = 'pending' | 'confirmed' | 'denied';
 
+/**
+ * How a settlement was paid. The person asked to confirm it is being asked
+ * whether money reached them, and "by UPI" or "in cash" is what lets them
+ * check — a bare amount leaves them guessing which transfer is meant.
+ * Absent on settlements recorded before it was asked.
+ */
+export type SettlementPaymentMode = 'cash' | 'upi' | 'bank_transfer' | 'card' | 'wallet' | 'other';
+
+export const SETTLEMENT_PAYMENT_MODES: { value: SettlementPaymentMode; label: string }[] = [
+  { value: 'upi', label: 'UPI' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'card', label: 'Card' },
+  { value: 'wallet', label: 'Wallet' },
+  { value: 'other', label: 'Other' },
+];
+
+// The server words its notification the same way; "other" adds nothing to a
+// sentence ("paid you ₹500 another way" says less than it seems to).
+const settlementPaymentPhrases: Record<SettlementPaymentMode, string | null> = {
+  upi: 'by UPI',
+  cash: 'in cash',
+  bank_transfer: 'by bank transfer',
+  card: 'by card',
+  wallet: 'from a wallet',
+  other: null,
+};
+
+/** "by UPI", "in cash" — or null when it was not recorded, or was "other". */
+export const settlementPaymentPhrase = (mode?: string | null): string | null =>
+  mode && mode in settlementPaymentPhrases
+    ? settlementPaymentPhrases[mode as SettlementPaymentMode]
+    : null;
+
+/** The feed's caption for how a settlement was paid: "Paid by UPI". */
+export const settlementPaymentCaption = (mode?: string | null): string | null => {
+  if (mode === 'other') return 'Paid another way';
+  const phrase = settlementPaymentPhrase(mode);
+  return phrase ? `Paid ${phrase}` : null;
+};
+
 export type SplitSettlement = {
   id: number;
   user_id: number;
@@ -281,6 +322,7 @@ export type SplitSettlement = {
   direction: SettlementDirection;
   date: string;
   notes?: string;
+  payment_mode?: SettlementPaymentMode | '';
   status?: SplitSettlementStatus;
   counterparty_user_id?: number | null;
   responded_at?: string | null;
@@ -314,6 +356,8 @@ export type SplitActivityItem = {
   direction?: SettlementDirection;
   /** On settlement rows only: whether the other side has agreed to it yet. */
   status?: SplitSettlementStatus;
+  /** On settlement rows only: how it was paid, when that was recorded. */
+  payment_mode?: SettlementPaymentMode | '';
   /**
    * Who recorded this, when it was not the caller — named the way the caller
    * names them. Present only on items from a shared group.
@@ -384,6 +428,7 @@ export type SplitSettlementPayload = {
   direction: SettlementDirection;
   date: string;
   notes?: string;
+  payment_mode?: SettlementPaymentMode;
 };
 
 export class SplitApiError extends Error {

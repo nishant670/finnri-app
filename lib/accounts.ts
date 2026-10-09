@@ -29,6 +29,24 @@ export type AccountSummary = {
   limit?: CardLimitSummary;
   /** Credit cards with at least one priced statement. The bill to pay. */
   current_statement?: CurrentStatementSummary;
+  /** Cards with an annual fee and a fee month: this card year's waiver progress. */
+  annual_fee?: AnnualFeeStatus;
+};
+
+/**
+ * Where a card's annual fee stands. The card year is the twelve months before
+ * the 1st of the fee month; `spent` is net card spend in it, Finnri's guide to
+ * the bank's own waiver count.
+ */
+export type AnnualFeeStatus = {
+  fee: number;
+  fee_month: string;
+  renewal_date: string;
+  card_year_start: string;
+  spent: number;
+  waiver_spend?: number;
+  remaining_to_waive?: number;
+  waived?: boolean;
 };
 
 /**
@@ -101,6 +119,10 @@ export type Account = {
    */
   balance?: number;
   fee_month?: string;
+  /** Yearly membership fee before GST; 0 when unknown. */
+  annual_fee?: number;
+  /** Yearly spend that waives the annual fee; 0 when unknown. */
+  fee_waiver_spend?: number;
   is_default?: boolean;
   auto_created?: boolean;
   summary?: AccountSummary;
@@ -126,6 +148,8 @@ export type AccountPayload = {
   reminder_enabled?: boolean;
   autopay_enabled?: boolean;
   fee_month?: string;
+  annual_fee?: number;
+  fee_waiver_spend?: number;
   balance?: number;
   is_default?: boolean;
   /** Set only by the one-tap capture shortcut; cleared by the first user edit. */
@@ -133,13 +157,7 @@ export type AccountPayload = {
 };
 
 export type AccountType =
-  | 'cash'
-  | 'upi'
-  | 'bank'
-  | 'credit_card'
-  | 'debit_card'
-  | 'wallet'
-  | 'other';
+  'cash' | 'upi' | 'bank' | 'credit_card' | 'debit_card' | 'wallet' | 'other';
 
 export type AccountProvider = {
   id: string;
@@ -234,8 +252,29 @@ const comparableAccountText = (value?: string | null) =>
   (value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const HINT_FILLER_WORDS = new Set([
-  'my', 'the', 'a', 'an', 'credit', 'debit', 'card', 'cards', 'account', 'bank', 'wallet', 'upi',
-  'ending', 'last', 'digits', 'number', 'via', 'from', 'used', 'with', 'using', 'paid', 'cc',
+  'my',
+  'the',
+  'a',
+  'an',
+  'credit',
+  'debit',
+  'card',
+  'cards',
+  'account',
+  'bank',
+  'wallet',
+  'upi',
+  'ending',
+  'last',
+  'digits',
+  'number',
+  'via',
+  'from',
+  'used',
+  'with',
+  'using',
+  'paid',
+  'cc',
 ]);
 
 const hintWords = (value?: string | null) =>
@@ -543,6 +582,11 @@ export const toAccountPayload = (account: Account): AccountPayload => ({
     ? { autopay_enabled: account.autopay_enabled }
     : {}),
   fee_month: account.fee_month,
+  // Leave-as-is when unknown, like the billing-cycle fields above.
+  ...(typeof account.annual_fee === 'number' ? { annual_fee: account.annual_fee } : {}),
+  ...(typeof account.fee_waiver_spend === 'number'
+    ? { fee_waiver_spend: account.fee_waiver_spend }
+    : {}),
   balance: account.balance,
   is_default: account.is_default,
 });

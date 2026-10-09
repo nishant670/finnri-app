@@ -1,17 +1,19 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountDetailSkeleton } from '@/components/accounts/AccountSkeletons';
 import { CardLimitRing } from '@/components/accounts/CardLimitRing';
 import { CreditUsageBar } from '@/components/accounts/CreditUsageBar';
+import { AnnualFeeCard } from '@/components/accounts/AnnualFeeCard';
 import { EMIPlanFormSheet } from '@/components/statements/EMIPlanFormSheet';
 import { EMIPlansSection } from '@/components/statements/EMIPlansSection';
 import { ItemizationBanner } from '@/components/statements/ItemizationBanner';
 import { PaymentFormSheet } from '@/components/statements/PaymentFormSheet';
+import { StatementDayDriftDialog } from '@/components/statements/StatementDayDriftDialog';
 import { StatementFormSheet } from '@/components/statements/StatementFormSheet';
 import { StatementSummaryCard } from '@/components/statements/StatementSummaryCard';
 import { ThemedText } from '@/components/themed-text';
@@ -47,12 +49,18 @@ import {
   updateAccount,
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { fetchBillingStatus } from '@/lib/billing';
+import { isStatementDaySuggestion } from '@/lib/statement-day-drift';
+import { intakeFromRead, putStatementIntake } from '@/lib/statement-intake';
 import { EMIPlan, EMIPlanPayload, createCardEMIPlan, fetchCardEMIPlans } from '@/lib/emi-plans';
 import {
   CardStatement,
   CardStatementPayload,
+  StatementDaySuggestion,
   StatementPaymentPayload,
+  StatementRead,
   fetchStatement,
+  readStatementFile,
   recordStatementPayment,
   saveCardStatement,
 } from '@/lib/statements';
@@ -93,7 +101,7 @@ function DetailHeader({
       <TText
         className="text-sm uppercase"
         style={{ fontFamily: Fonts.title, color: theme.text, letterSpacing: 1.2 }}>
-        Account Details
+        Account details
       </TText>
       {onActions ? (
         <Pressable
@@ -197,8 +205,33 @@ export default function AccountDetailsScreen() {
   const [isPaymentSheetVisible, setIsPaymentSheetVisible] = useState(false);
   const [isSubmittingStatement, setIsSubmittingStatement] = useState(false);
   const [statementError, setStatementError] = useState<string | null>(null);
+  const [daySuggestion, setDaySuggestion] = useState<StatementDaySuggestion | null>(null);
   const [emiPlans, setEmiPlans] = useState<EMIPlan[]>([]);
   const [isEmiSheetVisible, setIsEmiSheetVisible] = useState(false);
+
+  /*
+   * Statement screenshots are a paid-plan read. Knowing that before the bill
+   * is saved lets the sheet say so up front instead of failing afterwards.
+   * Unknown (still loading, or the lookup failed) is treated as allowed: the
+   * server is the real gate, and a wrong lock is worse than a late message.
+   */
+  const [hasPaidPlan, setHasPaidPlan] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    fetchBillingStatus(token)
+      .then((status) => {
+        if (active) {
+          setHasPaidPlan(
+            status.subscription_status === 'active' || status.subscription_status === 'cancelled'
+          );
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [token]);
 
   const loadDetails = useCallback(async () => {
     if (!token || !Number.isFinite(accountId) || accountId <= 0) {
@@ -272,9 +305,9 @@ export default function AccountDetailsScreen() {
   const currentStatement = account ? getCurrentStatement(account) : null;
   const canMarkPaidOff = Boolean(
     isCreditCard &&
-      !currentStatement &&
-      cardLimit?.outstanding_source === 'ledger' &&
-      cardLimit.outstanding > 0
+    !currentStatement &&
+    cardLimit?.outstanding_source === 'ledger' &&
+    cardLimit.outstanding > 0
   );
   const runningBalance = account ? getRunningBalance(account) : null;
   const lastActivity = account ? getLastActivityLabel(account) : null;
@@ -283,9 +316,9 @@ export default function AccountDetailsScreen() {
     const hasProvider = Boolean(account.provider?.trim());
     const hasIdentifier = Boolean(
       account.last4?.trim() ||
-        account.upi_handle?.trim() ||
-        account.wallet_nickname?.trim() ||
-        account.identifier?.trim()
+      account.upi_handle?.trim() ||
+      account.wallet_nickname?.trim() ||
+      account.identifier?.trim()
     );
     const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
     const hasCreditLimit = Boolean(account.credit_limit && account.credit_limit > 0);
@@ -391,7 +424,7 @@ export default function AccountDetailsScreen() {
     setIsActionsSheetVisible(true);
   };
 
-  const handleSaveStatement = async (payload: CardStatementPayload) => {
+  const handleSaveStatement = async (payload: CardStatementPayload, read?: StatementRead) => {
     if (!token || !account) return;
     setIsSubmittingStatement(true);
     setStatementError(null);
@@ -399,9 +432,25 @@ export default function AccountDetailsScreen() {
       const saved = await saveCardStatement(token, account.id, payload);
       setStatement(saved);
       setIsStatementSheetVisible(false);
+      if (read) {
+        // The bill had to exist first: the check compares the rows with this
+        // cycle. The rows and card updates go by key, not in the URL.
+        const intake = putStatementIntake(intakeFromRead(read, account));
+        router.push({
+          pathname: '/statements/review',
+          params: { id: String(saved.id), intake },
+        });
+        void loadDetails();
+        return;
+      }
       // The bill changes the card's outstanding and available limit, both of
       // which live on the account, so the whole screen is refetched.
       await loadDetails();
+      // A file read offers its card updates on the statement check instead,
+      // so this only asks for a statement entered by hand.
+      if (isStatementDaySuggestion(saved.statement_day_suggestion)) {
+        setDaySuggestion(saved.statement_day_suggestion);
+      }
     } catch (saveError) {
       setStatementError(getFriendlyErrorMessage(saveError, 'Unable to save this statement.'));
     } finally {
@@ -746,6 +795,13 @@ export default function AccountDetailsScreen() {
             </Pressable>
           )}
 
+          {isCreditCard && account.summary?.annual_fee && (
+            <AnnualFeeCard
+              status={account.summary.annual_fee}
+              onEdit={() => handleEdit('details')}
+            />
+          )}
+
           {canMarkPaidOff && (
             <Pressable
               accessibilityRole="button"
@@ -858,7 +914,7 @@ export default function AccountDetailsScreen() {
 
           <View className="mt-9 flex-row items-center justify-between">
             <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
-              Recent Activity
+              Recent activity
             </TText>
             <Pressable accessibilityRole="button" onPress={openAllTransactions}>
               <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.accent }}>
@@ -995,6 +1051,25 @@ export default function AccountDetailsScreen() {
               error={statementError}
               onClose={() => setIsStatementSheetVisible(false)}
               onSubmit={handleSaveStatement}
+              onReadSource={(source, password) => {
+                if (!token) return Promise.reject(new Error('Please sign in again.'));
+                return readStatementFile(token, account.id, source, password);
+              }}
+              screenshotsLocked={hasPaidPlan === false}
+              onSeePlans={() => {
+                setIsStatementSheetVisible(false);
+                router.push('/billing');
+              }}
+            />
+            <StatementDayDriftDialog
+              token={token}
+              card={account}
+              suggestion={daySuggestion}
+              onClose={(moved) => {
+                setDaySuggestion(null);
+                if (moved) void loadDetails();
+              }}
+              onError={setError}
             />
             <EMIPlanFormSheet
               visible={isEmiSheetVisible}

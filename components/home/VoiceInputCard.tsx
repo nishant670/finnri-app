@@ -373,7 +373,7 @@ export function VoiceInputCard({
                       fontFamily: theme.typography.button.fontFamily,
                       fontWeight: theme.typography.button.fontWeight,
                     }}>
-                    {hasFailed ? 'Try again' : 'Process'}
+                    {hasFailed ? 'Try again' : 'Use this'}
                   </ThemedText>
                 </>
               )}
@@ -541,12 +541,12 @@ export function VoiceInputCard({
             letterSpacing: 1.2,
             color: colors.accent,
           }}>
-          Listening...
+          Listening…
         </ThemedText>
       ) : null}
 
       <TextAction
-        label="I Prefer To Write"
+        label="Type instead"
         onPress={onToggleTextInput}
         disabled={isProcessing || isRecording}
         style={styles.writeToggle}

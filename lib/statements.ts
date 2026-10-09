@@ -91,6 +91,20 @@ export type CardStatement = {
   updated_at?: string;
 };
 
+/**
+ * The card's latest statement was dated off its usual billing day. Only an
+ * offer: the card is unchanged until the user accepts.
+ */
+export type StatementDaySuggestion = {
+  current_day: number;
+  observed_day: number;
+};
+
+/** What saving or correcting a statement returns. */
+export type SavedCardStatement = CardStatement & {
+  statement_day_suggestion?: StatementDaySuggestion;
+};
+
 export type CardStatementPayload = {
   statement_date: string;
   /** Derived from the card's due day when omitted. */
@@ -178,7 +192,7 @@ export const saveCardStatement = async (
   token: string,
   accountId: number,
   payload: CardStatementPayload
-): Promise<CardStatement> => {
+): Promise<SavedCardStatement> => {
   const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/statements`, {
     method: 'POST',
     headers: authHeaders(token),
@@ -186,6 +200,26 @@ export const saveCardStatement = async (
   });
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to save this statement right now.');
+  }
+  return response.json();
+};
+
+/**
+ * Correct one bill in place, its date included. Saving a new date through
+ * `saveCardStatement` would upsert on that date and leave the old bill behind.
+ */
+export const updateCardStatement = async (
+  token: string,
+  statementId: number,
+  payload: CardStatementPayload
+): Promise<SavedCardStatement> => {
+  const response = await fetch(`${API_BASE_URL}/v1/statements/${statementId}`, {
+    method: 'PATCH',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw await readStatementError(response, 'Unable to update this statement right now.');
   }
   return response.json();
 };
@@ -338,6 +372,23 @@ export type StatementDiffEntry = {
   amount: number;
   type: string;
   tag?: string;
+  /** Dated just outside the cycle; may match, never reported as unbilled. */
+  outside_cycle?: boolean;
+};
+
+/**
+ * A statement line that is probably an entry the user already logged — the
+ * same amount on a different day, or a rupee or a forex markup apart. The user
+ * decides; until they say otherwise it is treated as the same purchase.
+ */
+export type StatementProbablePair = {
+  line: StatementLine;
+  entry: StatementDiffEntry;
+  day_gap: number;
+  /** Line minus entry: positive when the bank billed more. */
+  amount_gap: number;
+  similarity: number;
+  reason: 'date' | 'amount';
 };
 
 export type StatementDiff = {
@@ -349,36 +400,73 @@ export type StatementDiff = {
     /** Description overlap, 0..1. A tie-breaker only — low is normal. */
     similarity: number;
   }[];
+  /** Probably already logged. Kept out of `missing` and `extra`. */
+  probable: StatementProbablePair[];
   /** On the statement, not in Finnri. These are what importing adds. */
   missing: StatementLine[];
   /** In Finnri, not billed. Shown for review — never auto-deleted. */
   extra: StatementDiffEntry[];
   /** Real, but never importable as card entries. */
   ignored: StatementLine[];
+  /** The bank's fees and interest, wherever they landed in the diff. */
+  charges: StatementLine[];
+  /** The ledger against this bill before import. Absent for a draft bill. */
+  reconciliation?: StatementReconciliation;
   summary: {
     statement_lines: number;
     matched_count: number;
     missing_count: number;
     extra_count: number;
     ignored_count: number;
+    probable_count: number;
+    charges_count: number;
+    charges_amount: number;
     missing_amount: number;
     extra_amount: number;
   };
-  /** Present for screenshot intake. It is advisory and never blocks review/import. */
+  /**
+   * Whether the rows read off the file add up to the bill. Advisory — never
+   * blocks review or import. Absent while the bill has no amount.
+   */
   checksum?: {
     parsed_debits: number;
     parsed_credits: number;
     parsed_net: number;
+    /** Bill payments among the rows, kept out of `parsed_net`. */
+    payments: number;
+    /** The previous bill's total, when Finnri has one. */
+    opening_balance?: number;
     expected_net: number;
     difference: number;
     matches: boolean;
     message: string;
   };
-  source?: 'screenshots_ai';
+  source?: 'pdf' | 'screenshots_ai';
   credits_charged?: number;
   credits_remaining_today?: number;
   credits_remaining_total?: number;
 };
+
+/**
+ * Fills the buckets an older API does not send, so a new app on an old server
+ * reads as "nothing probable, no charges" instead of crashing on a missing
+ * array.
+ */
+export const normalizeStatementDiff = (raw: StatementDiff): StatementDiff => ({
+  ...raw,
+  matched: raw.matched ?? [],
+  probable: raw.probable ?? [],
+  missing: raw.missing ?? [],
+  extra: raw.extra ?? [],
+  ignored: raw.ignored ?? [],
+  charges: raw.charges ?? [],
+  summary: {
+    ...raw.summary,
+    probable_count: raw.summary?.probable_count ?? 0,
+    charges_count: raw.summary?.charges_count ?? 0,
+    charges_amount: raw.summary?.charges_amount ?? 0,
+  },
+});
 
 /** Compare already-parsed lines against the ledger. Nothing is stored. */
 export const diffStatementLines = async (
@@ -394,7 +482,7 @@ export const diffStatementLines = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to compare this statement right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 /**
@@ -430,13 +518,108 @@ export const uploadStatementPDF = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to read that statement right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 export type StatementScreenshotFile = {
   uri: string;
   name: string;
   mimeType?: string | null;
+};
+
+/**
+ * A statement file chosen before the bill exists. It travels to the review
+ * screen as a route param, which reads it once the bill has been saved.
+ */
+export type StatementUploadSource =
+  | { kind: 'pdf'; uri: string; name: string }
+  | { kind: 'screenshots'; files: StatementScreenshotFile[] };
+
+/**
+ * What a statement says about the bill and the card. Every field is optional:
+ * absent means the statement did not print it, never zero.
+ */
+export type StatementSummary = {
+  statement_date?: string;
+  due_date?: string;
+  total_due?: number;
+  minimum_due?: number;
+  credit_limit?: number;
+  available_limit?: number;
+  opening_balance?: number;
+  payments?: number;
+  purchases?: number;
+  fees_and_charges?: number;
+  annual_fee?: number;
+  fee_waiver_spend?: number;
+  renewal_month?: string;
+  card_last4?: string;
+  issuer?: string;
+};
+
+export type StatementCardUpdateField =
+  | 'statement_day'
+  | 'due_day'
+  | 'credit_limit'
+  | 'annual_fee'
+  | 'fee_waiver_spend'
+  | 'fee_month'
+  | 'last4';
+
+/** A card setting the statement disagrees with. `current` is Finnri's value. */
+export type StatementCardUpdate = {
+  field: StatementCardUpdateField;
+  label: string;
+  current: number | string;
+  proposed: number | string;
+};
+
+export type StatementRead = {
+  summary: StatementSummary;
+  lines: StatementLine[];
+  card_updates: StatementCardUpdate[];
+  /** Worth stopping for — chiefly a statement for a different card. */
+  warnings: string[];
+  source: 'pdf' | 'screenshots_ai';
+  credits_charged?: number;
+};
+
+/**
+ * Read a picked statement file before the bill exists. Nothing is saved: the
+ * summary prefills the Add statement form, the rows wait for the statement
+ * check, and the card updates are offered once the bill is in.
+ *
+ * A PDF password is sent for this one request and never stored.
+ */
+export const readStatementFile = async (
+  token: string,
+  accountId: number,
+  source: StatementUploadSource,
+  password?: string
+): Promise<StatementRead> => {
+  const body = new FormData();
+  if (source.kind === 'pdf') {
+    body.append('file', new File(source.uri) as unknown as Blob);
+    if (password) body.append('password', password);
+  } else {
+    source.files.forEach((file) => body.append('images', new File(file.uri) as unknown as Blob));
+  }
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/statements/read`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body,
+  });
+  if (!response.ok) {
+    throw await readStatementError(response, 'Unable to read that statement right now.');
+  }
+  const read = (await response.json()) as StatementRead;
+  return {
+    ...read,
+    summary: read.summary ?? {},
+    lines: read.lines ?? [],
+    card_updates: read.card_updates ?? [],
+    warnings: read.warnings ?? [],
+  };
 };
 
 /**
@@ -462,7 +645,7 @@ export const uploadStatementScreenshots = async (
   if (!response.ok) {
     throw await readStatementError(response, 'Unable to read those screenshots right now.');
   }
-  return response.json();
+  return normalizeStatementDiff(await response.json());
 };
 
 /** Create entries for the lines the user picked. Safe to retry. */

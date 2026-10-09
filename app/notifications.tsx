@@ -13,7 +13,9 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import {
   AppNotification,
+  accountIdFromActionURL,
   fetchNotifications,
+  isRecurringActionURL,
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/lib/notifications';
@@ -126,9 +128,14 @@ export default function NotificationsScreen() {
       return;
     }
 
-    const accountMatch = notification.action_url?.match(/^\/accounts\/(\d+)$/);
-    if (accountMatch) {
-      router.push({ pathname: '/accounts/[id]', params: { id: accountMatch[1] } });
+    if (isRecurringActionURL(notification.action_url)) {
+      router.push({ pathname: '/(tabs)/money', params: { segment: 'subscriptions' } });
+      return;
+    }
+
+    const accountId = accountIdFromActionURL(notification.action_url);
+    if (accountId) {
+      router.push({ pathname: '/accounts/[id]', params: { id: accountId } });
       return;
     }
 
@@ -179,7 +186,10 @@ export default function NotificationsScreen() {
       return;
     }
     const occurrence = await revertSubscriptionOccurrence(token, id);
-    router.push({ pathname: '/entry/[id]', params: { id: String(occurrence.entry_id), edit: '1' } });
+    router.push({
+      pathname: '/entry/[id]',
+      params: { id: String(occurrence.entry_id), edit: '1' },
+    });
   };
 
   return (
@@ -276,11 +286,29 @@ export default function NotificationsScreen() {
                     </ThemedText>
                     {occurrenceID(notification.action_url) && (
                       <View className="mt-3 flex-row gap-2">
-                        <Pressable onPress={(event) => { event.stopPropagation(); void handleOccurrence(notification, 'confirm'); }} className="rounded-xl px-4 py-2" style={{ backgroundColor: colors.accent }}>
-                          <ThemedText tone="onAccent" className="text-xs font-black">Confirm</ThemedText>
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void handleOccurrence(notification, 'confirm');
+                          }}
+                          className="rounded-xl px-4 py-2"
+                          style={{ backgroundColor: colors.accent }}>
+                          <ThemedText tone="onAccent" className="text-xs font-black">
+                            Confirm
+                          </ThemedText>
                         </Pressable>
-                        <Pressable onPress={(event) => { event.stopPropagation(); void handleOccurrence(notification, 'revert'); }} className="rounded-xl border px-4 py-2" style={{ borderColor: colors.accent }}>
-                          <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>Correct / revert</ThemedText>
+                        <Pressable
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            void handleOccurrence(notification, 'revert');
+                          }}
+                          className="rounded-xl border px-4 py-2"
+                          style={{ borderColor: colors.accent }}>
+                          <ThemedText
+                            className="text-xs font-black"
+                            style={{ color: colors.accent }}>
+                            Fix it
+                          </ThemedText>
                         </Pressable>
                       </View>
                     )}

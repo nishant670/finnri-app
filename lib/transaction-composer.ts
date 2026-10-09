@@ -15,7 +15,7 @@ export async function buildTransactionPayload(
   form: EntryForm,
   options: {
     accountId?: number | null;
-    source?: 'manual' | 'text' | 'voice';
+    source?: 'manual' | 'text' | 'voice' | 'receipt';
     sourceText?: string;
     refundStatus?: EntryMutationPayload['refund_status'];
   } = {}
@@ -78,6 +78,40 @@ export type TransactionSaveProgress = {
 /** A refund already received for the purchase being saved. */
 export type ReceivedRefund = { amount: number; date?: string | null };
 
+/**
+ * The recurring-payment record a form describes — a subscription, or a loan EMI
+ * that repeats as an auto-debit. Shared by a new transaction and by an edit of
+ * an existing one, so both write exactly the same thing.
+ */
+export async function createRecurringFromForm(
+  token: string,
+  form: EntryForm,
+  account: Account | null
+) {
+  if (!form.subscriptionBillingInterval) return;
+  const parsedDate = parseDateLabel(form.date);
+  await createSubscription(token, {
+    name: form.subscriptionName.trim(),
+    merchant: form.subscriptionMerchant.trim() || form.merchant.trim(),
+    category: form.subscriptionCategory.trim() || form.category,
+    amount: Number(form.subscriptionAmount || form.amount),
+    billing_interval: form.subscriptionBillingInterval,
+    next_due_date: form.subscriptionNextDueDate.trim(),
+    last_charged_date: parsedDate ? formatApiDate(parsedDate) : undefined,
+    status: 'active',
+    reminder_days: Number(form.subscriptionReminderDays || 0),
+    cancel_before_due: form.subscriptionCancelBeforeDue,
+    cancel_on_date: form.subscriptionCancelOnDate.trim(),
+    autopay: form.subscriptionAutopay,
+    payment_mode: form.mode,
+    transaction_tag: form.tag || 'Subscription',
+    purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
+    notes: form.subscriptionNotes.trim(),
+    account_id: account?.id ?? null,
+    ...loanInstalments(form),
+  });
+}
+
 export async function saveNewTransaction({
   token,
   form,
@@ -92,13 +126,19 @@ export async function saveNewTransaction({
   form: EntryForm;
   account: Account | null;
   idempotencyKey: string;
-  source?: 'manual' | 'text' | 'voice';
+  source?: 'manual' | 'text' | 'voice' | 'receipt';
   sourceText?: string;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
 }) {
   const parsedDate = parseDateLabel(form.date);
-  const fingerprint = JSON.stringify({ form, accountId: account?.id ?? null, source, sourceText, refund });
+  const fingerprint = JSON.stringify({
+    form,
+    accountId: account?.id ?? null,
+    source,
+    sourceText,
+    refund,
+  });
   if (progress.entry && progress.fingerprint !== fingerprint) {
     throw new Error(
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'
@@ -141,26 +181,7 @@ export async function saveNewTransaction({
     form.subscriptionBillingInterval &&
     !progress.subscriptionCreated
   ) {
-    await createSubscription(token, {
-      name: form.subscriptionName.trim(),
-      merchant: form.subscriptionMerchant.trim() || form.merchant.trim(),
-      category: form.subscriptionCategory.trim() || form.category,
-      amount: Number(form.subscriptionAmount || form.amount),
-      billing_interval: form.subscriptionBillingInterval,
-      next_due_date: form.subscriptionNextDueDate.trim(),
-      last_charged_date: parsedDate ? formatApiDate(parsedDate) : undefined,
-      status: 'active',
-      reminder_days: Number(form.subscriptionReminderDays || 0),
-      cancel_before_due: form.subscriptionCancelBeforeDue,
-      cancel_on_date: form.subscriptionCancelOnDate.trim(),
-      autopay: form.subscriptionAutopay,
-      payment_mode: form.mode,
-      transaction_tag: form.tag || 'Subscription',
-      purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
-      notes: form.subscriptionNotes.trim(),
-      account_id: account?.id ?? null,
-      ...loanInstalments(form),
-    });
+    await createRecurringFromForm(token, form, account);
     progress.subscriptionCreated = true;
   }
   if (refund && refund.amount > 0 && !progress.refundCreated) {
