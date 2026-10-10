@@ -22,7 +22,7 @@
       "env": {
         "APP_VARIANT": "preview",
         "EXPO_PUBLIC_API_URL": "https://ez-money-be-staging.up.railway.app",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "23289902813-s2bo6vb4p0icbimr9b5vs3an1v6ftj3p.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "23289902813-ku8orh14vu4fa4a2b7nl3hh7kkvoloim.apps.googleusercontent.com"
       }
     },
     "production": {
