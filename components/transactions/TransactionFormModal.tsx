@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   Dimensions,
   Keyboard,
   KeyboardAvoidingView,
@@ -22,6 +23,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
@@ -188,10 +190,10 @@ interface TransactionFormModalProps {
   /** Replaces the sheet's title, for a new entry that is not a blank one. */
   heading?: string;
   /**
-   * Offers "scan a bill" on a new manual entry. Gets the picked photo's local
-   * URI; the parent reads it and drives the sheet into draft review.
+   * Offers "Scan a bill" on a new manual entry. The parent asks camera or
+   * gallery, reads the photo and drives this sheet into draft review.
    */
-  onScanReceipt?: (uri: string) => void;
+  onRequestReceiptScan?: () => void;
   /**
    * The sheet is open but the parse has not landed yet. The draft area renders
    * placeholders shaped like the fields that are coming; everything else — the
@@ -478,7 +480,7 @@ export function TransactionFormModal({
   emiLink = null,
   mode = 'manual',
   heading,
-  onScanReceipt,
+  onRequestReceiptScan,
   isParsing = false,
   aiReview,
   accounts = emptyAccounts,
@@ -544,6 +546,34 @@ export function TransactionFormModal({
   /** Horizontal nudge for the validation shake. */
   const shakeAnim = useSharedValue(0);
   const [showModal, setShowModal] = useState(visible);
+
+  /**
+   * Puts the panel back where an open sheet belongs.
+   *
+   * Reported from a device: after a bill photo was picked, the review sheet
+   * came back stuck part-way up the screen and could be neither closed nor
+   * dragged, so the draft (and its credits) had to be thrown away. The slide
+   * is a Reanimated timing on the UI thread, and the camera or photo picker
+   * pauses the app around it; the slide could stop where it was. So every
+   * moment that can end such a pause re-settles the panel: the window being
+   * shown, the app becoming active again, the slide's own expected end, and
+   * the draft landing. Each is a no-op on a sheet that is already in place.
+   */
+  const visibleRef = useRef(visible);
+  visibleRef.current = visible;
+  const settlePanel = useCallback(() => {
+    if (!visibleRef.current) return;
+    panelAnim.value = withTiming(0, motion.enter('sheet'));
+    backdropAnim.value = withTiming(1, motion.enter('base'));
+  }, [backdropAnim, motion, panelAnim]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') settlePanel();
+    });
+    return () => subscription.remove();
+  }, [settlePanel, showModal]);
   // iOS's KeyboardAvoidingView already reserves the keyboard. Android modal
   // windows are not reliably resized, so their inset belongs at the end of the
   // scroll content—not inside the mid-list split section.
@@ -646,7 +676,6 @@ export function TransactionFormModal({
     dismiss: dismissUpgrade,
   } = useEntitlementGate();
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
-  const [scanError, setScanError] = useState<string | null>(null);
   const [splitShareMode, setSplitShareMode] = useState<TransactionSplitShareMode>('amount');
   const [isDiscardDialogVisible, setIsDiscardDialogVisible] = useState(false);
   const [customCategory, setCustomCategory] = useState('');
@@ -1273,14 +1302,14 @@ export function TransactionFormModal({
       setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
-      setScanError(null);
       seedForm();
 
       // A timed slide, not a spring: the spring overshot and rang two or three
       // times, and the form can't be typed into until it stops moving.
       panelAnim.value = withTiming(0, motion.enter('sheet'));
       backdropAnim.value = withTiming(1, motion.enter('base'));
-      return;
+      const settleAfterSlide = setTimeout(settlePanel, motion.duration('sheet') + 250);
+      return () => clearTimeout(settleAfterSlide);
     }
 
     panelAnim.value = withTiming(SCREEN_HEIGHT, motion.exit('sheet'), (finished) => {
@@ -1291,7 +1320,7 @@ export function TransactionFormModal({
     // `seedForm` is stable across the transition and listing it would re-run the
     // panel animation on an unrelated identity change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, SCREEN_HEIGHT, backdropAnim, motion, panelAnim]);
+  }, [visible, SCREEN_HEIGHT, backdropAnim, motion, panelAnim, settlePanel]);
 
   /**
    * The draft landed. Re-seed from the parse result, which arrived after the
@@ -1301,9 +1330,10 @@ export function TransactionFormModal({
   useEffect(() => {
     if (wasParsing.current && !isParsing && visible) {
       seedForm();
+      settlePanel();
     }
     wasParsing.current = isParsing;
-  }, [isParsing, seedForm, visible]);
+  }, [isParsing, seedForm, settlePanel, visible]);
 
   useEffect(() => {
     if (!visible) {
@@ -1457,32 +1487,7 @@ export function TransactionFormModal({
   });
 
   /** Bill scanning is for a fresh personal entry; a split has its own composer. */
-  const canScanReceipt = fastEntry && !splitContext && !!onScanReceipt;
-
-  /**
-   * Pick a bill photo and hand it up for reading. Images only — the reader
-   * takes photos and screenshots, not PDFs. A camera option needs a native
-   * module and is left for a later build.
-   */
-  const handleScanReceipt = async () => {
-    setScanError(null);
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'image/*',
-        copyToCacheDirectory: true,
-        multiple: false,
-      });
-      if (result.canceled) return;
-      const asset = result.assets[0];
-      if (!asset?.uri) {
-        setScanError("That photo couldn't be read. Try another one.");
-        return;
-      }
-      onScanReceipt?.(asset.uri);
-    } catch {
-      setScanError("That photo couldn't be opened. Try again.");
-    }
-  };
+  const canScanReceipt = fastEntry && !splitContext && !!onRequestReceiptScan;
 
   const handleRemoveAttachment = () => {
     setAttachmentError(null);
@@ -1795,6 +1800,38 @@ export function TransactionFormModal({
     transform: [{ translateY: panelAnim.value }, { translateX: shakeAnim.value }],
   }));
 
+  /**
+   * The handle at the top is a real handle now: drag down to close, let go
+   * early to spring back. Dragging up, or letting go, also puts a panel that
+   * is somehow out of place back where it belongs. A draft review asks before
+   * discarding, so it springs back and leaves the choice to that dialog.
+   */
+  const closeFromDrag = useCallback(() => {
+    if (splitContext?.onBack) {
+      settlePanel();
+      splitContext.onBack();
+      return;
+    }
+    if (isSaving || mode === 'audio') settlePanel();
+    requestClose();
+  }, [isSaving, mode, requestClose, settlePanel, splitContext]);
+
+  const dragToClose = useMemo(() => {
+    const springBack = motion.enter('base');
+    return Gesture.Pan()
+      .activeOffsetY([-6, 6])
+      .onUpdate((event) => {
+        panelAnim.value = Math.max(0, event.translationY);
+      })
+      .onEnd((event) => {
+        if (event.translationY > 120 || event.velocityY > 900) {
+          runOnJS(closeFromDrag)();
+        } else {
+          panelAnim.value = withTiming(0, springBack);
+        }
+      });
+  }, [closeFromDrag, motion, panelAnim]);
+
   // Measured out here. `Dimensions` is a JS-thread module and does not exist on
   // the UI runtime, so reading it inside the worklet throws "undefined is not a
   // function" — the same boundary that caught the prompt rotation in C2, and
@@ -1911,8 +1948,10 @@ export function TransactionFormModal({
       transparent
       visible={showModal}
       animationType="none" // we handle animations manually for better control
+      onShow={settlePanel}
       onRequestClose={splitContext?.onBack ?? requestClose}>
-      <View className="flex-1 justify-end">
+      {/* A modal is its own window on Android, outside the app's gesture root. */}
+      <GestureHandlerRootView style={{ flex: 1, justifyContent: 'flex-end' }}>
         <Animated.View className="absolute inset-0 bg-black/40" style={backdropStyle}>
           <View style={{ flex: 1 }} />
         </Animated.View>
@@ -1930,37 +1969,23 @@ export function TransactionFormModal({
             <View
               className="flex-1 rounded-t-[32px] shadow-2xl relative overflow-hidden"
               style={{ backgroundColor: theme.background }}>
-              <View className="items-center pt-6 pb-1 relative">
+              <GestureDetector gesture={dragToClose}>
                 <View
-                  className="h-1.5 w-12 rounded-full absolute top-3"
-                  style={{ backgroundColor: theme.border }}
-                />
-                <Pressable
-                  onPress={requestClose}
-                  className="absolute right-5 top-5 h-9 w-9 rounded-full items-center justify-center z-10"
-                  style={{ backgroundColor: colorScheme === 'dark' ? theme.card : '#F3F4F6' }}>
-                  <MaterialCommunityIcons name="close" size={18} color={theme.text} />
-                </Pressable>
-                {canScanReceipt ? (
+                  testID="sheet-drag-handle"
+                  className="items-center pt-6 pb-1 relative"
+                  style={{ minHeight: 40 }}>
+                  <View
+                    className="h-1.5 w-12 rounded-full absolute top-3"
+                    style={{ backgroundColor: theme.border }}
+                  />
                   <Pressable
-                    testID="scan-receipt"
-                    onPress={() => void handleScanReceipt()}
-                    accessibilityRole="button"
-                    accessibilityLabel="Scan a bill or receipt photo"
-                    accessibilityHint="Finnri reads the total, date and shop. Uses AI credits."
-                    className="absolute left-5 top-5 h-9 flex-row items-center gap-1.5 rounded-full px-3 z-10"
+                    onPress={requestClose}
+                    className="absolute right-5 top-5 h-9 w-9 rounded-full items-center justify-center z-10"
                     style={{ backgroundColor: colorScheme === 'dark' ? theme.card : '#F3F4F6' }}>
-                    <MaterialCommunityIcons
-                      name="receipt-text-plus-outline"
-                      size={17}
-                      color={theme.text}
-                    />
-                    <ThemedText className="text-xs font-bold" style={{ color: theme.text }}>
-                      Scan bill
-                    </ThemedText>
+                    <MaterialCommunityIcons name="close" size={18} color={theme.text} />
                   </Pressable>
-                ) : null}
-              </View>
+                </View>
+              </GestureDetector>
 
               <ScrollView
                 showsVerticalScrollIndicator={false}
@@ -2005,10 +2030,27 @@ export function TransactionFormModal({
                                 ? 'New income'
                                 : 'New expense')}
                   </ThemedText>
-                  {canScanReceipt && scanError ? (
-                    <ThemedText tone="negative" className="mt-1 text-center text-xs">
-                      {scanError}
-                    </ThemedText>
+                  {canScanReceipt ? (
+                    // Under the title, centred, rather than pinned in the top
+                    // corner where it read as part of the window chrome and
+                    // could run into the title on a narrow phone.
+                    <Pressable
+                      testID="scan-receipt"
+                      onPress={onRequestReceiptScan}
+                      accessibilityRole="button"
+                      accessibilityLabel="Scan a bill"
+                      accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in this entry."
+                      hitSlop={6}
+                      className="mt-2 h-9 flex-row items-center gap-1.5 rounded-full px-4"
+                      style={({ pressed }) => ({
+                        backgroundColor: theme.secondary,
+                        opacity: pressed ? 0.75 : 1,
+                      })}>
+                      <MaterialCommunityIcons name="camera-outline" size={17} color={theme.accent} />
+                      <ThemedText className="text-sm font-bold" style={{ color: theme.accent }}>
+                        Scan a bill instead
+                      </ThemedText>
+                    </Pressable>
                   ) : null}
                   {/* The review sheet's banner already says how many fields
                       want a look, and a second line saying it again costs the
@@ -3222,7 +3264,7 @@ export function TransactionFormModal({
           entitlement={entitlement}
           onClose={dismissUpgrade}
         />
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

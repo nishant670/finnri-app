@@ -8,7 +8,7 @@ import {
 import { File } from 'expo-file-system';
 import { useRouter, useFocusEffect, useLocalSearchParams, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated as RNAnimated, Easing, View } from 'react-native';
+import { Animated as RNAnimated, Easing, Linking, Platform, View } from 'react-native';
 import Animated, {
   useAnimatedRef,
   useAnimatedScrollHandler,
@@ -68,7 +68,9 @@ import {
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formToQuickPromptPayload } from '@/lib/quick-prompts';
-import { isParseAnswer, looksLikeQuestion, describeParseFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
+import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
+import { pickReceiptPhoto, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
+import { ReceiptSourceSheet } from '@/components/transactions/ReceiptSourceSheet';
 import {
   fetchSplitFriends,
   fetchSplitGroups,
@@ -1103,18 +1105,20 @@ export default function HomeScreen() {
   );
 
   /**
-   * The bill-scan path: a photo picked from the add sheet becomes the same AI
-   * draft a typed or spoken capture does. The sheet stays up throughout — it
-   * flips into review mode while the photo is read, and back to manual entry
-   * (photo still attached as the receipt) if it cannot be read.
-   */
-  /**
    * Bumped whenever the capture sheet closes, so a receipt read that lands
    * after the user walked away is dropped instead of reopening nothing or
    * throwing an error dialog over Home.
    */
   const receiptScanId = useRef(0);
+  const isEditOpenRef = useRef(isEditOpen);
+  isEditOpenRef.current = isEditOpen;
 
+  /**
+   * The bill-scan path: a photo, from Home or from the add sheet, becomes the
+   * same AI draft a typed or spoken capture does. The sheet shows "Reading"
+   * while the photo is read, then the draft, or manual entry with the photo
+   * still attached as the receipt if no total could be read.
+   */
   const scanReceipt = useCallback(
     async (uri: string) => {
       if (isSubmitting) return;
@@ -1122,6 +1126,14 @@ export default function HomeScreen() {
         // The credit card lives on Home, behind the sheet.
         setIsEditOpen(false);
         return;
+      }
+      if (!isEditOpenRef.current) {
+        // Started from Home: nothing is on screen to carry over, so the draft
+        // lands on a blank entry rather than on whatever was last open.
+        pendingSuggestionSetup.current = null;
+        setAccountSuggestionHint(null);
+        setRefundReceived(null);
+        setForm(createBlankForm());
       }
       setIsSubmitting(true);
       setErrorMessage(null);
@@ -1144,6 +1156,7 @@ export default function HomeScreen() {
         createSaveProgress.current = {};
         applyParsedDraft(data, 'Receipt photo', 'receipt', uri);
       } catch (error) {
+        void fetchCredits(true);
         if (abandoned()) return;
         if (showCreditParseError(error)) {
           setIsEditOpen(false);
@@ -1152,7 +1165,7 @@ export default function HomeScreen() {
         setModalMode('manual');
         setAiReview(null);
         setForm((prev) => ({ ...prev, attachment: uri }));
-        const failure = describeParseFailure(error);
+        const failure = describeReceiptScanFailure(error);
         void dialog.alert({ title: failure.title, message: failure.message, tone: 'danger' });
       } finally {
         setIsParsing(false);
@@ -1162,6 +1175,7 @@ export default function HomeScreen() {
     [
       applyParsedDraft,
       blockCaptureWithoutCredits,
+      createBlankForm,
       dialog,
       fetchCredits,
       isSubmitting,
@@ -1169,6 +1183,62 @@ export default function HomeScreen() {
       token,
     ]
   );
+
+  /** "Scan a bill" asks camera or gallery first; the chooser lives here, on Home. */
+  const [isReceiptSourceOpen, setIsReceiptSourceOpen] = useState(false);
+
+  const openReceiptScan = useCallback(() => {
+    // No point taking a photo that cannot be read: say so before the camera opens.
+    if (blockCaptureWithoutCredits()) {
+      setIsEditOpen(false);
+      return;
+    }
+    setIsReceiptSourceOpen(true);
+  }, [blockCaptureWithoutCredits]);
+
+  const chooseReceiptSource = useCallback(
+    async (source: ReceiptPhotoSource) => {
+      setIsReceiptSourceOpen(false);
+      // iOS will not present the picker while the chooser is still fading out.
+      if (Platform.OS === 'ios') await new Promise((resolve) => setTimeout(resolve, 350));
+      const pick = await pickReceiptPhoto(source);
+      if (pick.status === 'picked') {
+        void scanReceipt(pick.uri);
+        return;
+      }
+      if (pick.status === 'camera-denied') {
+        if (pick.canAskAgain) return;
+        const openSettings = await dialog.confirm({
+          title: 'Camera is off for Finnri',
+          message:
+            'Turn on camera access in Settings to photograph a bill, or choose a photo instead.',
+          confirmLabel: 'Open Settings',
+          cancelLabel: 'Not now',
+        });
+        if (openSettings) void Linking.openSettings();
+        return;
+      }
+      if (pick.status === 'failed') {
+        void dialog.alert({
+          title: 'That photo did not open',
+          message: 'Try again, or pick a different photo of the bill.',
+          tone: 'danger',
+        });
+      }
+    },
+    [dialog, scanReceipt]
+  );
+
+  // Android may stop Finnri while the camera is open on a phone short of
+  // memory. The photo survives in the picker; read it once on the way back.
+  const checkedPendingReceipt = useRef(false);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !token || checkedPendingReceipt.current) return;
+    checkedPendingReceipt.current = true;
+    void takePendingReceiptPhoto().then((uri) => {
+      if (uri) void scanReceipt(uri);
+    });
+  }, [scanReceipt, token]);
 
   const submitPrompt = useCallback(
     async (overrideText?: string) => {
@@ -1553,6 +1623,7 @@ export default function HomeScreen() {
               isProcessing={isSubmitting}
               isTextInputVisible={isTextInputVisible}
               onToggleTextInput={() => setIsTextInputVisible((current) => !current)}
+              onScanBill={openReceiptScan}
             />
           </CollapsibleCapture>
         </View>
@@ -1580,7 +1651,7 @@ export default function HomeScreen() {
         initialData={form}
         onSave={handleConfirmEntry}
         mode={modalMode}
-        onScanReceipt={scanReceipt}
+        onRequestReceiptScan={openReceiptScan}
         isParsing={isParsing}
         aiReview={aiReview}
         accounts={accounts}
@@ -1654,6 +1725,11 @@ export default function HomeScreen() {
             },
           });
         }}
+      />
+      <ReceiptSourceSheet
+        visible={isReceiptSourceOpen}
+        onChoose={(source) => void chooseReceiptSource(source)}
+        onClose={() => setIsReceiptSourceOpen(false)}
       />
       <PlansOfferSheet {...plansPrompt.sheet} />
       <TransactionFormModal

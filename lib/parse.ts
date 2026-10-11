@@ -1,6 +1,10 @@
 import { getClientTimeZone } from './datetime';
 import { API_BASE_URL } from './transactions';
-import { discardPreparedUpload, prepareReceiptScanImage } from './uploads';
+import {
+  discardPreparedUpload,
+  prepareReceiptScanImage,
+  ReceiptPhotoTooLargeError,
+} from './uploads';
 
 /**
  * What the parse channel came back with.
@@ -236,6 +240,8 @@ type ParseErrorPayload = {
   used_today?: number;
   reset_at?: string;
   upgrade_required?: boolean;
+  /** Sent by the receipt reader on a failed read, which costs nothing. */
+  credits_charged?: number;
 };
 
 const parseErrorMessages: Record<string, string> = {
@@ -248,7 +254,7 @@ const parseErrorMessages: Record<string, string> = {
   could_not_parse: 'Finnri could not read that just now. Try again in a moment.',
   schema_invalid:
     'I could not turn that into a clean transaction. Try again with the amount, merchant, and payment method.',
-  receipt_unreadable: 'Finnri could not read a total on that receipt.',
+  receipt_unreadable: 'Finnri could not find a total on that bill.',
   unsupported_receipt_image: 'That file is not a photo Finnri can read.',
   receipt_image_too_large: 'That photo is too large to read.',
   receipt_parser_unavailable: 'Receipt scanning is not available right now.',
@@ -268,6 +274,8 @@ export class ParseApiError extends Error {
   usedToday?: number;
   resetAt?: string;
   upgradeRequired?: boolean;
+  /** 0 when the server says the failed attempt cost nothing. */
+  creditsCharged?: number;
 
   constructor(payload: ParseErrorPayload, status: number, fallback: string) {
     const code = payload.error;
@@ -284,6 +292,7 @@ export class ParseApiError extends Error {
     this.usedToday = payload.used_today;
     this.resetAt = payload.reset_at;
     this.upgradeRequired = payload.upgrade_required;
+    this.creditsCharged = payload.credits_charged;
   }
 }
 
@@ -388,21 +397,21 @@ const parseFailureCopy: Record<string, ParseFailureCopy> = {
     canRetry: false,
   },
   receipt_unreadable: {
-    title: 'I could not read that receipt',
+    title: 'Finnri could not find a total',
     message:
-      'No total was readable on that photo. Try again with the whole bill flat, in good light, and the total in frame — or enter it by hand.',
+      'Photograph the whole bill flat, in good light, with the total in frame. Or enter it by hand.',
     examples: [],
     canRetry: false,
   },
   unsupported_receipt_image: {
     title: 'That photo did not come through',
-    message: 'Pick a photo or screenshot of the bill. PDFs cannot be scanned yet.',
+    message: 'Pick a photo or screenshot of the bill. PDFs cannot be read yet.',
     examples: [],
     canRetry: false,
   },
   receipt_image_too_large: {
     title: 'That photo is too large',
-    message: 'Crop it to just the bill, or take a new photo, and try again.',
+    message: 'Try another photo of the bill, or take a new one.',
     examples: [],
     canRetry: false,
   },
@@ -435,6 +444,30 @@ export const describeParseFailure = (error: unknown): ParseFailure => {
     title: 'Could not reach Finnri',
     message: 'Check your connection and try again — nothing was lost.',
   };
+};
+
+/**
+ * The failure copy for a bill photo. Same as any capture, plus the one thing a
+ * person who just lost a scan wants to know: whether it cost them anything.
+ * A failed read is free (the server says `credits_charged: 0`), and a photo
+ * refused on the phone never left it.
+ */
+export const describeReceiptScanFailure = (error: unknown): ParseFailure => {
+  if (error instanceof ReceiptPhotoTooLargeError) {
+    return {
+      code: error.code,
+      title: 'That photo is too large',
+      message:
+        'Finnri could not shrink it enough to send. Try another photo of the bill, or take a new one. Nothing was sent and no credits were used.',
+      examples: [],
+      canRetry: false,
+    };
+  }
+  const failure = describeParseFailure(error);
+  if (error instanceof ParseApiError && error.creditsCharged === 0) {
+    return { ...failure, message: `${failure.message} No credits were used.` };
+  }
+  return failure;
 };
 
 const readParseError = async (response: Response) => {

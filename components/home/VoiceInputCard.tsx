@@ -109,6 +109,12 @@ type VoiceInputCardProps = {
   hasFailed?: boolean;
   isTextInputVisible?: boolean;
   onToggleTextInput?: () => void;
+  /**
+   * The third way in, beside speaking and typing: a photo of the bill. It sat
+   * in the corner of the add sheet, where it was easy to miss and could crowd
+   * the title on a narrow phone.
+   */
+  onScanBill?: () => void;
 };
 
 export function VoiceInputCard({
@@ -126,6 +132,7 @@ export function VoiceInputCard({
   hasFailed = false,
   isTextInputVisible = false,
   onToggleTextInput,
+  onScanBill,
 }: VoiceInputCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
@@ -545,12 +552,27 @@ export function VoiceInputCard({
         </ThemedText>
       ) : null}
 
-      <TextAction
-        label="Type instead"
-        onPress={onToggleTextInput}
-        disabled={isProcessing || isRecording}
-        style={styles.writeToggle}
-      />
+      <View style={styles.altCaptureRow}>
+        <TextAction
+          label="Type instead"
+          onPress={onToggleTextInput}
+          disabled={isProcessing || isRecording}
+          style={styles.writeToggle}
+        />
+        {onScanBill ? (
+          <>
+            <ThemedText style={{ color: colors.accent, opacity: 0.5 }}>·</ThemedText>
+            <TextAction
+              testID="scan-bill-home"
+              label="Scan a bill"
+              onPress={onScanBill}
+              disabled={isProcessing || isRecording}
+              accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in the entry."
+              style={styles.writeToggle}
+            />
+          </>
+        ) : null}
+      </View>
 
       {shouldShowTextInput ? (
         <Animated.View style={[{ width: '100%' }, textEntryStyle]}>
@@ -667,6 +689,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     borderRadius: 999,
+  },
+  altCaptureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   writeToggle: {
     minHeight: 24,
