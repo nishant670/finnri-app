@@ -734,7 +734,7 @@ function ExistingAccountPrompt({
         <TouchableOpacity
           style={[styles.promptPrimaryButton, { backgroundColor: theme.accent }]}
           onPress={onContinue}>
-          <Text style={styles.promptPrimaryText}>Sign in to this account</Text>
+          <Text style={[styles.promptPrimaryText, { color: theme.onAccent }]}>Sign in to this account</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.promptSecondaryButton} onPress={onDifferent}>
           <Text style={[styles.promptSecondaryText, { color: theme.text, opacity: 0.65 }]}>

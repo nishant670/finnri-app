@@ -363,18 +363,18 @@ export function VoiceInputCard({
                 gap: 3,
               }}>
               {isProcessing ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.onAccent} size="small" />
               ) : (
                 <>
                   <MaterialCommunityIcons
                     name={hasFailed ? 'refresh' : 'flash'}
                     size={14}
-                    color="#FFFFFF"
+                    color={colors.onAccent}
                   />
                   <ThemedText
                     numberOfLines={1}
                     style={{
-                      color: '#FFFFFF',
+                      color: colors.onAccent,
                       fontSize: 12,
                       lineHeight: 14,
                       fontFamily: theme.typography.button.fontFamily,
@@ -532,7 +532,7 @@ export function VoiceInputCard({
               <MaterialCommunityIcons
                 name={isRecording ? 'stop' : 'microphone'}
                 size={38}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
             </Animated.View>
           </Animated.View>
@@ -645,12 +645,12 @@ export function VoiceInputCard({
                 },
               ]}>
               {isProcessing && trimmedInput ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.onAccent} size="small" />
               ) : (
                 <MaterialCommunityIcons
                   name="send"
                   size={17}
-                  color={canSubmitText ? '#FFFFFF' : '#A0A0A0'}
+                  color={canSubmitText ? colors.onAccent : '#A0A0A0'}
                 />
               )}
             </Pressable>

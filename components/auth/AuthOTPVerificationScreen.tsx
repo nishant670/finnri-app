@@ -265,9 +265,9 @@ export const AuthOTPVerificationScreen = ({
             onPress={handleVerify}
           >
             {isVerifying ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={theme.onAccent} />
             ) : (
-              <Text style={styles.primaryButtonText}>{continueLabel}</Text>
+              <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>{continueLabel}</Text>
             )}
           </TouchableOpacity>
 

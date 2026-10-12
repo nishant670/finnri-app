@@ -306,8 +306,8 @@ export default function StatementDetailScreen() {
                 onPress={() => setIsPaymentSheetVisible(true)}
                 className="mt-5 h-12 flex-row items-center justify-center gap-2 rounded-full"
                 style={{ backgroundColor: theme.accent }}>
-                <MaterialCommunityIcons name="checkbook" size={16} color="#FFFFFF" />
-                <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+                <MaterialCommunityIcons name="checkbook" size={16} color={theme.onAccent} />
+                <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
                   Record payment
                 </TText>
               </Pressable>

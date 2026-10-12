@@ -131,7 +131,7 @@ export default function AppMoodScreen() {
               <MaterialCommunityIcons
                 name={getMoodIconName('star-four-points', iconStyle) as any}
                 size={18}
-                color="#FFFFFF"
+                color={colors.onAccent}
               />
             </View>
           </View>

@@ -289,13 +289,13 @@ export default function StatementReviewScreen() {
                 className="mt-5 h-13 flex-row items-center justify-center gap-2 rounded-full py-3.5"
                 style={{ backgroundColor: theme.accent }}>
                 {isBusy ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color={theme.onAccent} />
                 ) : (
                   <>
-                    <MaterialCommunityIcons name="file-upload-outline" size={18} color="#FFFFFF" />
+                    <MaterialCommunityIcons name="file-upload-outline" size={18} color={theme.onAccent} />
                     <TText
                       className="text-sm"
-                      style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+                      style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
                       Choose PDF
                     </TText>
                   </>
@@ -381,13 +381,13 @@ export default function StatementReviewScreen() {
                   backgroundColor: password.length > 0 ? theme.accent : theme.secondary,
                 }}>
                 {isBusy ? (
-                  <ActivityIndicator color="#FFFFFF" />
+                  <ActivityIndicator color={theme.onAccent} />
                 ) : (
                   <TText
                     className="text-sm"
                     style={{
                       fontFamily: Fonts.title,
-                      color: password.length > 0 ? '#FFFFFF' : '#94A3B8',
+                      color: password.length > 0 ? theme.onAccent : '#94A3B8',
                     }}>
                     Open statement
                   </TText>
@@ -549,13 +549,13 @@ export default function StatementReviewScreen() {
                 backgroundColor: linesToImport.length > 0 ? theme.accent : theme.secondary,
               }}>
               {isBusy ? (
-                <ActivityIndicator color="#FFFFFF" />
+                <ActivityIndicator color={theme.onAccent} />
               ) : (
                 <TText
                   className="text-base"
                   style={{
                     fontFamily: Fonts.title,
-                    color: linesToImport.length > 0 ? '#FFFFFF' : '#94A3B8',
+                    color: linesToImport.length > 0 ? theme.onAccent : '#94A3B8',
                   }}>
                   {linesToImport.length > 0
                     ? `Add ${linesToImport.length} · ${formatMoney(plan?.importNet ?? 0)}`
@@ -599,7 +599,7 @@ function SelectableLine({
           backgroundColor: selected ? theme.accent : 'transparent',
           borderColor: selected ? theme.accent : '#94A3B8',
         }}>
-        {selected && <MaterialCommunityIcons name="check" size={13} color="#FFFFFF" />}
+        {selected && <MaterialCommunityIcons name="check" size={13} color={theme.onAccent} />}
       </View>
 
       <View className="min-w-0 flex-1 pr-3">

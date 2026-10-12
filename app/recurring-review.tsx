@@ -258,10 +258,10 @@ function RecurringCandidateCard({
       <View className="mt-5 gap-2">
         <Pressable disabled={saving} onPress={onTrack} className="h-12 flex-row items-center justify-center rounded-2xl" style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
           {saving ? (
-            <ActivityIndicator color="white" />
+            <ActivityIndicator color={colors.onAccent} />
           ) : (
             <>
-              <MaterialCommunityIcons name="bell-check-outline" size={20} color="white" />
+              <MaterialCommunityIcons name="bell-check-outline" size={20} color={colors.onAccent} />
               <ThemedText tone="onAccent" className="ml-2 text-sm font-black">Track as subscription</ThemedText>
             </>
           )}

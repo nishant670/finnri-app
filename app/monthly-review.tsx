@@ -259,8 +259,8 @@ export default function MonthlyReviewScreen() {
             onPress={share}
             className="flex-row items-center justify-center gap-2 rounded-[24px] px-5 py-4"
             style={{ backgroundColor: colors.accent }}>
-            <MaterialCommunityIcons name="share-variant" size={18} color="#FFFFFF" />
-            <ThemedText variant="button" style={{ color: '#FFFFFF' }}>
+            <MaterialCommunityIcons name="share-variant" size={18} color={colors.onAccent} />
+            <ThemedText variant="button" style={{ color: colors.onAccent }}>
               Share this month
             </ThemedText>
           </Pressable>

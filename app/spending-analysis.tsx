@@ -200,7 +200,7 @@ export default function SpendingAnalysisScreen() {
           }
           className="flex-row items-center justify-center rounded-2xl py-4 shadow-lg"
           style={{ backgroundColor: theme.accent }}>
-          <MaterialCommunityIcons name="file-chart" size={20} color="white" />
+          <MaterialCommunityIcons name="file-chart" size={20} color={theme.onAccent} />
           <ThemedText tone="onAccent" className="ml-2 font-black">Generate Weekly Report</ThemedText>
         </TouchableOpacity>
       </View>

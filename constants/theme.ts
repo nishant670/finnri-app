@@ -23,6 +23,15 @@ type MoodPalette = {
   message: string;
   preview: string;
   accent: string;
+  /**
+   * Ink for text and icons drawn *on* an accent fill.
+   *
+   * Per mood because the accents are not equally dark: white reads on Sky's
+   * and Plum's deeper accents (4.9:1, 5.5:1) but not on Finnri's coral or
+   * Mint's green (2.3:1, 3.0:1), which take the mood's own dark ink instead.
+   * Shared by both modes, like `accent` — the fill under it does not invert.
+   */
+  onAccent: string;
   light: {
     background: string;
     text: string;
@@ -52,6 +61,7 @@ export const ThemeMoods = {
     message: 'The current Finnri look stays as your default.',
     preview: palette.backgroundLight,
     accent: palette.accent,
+    onAccent: palette.textLight,
     light: {
       background: palette.backgroundLight,
       text: palette.textLight,
@@ -79,6 +89,7 @@ export const ThemeMoods = {
     message: 'Fresh green accents for a quieter money dashboard.',
     preview: '#EAF8F1',
     accent: '#17A978',
+    onAccent: '#182C24',
     light: {
       background: '#F3FBF7',
       text: '#182C24',
@@ -105,7 +116,8 @@ export const ThemeMoods = {
     label: 'Sky',
     message: 'Cool blue surfaces for a crisp planning feel.',
     preview: '#EAF4FC',
-    accent: '#2F80ED',
+    accent: '#1F6FD6',
+    onAccent: '#FFFFFF',
     light: {
       background: '#F4F9FE',
       text: '#172437',
@@ -132,7 +144,8 @@ export const ThemeMoods = {
     label: 'Plum',
     message: 'Warmer contrast with richer highlight moments.',
     preview: '#F5ECF7',
-    accent: '#A855F7',
+    accent: '#8B3FD9',
+    onAccent: '#FFFFFF',
     light: {
       background: '#FCF6FD',
       text: '#2E2134',
@@ -181,16 +194,18 @@ export const DefaultAppMood: AppMoodSettings = {
  * above it, and the opacity was chosen per call site, which is how the split
  * feature alone ended up carrying six different values for one rank of text.
  *
- * Two ranks is the whole vocabulary. `muted` is the caption band, and lands on
- * `99` because that is what `AppHeader` had already settled on for a subtitle.
- * `mutedStrong` is for text that is secondary but still read as prose — an
- * empty state's explanation, a sheet's opening line.
+ * Two ranks is the whole vocabulary. `muted` is the caption band. It was `99`
+ * (60%), which put a caption on a white card at 3.9:1; the palette update of
+ * 11 Oct 2026 raised it to `BF` (75%, 6.1:1). `mutedStrong` is for text that
+ * is secondary but still read as prose — an empty state's explanation, a
+ * sheet's opening line — and was already `BF`, so the two ranks now draw the
+ * same. Both names stay so the call sites keep saying which rank they mean.
  *
  * They stay alpha rather than pre-blended so they composite correctly over a
  * card, the screen background, or a tinted surface — which is exactly what the
  * `text-black/55` they replace was doing.
  */
-const MUTED_ALPHA = '99';
+const MUTED_ALPHA = 'BF';
 const MUTED_STRONG_ALPHA = 'BF';
 
 /**
@@ -202,8 +217,8 @@ const MUTED_STRONG_ALPHA = 'BF';
  * `text-amber-700 dark:text-amber-300`, which did not — see the note on
  * `ThemedText`. These are the two values those classes were asking for.
  *
- * Flat rather than per-mood, like `onAccent`: the surface under it is amber in
- * every mood, so tinting the ink per mood would only pull it off that surface.
+ * Flat rather than per-mood: the surface under it is amber in every mood, so
+ * tinting the ink per mood would only pull it off that surface.
  * It inverts between modes for the ordinary reason — the light value is a deep
  * amber to be read on a pale card, the dark value a pale one to be read on a
  * dark card.
@@ -228,7 +243,7 @@ function createColors(mood: MoodPalette) {
       negative: mood.light.negative,
       neutral: mood.light.neutral,
       warning: WARNING_LIGHT,
-      onAccent: '#FFFFFF',
+      onAccent: mood.onAccent,
       onNegative: '#FFFFFF',
       shadow: '#000000',
       tabIconDefault: '#9BA1A6',
@@ -249,7 +264,7 @@ function createColors(mood: MoodPalette) {
       negative: mood.dark.negative,
       neutral: mood.dark.neutral,
       warning: WARNING_DARK,
-      onAccent: '#FFFFFF',
+      onAccent: mood.onAccent,
       /**
        * Not white, because `negative` is not the same kind of colour in the
        * two modes. In light it is a deep red that white sits on cleanly; in

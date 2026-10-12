@@ -455,7 +455,7 @@ export function AccountFormStepTwo({
               <ThemedText style={styles.saveButtonText}>
                 {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
               </ThemedText>
-              {isSaving && <ActivityIndicator size="small" color="white" className="ml-2" />}
+              {isSaving && <ActivityIndicator size="small" color={theme.onAccent} className="ml-2" />}
             </TouchableOpacity>
           </View>
         </View>
@@ -672,9 +672,9 @@ export function AccountFormStepTwo({
               {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
             </ThemedText>
             {isSaving ? (
-              <ActivityIndicator size="small" color="white" />
+              <ActivityIndicator size="small" color={theme.onAccent} />
             ) : (
-              <MaterialCommunityIcons name="check-all" size={20} color="white" />
+              <MaterialCommunityIcons name="check-all" size={20} color={theme.onAccent} />
             )}
           </TouchableOpacity>
         </View>

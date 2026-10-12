@@ -258,11 +258,11 @@ export function RecurringCandidatesCard({
           opacity: busy || selected.length === 0 ? 0.6 : 1,
         }}>
         {busy ? (
-          <ActivityIndicator color="white" />
+          <ActivityIndicator color={colors.onAccent} />
         ) : (
           <>
-            <MaterialCommunityIcons name="bell-check-outline" size={19} color="white" />
-            <ThemedText className="ml-2 text-sm font-black" style={{ color: 'white' }}>
+            <MaterialCommunityIcons name="bell-check-outline" size={19} color={colors.onAccent} />
+            <ThemedText className="ml-2 text-sm font-black" style={{ color: colors.onAccent }}>
               Track {selected.length === candidates.length ? 'all' : selected.length}
             </ThemedText>
           </>

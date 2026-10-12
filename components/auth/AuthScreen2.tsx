@@ -168,9 +168,9 @@ export const AuthScreen2 = ({
               onPress={handleContinue}
             >
               {isLoading ? (
-                <ActivityIndicator color="white" />
+                <ActivityIndicator color={theme.onAccent} />
               ) : (
-                <Text style={styles.primaryButtonText}>Continue</Text>
+                <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>Continue</Text>
               )}
             </TouchableOpacity>
 

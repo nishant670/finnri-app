@@ -513,7 +513,7 @@ export default function ToolsScreen() {
               onPress={handleCalculateEMI}
               className="mt-5 h-12 flex-row items-center justify-center gap-2 rounded-full"
               style={{ backgroundColor: calculating ? `${theme.accent}88` : theme.accent }}>
-              {calculating ? <ActivityIndicator color="#FFFFFF" size="small" /> : null}
+              {calculating ? <ActivityIndicator color={theme.onAccent} size="small" /> : null}
               <ThemedText tone="onAccent" className="text-sm font-black">
                 {calculating ? 'Calculating' : 'Calculate EMI'}
               </ThemedText>

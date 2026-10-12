@@ -57,9 +57,9 @@ export default function Screen2() {
 
           {/* Floating AI Bubble */}
           <View style={[styles.floatingAiHead, { backgroundColor: theme.accent }]}>
-            <MaterialCommunityIcons name="robot" size={24} color="white" />
+            <MaterialCommunityIcons name="robot" size={24} color={theme.onAccent} />
             <View style={styles.questionMark}>
-              <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>?</Text>
+              <Text style={{ color: theme.onAccent, fontSize: 10, fontWeight: 'bold' }}>?</Text>
             </View>
           </View>
         </View>

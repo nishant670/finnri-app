@@ -951,9 +951,9 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             className="h-12 items-center justify-center rounded-2xl"
             style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
             {saving ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={colors.onAccent} />
             ) : (
-              <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
+              <ThemedText className="text-sm font-black" style={{ color: colors.onAccent }}>
                 {/* The kind's key is its plain noun. Lower-casing the label
                     printed "Add loan / emi". */}
                 {editing ? 'Save changes' : `Add ${formKind}`}

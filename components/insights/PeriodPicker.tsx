@@ -183,7 +183,7 @@ function PresetsView({
               </Text>
               {isSelected && (
                 <View style={[styles.checkCircle, { backgroundColor: theme.accent }]}>
-                  <MaterialCommunityIcons name="check" size={12} color="white" />
+                  <MaterialCommunityIcons name="check" size={12} color={theme.onAccent} />
                 </View>
               )}
             </TouchableOpacity>
@@ -215,7 +215,7 @@ function PresetsView({
       <TouchableOpacity
         style={[styles.applyBtn, { backgroundColor: theme.accent }]}
         onPress={onApply}>
-        <Text style={styles.applyBtnText}>Apply</Text>
+        <Text style={[styles.applyBtnText, { color: theme.onAccent }]}>Apply</Text>
       </TouchableOpacity>
     </View>
   );
@@ -325,7 +325,7 @@ function CustomRangeView({
         style={[styles.applyBtn, { backgroundColor: theme.accent }]}
         onPress={onConfirm}
         disabled={!start || !end}>
-        <Text style={styles.applyBtnText}>Confirm</Text>
+        <Text style={[styles.applyBtnText, { color: theme.onAccent }]}>Confirm</Text>
       </TouchableOpacity>
     </View>
   );
@@ -378,7 +378,7 @@ function CalendarMonth({ monthDate, start, end, onPress, theme, accentSurface }:
                 style={[
                   styles.dayText,
                   { color: theme.text },
-                  (isStart || isEnd) && { color: 'white', fontWeight: 'bold' },
+                  (isStart || isEnd) && { color: theme.onAccent, fontWeight: 'bold' },
                 ]}>
                 {d.getDate()}
               </Text>

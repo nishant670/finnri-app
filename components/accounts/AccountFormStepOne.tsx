@@ -156,7 +156,7 @@ export function AccountFormStepOne({
                 { backgroundColor: theme.card, borderColor: theme.border },
                 isDefault && { backgroundColor: theme.accent, borderColor: theme.accent },
               ]}>
-              {isDefault && <MaterialCommunityIcons name="check" size={16} color="white" />}
+              {isDefault && <MaterialCommunityIcons name="check" size={16} color={theme.onAccent} />}
             </View>
           </TouchableOpacity>
 
@@ -208,9 +208,9 @@ export function AccountFormStepOne({
             disabled={isSaving}>
             <ThemedText style={styles.saveButtonText}>Continue</ThemedText>
             {isSaving ? (
-              <ActivityIndicator size="small" color="white" />
+              <ActivityIndicator size="small" color={theme.onAccent} />
             ) : (
-              <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
+              <MaterialCommunityIcons name="arrow-right" size={20} color={theme.onAccent} />
             )}
           </TouchableOpacity>
         </View>

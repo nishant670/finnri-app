@@ -68,7 +68,7 @@ export function AccountFormSuccess({
               }
               style={[styles.fullWidthButton, { backgroundColor: theme.accent }]}>
               <ThemedText style={styles.saveButtonText}>View account</ThemedText>
-              <MaterialCommunityIcons name="arrow-right" size={20} color="white" />
+              <MaterialCommunityIcons name="arrow-right" size={20} color={theme.onAccent} />
             </TouchableOpacity>
           )}
           {createdAccount && missingSetupCount > 0 && (

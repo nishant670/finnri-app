@@ -27,7 +27,7 @@ export function PillButton({
       }}>
       <ThemedText
         className="text-[10px] font-black"
-        style={{ color: muted ? theme.colors.text : '#FFFFFF' }}>
+        style={{ color: muted ? theme.colors.text : theme.colors.onAccent }}>
         {label}
       </ThemedText>
     </TouchableOpacity>

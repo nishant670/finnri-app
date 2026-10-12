@@ -244,7 +244,7 @@ export function TransactionEmiFields({
                       <ThemedText
                         className="text-xs font-black"
                         style={{
-                          color: tenureMonths === String(months) ? '#FFFFFF' : theme.text,
+                          color: tenureMonths === String(months) ? theme.onAccent : theme.text,
                         }}>
                         {months} mo
                       </ThemedText>

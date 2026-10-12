@@ -385,7 +385,7 @@ export function StatementFormSheet({
                   style={{ backgroundColor: password ? theme.accent : theme.secondary }}>
                   <TText
                     className="text-sm"
-                    style={{ fontFamily: Fonts.title, color: password ? '#FFFFFF' : '#94A3B8' }}>
+                    style={{ fontFamily: Fonts.title, color: password ? theme.onAccent : '#94A3B8' }}>
                     Open
                   </TText>
                 </Pressable>
@@ -491,13 +491,13 @@ export function StatementFormSheet({
           className="mt-6 h-14 flex-row items-center justify-center gap-2 rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <TText
               className="text-base"
               style={{
                 fontFamily: Fonts.title,
-                color: canSubmit ? '#FFFFFF' : '#94A3B8',
+                color: canSubmit ? theme.onAccent : '#94A3B8',
               }}>
               {initial ? 'Save changes' : read ? 'Add & check statement' : 'Add statement'}
             </TText>

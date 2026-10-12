@@ -396,7 +396,7 @@ export function TransactionItem({
             <SwipeAction
               icon="repeat"
               label="Repeat"
-              color="#FFFFFF"
+              color={theme.colors.onAccent}
               background={theme.colors.accent}
               onPress={onRepeat}
             />

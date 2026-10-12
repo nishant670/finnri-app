@@ -246,11 +246,11 @@ export function PaymentFormSheet({
           className="mt-6 h-14 items-center justify-center rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <TText
               className="text-base"
-              style={{ fontFamily: Fonts.title, color: canSubmit ? '#FFFFFF' : '#94A3B8' }}>
+              style={{ fontFamily: Fonts.title, color: canSubmit ? theme.onAccent : '#94A3B8' }}>
               Record payment
             </TText>
           )}
@@ -298,7 +298,7 @@ function Chip({
       <TText
         className="text-xs"
         numberOfLines={1}
-        style={{ fontFamily: Fonts.title, color: selected ? '#FFFFFF' : theme.text }}>
+        style={{ fontFamily: Fonts.title, color: selected ? theme.onAccent : theme.text }}>
         {label}
       </TText>
     </Pressable>

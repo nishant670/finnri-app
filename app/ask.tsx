@@ -201,7 +201,7 @@ export default function AskFinnriScreen() {
                 <View
                   className="max-w-[88%] rounded-3xl rounded-br-lg px-4 py-3"
                   style={{ backgroundColor: theme.colors.accent }}>
-                  <ThemedText variant="body" style={{ color: '#FFFFFF' }}>
+                  <ThemedText variant="body" style={{ color: theme.colors.onAccent }}>
                     {turn.question}
                   </ThemedText>
                 </View>
@@ -265,7 +265,7 @@ export default function AskFinnriScreen() {
               style={{
                 backgroundColor: input.trim() && !isSending ? theme.colors.accent : theme.colors.border,
               }}>
-              <MaterialCommunityIcons name="arrow-up" size={20} color="#FFFFFF" />
+              <MaterialCommunityIcons name="arrow-up" size={20} color={input.trim() && !isSending ? theme.colors.onAccent : theme.colors.muted} />
             </Pressable>
           </View>
         </View>

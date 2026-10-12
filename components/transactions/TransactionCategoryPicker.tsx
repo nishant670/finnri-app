@@ -109,7 +109,7 @@ export function TransactionCategoryPicker({
                 onPress={onAddCustom}
                 className="items-center justify-center rounded-2xl px-4"
                 style={{ backgroundColor: accent }}>
-                <MaterialCommunityIcons name="plus" size={20} color="#FFFFFF" />
+                <MaterialCommunityIcons name="plus" size={20} color={theme.onAccent} />
               </Pressable>
             </View>
           </View>

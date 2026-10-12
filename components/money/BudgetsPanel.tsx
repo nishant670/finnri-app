@@ -508,9 +508,9 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
                 className="h-12 items-center justify-center rounded-2xl"
                 style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
                 {saving ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color={colors.onAccent} />
                 ) : (
-                  <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
+                  <ThemedText className="text-sm font-black" style={{ color: colors.onAccent }}>
                     {submitLabel}
                   </ThemedText>
                 )}
@@ -670,7 +670,7 @@ function BudgetPaywallPreview({
         onPress={onUpgrade}
         className="mt-5 items-center justify-center rounded-2xl"
         style={{ backgroundColor: colors.accent, minHeight: 52 }}>
-        <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
+        <ThemedText className="text-sm font-black" style={{ color: colors.onAccent }}>
           Unlock {featureLabel}
         </ThemedText>
       </Pressable>

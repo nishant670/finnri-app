@@ -96,7 +96,7 @@ export default function Screen1() {
           <Animated.View style={[styles.pulseCircle, { backgroundColor: theme.accent }, animatedStyle1]} />
           <Animated.View style={[styles.pulseCircle, { backgroundColor: theme.accent }, animatedStyle2]} />
           <View style={[styles.micBox, { backgroundColor: theme.accent }]}>
-             <MaterialCommunityIcons name="microphone" size={40} color="white" />
+             <MaterialCommunityIcons name="microphone" size={40} color={theme.onAccent} />
           </View>
         </View>
 

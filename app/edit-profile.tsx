@@ -285,7 +285,7 @@ export default function EditProfileScreen() {
                   onPress={() => void handleChangePhoto()}
                   className="absolute bottom-1 right-1 w-10 h-10 rounded-full border-2 border-white items-center justify-center shadow-lg"
                   style={{ backgroundColor: theme.accent }}>
-                  <MaterialCommunityIcons name="camera" size={20} color="white" />
+                  <MaterialCommunityIcons name="camera" size={20} color={theme.onAccent} />
                 </Pressable>
               </View>
               <Pressable className="mt-4" onPress={() => void handleChangePhoto()}>
@@ -419,18 +419,18 @@ export default function EditProfileScreen() {
               className={`flex-row items-center justify-center h-18 rounded-[32px] mt-10 shadow-lg p-4 ${isLoading ? 'opacity-70' : ''}`}
               style={{ backgroundColor: theme.accent }}>
               {isLoading ? (
-                <ActivityIndicator color="white" />
+                <ActivityIndicator color={theme.onAccent} />
               ) : (
                 <>
                   <MaterialCommunityIcons
                     name="check-decagram"
                     size={24}
-                    color="white"
+                    color={theme.onAccent}
                     style={{ marginRight: 10 }}
                   />
                   <TText
-                    className="text-base font-black text-white"
-                    style={{ fontFamily: Fonts.title }}>
+                    className="text-base font-black"
+                    style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
                     Save changes
                   </TText>
                 </>

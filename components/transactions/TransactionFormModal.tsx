@@ -1891,10 +1891,10 @@ export function TransactionFormModal({
         }}
         className="w-full py-4 rounded-[20px] flex-row items-center justify-center gap-2 shadow-lg">
         {isSaving ? (
-          <ActivityIndicator color="white" />
+          <ActivityIndicator color={theme.onAccent} />
         ) : draftReview && isParsing ? (
           <>
-            <ActivityIndicator color="white" />
+            <ActivityIndicator color={theme.onAccent} />
             <ThemedText tone="onAccent" className="text-base font-black">
               Reading your entry…
             </ThemedText>
@@ -1912,7 +1912,7 @@ export function TransactionFormModal({
                     ? 'Save'
                     : 'Confirm & save'}
             </ThemedText>
-            <MaterialCommunityIcons name="check-circle-outline" size={24} color="white" />
+            <MaterialCommunityIcons name="check-circle-outline" size={24} color={theme.onAccent} />
           </>
         )}
       </Pressable>

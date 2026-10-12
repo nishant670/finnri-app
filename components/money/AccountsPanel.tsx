@@ -434,7 +434,7 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
           onPress={() => handleAddAccount()}
           className="h-11 w-11 items-center justify-center rounded-full"
           style={{ backgroundColor: theme.accent }}>
-          <MaterialCommunityIcons name="plus" size={22} color="#FFFFFF" />
+          <MaterialCommunityIcons name="plus" size={22} color={theme.onAccent} />
         </Pressable>
       </View>
 

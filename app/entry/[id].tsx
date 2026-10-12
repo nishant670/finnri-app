@@ -1031,7 +1031,7 @@ export default function TransactionDetailsScreen() {
           className="w-full py-5 rounded-full items-center justify-center shadow-xl mb-4 active:opacity-90"
           style={{ backgroundColor: theme.accent }}>
           <View className="flex-row items-center gap-3">
-            <MaterialCommunityIcons name="pencil-outline" size={24} color="#FFF" />
+            <MaterialCommunityIcons name="pencil-outline" size={24} color={theme.onAccent} />
             <ThemedText tone="onAccent" className="font-black text-lg">
               Edit
             </ThemedText>
@@ -1160,10 +1160,10 @@ export default function TransactionDetailsScreen() {
               accessibilityRole="button"
               onPress={confirmDelete}
               className="h-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: '#FF6B6B' }}>
+              style={{ backgroundColor: theme.negative }}>
               <View className="flex-row items-center gap-2">
-                <MaterialCommunityIcons name="trash-can-outline" size={19} color="#FFFFFF" />
-                <ThemedText tone="onAccent" className="text-base font-black">
+                <MaterialCommunityIcons name="trash-can-outline" size={19} color={theme.onNegative} />
+                <ThemedText className="text-base font-black" style={{ color: theme.onNegative }}>
                   Delete
                 </ThemedText>
               </View>

@@ -356,7 +356,7 @@ export default function FeedbackScreen() {
           style={{ backgroundColor: colors.accent, opacity: canSubmit ? 1 : 0.45 }}>
           {submitting ? (
             <>
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={colors.onAccent} />
               {uploadProgress ? (
                 <ThemedText tone="onAccent" className="ml-2 text-sm font-black">
                   {uploadProgress}
@@ -365,7 +365,7 @@ export default function FeedbackScreen() {
             </>
           ) : (
             <>
-              <MaterialCommunityIcons name="send" size={18} color="white" />
+              <MaterialCommunityIcons name="send" size={18} color={colors.onAccent} />
               <ThemedText tone="onAccent" className="ml-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
                 Send feedback
               </ThemedText>

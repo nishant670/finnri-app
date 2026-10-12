@@ -25,7 +25,7 @@ export function HomeAddButton({ onPress }: { onPress: () => void }) {
         themeTokens.shadows.soft,
       ]}
       className="items-center justify-center absolute elevation-5">
-      <MaterialCommunityIcons name="plus" size={32} color="white" />
+      <MaterialCommunityIcons name="plus" size={32} color={theme.onAccent} />
     </Pressable>
   );
 }

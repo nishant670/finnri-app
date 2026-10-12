@@ -170,8 +170,8 @@ function NoStatementCard({ onAdd }: { onAdd: () => void }) {
         onPress={onAdd}
         className="mt-4 h-12 flex-row items-center justify-center gap-2 rounded-full"
         style={{ backgroundColor: theme.accent }}>
-        <MaterialCommunityIcons name="plus" size={16} color="#FFFFFF" />
-        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+        <MaterialCommunityIcons name="plus" size={16} color={theme.onAccent} />
+        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
           Add statement
         </TText>
       </Pressable>
@@ -837,7 +837,7 @@ export default function AccountDetailsScreen() {
               label="Edit"
               active
               onPress={() => handleEdit()}
-              textColor="#FFFFFF"
+              textColor={theme.onAccent}
               backgroundColor={theme.accent}
             />
             <DetailActionButton
@@ -872,7 +872,7 @@ export default function AccountDetailsScreen() {
                   onPress={() => handleEdit('details')}
                   className="rounded-full px-4 py-2"
                   style={{ backgroundColor: theme.accent }}>
-                  <TText className="text-xs" style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+                  <TText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
                     Update
                   </TText>
                 </Pressable>

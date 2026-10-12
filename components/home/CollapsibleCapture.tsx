@@ -201,7 +201,7 @@ export function CollapsibleCapture({
               <MaterialCommunityIcons
                 name={isRecording ? 'stop' : 'microphone'}
                 size={20}
-                color="#FFFFFF"
+                color={theme.onAccent}
               />
             </View>
           </Pressable>

@@ -128,11 +128,11 @@ function FilterChip({
         borderColor: active ? colors.accent : colors.border,
       }}>
       {icon ? (
-        <MaterialCommunityIcons name={icon} size={14} color={active ? '#FFFFFF' : colors.accent} />
+        <MaterialCommunityIcons name={icon} size={14} color={active ? colors.onAccent : colors.accent} />
       ) : null}
       <ThemedText
         className="text-xs font-black"
-        style={{ color: active ? '#FFFFFF' : colors.text }}>
+        style={{ color: active ? colors.onAccent : colors.text }}>
         {label}
         {amount ? ` · ${formatMoney(amount)}` : ''}
       </ThemedText>

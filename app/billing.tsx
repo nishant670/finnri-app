@@ -377,7 +377,7 @@ export default function BillingScreen() {
                   justifyContent: 'center',
                   backgroundColor: colors.accent,
                 }}>
-                <MaterialCommunityIcons name="creation" size={26} color="#FFFFFF" />
+                <MaterialCommunityIcons name="creation" size={26} color={colors.onAccent} />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
                 <ThemedText
