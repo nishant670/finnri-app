@@ -3,7 +3,6 @@ import React from 'react';
 import { View } from 'react-native';
 
 import {
-  MARKER_LANE,
   MARKER_WIDTH,
   TabMarker,
   TabMarkerProvider,
@@ -46,14 +45,15 @@ const tabAt = (index: number): Frame => ({ x: index * 80, y: 712, width: 80 });
 
 describe('marker geometry', () => {
   it('centres the pill on the tab', () => {
-    // Third of five: centre at 200, so an 18-wide pill starts at 191.
+    // Third of five: centre at 200, so a 28-wide marker starts at 186.
     expect(markerOffset(tabAt(2), bar).x).toBe(200 - MARKER_WIDTH / 2);
   });
 
-  it('reports a position inside the bar, not inside the window', () => {
+  it('hangs from the top edge of the bar, not from the icon', () => {
     // Both frames are measured in window coordinates, and a bar 700px down the
-    // screen would otherwise put the pill 700px below the bar it lives in.
-    expect(markerOffset(tabAt(0), bar).y).toBe(12);
+    // screen would otherwise put the pill 700px below the bar it lives in. The
+    // icon sits 12 down, but the marker is drawn on the bar's own edge.
+    expect(markerOffset(tabAt(0), bar).y).toBe(0);
   });
 
   it('follows tabs that are not all the same width', () => {
@@ -65,11 +65,6 @@ describe('marker geometry', () => {
     expect(markerOffset(wide, bar).x).toBe(170 - MARKER_WIDTH / 2);
   });
 
-  it('reserves the lane it used to occupy inside the icon stack', () => {
-    // The pill moved out of the stack and is drawn from the bar side now. If
-    // the stack stopped reserving the space, every icon in the bar would rise.
-    expect(MARKER_LANE).toBe(5);
-  });
 });
 
 describe('activeTabName', () => {
@@ -236,7 +231,7 @@ describe('the travelling pill', () => {
 
     expect(await pillAfterRender(screen, tree)).toEqual({
       x: 200 - MARKER_WIDTH / 2,
-      y: 12,
+      y: 0,
       opacity: 1,
     });
   });
