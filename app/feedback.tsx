@@ -228,7 +228,6 @@ export default function FeedbackScreen() {
           <FormDisclosure
             testID="feedback-details"
             label="Add details"
-            icon="tag-text-outline"
             summary={`${title.trim() ? `“${title.trim()}” · ` : ''}${area} · ${impactLabel}`}
             expanded={showDetails}
             onToggle={() => setShowDetails((open) => !open)}>

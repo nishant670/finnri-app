@@ -127,7 +127,6 @@ export function AccountFormStepOne({
         <FormDisclosure
           testID="account-style-options"
           label="Colour & default"
-          icon="palette-outline"
           summary={`${COLOR_NAMES[selectedColor] ?? 'Custom colour'} · ${
             isDefault ? 'Your default for these payments' : 'Not your default'
           }`}

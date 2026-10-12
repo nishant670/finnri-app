@@ -839,7 +839,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               <FormDisclosure
                 testID="recurring-loan-details"
                 label="Loan details"
-                icon="bank-outline"
                 summary={kindDetailsSummary}
                 expanded={showKindDetails}
                 onToggle={() => setShowKindDetails((open) => !open)}>
@@ -878,7 +877,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               <FormDisclosure
                 testID="recurring-investment-details"
                 label="Investment details"
-                icon="chart-line"
                 summary={kindDetailsSummary}
                 expanded={showKindDetails}
                 onToggle={() => setShowKindDetails((open) => !open)}>

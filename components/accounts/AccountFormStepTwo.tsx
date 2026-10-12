@@ -282,7 +282,6 @@ export function AccountFormStepTwo({
             <FormDisclosure
               testID="card-reminder-options"
               label="Due-date reminder"
-              icon={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
               summary={
                 reminderEnabled
                   ? `On · ${Number(reminderDaysBefore || 0)} day${Number(reminderDaysBefore) === 1 ? '' : 's'} before the due date`
@@ -346,7 +345,6 @@ export function AccountFormStepTwo({
             <FormDisclosure
               testID="card-annual-fee-options"
               label="Annual fee"
-              icon="cash-clock"
               summary={
                 annualFee
                   ? [

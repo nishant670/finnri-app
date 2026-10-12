@@ -183,7 +183,6 @@ export function PaymentFormSheet({
           <FormDisclosure
             testID="payment-source-options"
             label="Paid from"
-            icon="bank-transfer-out"
             summary={
               [sourceName, method].filter(Boolean).join(' · ') ||
               'Optional — keeps that account’s balance right'

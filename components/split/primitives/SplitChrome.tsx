@@ -93,12 +93,11 @@ export function SegmentedSections({
     <Segments
       active={activeSection}
       options={[
-        { key: 'groups', label: 'Groups', icon: 'account-group-outline' },
-        { key: 'friends', label: 'Friends', icon: 'account-outline' },
-        { key: 'activity', label: 'Activity', icon: 'history', badge: activityBadge },
+        { key: 'groups', label: 'Groups' },
+        { key: 'friends', label: 'Friends' },
+        { key: 'activity', label: 'Activity', badge: activityBadge },
       ]}
       onChange={onChange}
-      contentContainerStyle={{ paddingHorizontal: 0, paddingBottom: 0 }}
     />
   );
 }

@@ -1,23 +1,12 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useCallback, useEffect, useRef } from 'react';
-import {
-  Pressable,
-  ScrollView,
-  View,
-  type LayoutRectangle,
-  type StyleProp,
-  type ViewStyle,
-} from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
 
 export type SegmentOption<Key extends string> = {
   key: Key;
   label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
   /**
    * A dot on the segment, for "there is something in here you have not seen".
    *
@@ -32,42 +21,34 @@ export type SegmentOption<Key extends string> = {
 
 type SegmentsProps<Key extends string> = {
   active: Key;
+  /** Two to four. The parts share the width equally, so more would not fit. */
   options: readonly SegmentOption<Key>[];
   onChange: (key: Key) => void;
-  contentContainerStyle?: StyleProp<ViewStyle>;
+  /** Placement only — margins and width. The control draws its own track. */
+  style?: StyleProp<ViewStyle>;
 };
 
-/** Shared scrolling segment row with selection feedback and active-item reveal. */
+/**
+ * The fixed segmented control (boards R5-*, R6-*): a 40-tall track in the
+ * mood's groove colour, split into equal parts, with the selected part lifted
+ * onto a card-coloured pill.
+ *
+ * It replaced a scrolling row of chips. With four sections or fewer every
+ * label fits at once, so nothing hides off the edge, and the selected part is
+ * marked by the pill and bolder ink rather than by accent text — accent is not
+ * a text colour on a light surface.
+ */
 export function Segments<Key extends string>({
   active,
   options,
   onChange,
-  contentContainerStyle,
+  style,
 }: SegmentsProps<Key>) {
-  const theme = useThemeTokens().colors;
-  const scrollRef = useRef<ScrollView>(null);
-  const layouts = useRef<Partial<Record<Key, LayoutRectangle>>>({});
-
-  const scrollSegmentIntoView = useCallback((key: Key, animated: boolean) => {
-    const box = layouts.current[key];
-    if (!box) return;
-    scrollRef.current?.scrollTo({ x: Math.max(0, box.x - 22), animated });
-  }, []);
-
-  useEffect(() => {
-    scrollSegmentIntoView(active, true);
-  }, [active, scrollSegmentIntoView]);
+  const theme = useThemeTokens();
+  const { colors } = theme;
 
   return (
-    <ScrollView
-      ref={scrollRef}
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      style={{ flexGrow: 0, flexShrink: 0 }}
-      contentContainerStyle={[
-        { gap: 8, paddingHorizontal: 22, paddingBottom: 14 },
-        contentContainerStyle,
-      ]}>
+    <View accessibilityRole="tablist" style={[styles.track, { backgroundColor: colors.track }, style]}>
       {options.map((option) => {
         const selected = option.key === active;
         return (
@@ -80,43 +61,68 @@ export function Segments<Key extends string>({
               haptics.select();
               onChange(option.key);
             }}
-            onLayout={(event) => {
-              layouts.current[option.key] = event.nativeEvent.layout;
-              if (option.key === active) scrollSegmentIntoView(option.key, false);
-            }}
-            className="h-11 flex-row items-center gap-2 rounded-full border px-4"
-            style={{
-              borderColor: selected ? theme.accent : theme.border,
-              backgroundColor: selected ? theme.secondary : theme.card,
-            }}>
-            <MaterialCommunityIcons
-              name={option.icon}
-              size={16}
-              color={selected ? theme.accent : theme.muted}
-            />
+            style={[
+              styles.part,
+              selected && [
+                { backgroundColor: colors.trackSelected },
+                // The boards lift the pill with a hairline shadow in light mode
+                // and draw it flat in dark, where a shadow does not read.
+                theme.mode === 'light'
+                  ? [styles.lifted, { shadowColor: colors.shadow }]
+                  : undefined,
+              ],
+            ]}>
             <ThemedText
-              className="text-sm"
-              style={{
-                color: selected ? theme.accent : theme.text,
-                fontFamily: Fonts.title,
-              }}>
+              numberOfLines={1}
+              tone={selected ? 'default' : 'muted'}
+              style={[styles.label, { fontWeight: selected ? '700' : '500' }]}>
               {option.label}
             </ThemedText>
             {option.badge ? (
               <View
                 accessibilityElementsHidden
                 importantForAccessibility="no"
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: 4,
-                  backgroundColor: theme.negative,
-                }}
+                style={[styles.badge, { backgroundColor: colors.negative }]}
               />
             ) : null}
           </Pressable>
         );
       })}
-    </ScrollView>
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  track: {
+    height: 40,
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 20,
+  },
+  part: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
+    borderRadius: 17,
+  },
+  lifted: {
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  label: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  badge: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+});
