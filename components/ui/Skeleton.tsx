@@ -135,7 +135,9 @@ export function SkeletonRow({
   lines = 2,
 }: SkeletonRowProps) {
   const isList = variant === 'list';
-  const iconSize = isList ? 40 : 48;
+  // The list row is the redesign's 60-tall row with a 36 tile at radius 10;
+  // the card row is the older 48-circle card.
+  const iconSize = isList ? 36 : 48;
   const base = index * ROW_BLOCKS;
 
   return (
@@ -144,12 +146,12 @@ export function SkeletonRow({
         flexDirection: 'row',
         alignItems: 'center',
         paddingHorizontal: isList ? 14 : 16,
-        paddingVertical: isList ? 12 : 16,
+        ...(isList ? { height: 60 } : { paddingVertical: 16 }),
       }}>
       <Shimmer
         width={iconSize}
         height={iconSize}
-        radius={iconSize / 2}
+        radius={isList ? 10 : iconSize / 2}
         index={base}
         style={{ marginRight: isList ? 12 : 16 }}
       />
