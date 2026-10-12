@@ -226,6 +226,40 @@ const MUTED_STRONG_ALPHA = 'BF';
 const WARNING_LIGHT = '#B45309';
 const WARNING_DARK = '#FCD34D';
 
+/**
+ * `from` moved `amount` of the way toward `to`, as an opaque `#RRGGBB`.
+ *
+ * For the few roles the redesign boards draw as "one step past" an existing
+ * one — a button outline a shade stronger than a card's border, an icon a
+ * shade lighter than its tile's hue in dark mode. Deriving them keeps Mint, Sky
+ * and Plum in step without a hand-picked value per mood. Both inputs must be
+ * six-digit hex; any alpha suffix is ignored.
+ */
+export function mixHex(from: string, to: string, amount: number): string {
+  const channel = (hex: string, index: number) => parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  const mixed = [0, 1, 2].map((index) => {
+    const start = channel(from, index);
+    const value = Math.round(start + (channel(to, index) - start) * amount);
+    return value.toString(16).padStart(2, '0');
+  });
+  return `#${mixed.join('').toUpperCase()}`;
+}
+
+/** A six-digit hex colour with an alpha, `0`–`1`, appended as two hex digits. */
+export function withAlpha(hex: string, alpha: number): string {
+  const byte = Math.round(Math.min(1, Math.max(0, alpha)) * 255);
+  return `${hex.slice(0, 7)}${byte.toString(16).padStart(2, '0').toUpperCase()}`;
+}
+
+/**
+ * How far an outlined button's border sits past `border`, toward the text.
+ *
+ * The boards draw outlined buttons ("+ Add", "Settle up", "Add") one step
+ * stronger than card borders: #E6D3D8 against #F0E5E7 in light, #4A4A4A
+ * against #3C3C3C in dark. 7% of the way to the text colour lands on both.
+ */
+const BORDER_STRONG_MIX = 0.07;
+
 function createColors(mood: MoodPalette) {
   return {
     light: {
@@ -245,6 +279,17 @@ function createColors(mood: MoodPalette) {
       warning: WARNING_LIGHT,
       onAccent: mood.onAccent,
       onNegative: '#FFFFFF',
+      /** Outlined buttons. See `BORDER_STRONG_MIX`. */
+      borderStrong: mixHex(mood.light.border, mood.light.text, BORDER_STRONG_MIX),
+      /**
+       * The groove a segmented control's pill slides in, and the circle behind
+       * a sheet's close ×. The light boards draw it at the border's weight;
+       * the dark ones use `secondary`, since a border-weight groove vanishes
+       * against a dark card.
+       */
+      track: mood.light.border,
+      /** The selected pill inside `track`: the card, lifted by a small shadow. */
+      trackSelected: mood.light.card,
       shadow: '#000000',
       tabIconDefault: '#9BA1A6',
       tabIconSelected: mood.accent,
@@ -275,6 +320,13 @@ function createColors(mood: MoodPalette) {
        * mood.
        */
       onNegative: mood.dark.background,
+      borderStrong: mixHex(mood.dark.border, mood.dark.text, BORDER_STRONG_MIX),
+      track: mood.dark.secondary,
+      /**
+       * A card-coloured pill would sink into the groove in dark mode, so the
+       * selected part is drawn a step lighter than the border instead.
+       */
+      trackSelected: mixHex(mood.dark.border, mood.dark.text, BORDER_STRONG_MIX),
       shadow: '#000000',
       tabIconDefault: '#9BA1A6',
       tabIconSelected: mood.accent,
