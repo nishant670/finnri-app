@@ -3253,7 +3253,8 @@ export function TransactionFormModal({
             // too. A built-in typed by another name comes back as the built-in.
             const nextCategory = keepCustomCategory(
               sessionToken,
-              normalizeCategoryValue(customCategory, form.type),
+              // Inner runs of spaces collapsed, as the server keeps the name.
+              normalizeCategoryValue(customCategory.replace(/\s+/g, ' '), form.type),
               customCategoryType
             );
             selectCategory(nextCategory);

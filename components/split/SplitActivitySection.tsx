@@ -32,10 +32,15 @@ export function SplitActivitySeparator() {
 export function SplitActivityEmpty({
   loading,
   normalizedSearch,
+  error,
+  onRetry,
 }: {
   /** The first page is still on its way: no claim yet that there is nothing. */
   loading: boolean;
   normalizedSearch: string;
+  /** The first page failed. Saying "No activity yet" here would be a claim, not a fact. */
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   const theme = useThemeTokens().colors;
   if (loading) {
@@ -43,6 +48,18 @@ export function SplitActivityEmpty({
       <View className="items-center py-10">
         <ActivityIndicator color={theme.accent} />
       </View>
+    );
+  }
+  if (error) {
+    return (
+      <StateView
+        compact
+        icon="wifi-off"
+        title="Activity did not load"
+        message={error}
+        actionLabel="Try again"
+        onAction={onRetry}
+      />
     );
   }
   return (

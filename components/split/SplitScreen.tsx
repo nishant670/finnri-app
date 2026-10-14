@@ -2069,6 +2069,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
               <SplitActivityEmpty
                 loading={activityFeed.isLoading}
                 normalizedSearch={normalizedSearch}
+                error={activityFeed.error}
+                onRetry={() => void activityFeed.reload()}
               />
             ) : null
           }
