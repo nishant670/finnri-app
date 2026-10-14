@@ -203,6 +203,8 @@ export function TransactionCategoryPicker({
                 value={customCategory}
                 onChangeText={onChangeCustomCategory}
                 placeholder="Add category"
+                // The API keeps names up to 40 characters.
+                maxLength={40}
                 placeholderTextColor="#9CA3AF"
                 className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
                 style={{ color: theme.text }}
