@@ -2147,6 +2147,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             setSelectedGroupDetailId(groupId);
           }}
           onOpenOptions={(friend) => setSelectedFriendActions(friend)}
+          onSettlementsChanged={() => {
+            void loadSplitData();
+            void refreshSettlementRequests();
+          }}
         />
 
         <BillSortSheet

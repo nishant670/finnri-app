@@ -366,6 +366,10 @@ export type SplitActivityItem = {
   participant_count?: number;
   participants?: SplitParticipant[];
   notes?: string;
+  /** On settlement rows: the name of the group it settled, when it named one. */
+  group_name?: string;
+  /** On settlement rows: when the other side confirmed or denied it. */
+  responded_at?: string | null;
   created_at: string;
 };
 
@@ -919,8 +923,12 @@ export const fetchSplitSettlements = async (token: string): Promise<SplitSettlem
   return (payload as SplitSettlement[]).map(normalizeSettlement);
 };
 
-export const fetchSplitActivity = async (token: string): Promise<SplitActivityItem[]> => {
-  const response = await fetch(`${API_BASE_URL}/v1/split/activity`, {
+const fetchSplitActivityPage = async (
+  token: string,
+  query?: Record<string, string>
+): Promise<SplitActivityResponse> => {
+  const search = query ? `?${new URLSearchParams(query).toString()}` : '';
+  const response = await fetch(`${API_BASE_URL}/v1/split/activity${search}`, {
     headers: authHeaders(token),
   });
   if (!response.ok) {
@@ -934,13 +942,53 @@ export const fetchSplitActivity = async (token: string): Promise<SplitActivityIt
   ) {
     throw new Error('The split activity response was invalid.');
   }
-  return (payload as SplitActivityResponse).items.map((item) => ({
-    ...item,
-    amount: item.amount == null ? undefined : Number(item.amount),
-    participants: (item.participants ?? []).map((participant) =>
-      coerceAmount(participant as unknown as Record<string, unknown>, ['share_amount'])
-    ) as SplitParticipant[],
-  }));
+  const page = payload as SplitActivityResponse;
+  return {
+    ...page,
+    total: Number(page.total ?? page.items.length),
+    items: page.items.map((item) => ({
+      ...item,
+      amount: item.amount == null ? undefined : Number(item.amount),
+      participants: (item.participants ?? []).map((participant) =>
+        coerceAmount(participant as unknown as Record<string, unknown>, ['share_amount'])
+      ) as SplitParticipant[],
+    })),
+  };
+};
+
+export const fetchSplitActivity = async (token: string): Promise<SplitActivityItem[]> =>
+  (await fetchSplitActivityPage(token)).items;
+
+/** Largest page the API serves; the history reads every page of it. */
+const SETTLEMENT_HISTORY_PAGE_SIZE = 100;
+
+/**
+ * Every settlement between the caller and one friend, newest first: the ones
+ * either of them recorded, confirmed, waiting or denied.
+ *
+ * All of it, not a page. This is a ledger someone opens to check a payment
+ * from months ago, and a history that silently stops at its hundredth row
+ * would answer "it never happened" for the one they were looking for.
+ */
+export const fetchFriendSettlementHistory = async (
+  token: string,
+  friendId: number
+): Promise<SplitActivityItem[]> => {
+  const items: SplitActivityItem[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await fetchSplitActivityPage(token, {
+      type: 'settlement',
+      friend_id: String(friendId),
+      page: String(page),
+      page_size: String(SETTLEMENT_HISTORY_PAGE_SIZE),
+    });
+    items.push(...result.items);
+    if (result.items.length === 0 || items.length >= result.total) {
+      // Checked here as well: a server from before the filters existed ignores
+      // them and sends the whole feed.
+      return items.filter((item) => item.type === 'settlement' && item.friend_id === friendId);
+    }
+  }
 };
 
 export const createSplitSettlement = async (
