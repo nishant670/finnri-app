@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { cssInterop } from 'nativewind';
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
+import { FriendSettlementsModal } from '@/components/split/modals/FriendSettlementsModal';
 import {
   AvatarCircle,
   DetailPill,
@@ -37,6 +38,7 @@ export function FriendDetailModal({
   onSettleUp,
   onOpenGroup,
   onOpenOptions,
+  onSettlementsChanged,
 }: {
   summary: FriendDetailSummary | null;
   currentUserName: string;
@@ -45,11 +47,19 @@ export function FriendDetailModal({
   onSettleUp: (friendId: number) => void;
   onOpenGroup: (groupId: number) => void;
   onOpenOptions: (friend: SplitFriend) => void;
+  /** A settlement was confirmed or denied from the history. */
+  onSettlementsChanged?: () => void;
 }) {
   const theme = useThemeTokens().colors;
   const summaryRef = useRef<FriendDetailSummary | null>(liveSummary);
   if (liveSummary) summaryRef.current = liveSummary;
   const summary = summaryRef.current;
+  const [isSettlementsOpen, setIsSettlementsOpen] = useState(false);
+  // The history belongs to the page it was opened from; closing the page
+  // closes it too, rather than leaving it open over the Splits tab.
+  useEffect(() => {
+    if (!liveSummary) setIsSettlementsOpen(false);
+  }, [liveSummary]);
   if (!summary) return null;
 
   const { friend, groups, netBalance } = summary;
@@ -58,20 +68,25 @@ export function FriendDetailModal({
   // rather than from the bills' participant rows: those name their own author's
   // friend ids, so in a shared group somebody else runs this never matched and
   // the line lost the "in \"Home\"" that tells you where to go and settle it.
-  const unsettledGroup = groups.find((group) =>
+  //
+  // Named only when it is one group. With money open in two, naming the first
+  // put the whole total "in" a group that held a fraction of it.
+  const unsettledGroups = groups.filter((group) =>
     (group.group.viewer_balances ?? []).some(
       (entry) => entry.friend_id === friend.id && entry.net_balance !== 0
     )
   );
+  const where =
+    unsettledGroups.length === 1
+      ? ` in "${unsettledGroups[0].group.name}"`
+      : unsettledGroups.length > 1
+        ? ` across ${unsettledGroups.length} groups`
+        : '';
   const balanceCopy =
     netBalance > 0
-      ? `${friendFirstName} owes you ${formatBalance(netBalance)}${
-          unsettledGroup ? ` in "${unsettledGroup.group.name}"` : ''
-        }`
+      ? `${friendFirstName} owes you ${formatBalance(netBalance)}${where}`
       : netBalance < 0
-        ? `You owe ${friendFirstName} ${formatBalance(netBalance)}${
-            unsettledGroup ? ` in "${unsettledGroup.group.name}"` : ''
-          }`
+        ? `You owe ${friendFirstName} ${formatBalance(netBalance)}${where}`
         : // "Settled up" is a claim that money was owed and came back. With
           // nothing split between the two of them yet it is a congratulation
           // for something that never happened, and it hides the prompt this
@@ -177,6 +192,11 @@ export function FriendDetailModal({
               icon="hand-coin-outline"
               onPress={() => onSettleUp(friend.id)}
             />
+            <DetailPill
+              label="Settlements"
+              icon="history"
+              onPress={() => setIsSettlementsOpen(true)}
+            />
             <DetailPill label="Remind..." icon="bell-ring-outline" />
             <DetailPill label="Charts" icon="diamond-stone" />
             <DetailPill label="Convert" icon="diamond-stone" />
@@ -220,6 +240,17 @@ export function FriendDetailModal({
 
         <FloatingExpenseButton onPress={() => onAddExpense(friend.id)} />
       </View>
+      {isSettlementsOpen && liveSummary ? (
+        <FriendSettlementsModal
+          friend={friend}
+          onClose={() => setIsSettlementsOpen(false)}
+          onSettleUp={() => {
+            setIsSettlementsOpen(false);
+            onSettleUp(friend.id);
+          }}
+          onChanged={onSettlementsChanged}
+        />
+      ) : null}
     </AnimatedBottomSheet>
   );
 }
@@ -238,16 +269,23 @@ function FriendSharedGroupRow({
   const date = formatBillListDate(
     summary.latestBill?.date ?? summary.group.created_at ?? todayApiDate()
   );
-  const friendNet = summary.bills.reduce((sum, bill) => {
-    const participant = bill.participants?.find((item) => item.friend_id === friendId);
-    if (!participant) return sum;
-    return (
-      sum +
-      (participant.direction === 'friend_owes_user'
-        ? participant.share_amount
-        : -participant.share_amount)
-    );
-  }, 0);
+  // What is still open with this friend in this group, as the group's own
+  // card shows it. Summing the bills' shares counted every expense ever split
+  // and none of the settlements, so a group settled down to ₹2,014 read
+  // "you lent ₹16,337". Older servers without served balances keep the sum.
+  const served = summary.group.viewer_balances;
+  const friendNet = served
+    ? (served.find((entry) => entry.friend_id === friendId)?.net_balance ?? 0)
+    : summary.bills.reduce((sum, bill) => {
+        const participant = bill.participants?.find((item) => item.friend_id === friendId);
+        if (!participant) return sum;
+        return (
+          sum +
+          (participant.direction === 'friend_owes_user'
+            ? participant.share_amount
+            : -participant.share_amount)
+        );
+      }, 0);
 
   return (
     <Pressable
@@ -290,7 +328,7 @@ function FriendSharedGroupRow({
             <TText
               className="text-sm"
               style={{ color: friendNet > 0 ? theme.positive : theme.negative, fontFamily: Fonts.title }}>
-              {friendNet > 0 ? 'you lent' : 'you owe'}
+              {friendNet > 0 ? 'owes you' : 'you owe'}
             </TText>
             <TText
               className="mt-1 text-lg"
