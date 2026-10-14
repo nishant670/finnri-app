@@ -195,31 +195,37 @@ describe('SplitActivityRow', () => {
     }) as never;
 
   it('shows the title, caption, date and amount, and opens the target', async () => {
-    const onPress = jest.fn();
+    const onOpen = jest.fn();
+    const target = { id: 'bill-1', type: 'bill' };
     const screen = await render(
-      <SplitActivityRow item={row()} entranceIndex={0} onPress={onPress} />
+      <SplitActivityRow item={row({ item: target })} entranceIndex={0} onOpen={onOpen} />
     );
     expect(screen.getByText('Dinner')).toBeTruthy();
     expect(screen.getByText('Goa group • 2026-10-01')).toBeTruthy();
     expect(screen.getByText(formatBalance(500))).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Open activity Dinner'));
-    expect(onPress).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith(target);
+  });
+
+  it('can simply appear, for a row past the first screen', async () => {
+    const screen = await render(<SplitActivityRow item={row()} onOpen={jest.fn()} />);
+    expect(screen.getByText('Dinner')).toBeTruthy();
   });
 
   it('labels settlements that are not confirmed', async () => {
     const pending = await render(
-      <SplitActivityRow item={row({ status: 'pending' })} entranceIndex={0} onPress={jest.fn()} />
+      <SplitActivityRow item={row({ status: 'pending' })} entranceIndex={0} onOpen={jest.fn()} />
     );
     expect(pending.getByText('Awaiting confirmation')).toBeTruthy();
     const denied = await render(
-      <SplitActivityRow item={row({ status: 'denied' })} entranceIndex={0} onPress={jest.fn()} />
+      <SplitActivityRow item={row({ status: 'denied' })} entranceIndex={0} onOpen={jest.fn()} />
     );
     expect(denied.getByText('Denied')).toBeTruthy();
   });
 
   it('omits the amount when there is none', async () => {
     const screen = await render(
-      <SplitActivityRow item={row({ amount: null })} entranceIndex={0} onPress={jest.fn()} />
+      <SplitActivityRow item={row({ amount: null })} entranceIndex={0} onOpen={jest.fn()} />
     );
     expect(screen.queryByText(formatBalance(500))).toBeNull();
   });

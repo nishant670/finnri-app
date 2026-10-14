@@ -1,7 +1,11 @@
 import { fireEvent, render } from '@testing-library/react-native';
 import { Text } from 'react-native';
 
-import { SplitActivitySection } from '@/components/split/SplitActivitySection';
+import {
+  SplitActivityEmpty,
+  SplitActivityFooter,
+  SplitActivityHeading,
+} from '@/components/split/SplitActivitySection';
 import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
 import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
 import { SplitGroupInviteModal } from '@/components/split/SplitGroupInviteModal';
@@ -155,32 +159,33 @@ describe('SplitFriendsSection', () => {
   });
 });
 
-describe('SplitActivitySection', () => {
-  const rows = [{ id: 'a' }, { id: 'b' }] as never;
-  it('lists activity under its heading', async () => {
-    const screen = await render(
-      <SplitActivitySection
-        activity={rows}
-        normalizedSearch=""
-        renderActivityRow={(item) => (
-          <Text key={(item as { id: string }).id}>{`act ${(item as { id: string }).id}`}</Text>
-        )}
-      />
-    );
+describe('the Activity section', () => {
+  it('heads the feed', async () => {
+    const screen = await render(<SplitActivityHeading />);
     expect(screen.getByText('Recent activity')).toBeTruthy();
-    expect(screen.getByText('act a')).toBeTruthy();
-    expect(screen.getByText('act b')).toBeTruthy();
   });
 
-  it('words the empty state for no activity versus no match', async () => {
-    const none = await render(
-      <SplitActivitySection activity={[]} normalizedSearch="" renderActivityRow={() => null} />
-    );
+  it('words the empty state for no activity versus no match, and waits while loading', async () => {
+    const none = await render(<SplitActivityEmpty loading={false} normalizedSearch="" />);
     expect(none.getByText('No activity yet')).toBeTruthy();
-    const miss = await render(
-      <SplitActivitySection activity={[]} normalizedSearch="x" renderActivityRow={() => null} />
-    );
+    const miss = await render(<SplitActivityEmpty loading={false} normalizedSearch="x" />);
     expect(miss.getByText('No matching activity')).toBeTruthy();
+    const loading = await render(<SplitActivityEmpty loading normalizedSearch="" />);
+    expect(loading.queryByText('No activity yet')).toBeNull();
+  });
+
+  it('offers a retry when a page failed, and ends quietly when there is no more', async () => {
+    const onRetry = jest.fn();
+    const failed = await render(
+      <SplitActivityFooter hasMore loadingMore={false} error="Offline" onRetry={onRetry} />
+    );
+    await fireEvent.press(failed.getByText('Try again'));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    const done = await render(
+      <SplitActivityFooter hasMore={false} loadingMore={false} error={null} onRetry={jest.fn()} />
+    );
+    expect(done.toJSON()).toBeNull();
   });
 });
 
