@@ -9,6 +9,15 @@ import { createSubscription } from './subscriptions';
 import { formatApiDate, formatDateLabel, parseDateLabel, type ApiEntry } from './transactions';
 import { resolveAttachmentForSave } from './uploads';
 
+/**
+ * The tag an entry is saved with. Income is always General: every other tag
+ * describes money going out, the form offers none of them for income, and the
+ * API refuses a refund on income. An income entry that still carries one —
+ * switched from an expense, or drafted that way — must not save it.
+ */
+export const entryTag = (form: Pick<EntryForm, 'type' | 'tag'>): string | null =>
+  form.type === 'Income' ? 'General' : form.tag.trim() || null;
+
 /** One mapping for Home, transaction edits and group expenses. */
 export async function buildTransactionPayload(
   token: string,
@@ -22,6 +31,7 @@ export async function buildTransactionPayload(
 ): Promise<EntryMutationPayload> {
   const date = parseDateLabel(form.date);
   const attachment = await resolveAttachmentForSave(token, form.attachment);
+  const tag = entryTag(form);
   return {
     title: form.title.trim() || 'Untitled Transaction',
     amount: form.amount.trim(),
@@ -32,12 +42,12 @@ export async function buildTransactionPayload(
     category: form.category,
     notes: form.notes.trim(),
     merchant: form.merchant.trim(),
-    tag: form.tag.trim() || null,
+    tag,
     date: date ? formatApiDate(date) : form.date,
     time: toApiTime(form.time) ?? '',
     attachment,
     ...(options.source ? { source: options.source, source_text: options.sourceText ?? '' } : {}),
-    ...(form.tag === 'Refundable'
+    ...(tag === 'Refundable'
       ? {
           refundable_amount: form.refundableAmount.trim(),
           refund_expected_on: formatApiDate(parseDateLabel(form.refundExpectedOn) as Date),
@@ -158,7 +168,9 @@ export async function saveNewTransaction({
   progress.entry = entry;
   progress.fingerprint = fingerprint;
   const convertedToEMI =
-    form.tag === 'EMI' && account != null && normalizeAccountType(account.type) === 'credit_card';
+    entryTag(form) === 'EMI' &&
+    account != null &&
+    normalizeAccountType(account.type) === 'credit_card';
   if (convertedToEMI && !progress.emiCreated) {
     const sourceEntryID = Number(entry.id);
     if (!Number.isInteger(sourceEntryID) || sourceEntryID <= 0)
@@ -225,7 +237,7 @@ export async function saveNewTransaction({
  * says 5 of 12 and has 7 left to generate.
  */
 function loanInstalments(form: EntryForm) {
-  if (form.tag !== 'EMI') return {};
+  if (entryTag(form) !== 'EMI') return {};
   const total = Number(form.emiTotalInstalments);
   if (!Number.isInteger(total) || total <= 0) return {};
   const paid = Number(form.emiPaidInstalments);
