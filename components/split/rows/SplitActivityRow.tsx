@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { memo } from 'react';
 import { Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
@@ -9,23 +10,37 @@ import { buildRecentActivity } from '@/lib/split-screen-model';
 import { formatBalance } from '@/components/split/split-utils';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import type { SplitActivityItem } from '@/lib/splits';
 
 type SplitActivityRowProps = {
   item: ReturnType<typeof buildRecentActivity>[number];
-  entranceIndex: number;
-  onPress: () => void;
+  /** Omitted for rows that should simply appear — anything past the first screen. */
+  entranceIndex?: number;
+  /** Stable across renders, so a row only redraws when its own item changes. */
+  onOpen: (activity: SplitActivityItem) => void;
 };
 
-export function SplitActivityRow({ item, entranceIndex, onPress }: SplitActivityRowProps) {
+/**
+ * One line of the Activity feed. Memoised: the feed is a virtualised list that
+ * can run to hundreds of rows, and every row redrawing whenever the screen
+ * above it changed is the cost the list exists to avoid.
+ */
+export const SplitActivityRow = memo(function SplitActivityRow({
+  item,
+  entranceIndex,
+  onOpen,
+}: SplitActivityRowProps) {
   const theme = useThemeTokens().colors;
   const motion = useMotion();
   return (
-    <Animated.View entering={motion.rowEntering(entranceIndex)} layout={motion.reflow()}>
+    <Animated.View
+      entering={entranceIndex == null ? undefined : motion.rowEntering(entranceIndex)}
+      layout={motion.reflow()}>
       <Card compact style={{ padding: 0 }}>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={`Open activity ${item.title}`}
-          onPress={onPress}
+          onPress={() => onOpen(item.item)}
           className="flex-row items-center gap-4 p-4">
           <View
             className="h-[58px] w-[58px] items-center justify-center rounded-xl"
@@ -72,4 +87,4 @@ export function SplitActivityRow({ item, entranceIndex, onPress }: SplitActivity
       </Card>
     </Animated.View>
   );
-}
+});

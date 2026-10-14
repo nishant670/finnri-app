@@ -923,7 +923,8 @@ export const fetchSplitSettlements = async (token: string): Promise<SplitSettlem
   return (payload as SplitSettlement[]).map(normalizeSettlement);
 };
 
-const fetchSplitActivityPage = async (
+/** One page of the split feed, newest first, with the feed's full length in `total`. */
+export const fetchSplitActivityPage = async (
   token: string,
   query?: Record<string, string>
 ): Promise<SplitActivityResponse> => {
@@ -955,9 +956,6 @@ const fetchSplitActivityPage = async (
     })),
   };
 };
-
-export const fetchSplitActivity = async (token: string): Promise<SplitActivityItem[]> =>
-  (await fetchSplitActivityPage(token)).items;
 
 /** Largest page the API serves; the history reads every page of it. */
 const SETTLEMENT_HISTORY_PAGE_SIZE = 100;
