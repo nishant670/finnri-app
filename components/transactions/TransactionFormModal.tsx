@@ -61,6 +61,8 @@ import {
   defaultCategoryForType,
   resolveCategory,
 } from '@/lib/categories';
+import { categoryTypeOf, useUserCategories } from '@/lib/user-categories';
+import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
 import { PAYMENT_MODES } from '@/lib/payment-modes';
@@ -370,8 +372,8 @@ const normalizeDateValue = (date?: string | null) => {
   return trimmed && trimmed.length > 0 ? trimmed : formatDateLabel(new Date());
 };
 
-const mergeCategoryOptions = (category: string, type: string) =>
-  categoryOptionsFor(normalizeCategoryValue(category, type), type);
+const mergeCategoryOptions = (category: string, type: string, custom: readonly string[]) =>
+  categoryOptionsFor(normalizeCategoryValue(category, type), type, custom);
 
 const formatApiDate = (value: Date) => {
   const year = value.getFullYear();
@@ -740,9 +742,18 @@ export function TransactionFormModal({
     () => accounts.find((account) => account.id === form.accountId) ?? null,
     [accounts, form.accountId]
   );
+  /**
+   * Tags only mean something for money going out. Every one but General is an
+   * expense idea — money invested, lent, paid in instalments, paid for a
+   * subscription, or partly coming back — and EMI, Refundable and Subscription
+   * each open fields only an expense can fill (the API refuses a refund on
+   * income outright). So income has no tag picker and saves as General.
+   */
+  const tagsApply = form.type === 'Expense';
   const isEMICreditCard =
     personalPayment &&
     !isEdit &&
+    tagsApply &&
     form.tag === 'EMI' &&
     normalizeAccountType(selectedAccount?.type) === 'credit_card';
   const emiFirstInstallment = useMemo(() => nextMonthClamped(form.date), [form.date]);
@@ -966,9 +977,20 @@ export function TransactionFormModal({
   const categoryNeedsReview = reviewFields.includes('category');
   const accountNeedsReview = reviewFields.includes('account') || reviewFields.includes('accountId');
   const displayedCategory = normalizeCategoryValue(form.category, form.type);
+  const customCategoryType = categoryTypeOf(form.type);
+  const customCategories = useUserCategories((state) => state.categories[customCategoryType]);
+  const loadCustomCategories = useUserCategories((state) => state.load);
+  const keepCustomCategory = useUserCategories((state) => state.add);
+  const removeCustomCategory = useUserCategories((state) => state.remove);
+  const sessionToken = useAuthStore((state) => state.token);
+  // Read each time the sheet opens: a category added on another device, or
+  // carried by an entry saved since, belongs in this list too.
+  useEffect(() => {
+    if (visible && sessionToken) void loadCustomCategories(sessionToken);
+  }, [loadCustomCategories, sessionToken, visible]);
   const selectableCategoryOptions = useMemo(
-    () => mergeCategoryOptions(form.category, form.type),
-    [form.category, form.type]
+    () => mergeCategoryOptions(form.category, form.type, customCategories),
+    [customCategories, form.category, form.type]
   );
   const visibleCategorySuggestions = useMemo(() => {
     const unique = new Set<string>();
@@ -1084,9 +1106,14 @@ export function TransactionFormModal({
   }, []);
 
   // The amount is its own headline above the list, so it never appears twice.
+  // An income draft has no tag to review — see `tagsApply`.
+  const isDraftFieldShown = useCallback(
+    (field: DraftFieldKey) => field !== 'amount' && (field !== 'tag' || tagsApply),
+    [tagsApply]
+  );
   const draftFlaggedFields = useMemo(
-    () => (draftPlan?.flagged ?? []).filter((field) => field !== 'amount'),
-    [draftPlan]
+    () => (draftPlan?.flagged ?? []).filter(isDraftFieldShown),
+    [draftPlan, isDraftFieldShown]
   );
   /**
    * Where each part of the draft falls in the settle order.
@@ -1103,20 +1130,17 @@ export function TransactionFormModal({
 
   const draftCollapsedFields = useMemo(
     () =>
-      [...(draftPlan?.confident ?? []), ...(draftPlan?.optional ?? [])].filter(
-        (field) => field !== 'amount'
-      ),
-    [draftPlan]
+      [...(draftPlan?.confident ?? []), ...(draftPlan?.optional ?? [])].filter(isDraftFieldShown),
+    [draftPlan, isDraftFieldShown]
   );
-  const draftConfidentCount = (draftPlan?.confident ?? []).filter(
-    (field) => field !== 'amount'
-  ).length;
+  const draftConfidentCount = (draftPlan?.confident ?? []).filter(isDraftFieldShown).length;
   const draftPendingCount = (draftPlan?.flagged ?? []).filter(
-    (field) => !checkedDraftFields.includes(field)
+    (field) =>
+      (field === 'amount' || isDraftFieldShown(field)) && !checkedDraftFields.includes(field)
   ).length;
   const draftSummaryLine = useMemo(() => {
     if (!draftPlan) return '';
-    return draftSummaryParts(draftPlan.confident, {
+    return draftSummaryParts(draftPlan.confident.filter(isDraftFieldShown), {
       amount: form.amount,
       type: form.type,
       title: form.title,
@@ -1128,7 +1152,7 @@ export function TransactionFormModal({
       tag: form.tag,
       notes: form.notes,
     }).join(' · ');
-  }, [displayedCategory, draftDateLabel, draftPlan, form]);
+  }, [displayedCategory, draftDateLabel, draftPlan, form, isDraftFieldShown]);
 
   const handleAmountChange = useCallback((amount: string) => {
     setFormError(null);
@@ -1161,6 +1185,8 @@ export function TransactionFormModal({
       category:
         (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
         defaultCategoryForType(type),
+      // See `tagsApply`: an expense's tag has nothing to mean on income.
+      tag: type === 'Income' ? 'General' : previous.tag,
     }));
     animateTypeSwitch(type === 'Income');
   };
@@ -1480,6 +1506,7 @@ export function TransactionFormModal({
   const availableDetailOptions = ENTRY_DETAIL_OPTIONS.filter((option) => {
     if (isDetailShown(option.key)) return false;
     if (option.key === 'receipt') return mode !== 'quick-prompt';
+    if (option.key === 'tag') return tagsApply;
     if (option.key === 'split') {
       return !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
     }
@@ -1564,7 +1591,7 @@ export function TransactionFormModal({
       rejectSave('Enter an amount above zero.');
       return;
     }
-    if (personalPayment && form.tag === 'Refundable') {
+    if (personalPayment && tagsApply && form.tag === 'Refundable') {
       const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
       if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
         rejectSave('Enter how much you expect back.');
@@ -2860,7 +2887,9 @@ export function TransactionFormModal({
                     summary, and a second place holding the same fields would
                     compete with it. */}
                 {!draftReview &&
-                  (isDetailShown('merchant') || isDetailShown('notes') || isDetailShown('tag')) && (
+                  (isDetailShown('merchant') ||
+                    isDetailShown('notes') ||
+                    (tagsApply && isDetailShown('tag'))) && (
                     <View className="px-5 mb-6 gap-4">
                       {isDetailShown('merchant') && (
                         <Animated.View entering={motion.revealEntering()}>
@@ -2925,7 +2954,7 @@ export function TransactionFormModal({
                         </Animated.View>
                       )}
 
-                      {isDetailShown('tag') && (
+                      {tagsApply && isDetailShown('tag') && (
                         <Animated.View entering={motion.revealEntering()}>
                           <ThemedText
                             tone="muted"
@@ -2989,6 +3018,7 @@ export function TransactionFormModal({
 
                 {personalPayment &&
                   mode !== 'quick-prompt' &&
+                  tagsApply &&
                   form.tag === 'EMI' && (
                     <TransactionEmiFields
                       isEdit={isEdit}
@@ -3025,6 +3055,7 @@ export function TransactionFormModal({
 
                 {mode !== 'quick-prompt' &&
                   personalPayment &&
+                  tagsApply &&
                   form.tag === 'Refundable' && (
                     <TransactionRefundFields
                       refundableAmount={form.refundableAmount}
@@ -3051,7 +3082,7 @@ export function TransactionFormModal({
                   !isEdit &&
                   personalPayment &&
                   !emiRepeatActive &&
-                  (form.subscriptionEnabled || form.tag === 'Subscription') && (
+                  (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
                     <TransactionSubscriptionFields
                       form={form}
                       setForm={setForm}
@@ -3217,11 +3248,24 @@ export function TransactionFormModal({
             setIsCategoryPickerVisible(false);
           }}
           onAddCustom={() => {
-            const nextCategory = normalizeCategoryValue(customCategory, form.type);
+            if (!customCategory.trim()) return;
+            // Kept for this user, not just this entry: the next form offers it
+            // too. A built-in typed by another name comes back as the built-in.
+            const nextCategory = keepCustomCategory(
+              sessionToken,
+              normalizeCategoryValue(customCategory, form.type),
+              customCategoryType
+            );
             selectCategory(nextCategory);
             setCustomCategory('');
             setIsCategoryPickerVisible(false);
           }}
+          removable={customCategories}
+          onRemoveCustom={
+            sessionToken
+              ? (category) => removeCustomCategory(sessionToken, category, customCategoryType)
+              : undefined
+          }
         />
 
         <TransactionAccountPicker
