@@ -27,6 +27,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { AddDetailChips, type AddDetailOption } from '@/components/ui/AddDetailChips';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
@@ -2082,7 +2083,7 @@ export function TransactionFormModal({
                     // Under the title, centred, rather than pinned in the top
                     // corner where it read as part of the window chrome and
                     // could run into the title on a narrow phone.
-                    <Pressable
+                    <PressableView
                       testID="scan-receipt"
                       onPress={onRequestReceiptScan}
                       accessibilityRole="button"
@@ -2090,15 +2091,13 @@ export function TransactionFormModal({
                       accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in this entry."
                       hitSlop={6}
                       className="mt-2 h-9 flex-row items-center gap-1.5 rounded-full px-4"
-                      style={({ pressed }) => ({
-                        backgroundColor: theme.secondary,
-                        opacity: pressed ? 0.75 : 1,
-                      })}>
+                      style={{ backgroundColor: theme.secondary }}
+                      pressedStyle={{ opacity: 0.75 }}>
                       <MaterialCommunityIcons name="camera-outline" size={17} color={theme.accent} />
                       <ThemedText className="text-sm font-bold" style={{ color: theme.accent }}>
                         Scan a bill instead
                       </ThemedText>
-                    </Pressable>
+                    </PressableView>
                   ) : null}
                   {/* The review sheet's banner already says how many fields
                       want a look, and a second line saying it again costs the

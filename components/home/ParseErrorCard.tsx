@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect } from 'react';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, View } from 'react-native';
 import Animated, {
   interpolate,
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { ParseFailure } from '@/lib/parse';
@@ -115,14 +116,15 @@ export function ParseErrorCard({
             {failure.message}
           </ThemedText>
         </View>
-        <Pressable
+        <PressableView
           accessibilityRole="button"
           accessibilityLabel="Dismiss"
           hitSlop={10}
           onPress={onDismiss}
-          style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, paddingTop: 2 })}>
+          style={{ paddingTop: 2 }}
+          pressedStyle={{ opacity: 0.6 }}>
           <MaterialCommunityIcons name="close" size={18} color={mutedText} />
-        </Pressable>
+        </PressableView>
       </View>
 
       {failure.heard ? (
@@ -150,11 +152,11 @@ export function ParseErrorCard({
             TRY SAYING
           </ThemedText>
           {failure.examples.map((example) => (
-            <Pressable
+            <PressableView
               key={example}
               accessibilityRole="button"
               onPress={() => onUseExample(example)}
-              style={({ pressed }) => ({
+              style={{
                 flexDirection: 'row',
                 alignItems: 'center',
                 gap: 6,
@@ -164,8 +166,8 @@ export function ParseErrorCard({
                 backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : '#FFFFFF',
                 paddingHorizontal: theme.spacing.md,
                 paddingVertical: 10,
-                opacity: pressed ? 0.8 : 1,
-              })}>
+              }}
+              pressedStyle={{ opacity: 0.8 }}>
               <MaterialCommunityIcons
                 name="format-quote-close"
                 size={14}
@@ -177,21 +179,19 @@ export function ParseErrorCard({
                 {example}
               </ThemedText>
               <MaterialCommunityIcons name="arrow-top-left" size={14} color={mutedText} />
-            </Pressable>
+            </PressableView>
           ))}
         </View>
       ) : null}
 
       <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
         {failure.canRetry ? (
-          <Pressable
+          <PressableView
             accessibilityRole="button"
             onPress={onRetry}
             disabled={isRetrying}
-            style={({ pressed }) => ({
-              flex: 1,
-              opacity: pressed ? 0.9 : isRetrying ? 0.7 : 1,
-            })}>
+            style={{ flex: 1, opacity: isRetrying ? 0.7 : 1 }}
+            pressedStyle={{ opacity: 0.9 }}>
             <View
               style={{
                 height: 40,
@@ -213,12 +213,13 @@ export function ParseErrorCard({
                 </>
               )}
             </View>
-          </Pressable>
+          </PressableView>
         ) : null}
-        <Pressable
+        <PressableView
           accessibilityRole="button"
           onPress={onAddManually}
-          style={({ pressed }) => ({ flex: 1, opacity: pressed ? 0.8 : 1 })}>
+          style={{ flex: 1 }}
+          pressedStyle={{ opacity: 0.8 }}>
           <View
             style={{
               height: 40,
@@ -236,7 +237,7 @@ export function ParseErrorCard({
               Add manually
             </ThemedText>
           </View>
-        </Pressable>
+        </PressableView>
       </View>
     </Animated.View>
   );
