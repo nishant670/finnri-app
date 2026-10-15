@@ -371,6 +371,11 @@ export type SplitActivityItem = {
   /** On settlement rows: when the other side confirmed or denied it. */
   responded_at?: string | null;
   created_at: string;
+  /**
+   * When the row last happened — added, edited, or answered. The feed is
+   * ordered on it, newest first. Absent from servers before 2026-10-15.
+   */
+  activity_at?: string;
 };
 
 export type SplitActivityResponse = {
@@ -977,6 +982,9 @@ export const fetchFriendSettlementHistory = async (
     const result = await fetchSplitActivityPage(token, {
       type: 'settlement',
       friend_id: String(friendId),
+      // A ledger of payments reads by when each was paid; the feed itself is
+      // in the order things were recorded.
+      order: 'date',
       page: String(page),
       page_size: String(SETTLEMENT_HISTORY_PAGE_SIZE),
     });
