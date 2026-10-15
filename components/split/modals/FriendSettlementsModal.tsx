@@ -49,7 +49,11 @@ export function FriendSettlementsModal({
   const friendFirstName = getFirstName(friend.name);
 
   const load = useCallback(async () => {
-    if (!token) return;
+    if (!token) {
+      // Nothing to ask with; a spinner here would never stop.
+      setError('Please sign in again to see settlements.');
+      return;
+    }
     setError(null);
     try {
       setItems(await fetchFriendSettlementHistory(token, friend.id));

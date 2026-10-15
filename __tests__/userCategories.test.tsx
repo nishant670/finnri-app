@@ -61,7 +61,11 @@ const renderForm = (
   );
 
 beforeEach(() => {
-  useUserCategories.setState({ categories: { expense: [], income: [] }, loadedFor: null });
+  useUserCategories.setState({
+    categories: { expense: [], income: [] },
+    loadedFor: null,
+    loadedAt: 0,
+  });
   useAuthStore.setState({ token: 'session' });
 });
 
@@ -130,6 +134,15 @@ describe('useUserCategories', () => {
     await expect(
       useUserCategories.getState().remove('session', 'Pet Care', 'expense')
     ).rejects.toBeTruthy();
+    expect(useUserCategories.getState().categories.expense).toEqual(['Pet Care']);
+  });
+
+  it('reads the list once a minute, not on every form opening', async () => {
+    const calls = serveCategories({ expense: ['Pet Care'], income: [] });
+    await useUserCategories.getState().load('session');
+    await useUserCategories.getState().load('session');
+
+    expect(calls.filter((call) => call.method === 'GET')).toHaveLength(1);
     expect(useUserCategories.getState().categories.expense).toEqual(['Pet Care']);
   });
 

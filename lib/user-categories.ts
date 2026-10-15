@@ -10,6 +10,13 @@ export type CustomCategories = Record<CategoryType, string[]>;
 
 const emptyCategories: CustomCategories = { expense: [], income: [] };
 
+/**
+ * How long a loaded list is trusted. The add sheet opens for every capture,
+ * and the list changes only when somebody adds or removes a category — which
+ * this store already applies itself — or on another device.
+ */
+const CATEGORIES_FRESH_MS = 60_000;
+
 /** The list a form's type picks from. Anything that is not income is an expense. */
 export const categoryTypeOf = (type?: string | null): CategoryType =>
   type?.toLowerCase() === 'income' ? 'income' : 'expense';
@@ -69,6 +76,8 @@ type UserCategoriesState = {
   categories: CustomCategories;
   /** Whose list this is, so the next account to sign in does not see it. */
   loadedFor: string | null;
+  /** When it last came back from the server, for `CATEGORIES_FRESH_MS`. */
+  loadedAt: number;
   load: (token: string) => Promise<void>;
   /**
    * Keeps a typed category and returns the name to select: the built-in it
@@ -91,12 +100,17 @@ type UserCategoriesState = {
 export const useUserCategories = create<UserCategoriesState>()((set, get) => ({
   categories: emptyCategories,
   loadedFor: null,
+  loadedAt: 0,
 
   load: async (token) => {
-    if (get().loadedFor !== token) set({ categories: emptyCategories, loadedFor: token });
+    if (get().loadedFor !== token) {
+      set({ categories: emptyCategories, loadedFor: token, loadedAt: 0 });
+    } else if (Date.now() - get().loadedAt < CATEGORIES_FRESH_MS) {
+      return;
+    }
     try {
       const categories = await fetchCustomCategories(token);
-      if (get().loadedFor === token) set({ categories });
+      if (get().loadedFor === token) set({ categories, loadedAt: Date.now() });
     } catch {
       // The built-in list still works; the user's own come back next time.
     }

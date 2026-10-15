@@ -134,7 +134,15 @@ export const buildFriendSettlementHistory = (
   const ordered = [...items]
     .filter((item) => item.type === 'settlement')
     .sort((a, b) =>
-      a.date !== b.date ? (a.date < b.date ? 1 : -1) : a.created_at < b.created_at ? 1 : -1
+      a.date !== b.date
+        ? a.date < b.date
+          ? 1
+          : -1
+        : a.created_at === b.created_at
+          ? 0
+          : a.created_at < b.created_at
+            ? 1
+            : -1
     );
 
   ordered.forEach((item) => {
