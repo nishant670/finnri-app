@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -78,11 +79,11 @@ export function ThemedConfirmDialog({
           </ThemedText>
 
           <View style={styles.actions}>
-            <Pressable
+            <PressableView
               accessibilityRole="button"
               disabled={loading}
               onPress={onCancel}
-              style={({ pressed }) => [
+              style={[
                 styles.button,
                 styles.cancelButton,
                 {
@@ -91,25 +92,27 @@ export function ThemedConfirmDialog({
                   // option rather than a white rectangle on white.
                   backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.08)' : colors.background,
                   borderColor: colors.border,
-                  opacity: pressed || loading ? 0.72 : 1,
+                  opacity: loading ? 0.72 : 1,
                 },
-              ]}>
+              ]}
+              pressedStyle={styles.pressed}>
               <ThemedText style={[styles.cancelLabel, { color: colors.text }]}>
                 {cancelLabel}
               </ThemedText>
-            </Pressable>
-            <Pressable
+            </PressableView>
+            <PressableView
               accessibilityRole="button"
               disabled={loading}
               onPress={onConfirm}
-              style={({ pressed }) => [
+              style={[
                 styles.button,
                 styles.confirmButton,
                 {
                   borderColor: actionColor,
-                  opacity: pressed || loading ? 0.72 : 1,
+                  opacity: loading ? 0.72 : 1,
                 },
-              ]}>
+              ]}
+              pressedStyle={styles.pressed}>
               {loading ? (
                 <ActivityIndicator color={actionColor} />
               ) : (
@@ -117,7 +120,7 @@ export function ThemedConfirmDialog({
                   {confirmLabel}
                 </ThemedText>
               )}
-            </Pressable>
+            </PressableView>
           </View>
         </View>
       </View>
@@ -212,17 +215,15 @@ export function ThemedAlertDialog({
           </ThemedText>
 
           <View style={styles.actions}>
-            <Pressable
+            <PressableView
               accessibilityRole="button"
               onPress={onDismiss}
-              style={({ pressed }) => [
-                styles.button,
-                { backgroundColor: actionColor, opacity: pressed ? 0.72 : 1 },
-              ]}>
+              style={[styles.button, { backgroundColor: actionColor }]}
+              pressedStyle={styles.pressed}>
               <ThemedText style={[styles.confirmLabel, { color: '#FFFFFF' }]}>
                 {buttonLabel}
               </ThemedText>
-            </Pressable>
+            </PressableView>
           </View>
         </View>
       </View>
@@ -237,6 +238,9 @@ export function ThemedDeleteDialog(
 }
 
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.72,
+  },
   overlay: {
     alignItems: 'center',
     flex: 1,

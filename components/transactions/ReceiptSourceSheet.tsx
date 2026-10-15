@@ -3,6 +3,7 @@ import type { ComponentProps } from 'react';
 import { Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { ReceiptPhotoSource } from '@/lib/receipt-photo';
 
@@ -72,21 +73,21 @@ export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSource
 
           <View style={styles.options}>
             {OPTIONS.map((option) => (
-              <Pressable
+              <PressableView
                 key={option.source}
                 testID={`receipt-source-${option.source}`}
                 accessibilityRole="button"
                 accessibilityLabel={option.label}
                 accessibilityHint={option.hint}
                 onPress={() => onChoose(option.source)}
-                style={({ pressed }) => [
+                style={[
                   styles.option,
                   {
                     backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : colors.background,
                     borderColor: colors.border,
-                    opacity: pressed ? 0.72 : 1,
                   },
-                ]}>
+                ]}
+                pressedStyle={styles.pressed}>
                 <View style={[styles.optionIcon, { backgroundColor: colors.secondary }]}>
                   <MaterialCommunityIcons name={option.icon} size={22} color={colors.accent} />
                 </View>
@@ -99,16 +100,17 @@ export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSource
                   </ThemedText>
                 </View>
                 <MaterialCommunityIcons name="chevron-right" size={20} color={muted} />
-              </Pressable>
+              </PressableView>
             ))}
           </View>
 
-          <Pressable
+          <PressableView
             accessibilityRole="button"
             onPress={onClose}
-            style={({ pressed }) => [styles.cancel, { opacity: pressed ? 0.6 : 1 }]}>
+            style={styles.cancel}
+            pressedStyle={styles.cancelPressed}>
             <ThemedText style={[styles.cancelLabel, { color: muted }]}>Cancel</ThemedText>
-          </Pressable>
+          </PressableView>
         </View>
       </View>
     </Modal>
@@ -179,6 +181,12 @@ const styles = StyleSheet.create({
   },
   optionHint: {
     fontSize: 13,
+  },
+  pressed: {
+    opacity: 0.72,
+  },
+  cancelPressed: {
+    opacity: 0.6,
   },
   cancel: {
     alignSelf: 'center',

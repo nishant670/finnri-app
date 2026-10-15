@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { Card } from '@/components/ui/theme-primitives';
 import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -231,15 +232,13 @@ export function CreditStatusCard({
 
   if (onPress) {
     return (
-      <Pressable
+      <PressableView
         accessibilityRole="button"
         onPress={onPress}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.86 : 1,
-          marginHorizontal: compact ? 0 : 24,
-        })}>
+        style={{ marginHorizontal: compact ? 0 : 24 }}
+        pressedStyle={{ opacity: 0.86 }}>
         {content}
-      </Pressable>
+      </PressableView>
     );
   }
 
