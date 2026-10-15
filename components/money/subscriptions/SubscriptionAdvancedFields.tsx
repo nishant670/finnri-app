@@ -2,23 +2,34 @@ import type { Dispatch, SetStateAction } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, View } from 'react-native';
 
-import { BillingInterval, SubscriptionStatus } from '@/lib/subscriptions';
+import { BillingInterval, RecurringKind, SubscriptionStatus } from '@/lib/subscriptions';
 import { ChipPicker } from '@/components/money/subscriptions/ChipPicker';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Fonts } from '@/constants/theme';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { Pill } from '@/components/money/subscriptions/Pill';
+import {
+  PaymentAccountPicker,
+  usablePayment,
+} from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
 import { ThemedText } from '@/components/themed-text';
-import { getAccountsForPaymentMode, type Account } from '@/lib/accounts';
+import { type Account } from '@/lib/accounts';
 import {
   reminderOptions,
   reminderLabel,
   categoryOptions,
-  advancedIntervalOptions,
   statusOptions,
 } from '@/lib/subscription-form';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+
+/** What each kind's notes usually hold. */
+const NOTES_PLACEHOLDER: Record<RecurringKind, string> = {
+  subscription: 'Plan tier, cancellation link, family plan details',
+  loan: 'Loan account number, branch, prepayment terms',
+  investment: 'Folio number, goal, nominee',
+  bill: 'Consumer number, biller ID',
+};
 
 type SubscriptionAdvancedFieldsProps = {
   accountID: number | null;
@@ -28,6 +39,7 @@ type SubscriptionAdvancedFieldsProps = {
   cancelOnDate: string;
   category: string;
   colors: ReturnType<typeof useThemeTokens>['colors'];
+  formKind: RecurringKind;
   interval: BillingInterval;
   isEditing: boolean;
   merchant: string;
@@ -42,7 +54,6 @@ type SubscriptionAdvancedFieldsProps = {
   setAutopay: Dispatch<SetStateAction<boolean>>;
   setCancelBeforeDue: Dispatch<SetStateAction<boolean>>;
   setCategory: Dispatch<SetStateAction<string>>;
-  setInterval: Dispatch<SetStateAction<BillingInterval>>;
   setName: Dispatch<SetStateAction<string>>;
   setNotes: Dispatch<SetStateAction<string>>;
   setPaymentMode: Dispatch<SetStateAction<string>>;
@@ -59,6 +70,7 @@ export function SubscriptionAdvancedFields({
   cancelOnDate,
   category,
   colors,
+  formKind,
   interval,
   isEditing,
   merchant,
@@ -73,7 +85,6 @@ export function SubscriptionAdvancedFields({
   setAutopay,
   setCancelBeforeDue,
   setCategory,
-  setInterval,
   setName,
   setNotes,
   setPaymentMode,
@@ -101,36 +112,19 @@ export function SubscriptionAdvancedFields({
         placeholder={merchant.trim() || 'Same as merchant'}
       />
 
-      <ChipPicker
-        label="Category"
-        options={categoryOptions}
-        active={category}
-        onSelect={setCategory}
-        colors={colors}
-      />
-
-      <View className="mb-4">
-        <ThemedText className="mb-2 text-[11px] font-black uppercase" style={{ color: muted }}>
-          Other intervals
-        </ThemedText>
-        <View className="flex-row flex-wrap gap-2">
-          {advancedIntervalOptions.map((option) => (
-            <Pill
-              key={option.value}
-              label={option.label}
-              selected={interval === option.value}
-              onPress={() => {
-                setInterval(option.value);
-                if (option.value === 'daily') {
-                  setAutopay(true);
-                  setReminderDays(0);
-                }
-              }}
-              colors={colors}
-            />
-          ))}
-        </View>
-      </View>
+      {/* The spending category each payment is filed under. An investment
+          is not spending, and offering "Food & Drinks" for a PPF instalment
+          was the first thing questioned on device, so it is not asked. */}
+      {formKind !== 'investment' ? (
+        <ChipPicker
+          label="Spending category"
+          hint="Each payment this adds is filed under it."
+          options={categoryOptions}
+          active={category}
+          onSelect={setCategory}
+          colors={colors}
+        />
+      ) : null}
 
       {interval !== 'daily' && interval !== 'business_daily' ? (
         <View className="mb-4">
@@ -169,71 +163,62 @@ export function SubscriptionAdvancedFields({
           </View>
           <HapticSwitch
             value={autopay}
-            onValueChange={setAutopay}
-            trackColor={{ false: '#E0E0E0', true: colors.accent }}
-            thumbColor="white"
-          />
-        </View>
-        {autopay && (
-          <>
-            <View className="mt-4 flex-row flex-wrap gap-2">
-              {['Bank Account', 'UPI', 'Credit Card'].map((mode) => (
-                <Pill
-                  key={mode}
-                  label={mode}
-                  selected={paymentMode === mode}
-                  onPress={() => {
-                    setPaymentMode(mode);
-                    setAccountID(null);
-                  }}
-                  colors={colors}
-                />
-              ))}
-            </View>
-            <View className="mt-3 flex-row flex-wrap gap-2">
-              {getAccountsForPaymentMode(accounts, paymentMode).map((account) => (
-                <Pill
-                  key={account.id}
-                  label={account.name}
-                  selected={accountID === account.id}
-                  onPress={() => setAccountID(account.id)}
-                  colors={colors}
-                />
-              ))}
-            </View>
-            <Pressable className="mt-3 flex-row items-center gap-2" onPress={onAddAccount}>
-              <MaterialCommunityIcons name="plus-circle-outline" size={18} color={colors.accent} />
-              <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                Add a payment account
-              </ThemedText>
-            </Pressable>
-          </>
-        )}
-      </View>
-
-      <View
-        className="mb-4 rounded-2xl border p-4"
-        style={{ borderColor: colors.border, backgroundColor: colors.background }}>
-        <View className="flex-row items-center justify-between gap-4">
-          <View className="flex-1">
-            <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
-              Remind me to cancel
-            </ThemedText>
-            <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-              For a trial or a plan you mean to stop. You’ll get a nudge before it renews.
-            </ThemedText>
-          </View>
-          <HapticSwitch
-            value={cancelBeforeDue}
             onValueChange={(enabled) => {
-              setCancelBeforeDue(enabled);
-              if (enabled && reminderDays === 0) setReminderDays(1);
+              setAutopay(enabled);
+              if (!enabled) return;
+              const next = usablePayment(accounts, paymentMode, accountID);
+              setPaymentMode(next.paymentMode);
+              setAccountID(next.accountID);
             }}
             trackColor={{ false: '#E0E0E0', true: colors.accent }}
             thumbColor="white"
           />
         </View>
+        {autopay && (
+          <PaymentAccountPicker
+            testID="recurring-autopay-account"
+            accounts={accounts}
+            accountID={accountID}
+            paymentMode={paymentMode}
+            onChange={(next) => {
+              setPaymentMode(next.paymentMode);
+              setAccountID(next.accountID);
+            }}
+            onAddAccount={onAddAccount}
+            accountLabel="Pay from"
+            colors={colors}
+            muted={muted}
+          />
+        )}
       </View>
+
+      {/* For a trial or a plan to stop — not a loan or an SIP. Still shown
+          when an older item already has it on, so it can be turned off. */}
+      {formKind === 'subscription' || formKind === 'bill' || cancelBeforeDue ? (
+        <View
+          className="mb-4 rounded-2xl border p-4"
+          style={{ borderColor: colors.border, backgroundColor: colors.background }}>
+          <View className="flex-row items-center justify-between gap-4">
+            <View className="flex-1">
+              <ThemedText className="text-sm font-black" style={{ fontFamily: Fonts.title }}>
+                Remind me to cancel
+              </ThemedText>
+              <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
+                For a trial or a plan you mean to stop. You’ll get a nudge before it renews.
+              </ThemedText>
+            </View>
+            <HapticSwitch
+              value={cancelBeforeDue}
+              onValueChange={(enabled) => {
+                setCancelBeforeDue(enabled);
+                if (enabled && reminderDays === 0) setReminderDays(1);
+              }}
+              trackColor={{ false: '#E0E0E0', true: colors.accent }}
+              thumbColor="white"
+            />
+          </View>
+        </View>
+      ) : null}
 
       {cancelBeforeDue && (
         <Pressable
@@ -257,7 +242,7 @@ export function SubscriptionAdvancedFields({
         value={notes}
         onChangeText={setNotes}
         colors={colors}
-        placeholder="Plan tier, cancellation link, family plan details"
+        placeholder={NOTES_PLACEHOLDER[formKind]}
       />
     </View>
   );

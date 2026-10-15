@@ -10,32 +10,45 @@ import type {
 } from '@/lib/subscriptions';
 
 /**
- * The four cadences a subscription actually renews on, as a segmented control.
+ * Every cadence a recurring payment can be given, in one control.
  *
- * This used to be seven full-size cards, each with a helper line, and one of
- * them was **Market days — skips weekends and market holidays**: an SIP
- * concept borrowed from the investment side of the app that has no meaning for
- * Netflix. `business_daily` is gone from subscriptions entirely — the
- * `BillingInterval` type still carries it because existing rows and the SIP
- * path in the transaction form use it, but it can no longer be chosen here.
+ * Daily and every two weeks used to sit apart, under More options as "Other
+ * intervals" — a second Repeats picker that read as a different setting, and
+ * the first question on device was what it was for. They are rare, but they are
+ * the same choice, so they are offered in the same place: two rows of three.
+ *
+ * `business_daily` (market days) is not offered. The `BillingInterval` type
+ * still carries it because existing rows and the SIP path in the transaction
+ * form use it.
  */
 export const intervalOptions: { value: BillingInterval; label: string }[] = [
+  { value: 'daily', label: 'Daily' },
   { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
   { value: 'monthly', label: 'Monthly' },
   { value: 'quarterly', label: 'Quarterly' },
   { value: 'yearly', label: 'Yearly' },
 ];
 
 /**
- * Daily and every-two-weeks renewals are real but rare, and putting six
- * segments in the control makes every label unreadable to serve two of them.
- * They live under More options, where choosing Daily also meets its Autopay
- * requirement in the same section.
+ * What an investment is, offered as choices rather than a blank box. The pick
+ * is the item's name, so it is what its transactions are titled; anything not
+ * listed goes under Other.
  */
-export const advancedIntervalOptions: { value: BillingInterval; label: string }[] = [
-  { value: 'daily', label: 'Daily' },
-  { value: 'biweekly', label: 'Every 2 weeks' },
-];
+export const investmentTypeOptions = [
+  'Mutual fund SIP',
+  'PPF',
+  'NPS',
+  'EPF / VPF',
+  'Recurring deposit',
+  'Fixed deposit',
+  'Stocks',
+  'Gold',
+] as const;
+
+/** Whether a stored investment name is one of the listed types. */
+export const isListedInvestmentType = (value: string) =>
+  investmentTypeOptions.some((option) => option.toLowerCase() === value.trim().toLowerCase());
 
 export const statusOptions: { value: SubscriptionStatus; label: string }[] = [
   { value: 'active', label: 'Active' },
@@ -118,10 +131,77 @@ export function reminderLabel(days: number) {
 /** Legacy rows can still hold `business_daily`; only the picker dropped it. */
 export function intervalLabel(value: BillingInterval) {
   if (value === 'business_daily') return 'Market days';
-  const known = [...intervalOptions, ...advancedIntervalOptions].find(
-    (option) => option.value === value
-  );
+  const known = intervalOptions.find((option) => option.value === value);
   return known?.label ?? value;
+}
+
+/** Moves a `YYYY-MM-DD` date by whole cadences, as the server's schedule does. */
+export function shiftByInterval(value: string, interval: BillingInterval, steps: number) {
+  const date = apiDateToLocalDate(value);
+  switch (interval) {
+    case 'daily':
+    case 'business_daily':
+      date.setDate(date.getDate() + steps);
+      break;
+    case 'weekly':
+      date.setDate(date.getDate() + 7 * steps);
+      break;
+    case 'biweekly':
+      date.setDate(date.getDate() + 14 * steps);
+      break;
+    case 'quarterly':
+      date.setMonth(date.getMonth() + 3 * steps);
+      break;
+    case 'yearly':
+      date.setFullYear(date.getFullYear() + steps);
+      break;
+    default:
+      date.setMonth(date.getMonth() + steps);
+  }
+  return dateToApiDate(date);
+}
+
+/** Daily schedules log themselves through Autopay, so they never offer this. */
+export const canLogCurrentPayment = (interval: BillingInterval) =>
+  interval !== 'daily' && interval !== 'business_daily';
+
+/**
+ * The payment "Log this month's payment" writes, when a recurring item is
+ * created.
+ *
+ * Reported from a device: an SIP added with today as its next payment never
+ * reached the transactions, and one added with next month's date left this
+ * month's out. So:
+ * - due today: that payment, and the schedule moves on a cadence;
+ * - due later: the instalment one cadence earlier, once that day has come — a
+ *   PPF on the 5th, added on the 15th with the 5th of next month as its next
+ *   date, logs the 5th of this month. If even that is still ahead, today.
+ */
+export function paymentToLog(
+  nextDueDate: string,
+  interval: BillingInterval,
+  today: string = todayISO()
+): { date: string; isDuePayment: boolean } | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(nextDueDate) || !canLogCurrentPayment(interval)) return null;
+  if (nextDueDate <= today) return { date: nextDueDate, isDuePayment: true };
+  const previous = shiftByInterval(nextDueDate, interval, -1);
+  return { date: previous <= today ? previous : today, isDuePayment: false };
+}
+
+/** "this month's", "this quarter's" — the instalment the cadence calls current. */
+export function currentPaymentPeriod(interval: BillingInterval) {
+  switch (interval) {
+    case 'weekly':
+      return "this week's";
+    case 'biweekly':
+      return "this fortnight's";
+    case 'quarterly':
+      return "this quarter's";
+    case 'yearly':
+      return "this year's";
+    default:
+      return "this month's";
+  }
 }
 
 /** What a subscription costs per month, whatever cadence it renews on. */
@@ -235,6 +315,8 @@ export type RecurringFormValues = {
   foreclosurePct: string;
   platform: string;
   stepUpPct: string;
+  /** Create only: also record the current payment; see {@link paymentToLog}. */
+  logPayment?: boolean;
   editing: Subscription | null;
   kindMeta: (typeof recurringKindMeta)[RecurringKind];
 };
@@ -295,7 +377,12 @@ export const validateRecurringForm = ({
   const validation: string[] = [];
   let opensMoreOptions = false;
   let opensKindDetails = false;
-  if (!resolvedName) validation.push(`Add a name — like ${namePlaceholder.split(',')[0]}.`);
+  if (!resolvedName)
+    validation.push(
+      formKind === 'investment'
+        ? 'Pick the investment type.'
+        : `Add a name — like ${namePlaceholder.split(',')[0]}.`
+    );
   if (!Number.isFinite(amountValue) || amountValue <= 0)
     validation.push('Enter an amount above zero.');
   if (!nextDueDate.match(/^\d{4}-\d{2}-\d{2}$/)) validation.push('Pick the next payment date.');
@@ -360,10 +447,12 @@ export const buildRecurringPayload = ({
   foreclosurePct,
   platform,
   stepUpPct,
+  logPayment,
   editing,
   kindMeta,
 }: RecurringFormValues) => {
   const amountValue = parseAmount(amount);
+  const logged = !editing && logPayment ? paymentToLog(nextDueDate, interval) : null;
   const resolvedName = name.trim() || merchant.trim();
   const totalEmiCount = totalEmis.trim() ? Number(totalEmis) : 0;
   const paidEmiCount = emisPaid.trim() ? Number(emisPaid) : 0;
@@ -403,5 +492,6 @@ export const buildRecurringPayload = ({
     ...(formKind === 'investment'
       ? { platform: platform.trim(), step_up_pct: stepUpPct.trim() ? Number(stepUpPct) : 0 }
       : {}),
+    ...(logged ? { log_payment_on: logged.date } : {}),
   };
 };

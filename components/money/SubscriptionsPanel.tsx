@@ -50,6 +50,9 @@ import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionC
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
 import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
+import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
+import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
+import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
@@ -125,6 +128,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [accountID, setAccountID] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
+  /** Create only: write the payment already made as a transaction too. */
+  const [logPayment, setLogPayment] = useState(false);
+  /** Bumped each time the sheet opens, so pickers holding state start fresh. */
+  const [formSession, setFormSession] = useState(0);
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [pendingDate, setPendingDate] = useState(apiDateToLocalDate(nextDueDate));
   const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel' | 'start'>('due');
@@ -224,6 +231,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setPaymentMode('Cash');
     setAccountID(null);
     setNotes('');
+    setLogPayment(false);
     setShowAdvanced(false);
     setShowKindDetails(false);
     setError(null);
@@ -343,11 +351,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setShowAdvanced(false);
     setShowKindDetails(false);
     setError(null);
+    setFormSession((session) => session + 1);
     setShowForm(true);
   };
 
   const openCreateForm = () => {
     resetForm();
+    setFormSession((session) => session + 1);
     // A filtered list is a statement of intent: "+" on Loans adds a loan.
     const kind = filter === 'all' ? 'subscription' : filter;
     setFormKind(kind);
@@ -362,6 +372,30 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     if (category === recurringKindMeta[formKind].defaultCategory) {
       setCategory(recurringKindMeta[kind].defaultCategory);
     }
+  };
+
+  /** A mode and account to start on, for whatever now needs one. */
+  const ensurePaymentAccount = () => {
+    const next = usablePayment(accounts, paymentMode, accountID);
+    setPaymentMode(next.paymentMode);
+    setAccountID(next.accountID);
+  };
+
+  const chooseInterval = (next: BillingInterval) => {
+    setInterval(next);
+    if (next === 'daily') {
+      // A daily payment exists only through Autopay, which adds each one;
+      // there is no reminder to send for it.
+      setAutopay(true);
+      setReminderDays(0);
+      ensurePaymentAccount();
+    }
+  };
+
+  const toggleLogPayment = (checked: boolean) => {
+    haptics.select();
+    setLogPayment(checked);
+    if (checked && !autopay) ensurePaymentAccount();
   };
 
   const openStartDatePicker = () => {
@@ -477,6 +511,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         foreclosurePct,
         platform,
         stepUpPct,
+        logPayment,
         editing,
         kindMeta,
       });
@@ -598,7 +633,8 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     editing && status !== 'active'
       ? statusOptions.find((option) => option.value === status)?.label
       : '',
-    category || 'Uncategorized',
+    // Investments are not filed under a spending category; see the fold.
+    formKind === 'investment' ? '' : category || 'Uncategorized',
     interval === 'daily' || interval === 'business_daily'
       ? 'Added automatically'
       : reminderDays === 0
@@ -752,15 +788,26 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             ))}
           </View>
 
-          <Field
-            label={kindMeta.nameLabel}
-            value={merchant}
-            onChangeText={setMerchant}
-            colors={colors}
-            placeholder={kindMeta.namePlaceholder}
-            autoFocus={!editing}
-          />
-          {merchantSuggestions.length > 0 && (
+          {formKind === 'investment' ? (
+            <InvestmentTypePicker
+              key={formSession}
+              value={merchant}
+              onChange={setMerchant}
+              colors={colors}
+              muted={muted}
+            />
+          ) : (
+            <Field
+              label={kindMeta.nameLabel}
+              value={merchant}
+              onChangeText={setMerchant}
+              colors={colors}
+              placeholder={kindMeta.namePlaceholder}
+              autoFocus={!editing}
+            />
+          )}
+          {/* Past merchants — Swiggy, Netflix — are no help naming an SIP. */}
+          {formKind !== 'investment' && merchantSuggestions.length > 0 && (
             <View className="mb-3 flex-row flex-wrap gap-2">
               {merchantSuggestions.slice(0, 6).map((suggestion) => (
                 <Pill
@@ -826,9 +873,31 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             label="Repeats"
             values={intervalOptions}
             active={interval}
-            onSelect={setInterval}
+            onSelect={chooseInterval}
             colors={colors}
+            columns={3}
           />
+
+          {!editing ? (
+            <LogCurrentPaymentCard
+              checked={logPayment}
+              onToggle={toggleLogPayment}
+              amount={amount}
+              interval={interval}
+              nextDueDate={nextDueDate}
+              autopay={autopay}
+              accounts={accounts}
+              accountID={accountID}
+              paymentMode={paymentMode}
+              onPaymentChange={(next) => {
+                setPaymentMode(next.paymentMode);
+                setAccountID(next.accountID);
+              }}
+              onAddAccount={() => router.push('/accounts/manage')}
+              colors={colors}
+              muted={muted}
+            />
+          ) : null}
 
           {/* The loan's or investment's own details. None of them is needed
               to schedule the payment — the amount and the date do that — so
@@ -911,6 +980,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 cancelOnDate={cancelOnDate}
                 category={category}
                 colors={colors}
+                formKind={formKind}
                 interval={interval}
                 isEditing={Boolean(editing)}
                 merchant={merchant}
@@ -925,7 +995,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 setAutopay={setAutopay}
                 setCancelBeforeDue={setCancelBeforeDue}
                 setCategory={setCategory}
-                setInterval={setInterval}
                 setName={setName}
                 setNotes={setNotes}
                 setPaymentMode={setPaymentMode}

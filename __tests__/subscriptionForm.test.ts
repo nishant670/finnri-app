@@ -1,8 +1,12 @@
 import { recurringKindMeta } from '@/lib/recurring';
 import type { Subscription } from '@/lib/subscriptions';
 import {
-  advancedIntervalOptions,
   buildRecurringPayload,
+  currentPaymentPeriod,
+  investmentTypeOptions,
+  isListedInvestmentType,
+  paymentToLog,
+  shiftByInterval,
   buildSummaryLine,
   countDueSoon,
   projectMonthlyTotal,
@@ -87,7 +91,7 @@ describe('labels', () => {
   });
 
   it('names every selectable interval and the legacy market-days one', () => {
-    for (const o of [...intervalOptions, ...advancedIntervalOptions]) {
+    for (const o of intervalOptions) {
       expect(intervalLabel(o.value)).toBe(o.label);
     }
     expect(intervalLabel('business_daily')).toBe('Market days');
@@ -95,20 +99,27 @@ describe('labels', () => {
 });
 
 describe('option lists', () => {
-  it('offers four cadences up front and keeps daily and biweekly under Advanced', () => {
+  // "Other intervals" under More options read as a second, different setting.
+  it('offers every cadence in the one Repeats control, shortest first', () => {
     expect(intervalOptions.map((o) => o.value)).toEqual([
+      'daily',
       'weekly',
+      'biweekly',
       'monthly',
       'quarterly',
       'yearly',
     ]);
-    expect(advancedIntervalOptions.map((o) => o.value)).toEqual(['daily', 'biweekly']);
   });
 
   it('never offers market days when creating', () => {
-    expect(
-      [...intervalOptions, ...advancedIntervalOptions].some((o) => o.value === 'business_daily')
-    ).toBe(false);
+    expect(intervalOptions.some((o) => o.value === 'business_daily')).toBe(false);
+  });
+
+  it('lists investment types and recognises a stored one however it is cased', () => {
+    expect(investmentTypeOptions).toContain('PPF');
+    expect(investmentTypeOptions).toContain('Mutual fund SIP');
+    expect(isListedInvestmentType(' ppf ')).toBe(true);
+    expect(isListedInvestmentType('Chit fund')).toBe(false);
   });
 
   it('has the three statuses', () => {
@@ -155,6 +166,12 @@ const validate = (over: Partial<RecurringFormValues> = {}) => {
 describe('validateRecurringForm', () => {
   it('accepts a minimal valid subscription, using the merchant as the name', () => {
     expect(validate()).toEqual([]);
+  });
+
+  it('asks an investment for its type rather than a name', () => {
+    expect(
+      validate({ formKind: 'investment', kindMeta: recurringKindMeta.investment, merchant: '' })
+    ).toContain('Pick the investment type.');
   });
 
   it('requires a name, an amount and a valid renewal date', () => {
@@ -340,6 +357,62 @@ describe('buildRecurringPayload', () => {
       step_up_pct: 10,
       start_date: '2026-10-01',
     });
+  });
+});
+
+// Reported from a device: a PPF added with today as its next payment, or with
+// next month's because this month's was paid, never reached the transactions.
+describe('logging the current payment', () => {
+  const today = '2026-10-15';
+
+  it('logs the payment due today, which moves the schedule on', () => {
+    expect(paymentToLog('2026-10-15', 'monthly', today)).toEqual({
+      date: '2026-10-15',
+      isDuePayment: true,
+    });
+  });
+
+  it("logs this month's instalment when the next one is next month", () => {
+    expect(paymentToLog('2026-11-15', 'monthly', today)).toEqual({
+      date: '2026-10-15',
+      isDuePayment: false,
+    });
+    // A PPF on the 5th, added on the 15th, logs the 5th.
+    expect(paymentToLog('2026-11-05', 'monthly', today)?.date).toBe('2026-10-05');
+    expect(paymentToLog('2027-01-01', 'quarterly', today)?.date).toBe('2026-10-01');
+  });
+
+  it('falls back to today when even the earlier instalment is still ahead', () => {
+    expect(paymentToLog('2026-11-20', 'monthly', today)?.date).toBe(today);
+  });
+
+  it('offers nothing for daily schedules or a missing date', () => {
+    expect(paymentToLog('2026-10-15', 'daily', today)).toBeNull();
+    expect(paymentToLog('', 'monthly', today)).toBeNull();
+  });
+
+  it('steps dates by cadence both ways', () => {
+    expect(shiftByInterval('2026-10-15', 'weekly', -1)).toBe('2026-10-08');
+    expect(shiftByInterval('2026-10-15', 'biweekly', 1)).toBe('2026-10-29');
+    expect(shiftByInterval('2026-10-15', 'yearly', 1)).toBe('2027-10-15');
+  });
+
+  it('names the period', () => {
+    expect(currentPaymentPeriod('monthly')).toBe("this month's");
+    expect(currentPaymentPeriod('quarterly')).toBe("this quarter's");
+  });
+
+  it('sends the date only when asked, and never on an edit', () => {
+    const next = nextMonthISO();
+    const logged = buildRecurringPayload(base({ nextDueDate: next, logPayment: true }));
+    expect(logged.log_payment_on).toBe(todayISO());
+    expect(buildRecurringPayload(base({ nextDueDate: next }))).not.toHaveProperty(
+      'log_payment_on'
+    );
+    const editing = { id: 1, transaction_tag: 'Subscription' } as unknown as Subscription;
+    expect(
+      buildRecurringPayload(base({ nextDueDate: next, logPayment: true, editing }))
+    ).not.toHaveProperty('log_payment_on');
   });
 });
 
