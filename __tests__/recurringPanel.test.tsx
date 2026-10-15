@@ -242,4 +242,48 @@ describe('Recurring panel', () => {
     );
     expect(createSpy.mock.calls[0][1]).not.toHaveProperty('log_payment_on');
   });
+
+  // Mark paid moved the date on and wrote nothing, so the payment never
+  // reached the transactions. It now logs it — from the account it came
+  // from — unless turned off for a payment already logged.
+  it('marks a payment paid and logs it from the chosen account', async () => {
+    jest.spyOn(accounts, 'fetchAccounts').mockResolvedValue([
+      { id: 4, type: 'bank', name: 'SBI Savings', color: '#000', is_default: true },
+      { id: 5, type: 'upi', name: 'GPay', color: '#000' },
+    ] as accounts.Account[]);
+    const paidSpy = jest
+      .spyOn(subscriptions, 'markSubscriptionPaid')
+      .mockResolvedValue({ ...netflix, logged_entry_id: 7 } as never);
+    const { findByLabelText, findByText, findByTestId } = await render(
+      <SubscriptionsPanel embedded />
+    );
+
+    await fireEvent.press(await findByLabelText('Mark Netflix paid'));
+    await findByTestId('mark-paid-sheet');
+    // Cash, the item's mode, is not one an account can be picked for.
+    await findByLabelText('Paid from SBI Savings');
+    await fireEvent.press(await findByText('UPI'));
+    await fireEvent.press(await findByText('Mark paid'));
+
+    await waitFor(() => expect(paidSpy).toHaveBeenCalled());
+    expect(paidSpy.mock.calls[0][1]).toBe(netflix.id);
+    expect(paidSpy.mock.calls[0][3]).toEqual({
+      logTransaction: true,
+      paymentMode: 'UPI',
+      accountId: 5,
+    });
+  });
+
+  it('can mark paid without logging, for a payment already logged', async () => {
+    const paidSpy = jest.spyOn(subscriptions, 'markSubscriptionPaid').mockResolvedValue(netflix);
+    const { findByLabelText, findByText } = await render(<SubscriptionsPanel embedded />);
+
+    await fireEvent.press(await findByLabelText('Mark Netflix paid'));
+    await fireEvent.press(await findByLabelText('Add to transactions'));
+    await findByText(/Nothing is added to your transactions/);
+    await fireEvent.press(await findByText('Mark paid'));
+
+    await waitFor(() => expect(paidSpy).toHaveBeenCalled());
+    expect(paidSpy.mock.calls[0][3]).toEqual(expect.objectContaining({ logTransaction: false }));
+  });
 });

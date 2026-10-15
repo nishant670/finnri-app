@@ -258,15 +258,30 @@ export const updateSubscription = async (
   return (await response.json()) as Subscription;
 };
 
+/**
+ * Moves an item's schedule on, and — with `logTransaction` — writes the
+ * payment to the transactions too, from `accountId`/`paymentMode` when this
+ * payment came from somewhere other than the item's own account.
+ */
 export const markSubscriptionPaid = async (
   token: string,
   id: number,
-  paidDate: string
-): Promise<Subscription> => {
+  paidDate: string,
+  options: { logTransaction?: boolean; accountId?: number | null; paymentMode?: string } = {}
+): Promise<Subscription & { logged_entry_id?: number }> => {
   const response = await fetch(`${API_BASE_URL}/v1/subscriptions/${id}/mark-paid`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ paid_date: paidDate }),
+    body: JSON.stringify({
+      paid_date: paidDate,
+      ...(options.logTransaction
+        ? {
+            log_transaction: true,
+            ...(options.accountId != null ? { account_id: options.accountId } : {}),
+            ...(options.paymentMode ? { payment_mode: options.paymentMode } : {}),
+          }
+        : {}),
+    }),
   });
   if (!response.ok) {
     throw new Error(

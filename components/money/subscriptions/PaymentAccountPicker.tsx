@@ -59,7 +59,11 @@ export function selectPaymentMode(accounts: Account[], mode: string) {
  * the form's starting mode, is not, so that becomes a bank account and its
  * default rather than nothing selected.
  */
-export function usablePayment(accounts: Account[], paymentMode: string, accountID: number | null) {
+export function usablePayment(
+  accounts: Account[],
+  paymentMode: string,
+  accountID: number | null
+): { paymentMode: string; accountID: number | null } {
   if (!(RECURRING_PAYMENT_MODES as readonly string[]).includes(paymentMode)) {
     return { paymentMode: 'Bank Account', accountID: selectPaymentMode(accounts, 'Bank Account') };
   }
