@@ -52,6 +52,7 @@ import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/Su
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
 import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
 import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
+import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
 import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
@@ -132,6 +133,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [logPayment, setLogPayment] = useState(false);
   /** Bumped each time the sheet opens, so pickers holding state start fresh. */
   const [formSession, setFormSession] = useState(0);
+  /** The item "Mark paid" was tapped on; kept after closing for the exit slide. */
+  const [payingFor, setPayingFor] = useState<Subscription | null>(null);
+  const [isMarkPaidVisible, setIsMarkPaidVisible] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState(false);
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [pendingDate, setPendingDate] = useState(apiDateToLocalDate(nextDueDate));
   const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel' | 'start'>('due');
@@ -546,13 +552,26 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     }
   };
 
-  const markPaid = async (subscription: Subscription) => {
-    if (!token) return;
+  const openMarkPaid = (subscription: Subscription) => {
+    setPayingFor(subscription);
+    setMarkPaidError(null);
+    setIsMarkPaidVisible(true);
+  };
+
+  const markPaid = async (choice: MarkPaidChoice) => {
+    if (!token || !payingFor || markingPaid) return;
+    setMarkingPaid(true);
+    setMarkPaidError(null);
     try {
-      await markSubscriptionPaid(token, subscription.id, todayISO());
+      await markSubscriptionPaid(token, payingFor.id, todayISO(), choice);
+      haptics.saved();
+      setIsMarkPaidVisible(false);
       await load();
     } catch (paidError) {
-      setListError(getFriendlyErrorMessage(paidError, 'Unable to mark this subscription paid.'));
+      haptics.rejected();
+      setMarkPaidError(getFriendlyErrorMessage(paidError, 'Unable to mark this paid.'));
+    } finally {
+      setMarkingPaid(false);
     }
   };
 
@@ -723,7 +742,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 colors={colors}
                 muted={muted}
                 onPress={() => editSubscription(subscription)}
-                onMarkPaid={() => void markPaid(subscription)}
+                onMarkPaid={() => openMarkPaid(subscription)}
                 onCancelNow={() => void cancelNow(subscription)}
                 onDelete={() => void confirmDelete(subscription)}
               />
@@ -1031,6 +1050,21 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           </Pressable>
         </ScrollView>
       </AnimatedBottomSheet>
+
+      <MarkPaidSheet
+        key={payingFor?.id ?? 'none'}
+        visible={isMarkPaidVisible}
+        subscription={payingFor}
+        accounts={accounts}
+        submitting={markingPaid}
+        error={markPaidError}
+        onClose={() => setIsMarkPaidVisible(false)}
+        onConfirm={(choice) => void markPaid(choice)}
+        onAddAccount={() => {
+          setIsMarkPaidVisible(false);
+          router.push('/accounts/manage');
+        }}
+      />
 
       <SubscriptionDatePickerModal
         visible={isDatePickerVisible}
