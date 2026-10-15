@@ -286,4 +286,29 @@ describe('Recurring panel', () => {
     await waitFor(() => expect(paidSpy).toHaveBeenCalled());
     expect(paidSpy.mock.calls[0][3]).toEqual(expect.objectContaining({ logTransaction: false }));
   });
+
+  it('points a credit card bill to the card instead of adding it here', async () => {
+    jest
+      .spyOn(accounts, 'fetchAccounts')
+      .mockResolvedValue([
+        { id: 8, type: 'credit_card', name: 'HDFC Regalia', color: '#000' },
+      ] as accounts.Account[]);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByTestId } =
+      await render(<SubscriptionsPanel embedded />);
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Bill'));
+    await fireEvent.changeText(
+      await findByPlaceholderText('Rent, Electricity, Insurance premium'),
+      'Electricity'
+    );
+    expect(queryByTestId('recurring-card-bill-note')).toBeNull();
+    await fireEvent.changeText(
+      await findByPlaceholderText('Rent, Electricity, Insurance premium'),
+      'HDFC credit card bill'
+    );
+    await findByTestId('recurring-card-bill-note');
+    await fireEvent.press(await findByText('Open HDFC Regalia'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/accounts/[id]', params: { id: '8' } });
+  });
 });

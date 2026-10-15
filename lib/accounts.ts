@@ -1,6 +1,7 @@
 import { API_BASE_URL } from './transactions';
 import { ApiFieldErrors, readApiError } from './api-error';
 import { getClientTimeZone } from './datetime';
+import type { StatementPaymentPayload } from './statements';
 
 /**
  * What an account can prove from its transactions, derived by the backend (see
@@ -543,10 +544,21 @@ export const deleteAccount = async (token: string, accountId: number): Promise<v
   }
 };
 
-export const markCardPaidOff = async (token: string, accountId: number): Promise<Account> => {
+/**
+ * Clears a card with no statement. With `payment.from_account_id`, the bill
+ * is also shown leaving that account — as a card payment, never spending.
+ */
+export const markCardPaidOff = async (
+  token: string,
+  accountId: number,
+  payment?: StatementPaymentPayload
+): Promise<Account> => {
   const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/paid-off`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}` },
+    headers: payment
+      ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+      : { Authorization: `Bearer ${token}` },
+    ...(payment ? { body: JSON.stringify(payment) } : {}),
   });
   if (!response.ok) {
     throw await readAccountError(response, 'Unable to mark this card paid off right now.');

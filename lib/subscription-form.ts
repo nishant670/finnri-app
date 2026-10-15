@@ -46,6 +46,15 @@ export const investmentTypeOptions = [
   'Gold',
 ] as const;
 
+/**
+ * A name that reads as a credit card bill. Those are not recurring payments:
+ * the card's spends are already logged one by one, so tracking the bill here
+ * as well — and marking it paid — would count them twice. The card's own
+ * page records the payment as a card payment instead, which is not spending.
+ */
+export const looksLikeCardBill = (text: string) =>
+  /credit\s*card|card\s*(bill|payment|dues?)\b|\bcc\s*(bill|payment)/i.test(text);
+
 /** Whether a stored investment name is one of the listed types. */
 export const isListedInvestmentType = (value: string) =>
   investmentTypeOptions.some((option) => option.toLowerCase() === value.trim().toLowerCase());
