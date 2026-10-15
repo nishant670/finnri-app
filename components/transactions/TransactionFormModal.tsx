@@ -898,7 +898,26 @@ export function TransactionFormModal({
       : null);
   const [autoCreatingAccount, setAutoCreatingAccount] = useState(false);
   const [autoCreateAccountError, setAutoCreateAccountError] = useState<string | null>(null);
-  const [autoCreatedAccountName, setAutoCreatedAccountName] = useState('');
+  /**
+   * The account "Create one for me" just made, for its confirmation line.
+   *
+   * Held with its id, and the line shows only while that account is still the
+   * one selected. Reported from a device: the sheet stays mounted between bill
+   * scans, and "Axis Bank Account created and selected" from one scan sat on
+   * the next one's review — over a credit card draft it had nothing to do with.
+   */
+  const [autoCreatedAccount, setAutoCreatedAccount] = useState<{ id: number; name: string } | null>(
+    null
+  );
+  const autoCreatedAccountName =
+    autoCreatedAccount && autoCreatedAccount.id === form.accountId ? autoCreatedAccount.name : '';
+
+  /** A new sheet, or a new draft in it, starts with no account-creation news. */
+  const resetAutoCreateFeedback = useCallback(() => {
+    setAutoCreatedAccount(null);
+    setAutoCreateAccountError(null);
+    setDismissedSuggestionKey('');
+  }, []);
 
   const handleAutoCreateSuggestedAccount = useCallback(
     async (suggestion: AccountSuggestion) => {
@@ -908,7 +927,7 @@ export function TransactionFormModal({
       try {
         const saved = await onAutoCreateSuggestedAccount(suggestion);
         setForm((previous) => ({ ...previous, accountId: saved.id, account: saved.name }));
-        setAutoCreatedAccountName(saved.name);
+        setAutoCreatedAccount({ id: saved.id, name: saved.name });
         setDismissedSuggestionKey(suggestionKey);
         setIsAccountPickerVisible(false);
         haptics.saved();
@@ -1328,6 +1347,7 @@ export function TransactionFormModal({
       setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
+      resetAutoCreateFeedback();
       seedForm();
 
       // A timed slide, not a spring: the spring overshot and rang two or three
@@ -1355,11 +1375,12 @@ export function TransactionFormModal({
   const wasParsing = useRef(isParsing);
   useEffect(() => {
     if (wasParsing.current && !isParsing && visible) {
+      resetAutoCreateFeedback();
       seedForm();
       settlePanel();
     }
     wasParsing.current = isParsing;
-  }, [isParsing, seedForm, settlePanel, visible]);
+  }, [isParsing, resetAutoCreateFeedback, seedForm, settlePanel, visible]);
 
   useEffect(() => {
     if (!visible) {
