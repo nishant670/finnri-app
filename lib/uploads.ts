@@ -1,4 +1,5 @@
 import { File } from 'expo-file-system';
+import { Image } from 'expo-image';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 import { readApiError } from './api-error';
@@ -135,7 +136,7 @@ const discardTemporary = (file: File) => {
   }
 };
 
-type PreparedUpload = {
+export type PreparedUpload = {
   file: File;
   /** True when `file` is a re-encoded copy we made and must clean up. */
   temporary: boolean;
@@ -169,6 +170,120 @@ const prepareUpload = async (
 };
 
 /**
+ * Receipt photos bound for the AI reader keep more pixels than a stored
+ * attachment. A till receipt is long and narrow: capped at 1600px tall it is
+ * barely 500px wide, and the total is the smallest print on it. 2048px is the
+ * most the reader looks at, so anything larger is bytes for nothing.
+ */
+const RECEIPT_SCAN_MAX_EDGE = 2048;
+const RECEIPT_SCAN_QUALITY = 0.8;
+
+/**
+ * The server refuses a receipt photo over 5 MB. A file that would be refused
+ * is caught here instead, before the upload and its wait.
+ */
+export const RECEIPT_SCAN_MAX_BYTES = 4.5 * 1024 * 1024;
+
+/** The photo could not be made small enough to send. Nothing was uploaded. */
+export class ReceiptPhotoTooLargeError extends Error {
+  readonly code = 'receipt_photo_too_large';
+
+  constructor() {
+    super('That photo is too large to read.');
+    this.name = 'ReceiptPhotoTooLargeError';
+  }
+}
+
+const READER_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+const scanResize = (width: number, height: number) =>
+  Math.max(width, height) > RECEIPT_SCAN_MAX_EDGE
+    ? width >= height
+      ? { width: RECEIPT_SCAN_MAX_EDGE }
+      : { height: RECEIPT_SCAN_MAX_EDGE }
+    : null;
+
+/**
+ * Decode the photo already scaled down, then re-encode it as JPEG.
+ *
+ * A phone camera now writes 50-megapixel frames. Decoding one at full size
+ * needs about 200 MB, which is where `compressImage` ran out of memory, threw,
+ * and the reader was sent the untouched original: the server's "That photo
+ * is too large". expo-image's loader decodes at a bounded size instead (Glide
+ * on Android), and the manipulator only ever sees the smaller bitmap.
+ */
+const downscaleForReader = async (uri: string): Promise<File> => {
+  const loaded = await Image.loadAsync(uri, {
+    maxWidth: RECEIPT_SCAN_MAX_EDGE,
+    maxHeight: RECEIPT_SCAN_MAX_EDGE,
+  });
+  // The loader keeps the aspect ratio but may stop just above the cap on the
+  // long edge, so the exact size is set here.
+  const resize = scanResize(loaded.width, loaded.height);
+  const context = ImageManipulator.manipulate(loaded);
+  const rendered = await (resize ? context.resize(resize) : context).renderAsync();
+  const saved = await rendered.saveAsync({
+    compress: RECEIPT_SCAN_QUALITY,
+    format: SaveFormat.JPEG,
+  });
+  return new File(saved.uri);
+};
+
+/** The older two-pass decode, for when the bounded loader is unavailable. */
+const downscaleByManipulator = async (uri: string): Promise<File> => {
+  const decoded = await ImageManipulator.manipulate(uri).renderAsync();
+  const resize = scanResize(decoded.width, decoded.height);
+  const rendered = resize
+    ? await ImageManipulator.manipulate(decoded).resize(resize).renderAsync()
+    : decoded;
+  const saved = await rendered.saveAsync({
+    compress: RECEIPT_SCAN_QUALITY,
+    format: SaveFormat.JPEG,
+  });
+  return new File(saved.uri);
+};
+
+/**
+ * A receipt photo bound for the AI reader rather than for storage.
+ *
+ * Unlike `prepareUpload` this always re-encodes, whatever the size: the reader
+ * takes JPEG, PNG or WebP only, and an iPhone photo arrives as HEIC. The
+ * caller deletes `file` when `temporary` is set, once the request is done.
+ *
+ * Throws `ReceiptPhotoTooLargeError` rather than sending a file the server
+ * would refuse: that refusal used to be the first the user heard of it.
+ */
+export const prepareReceiptScanImage = async (uri: string): Promise<PreparedUpload> => {
+  for (const downscale of [downscaleForReader, downscaleByManipulator]) {
+    try {
+      const file = await downscale(uri);
+      if (file.size > 0 && file.size <= RECEIPT_SCAN_MAX_BYTES) {
+        return { file, temporary: true };
+      }
+      discardTemporary(file);
+    } catch {
+      // Try the next way of shrinking it.
+    }
+  }
+  // Neither decode worked. The original can still go if the reader takes its
+  // type and it fits; otherwise say so here, before anything is sent.
+  const original = new File(uri);
+  const type = attachmentMimeType(original, uri);
+  if (
+    READER_IMAGE_TYPES.includes(type) &&
+    original.size > 0 &&
+    original.size <= RECEIPT_SCAN_MAX_BYTES
+  ) {
+    return { file: original, temporary: false };
+  }
+  throw new ReceiptPhotoTooLargeError();
+};
+
+export const discardPreparedUpload = ({ file, temporary }: PreparedUpload) => {
+  if (temporary) discardTemporary(file);
+};
+
+/**
  * Uploads a locally picked receipt and resolves to the hosted URL to persist on
  * the entry. Throws on failure — callers must not fall back to storing the
  * local URI, which would be meaningless on any other device.
@@ -176,7 +291,9 @@ const prepareUpload = async (
 export const uploadAttachment = async (
   token: string,
   uri: string,
-  declaredMimeType?: string | null
+  declaredMimeType?: string | null,
+  /** What the file is, in the error a failed upload shows. */
+  { noun = 'receipt' }: { noun?: string } = {}
 ): Promise<string> => {
   const { file, temporary } = await prepareUpload(uri, declaredMimeType);
 
@@ -200,16 +317,15 @@ export const uploadAttachment = async (
     });
 
     if (!response.ok) {
-      throw await readApiError(
-        response,
-        'Unable to upload that receipt right now.',
-        uploadFieldLabels
-      );
+      throw await readApiError(response, `Unable to upload that ${noun} right now.`, {
+        ...uploadFieldLabels,
+        file: noun.charAt(0).toUpperCase() + noun.slice(1),
+      });
     }
 
     const data = (await response.json()) as { url?: string };
     if (!data.url) {
-      throw new Error('Unable to upload that receipt right now.');
+      throw new Error(`Unable to upload that ${noun} right now.`);
     }
     return data.url;
   } finally {

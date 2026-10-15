@@ -2,6 +2,10 @@ import * as matchers from '@testing-library/react-native/matchers';
 
 expect.extend(matchers);
 
+// The library's own mocks for its native module. Needed since the add sheet
+// wraps its window in GestureHandlerRootView, which installs that module.
+require('react-native-gesture-handler/jestSetup');
+
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );

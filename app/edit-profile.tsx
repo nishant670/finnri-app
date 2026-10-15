@@ -135,7 +135,7 @@ export default function EditProfileScreen() {
 
   const handleUpdate = async () => {
     if (!name.trim()) {
-      showAlert({ title: 'Error', message: 'Name cannot be empty.', tone: 'danger' });
+      showAlert({ title: 'Add your name', message: "Your name can't be blank.", tone: 'danger' });
       return;
     }
     if (!token) return;
@@ -145,8 +145,8 @@ export default function EditProfileScreen() {
 
     if (emailChanged && phoneChanged) {
       showAlert({
-        title: 'Notice',
-        message: 'Please update Email and Phone separately for security.',
+        title: 'One at a time',
+        message: 'For your security, change your email and phone number one at a time.',
       });
       return;
     }
@@ -177,8 +177,8 @@ export default function EditProfileScreen() {
       // "Failed to send OTP" covered a provider outage, a throttled resend and
       // an unsupported channel alike, and told the user nothing about which.
       showAlert({
-        title: 'Error',
-        message: getFriendlyAuthErrorMessage(error, 'Failed to send OTP. Please try again.'),
+        title: "Code not sent",
+        message: getFriendlyAuthErrorMessage(error, "We couldn't send your code. Try again in a moment."),
         tone: 'danger',
       });
     } finally {
@@ -189,8 +189,8 @@ export default function EditProfileScreen() {
   const verifyOtp = async () => {
     if (otpCode.length < OTP_LENGTH) {
       showAlert({
-        title: 'Error',
-        message: `Please enter the ${OTP_LENGTH}-digit code we sent you.`,
+        title: 'Enter the code',
+        message: `Enter the ${OTP_LENGTH}-digit code we sent you.`,
         tone: 'danger',
       });
       return;
@@ -202,7 +202,7 @@ export default function EditProfileScreen() {
       setOtpCode('');
       performUpdate(res.claim_token);
     } catch {
-      showAlert({ title: 'Error', message: 'Invalid OTP. Please try again.', tone: 'danger' });
+      showAlert({ title: 'Code didn’t match', message: "That code didn't work. Check it and try again.", tone: 'danger' });
     } finally {
       setIsVerifying(false);
     }
@@ -221,24 +221,24 @@ export default function EditProfileScreen() {
       });
       updateUser(result.user);
       showAlert({
-        title: 'Success',
-        message: 'Profile updated successfully!',
+        title: 'Saved',
+        message: 'Your profile is up to date.',
         tone: 'success',
         onDismiss: () => router.back(),
       });
     } catch (error: any) {
       // Handle specific errors
-      const msg = getFriendlyErrorMessage(error, 'Failed to update profile.');
+      const msg = getFriendlyErrorMessage(error, "Couldn't save your profile. Try again.");
       if (msg.includes('Username is already taken')) {
         showAlert({
-          title: 'Username Taken',
+          title: 'Username taken',
           message: 'This username is already in use. Please choose another.',
           tone: 'danger',
         });
       } else if (msg.includes('verification required')) {
-        showAlert({ title: 'Verification Required', message: msg, tone: 'danger' });
+        showAlert({ title: 'Verify it’s you', message: msg, tone: 'danger' });
       } else {
-        showAlert({ title: 'Error', message: msg, tone: 'danger' });
+        showAlert({ title: 'Not saved', message: msg, tone: 'danger' });
       }
     } finally {
       setIsLoading(false);
@@ -248,7 +248,7 @@ export default function EditProfileScreen() {
   return (
     <>
       <SafeAreaView className="flex-1" style={{ backgroundColor }}>
-        <AppHeader title="Edit Profile" onBack={() => router.back()} />
+        <AppHeader title="Edit profile" onBack={() => router.back()} />
 
         <KeyboardAvoidingView
           // `adjustResize` already handles Android; see the note in AuthScreen2.
@@ -304,7 +304,7 @@ export default function EditProfileScreen() {
                 <TText
                   className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
                   style={{ fontFamily: Fonts.body }}>
-                  What should I call you?
+                  What should we call you?
                 </TText>
                 <View
                   className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
@@ -328,7 +328,7 @@ export default function EditProfileScreen() {
                 <TText
                   className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
                   style={{ fontFamily: Fonts.body }}>
-                  Email Address
+                  Email
                 </TText>
                 <View
                   className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
@@ -375,7 +375,7 @@ export default function EditProfileScreen() {
                 <TText
                   className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
                   style={{ fontFamily: Fonts.body }}>
-                  Mobile Number
+                  Mobile number
                 </TText>
                 <View
                   className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
@@ -408,8 +408,7 @@ export default function EditProfileScreen() {
               <Text
                 className="flex-1 text-xs leading-relaxed opacity-70"
                 style={{ fontFamily: Fonts.body, color: theme.text }}>
-                Updating your profile helps me personalize your financial insights and keeps your
-                account super secure!
+                Keep these up to date so your account stays easy to recover.
               </Text>
             </View>
 
@@ -432,7 +431,7 @@ export default function EditProfileScreen() {
                   <TText
                     className="text-base font-black text-white"
                     style={{ fontFamily: Fonts.title }}>
-                    Update My Profile
+                    Save changes
                   </TText>
                 </>
               )}
@@ -547,7 +546,7 @@ export default function EditProfileScreen() {
                 <TText
                   className="text-white font-bold text-base"
                   style={{ fontFamily: Fonts.title }}>
-                  Verify & Update
+                  Verify and save
                 </TText>
               )}
             </Pressable>

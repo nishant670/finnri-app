@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './transactions';
-import { getFriendlyErrorMessage } from './api-error';
+import { getFriendlyErrorMessage, NETWORK_ERROR_MESSAGE } from './api-error';
 
 /**
  * Whether email/PIN/OTP sign-in is offered at all.
@@ -35,8 +35,7 @@ export const EMAIL_LOGIN_ENABLED = false;
  */
 export const PHONE_IDENTIFIER_ENABLED = false;
 
-const AUTH_NETWORK_ERROR_MESSAGE =
-  'Could not connect to Finnri. Check your connection and try again.';
+const AUTH_NETWORK_ERROR_MESSAGE = "Can't reach Finnri right now. Check your connection and try again.";
 
 const authErrorMessages: Record<string, string> = {
   failed_lookup_guest: 'Could not continue as guest right now. Please try again.',
@@ -76,11 +75,10 @@ export class AuthOtpSendError extends Error {
   }
 }
 
+// By reference: this matched the shared message by copying its text, so the
+// first edit to that text would have quietly stopped the swap.
 export const getFriendlyAuthErrorMessage = (error: unknown, fallback: string) =>
-  getFriendlyErrorMessage(error, fallback).replace(
-    'Could not connect to Finnri. Check your internet connection and make sure the app is online.',
-    AUTH_NETWORK_ERROR_MESSAGE
-  );
+  getFriendlyErrorMessage(error, fallback).replace(NETWORK_ERROR_MESSAGE, AUTH_NETWORK_ERROR_MESSAGE);
 
 const readAuthErrorPayload = async (response: Response, fallback: string) => {
   try {

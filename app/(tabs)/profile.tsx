@@ -14,7 +14,7 @@ import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
+import { describeAccess, fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { userDisplayName } from '@/lib/display-name';
 import { clearGuestUpgradeSnooze } from '@/lib/guest-upgrade';
 import { getMonogram } from '@/lib/monogram';
@@ -106,9 +106,9 @@ export default function ProfileScreen() {
   const credits = billingStatus?.credits;
   // An expired trial with no paid plan does not refill tomorrow — the balance
   // stays at zero until a pass is bought, so "they reset tomorrow" is false.
-  const trialHasExpired = useHasPassed(credits?.trial_expires_at);
-  const hasPaidPlan =
-    billingStatus?.subscription_status === 'active' || billingStatus?.subscription_status === 'cancelled';
+  // Read so the line redraws the moment the trial runs out.
+  useHasPassed(credits?.trial_expires_at);
+  const access = describeAccess(billingStatus);
   const creditLine = isBillingLoading
     ? 'Checking your balance'
     : !credits || credits.daily_limit <= 0
@@ -117,8 +117,10 @@ export default function ProfileScreen() {
         ? `${credits.daily_credits_remaining} AI credits left today`
         : isGuest
           ? 'No AI credits left today — sign in for more'
-          : trialHasExpired && !hasPaidPlan
-            ? 'Free trial ended — choose a pass to use AI'
+          : access.kind === 'ended'
+            ? access.ended.kind === 'pass'
+              ? `${access.ended.planName} ${access.ended.refunded ? 'refunded' : 'ended'} — choose a pass to use AI`
+              : 'Free trial ended — choose a pass to use AI'
             : 'No AI credits left today — they reset tomorrow';
 
   return (
@@ -189,7 +191,7 @@ export default function ProfileScreen() {
               <TText
                 className="font-bold text-sm"
                 style={{ color: colors.accent, fontFamily: Fonts.title }}>
-                Edit My Profile
+                Edit profile
               </TText>
               {isProfileIncomplete && (
                 <View
@@ -296,7 +298,7 @@ export default function ProfileScreen() {
                 icon={getMoodIconName('shield-check', iconStyle) as any}
                 iconColor="#388E3C"
                 iconSurface="#E8F5E9"
-                title="Keep it Safe"
+                title="Security & privacy"
                 subtitle="PIN lock, biometrics and stealth mode"
                 onPress={() => router.push('/security')}
               />
@@ -312,7 +314,7 @@ export default function ProfileScreen() {
                 icon={getMoodIconName('help-circle', iconStyle) as any}
                 iconColor="#7B1FA2"
                 iconSurface="#F3E5F5"
-                title="Help & Support"
+                title="Help & support"
                 subtitle="Answers, contact and what's next"
                 borderColor={borderColor}
                 onPress={() => router.push('/help-support')}
@@ -322,7 +324,7 @@ export default function ProfileScreen() {
                 icon="message-draw"
                 iconColor="#00796B"
                 iconSurface="#E0F2F1"
-                title="Feedback & Ideas"
+                title="Feedback & ideas"
                 subtitle="Suggest features or report issues"
                 borderColor={borderColor}
                 onPress={() => router.push('/feedback')}

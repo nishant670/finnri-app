@@ -1,12 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ItemizationBanner } from '@/components/statements/ItemizationBanner';
 import { PaymentFormSheet } from '@/components/statements/PaymentFormSheet';
+import { StatementDayDriftDialog } from '@/components/statements/StatementDayDriftDialog';
+import { StatementFormSheet } from '@/components/statements/StatementFormSheet';
 import { ThemedText } from '@/components/themed-text';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { StateView } from '@/components/ui/StateView';
@@ -17,9 +19,12 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { Account, fetchAccounts } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
+import { isStatementDaySuggestion } from '@/lib/statement-day-drift';
 import { calendarDay } from '@/lib/statement-dates';
 import {
   CardStatement,
+  CardStatementPayload,
+  StatementDaySuggestion,
   StatementPayment,
   StatementPaymentPayload,
   deleteStatementPayment,
@@ -28,6 +33,7 @@ import {
   formatDueLabel,
   formatStatementMonth,
   recordStatementPayment,
+  updateCardStatement,
 } from '@/lib/statements';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -61,6 +67,9 @@ export default function StatementDetailScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sheetError, setSheetError] = useState<string | null>(null);
   const [paymentToRemove, setPaymentToRemove] = useState<StatementPayment | null>(null);
+  const [isEditSheetVisible, setIsEditSheetVisible] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [daySuggestion, setDaySuggestion] = useState<StatementDaySuggestion | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !Number.isFinite(statementId) || statementId <= 0) {
@@ -118,6 +127,43 @@ export default function StatementDetailScreen() {
   };
 
   const card = accounts.find((account) => account.id === statement?.account_id) ?? null;
+
+  // Memoised on the stored values: the sheet resets its form whenever this
+  // object changes, which must not happen on every render while editing.
+  const editInitial = useMemo(
+    () =>
+      statement
+        ? {
+            statement_date: calendarDay(statement.statement_date),
+            due_date: calendarDay(statement.due_date),
+            total_due: statement.total_due,
+            minimum_due: statement.minimum_due,
+          }
+        : undefined,
+    [statement]
+  );
+
+  /**
+   * Correct this bill in place — its date included. If the corrected date is
+   * off the card's usual day, ask whether the bank moved it.
+   */
+  const handleEditStatement = async (payload: CardStatementPayload) => {
+    if (!token || !statement) return;
+    setIsSubmitting(true);
+    setEditError(null);
+    try {
+      const saved = await updateCardStatement(token, statement.id, payload);
+      setStatement(saved);
+      setIsEditSheetVisible(false);
+      if (isStatementDaySuggestion(saved.statement_day_suggestion)) {
+        setDaySuggestion(saved.statement_day_suggestion);
+      }
+    } catch (saveError) {
+      setEditError(getFriendlyErrorMessage(saveError, 'Unable to update this statement.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const openCycleTransactions = () => {
     if (!statement) return;
@@ -184,7 +230,22 @@ export default function StatementDetailScreen() {
             style={{ fontFamily: Fonts.title, color: theme.text, letterSpacing: 1.2 }}>
             Statement
           </TText>
-          <View className="h-11 w-11" />
+          {card ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Edit statement"
+              accessibilityHint="Correct the statement date, due date or amounts"
+              onPress={() => {
+                setEditError(null);
+                setIsEditSheetVisible(true);
+              }}
+              className="h-11 w-11 items-center justify-center rounded-full"
+              style={{ backgroundColor: theme.card }}>
+              <MaterialCommunityIcons name="pencil-outline" size={20} color={theme.text} />
+            </Pressable>
+          ) : (
+            <View className="h-11 w-11" />
+          )}
         </View>
 
         <ScrollView
@@ -356,6 +417,30 @@ export default function StatementDetailScreen() {
           error={sheetError}
           onClose={() => setIsPaymentSheetVisible(false)}
           onSubmit={handleRecordPayment}
+        />
+
+        {card && (
+          <StatementFormSheet
+            visible={isEditSheetVisible}
+            card={card}
+            initial={editInitial}
+            submitting={isSubmitting}
+            error={editError}
+            onClose={() => setIsEditSheetVisible(false)}
+            onSubmit={(payload) => void handleEditStatement(payload)}
+          />
+        )}
+
+        <StatementDayDriftDialog
+          token={token}
+          card={card}
+          suggestion={daySuggestion}
+          onClose={(moved) => {
+            setDaySuggestion(null);
+            // The card's day changed; reload so the screen reads the new card.
+            if (moved) void load();
+          }}
+          onError={setError}
         />
 
         <ThemedDeleteDialog

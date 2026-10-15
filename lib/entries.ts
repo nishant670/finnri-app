@@ -36,7 +36,7 @@ export type EntryMutationPayload = {
   tag: string | null;
   date?: string;
   time?: string;
-  source?: 'manual' | 'text' | 'voice';
+  source?: 'manual' | 'text' | 'voice' | 'receipt';
   source_text?: string;
   attachment?: string | null;
   refundable_amount?: string | number | null;

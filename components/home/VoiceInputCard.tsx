@@ -1,4 +1,5 @@
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { TextAction } from '@/components/ui/theme-primitives';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
@@ -109,6 +110,12 @@ type VoiceInputCardProps = {
   hasFailed?: boolean;
   isTextInputVisible?: boolean;
   onToggleTextInput?: () => void;
+  /**
+   * The third way in, beside speaking and typing: a photo of the bill. It sat
+   * in the corner of the add sheet, where it was easy to miss and could crowd
+   * the title on a narrow phone.
+   */
+  onScanBill?: () => void;
 };
 
 export function VoiceInputCard({
@@ -126,6 +133,7 @@ export function VoiceInputCard({
   hasFailed = false,
   isTextInputVisible = false,
   onToggleTextInput,
+  onScanBill,
 }: VoiceInputCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
@@ -332,17 +340,17 @@ export function VoiceInputCard({
             justifyContent: 'center',
             alignItems: 'center',
           }}>
-          <Pressable
+          <PressableView
             onPress={onProcess}
             disabled={isProcessing}
-            style={({ pressed }) => ({
+            style={{
               flexGrow: 1,
               flexShrink: 1,
               flexBasis: 132,
               minWidth: 0,
-              opacity: pressed ? 0.9 : isProcessing ? 0.7 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
+              opacity: isProcessing ? 0.7 : 1,
+            }}
+            pressedStyle={{ opacity: 0.9, transform: [{ scale: 0.98 }] }}>
             <View
               style={{
                 height: 38,
@@ -373,24 +381,18 @@ export function VoiceInputCard({
                       fontFamily: theme.typography.button.fontFamily,
                       fontWeight: theme.typography.button.fontWeight,
                     }}>
-                    {hasFailed ? 'Try again' : 'Process'}
+                    {hasFailed ? 'Try again' : 'Use this'}
                   </ThemedText>
                 </>
               )}
             </View>
-          </Pressable>
+          </PressableView>
 
-          <Pressable
+          <PressableView
             onPress={onClear}
             disabled={isProcessing}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              flexShrink: 1,
-              flexBasis: 132,
-              minWidth: 0,
-              opacity: pressed ? 0.8 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
+            style={{ flexGrow: 1, flexShrink: 1, flexBasis: 132, minWidth: 0 }}
+            pressedStyle={{ opacity: 0.8, transform: [{ scale: 0.98 }] }}>
             <View
               style={{
                 height: 38,
@@ -420,7 +422,7 @@ export function VoiceInputCard({
                 Cancel
               </ThemedText>
             </View>
-          </Pressable>
+          </PressableView>
         </View>
       </View>
     );
@@ -541,16 +543,31 @@ export function VoiceInputCard({
             letterSpacing: 1.2,
             color: colors.accent,
           }}>
-          Listening...
+          Listening…
         </ThemedText>
       ) : null}
 
-      <TextAction
-        label="I Prefer To Write"
-        onPress={onToggleTextInput}
-        disabled={isProcessing || isRecording}
-        style={styles.writeToggle}
-      />
+      <View style={styles.altCaptureRow}>
+        <TextAction
+          label="Type instead"
+          onPress={onToggleTextInput}
+          disabled={isProcessing || isRecording}
+          style={styles.writeToggle}
+        />
+        {onScanBill ? (
+          <>
+            <ThemedText style={{ color: colors.accent, opacity: 0.5 }}>·</ThemedText>
+            <TextAction
+              testID="scan-bill-home"
+              label="Scan a bill"
+              onPress={onScanBill}
+              disabled={isProcessing || isRecording}
+              accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in the entry."
+              style={styles.writeToggle}
+            />
+          </>
+        ) : null}
+      </View>
 
       {shouldShowTextInput ? (
         <Animated.View style={[{ width: '100%' }, textEntryStyle]}>
@@ -667,6 +684,13 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     borderRadius: 999,
+  },
+  altCaptureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   writeToggle: {
     minHeight: 24,

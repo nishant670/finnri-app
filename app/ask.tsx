@@ -4,12 +4,17 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
+import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
+import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { blockedAIReason } from '@/lib/credit-gate';
+import type { BlockedAIReason } from '@/lib/plans-prompt';
 import {
   describeParseFailure,
   isParseAnswer,
@@ -33,7 +38,10 @@ const STARTERS = [
 export default function AskFinnriScreen() {
   const router = useRouter();
   const theme = useThemeTokens();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  const dialog = useAppDialog();
+  const isGuest = !!user?.is_guest;
+  const plansPrompt = usePlansPrompt({ token, isGuest, isBusy: () => false });
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<AskTurn[]>([]);
   const [isSending, setIsSending] = useState(false);
@@ -59,6 +67,39 @@ export default function AskFinnriScreen() {
     return () => clearTimeout(timer);
   }, [keyboardInset]);
 
+  /**
+   * The way past a refused question, offered on the spot: the plans sheet for
+   * someone who can buy, sign-in for a guest, and a plain word for someone
+   * whose pass is still running — another would only queue behind it.
+   */
+  const offerMoreCredits = async (blocked: BlockedAIReason) => {
+    if (isGuest) {
+      const signIn = await dialog.confirm({
+        title: 'Sign in for more AI credits',
+        message:
+          'Your guest credits are used up. Sign in to keep asking Finnri — everything you have added so far comes with you.',
+        confirmLabel: 'Sign in',
+        cancelLabel: 'Not now',
+      });
+      if (signIn) router.push('/auth?mode=link');
+      return;
+    }
+    if (await plansPrompt.offerForBlockedAI(blocked)) return;
+    const seePlans = await dialog.confirm({
+      title:
+        blocked === 'daily_limit'
+          ? 'Today’s AI credits are used up'
+          : 'Your AI credits are used up',
+      message:
+        blocked === 'daily_limit'
+          ? 'They come back tomorrow.'
+          : 'Plans & Credits shows what you have and when it refreshes.',
+      confirmLabel: 'View plans',
+      cancelLabel: 'OK',
+    });
+    if (seePlans) router.push('/billing');
+  };
+
   const submit = async (questionOverride?: string) => {
     const question = (questionOverride ?? input).trim();
     if (!question || isSending || !token) return;
@@ -83,12 +124,18 @@ export default function AskFinnriScreen() {
         );
       }
     } catch (error) {
-      const failure = describeParseFailure(error);
+      const blocked = blockedAIReason(error);
+      // The capture sheet's wording ("That capture did not go through") is
+      // wrong here — this was a question — so only the reason is kept.
+      const message = blocked
+        ? blocked === 'daily_limit'
+          ? 'You have used today’s AI credits, so Finnri could not answer that.'
+          : 'You are out of AI credits, so Finnri could not answer that.'
+        : describeParseFailure(error).message;
       setTurns((current) =>
-        current.map((turn) =>
-          turn.id === id ? { ...turn, error: `${failure.title}. ${failure.message}` } : turn
-        )
+        current.map((turn) => (turn.id === id ? { ...turn, error: message } : turn))
       );
+      if (blocked) void offerMoreCredits(blocked);
     } finally {
       setIsSending(false);
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
@@ -223,6 +270,7 @@ export default function AskFinnriScreen() {
           </View>
         </View>
       </View>
+      <PlansOfferSheet {...plansPrompt.sheet} />
     </SafeAreaView>
   );
 }

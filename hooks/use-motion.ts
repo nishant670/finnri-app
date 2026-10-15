@@ -1,4 +1,5 @@
 import { useMemo, type ComponentProps } from 'react';
+import { Platform } from 'react-native';
 import type Animated from 'react-native-reanimated';
 import {
   Easing,
@@ -65,6 +66,9 @@ type ReflowAnimation = AnimatedViewProps['layout'];
  */
 const ROW_ENTRANCE_TRAVEL = 12;
 
+/** How far a revealed field unfolds. Shorter than a row: it has less to say. */
+const REVEAL_TRAVEL = 6;
+
 
 export type MotionHelpers = {
   /** Whether the OS asked for reduced motion. Exposed for the rare case that
@@ -107,6 +111,13 @@ export type MotionHelpers = {
    * a filtered list, a screen whose cards come and go with the period.
    */
   reflow: () => ReflowAnimation;
+  /**
+   * A field or section the user just asked for — a fold opening, an "add a
+   * note" chip turning into the note. It drops in from a few pixels *above*
+   * rather than rising like a list row, because it is unfolding out of the
+   * control that was tapped, which sits above it.
+   */
+  revealEntering: () => EnteringAnimation;
 };
 
 export function useMotion(): MotionHelpers {
@@ -172,6 +183,19 @@ export function useMotion(): MotionHelpers {
               }),
       reflow: () =>
         reduced ? undefined : LinearTransition.duration(duration('base')).easing(standard),
+      // Not on web: Reanimated's web build plays an entering animation with
+      // custom initial values on an absolutely positioned element, so the
+      // revealed field stopped taking up space and the next row drew over
+      // it. Web is a development target here; the phone is where this runs.
+      revealEntering: () =>
+        reduced || Platform.OS === 'web'
+          ? undefined
+          : FadeInDown.duration(duration('base'))
+              .easing(standard)
+              .withInitialValues({
+                opacity: 0,
+                transform: [{ translateY: -REVEAL_TRAVEL }],
+              }),
     };
   }, [reduced]);
 }

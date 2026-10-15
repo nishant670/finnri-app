@@ -43,9 +43,9 @@ type AccountFilter = 'all' | string;
  * Same class of drift as the four category vocabularies in S3, one screen down.
  */
 const accountGroups: { key: string; label: string; chipLabel: string; types: AccountType[] }[] = [
-  { key: 'credit_cards', label: 'Credit Cards', chipLabel: 'Cards', types: ['credit_card'] },
-  { key: 'bank_accounts', label: 'Bank Accounts', chipLabel: 'Bank', types: ['bank'] },
-  { key: 'debit_cards', label: 'Debit Cards', chipLabel: 'Debit', types: ['debit_card'] },
+  { key: 'credit_cards', label: 'Credit cards', chipLabel: 'Cards', types: ['credit_card'] },
+  { key: 'bank_accounts', label: 'Bank accounts', chipLabel: 'Bank', types: ['bank'] },
+  { key: 'debit_cards', label: 'Debit cards', chipLabel: 'Debit', types: ['debit_card'] },
   {
     key: 'wallets_upi',
     label: 'Wallets & UPI',

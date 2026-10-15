@@ -84,6 +84,18 @@ const noHandTunedMotion = [
 const dialogMessage =
   'Raise dialogs with useAppDialog() from @/components/ui/AppDialogProvider (alert / confirm), not Alert.alert. The system dialog carries none of the app\'s type, colour or corner radius, so a themed flow ends on a stock Android box.';
 
+// A style callback is not a style. NativeWind wraps every Pressable and reads
+// `style` as styles to merge, so `style={({ pressed }) => …}` was dropped on a
+// device, layout and all: the bill-scan sheet's rows came out as stacked icons
+// with no labels. PressableView takes plain styles and a `pressedStyle`.
+const noStyleCallback = [
+  {
+    selector: "JSXAttribute[name.name='style'] > JSXExpressionContainer > ArrowFunctionExpression",
+    message:
+      'Pass plain styles, not a function: NativeWind drops a style callback on a device, and every rule in it. Use PressableView from @/components/ui/PressableView with pressedStyle for the pressed look.',
+  },
+];
+
 const hapticsMessage =
   'Fire haptics through the vocabulary in @/lib/haptics (haptics.select/toggle/saved/rejected/…), not expo-haptics directly. A direct impactAsync goes through Android\'s raw Vibrator and ignores the system haptic setting.';
 
@@ -109,7 +121,7 @@ module.exports = defineConfig([
     // screens render a static illustration of a receipt, not a real amount.
     ignores: ['lib/money.ts', 'components/onboarding/*'],
     rules: {
-      'no-restricted-syntax': ['error', ...noHandRolledCurrency],
+      'no-restricted-syntax': ['error', ...noHandRolledCurrency, ...noStyleCallback],
     },
   },
   {
@@ -132,7 +144,9 @@ module.exports = defineConfig([
       'components/hello-wave.tsx',
     ],
     rules: {
-      'no-restricted-syntax': ['error', ...noHandTunedMotion],
+      // noStyleCallback rides along here too: for the files this block
+      // matches, it replaces the block above's list (see the note below).
+      'no-restricted-syntax': ['error', ...noHandTunedMotion, ...noStyleCallback],
     },
   },
   {

@@ -9,19 +9,29 @@ import { createSubscription } from './subscriptions';
 import { formatApiDate, formatDateLabel, parseDateLabel, type ApiEntry } from './transactions';
 import { resolveAttachmentForSave } from './uploads';
 
+/**
+ * The tag an entry is saved with. Income is always General: every other tag
+ * describes money going out, the form offers none of them for income, and the
+ * API refuses a refund on income. An income entry that still carries one —
+ * switched from an expense, or drafted that way — must not save it.
+ */
+export const entryTag = (form: Pick<EntryForm, 'type' | 'tag'>): string | null =>
+  form.type === 'Income' ? 'General' : form.tag.trim() || null;
+
 /** One mapping for Home, transaction edits and group expenses. */
 export async function buildTransactionPayload(
   token: string,
   form: EntryForm,
   options: {
     accountId?: number | null;
-    source?: 'manual' | 'text' | 'voice';
+    source?: 'manual' | 'text' | 'voice' | 'receipt';
     sourceText?: string;
     refundStatus?: EntryMutationPayload['refund_status'];
   } = {}
 ): Promise<EntryMutationPayload> {
   const date = parseDateLabel(form.date);
   const attachment = await resolveAttachmentForSave(token, form.attachment);
+  const tag = entryTag(form);
   return {
     title: form.title.trim() || 'Untitled Transaction',
     amount: form.amount.trim(),
@@ -32,12 +42,12 @@ export async function buildTransactionPayload(
     category: form.category,
     notes: form.notes.trim(),
     merchant: form.merchant.trim(),
-    tag: form.tag.trim() || null,
+    tag,
     date: date ? formatApiDate(date) : form.date,
     time: toApiTime(form.time) ?? '',
     attachment,
     ...(options.source ? { source: options.source, source_text: options.sourceText ?? '' } : {}),
-    ...(form.tag === 'Refundable'
+    ...(tag === 'Refundable'
       ? {
           refundable_amount: form.refundableAmount.trim(),
           refund_expected_on: formatApiDate(parseDateLabel(form.refundExpectedOn) as Date),
@@ -78,6 +88,40 @@ export type TransactionSaveProgress = {
 /** A refund already received for the purchase being saved. */
 export type ReceivedRefund = { amount: number; date?: string | null };
 
+/**
+ * The recurring-payment record a form describes — a subscription, or a loan EMI
+ * that repeats as an auto-debit. Shared by a new transaction and by an edit of
+ * an existing one, so both write exactly the same thing.
+ */
+export async function createRecurringFromForm(
+  token: string,
+  form: EntryForm,
+  account: Account | null
+) {
+  if (!form.subscriptionBillingInterval) return;
+  const parsedDate = parseDateLabel(form.date);
+  await createSubscription(token, {
+    name: form.subscriptionName.trim(),
+    merchant: form.subscriptionMerchant.trim() || form.merchant.trim(),
+    category: form.subscriptionCategory.trim() || form.category,
+    amount: Number(form.subscriptionAmount || form.amount),
+    billing_interval: form.subscriptionBillingInterval,
+    next_due_date: form.subscriptionNextDueDate.trim(),
+    last_charged_date: parsedDate ? formatApiDate(parsedDate) : undefined,
+    status: 'active',
+    reminder_days: Number(form.subscriptionReminderDays || 0),
+    cancel_before_due: form.subscriptionCancelBeforeDue,
+    cancel_on_date: form.subscriptionCancelOnDate.trim(),
+    autopay: form.subscriptionAutopay,
+    payment_mode: form.mode,
+    transaction_tag: form.tag || 'Subscription',
+    purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
+    notes: form.subscriptionNotes.trim(),
+    account_id: account?.id ?? null,
+    ...loanInstalments(form),
+  });
+}
+
 export async function saveNewTransaction({
   token,
   form,
@@ -92,13 +136,19 @@ export async function saveNewTransaction({
   form: EntryForm;
   account: Account | null;
   idempotencyKey: string;
-  source?: 'manual' | 'text' | 'voice';
+  source?: 'manual' | 'text' | 'voice' | 'receipt';
   sourceText?: string;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
 }) {
   const parsedDate = parseDateLabel(form.date);
-  const fingerprint = JSON.stringify({ form, accountId: account?.id ?? null, source, sourceText, refund });
+  const fingerprint = JSON.stringify({
+    form,
+    accountId: account?.id ?? null,
+    source,
+    sourceText,
+    refund,
+  });
   if (progress.entry && progress.fingerprint !== fingerprint) {
     throw new Error(
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'
@@ -118,7 +168,9 @@ export async function saveNewTransaction({
   progress.entry = entry;
   progress.fingerprint = fingerprint;
   const convertedToEMI =
-    form.tag === 'EMI' && account != null && normalizeAccountType(account.type) === 'credit_card';
+    entryTag(form) === 'EMI' &&
+    account != null &&
+    normalizeAccountType(account.type) === 'credit_card';
   if (convertedToEMI && !progress.emiCreated) {
     const sourceEntryID = Number(entry.id);
     if (!Number.isInteger(sourceEntryID) || sourceEntryID <= 0)
@@ -141,26 +193,7 @@ export async function saveNewTransaction({
     form.subscriptionBillingInterval &&
     !progress.subscriptionCreated
   ) {
-    await createSubscription(token, {
-      name: form.subscriptionName.trim(),
-      merchant: form.subscriptionMerchant.trim() || form.merchant.trim(),
-      category: form.subscriptionCategory.trim() || form.category,
-      amount: Number(form.subscriptionAmount || form.amount),
-      billing_interval: form.subscriptionBillingInterval,
-      next_due_date: form.subscriptionNextDueDate.trim(),
-      last_charged_date: parsedDate ? formatApiDate(parsedDate) : undefined,
-      status: 'active',
-      reminder_days: Number(form.subscriptionReminderDays || 0),
-      cancel_before_due: form.subscriptionCancelBeforeDue,
-      cancel_on_date: form.subscriptionCancelOnDate.trim(),
-      autopay: form.subscriptionAutopay,
-      payment_mode: form.mode,
-      transaction_tag: form.tag || 'Subscription',
-      purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
-      notes: form.subscriptionNotes.trim(),
-      account_id: account?.id ?? null,
-      ...loanInstalments(form),
-    });
+    await createRecurringFromForm(token, form, account);
     progress.subscriptionCreated = true;
   }
   if (refund && refund.amount > 0 && !progress.refundCreated) {
@@ -204,7 +237,7 @@ export async function saveNewTransaction({
  * says 5 of 12 and has 7 left to generate.
  */
 function loanInstalments(form: EntryForm) {
-  if (form.tag !== 'EMI') return {};
+  if (entryTag(form) !== 'EMI') return {};
   const total = Number(form.emiTotalInstalments);
   if (!Number.isInteger(total) || total <= 0) return {};
   const paid = Number(form.emiPaidInstalments);
