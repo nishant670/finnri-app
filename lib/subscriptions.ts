@@ -83,6 +83,12 @@ export type SubscriptionPayload = {
   start_date?: string;
   platform?: string;
   step_up_pct?: number;
+  /**
+   * Create only: a payment already made, written to the transactions as a
+   * confirmed entry. When it is the one that was due, the server moves the
+   * schedule on; an older one leaves it alone.
+   */
+  log_payment_on?: string;
 };
 
 export type RecurringKind = 'subscription' | 'loan' | 'investment' | 'bill';

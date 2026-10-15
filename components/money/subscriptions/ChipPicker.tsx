@@ -6,13 +6,15 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type ChipPickerProps = {
   label: string;
-  options: string[];
+  /** One line under the label saying what the choice is for. */
+  hint?: string;
+  options: readonly string[];
   active: string;
   onSelect: (value: string) => void;
   colors: ReturnType<typeof useThemeTokens>['colors'];
 };
 
-export function ChipPicker({ label, options, active, onSelect, colors }: ChipPickerProps) {
+export function ChipPicker({ label, hint, options, active, onSelect, colors }: ChipPickerProps) {
   return (
     <View className="mb-4">
       <ThemedText
@@ -20,6 +22,11 @@ export function ChipPicker({ label, options, active, onSelect, colors }: ChipPic
         style={{ color: `${colors.text}99` }}>
         {label}
       </ThemedText>
+      {hint ? (
+        <ThemedText className="-mt-1 mb-2 text-xs" style={{ color: `${colors.text}99` }}>
+          {hint}
+        </ThemedText>
+      ) : null}
       <View className="flex-row flex-wrap gap-2">
         {options.map((option) => (
           <Pill

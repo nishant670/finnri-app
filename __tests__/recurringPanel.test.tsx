@@ -164,4 +164,82 @@ describe('Recurring panel', () => {
       })
     );
   });
+
+  // The device report: the investment was a blank box, this month's PPF
+  // instalment could not be logged, and the bank account to pay from looked
+  // like a second copy of the mode.
+  it('adds a PPF from the type chips, logging this payment from a bank account', async () => {
+    jest
+      .spyOn(accounts, 'fetchAccounts')
+      .mockResolvedValue([
+        { id: 4, type: 'bank', name: 'HDFC Bank', color: '#000', last4: '1234' },
+      ] as accounts.Account[]);
+    const createSpy = jest
+      .spyOn(subscriptions, 'createSubscription')
+      .mockResolvedValue({ ...netflix, id: 10 } as Subscription);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByText } =
+      await render(<SubscriptionsPanel embedded />);
+
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Investment'));
+    await findByTestId('recurring-investment-type');
+    expect(queryByText('Swiggy')).toBeNull();
+    await fireEvent.press(await findByText('PPF'));
+    await fireEvent.changeText(await findByPlaceholderText('5,000'), '3000');
+
+    // Daily and every two weeks are in Repeats now, not under More options.
+    await findByText('Every 2 weeks');
+
+    await fireEvent.press(await findByText("Also log this month's payment"));
+    await findByText('Paid from');
+    await findByText('•• 1234');
+    await fireEvent.press(await findByText('Add investment'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    const today = new Date();
+    const todayISO = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('-');
+    expect(createSpy.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        name: 'PPF',
+        merchant: 'PPF',
+        kind: 'investment',
+        amount: 3000,
+        payment_mode: 'Bank Account',
+        account_id: 4,
+        log_payment_on: todayISO,
+      })
+    );
+  });
+
+  it('takes a type that is not listed under Other', async () => {
+    const createSpy = jest
+      .spyOn(subscriptions, 'createSubscription')
+      .mockResolvedValue({ ...netflix, id: 11 } as Subscription);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText } = await render(
+      <SubscriptionsPanel embedded />
+    );
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Investment'));
+    await fireEvent.press(await findByText('Add investment'));
+    await findByText(/Pick the investment type\./);
+
+    await fireEvent.press(await findByText('Other'));
+    await fireEvent.changeText(
+      await findByPlaceholderText('ULIP, Sukanya Samriddhi, chit fund'),
+      'Chit fund'
+    );
+    await fireEvent.changeText(await findByPlaceholderText('5,000'), '2000');
+    await fireEvent.press(await findByText('Add investment'));
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ name: 'Chit fund', kind: 'investment' })
+    );
+    expect(createSpy.mock.calls[0][1]).not.toHaveProperty('log_payment_on');
+  });
 });
