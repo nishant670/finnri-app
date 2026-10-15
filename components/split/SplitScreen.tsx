@@ -738,7 +738,21 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     [billFriendOptions, currentUserContact, currentUserName]
   );
 
-  const recentActivity = useMemo(() => buildRecentActivity(activity), [activity]);
+  // One row model per feed item, kept while the item is: a page landing
+  // appends items and keeps the old ones, so the rows already drawn get the
+  // same model back and their memo holds. Rebuilt items (a refresh) rebuild.
+  const activityRowCache = useRef(new WeakMap<SplitActivityItem, ActivityRowModel>());
+  const recentActivity = useMemo(
+    () =>
+      activity.map((item) => {
+        const cached = activityRowCache.current.get(item);
+        if (cached) return cached;
+        const [row] = buildRecentActivity([item]);
+        activityRowCache.current.set(item, row);
+        return row;
+      }),
+    [activity]
+  );
 
   const normalizedSearch = searchQuery.trim().toLowerCase();
 

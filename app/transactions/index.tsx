@@ -577,8 +577,10 @@ export default function TransactionsScreen() {
     />
   );
 
+  // A failed load leaves the previous rows up under its banner, and a footer
+  // calling them "everything" would contradict it.
   const listFooter =
-    transactions.length === 0 ? null : loadMoreError ? (
+    transactions.length === 0 || error ? null : loadMoreError ? (
       <View className="items-center gap-3 py-8">
         <ThemedText tone="muted" className="px-6 text-center text-xs">
           {loadMoreError}
