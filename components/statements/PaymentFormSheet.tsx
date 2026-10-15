@@ -31,8 +31,15 @@ const PAYMENT_METHODS = ['UPI', 'Net banking', 'Autopay', 'Card', 'Other'];
  *
  * Naming the source account is optional. When given, the money is also shown
  * leaving that account, which is the only way its balance stays true.
+ *
+ * `paid-off` is the same sheet for a card with no statement: "Mark card paid
+ * off" used to be a yes/no that cleared the card and wrote nothing, so the
+ * bank account the bill was paid from never went down. Its amount is what was
+ * spent on the card since it was last cleared, and a partial payment is not a
+ * thing it can record — paid off is the whole of it.
  */
 export function PaymentFormSheet({
+  variant = 'statement',
   visible,
   remainingDue,
   minimumDue,
@@ -43,6 +50,7 @@ export function PaymentFormSheet({
   onClose,
   onSubmit,
 }: {
+  variant?: 'statement' | 'paid-off';
   visible: boolean;
   remainingDue: number;
   minimumDue: number;
@@ -79,7 +87,8 @@ export function PaymentFormSheet({
 
   const value = parseAmountInput(amount);
   const canSubmit = value > 0 && !submitting;
-  const isPartial = value > 0 && value < remainingDue;
+  const paidOff = variant === 'paid-off';
+  const isPartial = !paidOff && value > 0 && value < remainingDue;
   const sourceName = sourceAccounts.find((account) => account.id === fromAccountId)?.name;
 
   return (
@@ -94,7 +103,7 @@ export function PaymentFormSheet({
         style={{ backgroundColor: theme.card, borderColor: theme.border }}>
         <View className="mb-4 flex-row items-center justify-between">
           <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
-            Record payment
+            {paidOff ? 'Mark card paid off' : 'Record payment'}
           </TText>
           <Pressable
             accessibilityRole="button"
@@ -107,7 +116,9 @@ export function PaymentFormSheet({
         </View>
 
         <TText className="text-xs" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-          {formatMoney(remainingDue)} left on this bill
+          {paidOff
+            ? `${formatMoney(remainingDue)} spent on this card since it was last cleared. Marking it paid off resets that to zero.`
+            : `${formatMoney(remainingDue)} left on this bill`}
         </TText>
 
         {error && <ErrorBanner message={error} style={{ marginTop: 12 }} />}
@@ -186,7 +197,9 @@ export function PaymentFormSheet({
             icon="bank-transfer-out"
             summary={
               [sourceName, method].filter(Boolean).join(' · ') ||
-              'Optional — keeps that account’s balance right'
+              (paidOff
+                ? 'Optional — leave empty if someone else paid'
+                : 'Optional — keeps that account’s balance right')
             }
             expanded={showSource}
             onToggle={() => setShowSource((open) => !open)}>
@@ -251,7 +264,7 @@ export function PaymentFormSheet({
             <TText
               className="text-base"
               style={{ fontFamily: Fonts.title, color: canSubmit ? '#FFFFFF' : '#94A3B8' }}>
-              Record payment
+              {paidOff ? 'Mark paid off' : 'Record payment'}
             </TText>
           )}
         </Pressable>

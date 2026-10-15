@@ -17,7 +17,7 @@ import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { fetchAccounts, type Account } from '@/lib/accounts';
+import { fetchAccounts, normalizeAccountType, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
 import {
@@ -42,7 +42,7 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
+import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, looksLikeCardBill, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
@@ -825,6 +825,22 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               autoFocus={!editing}
             />
           )}
+          {formKind !== 'investment' && looksLikeCardBill(`${merchant} ${name}`) ? (
+            <CardBillNote
+              cards={accounts.filter(
+                (account) => normalizeAccountType(account.type) === 'credit_card'
+              )}
+              colors={colors}
+              onOpen={(cardId) => {
+                closeForm();
+                if (cardId != null) {
+                  router.push({ pathname: '/accounts/[id]', params: { id: String(cardId) } });
+                } else {
+                  router.push('/accounts/manage');
+                }
+              }}
+            />
+          ) : null}
           {/* Past merchants — Swiggy, Netflix — are no help naming an SIP. */}
           {formKind !== 'investment' && merchantSuggestions.length > 0 && (
             <View className="mb-3 flex-row flex-wrap gap-2">
@@ -1081,6 +1097,42 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         colors={colors}
         muted={muted}
       />
+    </View>
+  );
+}
+
+/**
+ * Said when a new item is named like a credit card bill. It does not block:
+ * the name might mean something else. It points to where the bill belongs.
+ */
+function CardBillNote({
+  cards,
+  colors,
+  onOpen,
+}: {
+  cards: Account[];
+  colors: ReturnType<typeof useThemeTokens>['colors'];
+  onOpen: (cardId: number | null) => void;
+}) {
+  const only = cards.length === 1 ? cards[0] : null;
+  return (
+    <View
+      testID="recurring-card-bill-note"
+      className="mb-3 rounded-2xl p-3"
+      style={{ backgroundColor: colors.secondary }}>
+      <ThemedText className="text-xs leading-5" style={{ color: colors.text }}>
+        Credit card bills belong on the card’s own page. Your card spends are already logged one
+        by one, so a bill here would count them twice.
+      </ThemedText>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => onOpen(only?.id ?? null)}
+        className="mt-2 self-start"
+        hitSlop={8}>
+        <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+          {only ? `Open ${only.name}` : 'Go to your accounts'}
+        </ThemedText>
+      </Pressable>
     </View>
   );
 }

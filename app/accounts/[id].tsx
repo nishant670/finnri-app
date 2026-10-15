@@ -20,7 +20,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { StateView } from '@/components/ui/StateView';
-import { ThemedConfirmDialog, ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
+import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -195,6 +195,7 @@ export default function AccountDetailsScreen() {
   const [isActionsSheetVisible, setIsActionsSheetVisible] = useState(false);
   const [isDeleteDialogVisible, setIsDeleteDialogVisible] = useState(false);
   const [isPaidOffDialogVisible, setIsPaidOffDialogVisible] = useState(false);
+  const [paidOffError, setPaidOffError] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
 
   // The account list carries the bill, but not its reconciliation — that is
@@ -403,17 +404,16 @@ export default function AccountDetailsScreen() {
       .finally(() => setIsPending(false));
   };
 
-  const handleMarkPaidOff = async () => {
+  const handleMarkPaidOff = async (payment: StatementPaymentPayload) => {
     if (!token || !account || !canMarkPaidOff || isPending) return;
     setIsPending(true);
-    setError(null);
+    setPaidOffError(null);
     try {
-      await markCardPaidOff(token, account.id);
+      await markCardPaidOff(token, account.id, payment);
       setIsPaidOffDialogVisible(false);
       await loadDetails();
-    } catch (paidOffError) {
-      setIsPaidOffDialogVisible(false);
-      setError(getFriendlyErrorMessage(paidOffError, 'Unable to mark this card paid off.'));
+    } catch (markError) {
+      setPaidOffError(getFriendlyErrorMessage(markError, 'Unable to mark this card paid off.'));
     } finally {
       setIsPending(false);
     }
@@ -805,7 +805,10 @@ export default function AccountDetailsScreen() {
           {canMarkPaidOff && (
             <Pressable
               accessibilityRole="button"
-              onPress={() => setIsPaidOffDialogVisible(true)}
+              onPress={() => {
+                setPaidOffError(null);
+                setIsPaidOffDialogVisible(true);
+              }}
               className="mt-3 flex-row items-center justify-center gap-2 rounded-full border py-3"
               style={{ backgroundColor: theme.card, borderColor: theme.border }}>
               <MaterialCommunityIcons name="check-circle-outline" size={18} color={theme.accent} />
@@ -1028,19 +1031,25 @@ export default function AccountDetailsScreen() {
           onConfirm={handleDelete}
         />
 
-        <ThemedConfirmDialog
-          visible={isPaidOffDialogVisible}
-          title="Mark this card paid off?"
-          message="Use this only after the full card balance has been paid. Finnri will reset its transaction-based estimate to zero and count new card spends from here."
-          iconName="check-circle-outline"
-          confirmLabel="Mark paid off"
-          cancelLabel="Cancel"
-          loading={isPending}
-          onCancel={() => {
-            if (!isPending) setIsPaidOffDialogVisible(false);
-          }}
-          onConfirm={() => void handleMarkPaidOff()}
-        />
+        {/* Not a yes/no any more: it asks, optionally, where the money came
+            from, so that account's balance drops too — as a card payment,
+            never as spending, since the card's spends are already logged. */}
+        {canMarkPaidOff && account ? (
+          <PaymentFormSheet
+            variant="paid-off"
+            visible={isPaidOffDialogVisible}
+            remainingDue={cardLimit?.outstanding ?? 0}
+            minimumDue={0}
+            accounts={accounts}
+            cardId={account.id}
+            submitting={isPending}
+            error={paidOffError}
+            onClose={() => {
+              if (!isPending) setIsPaidOffDialogVisible(false);
+            }}
+            onSubmit={(payment) => void handleMarkPaidOff(payment)}
+          />
+        ) : null}
 
         {isCreditCard && (
           <>

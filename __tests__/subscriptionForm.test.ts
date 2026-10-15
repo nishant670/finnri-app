@@ -5,6 +5,7 @@ import {
   currentPaymentPeriod,
   investmentTypeOptions,
   isListedInvestmentType,
+  looksLikeCardBill,
   paymentToLog,
   shiftByInterval,
   buildSummaryLine,
@@ -113,6 +114,23 @@ describe('option lists', () => {
 
   it('never offers market days when creating', () => {
     expect(intervalOptions.some((o) => o.value === 'business_daily')).toBe(false);
+  });
+
+  // Card bills are paid on the card's page; as a recurring bill they would
+  // count the card's spends twice.
+  it('recognises a name that reads as a credit card bill', () => {
+    for (const name of [
+      'HDFC credit card',
+      'Card bill',
+      'Amex card payment',
+      'CC bill',
+      'Creditcard dues',
+    ]) {
+      expect(looksLikeCardBill(name)).toBe(true);
+    }
+    for (const name of ['Netflix', 'Electricity', 'Gift card', 'Ration card renewal']) {
+      expect(looksLikeCardBill(name)).toBe(false);
+    }
   });
 
   it('lists investment types and recognises a stored one however it is cased', () => {
