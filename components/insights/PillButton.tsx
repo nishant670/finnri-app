@@ -1,8 +1,11 @@
-import { TouchableOpacity } from 'react-native';
-
-import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
+/**
+ * A small action inside an Insights card. Both weights are outlined, so a
+ * card's own buttons never compete with the screen's one orange action; the
+ * stronger one is tinted.
+ */
 export function PillButton({
   label,
   muted,
@@ -12,24 +15,18 @@ export function PillButton({
   muted?: boolean;
   onPress?: () => void;
 }) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
 
   return (
-    <TouchableOpacity
+    <Button
+      variant="outline"
+      height={36}
+      label={label}
       onPress={onPress}
-      className="rounded-lg px-3 py-2"
-      style={{
-        backgroundColor: muted
-          ? theme.mode === 'dark'
-            ? '#333333'
-            : '#F3F3F3'
-          : theme.colors.accent,
-      }}>
-      <ThemedText
-        className="text-[10px] font-black"
-        style={{ color: muted ? theme.colors.text : theme.colors.onAccent }}>
-        {label}
-      </ThemedText>
-    </TouchableOpacity>
+      style={[
+        { paddingHorizontal: 14 },
+        muted ? null : { backgroundColor: colors.selectedFill, borderColor: colors.selectedBorder },
+      ]}
+    />
   );
 }

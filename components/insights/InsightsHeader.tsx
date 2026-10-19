@@ -1,12 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { ActivityIndicator, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /**
- * The Insights chrome — title, the period it is showing, and search.
+ * The Insights chrome (board R7-Insights) — the tab's title, the period under
+ * it as a chooser, and search.
  *
  * Extracted only because the loading frame wears it too. A screen whose header
  * appears a beat after its body is a screen that visibly assembles itself, and
@@ -23,41 +24,79 @@ export function InsightsHeader({
   refreshing: boolean;
   onPickPeriod: () => void;
 }) {
-  const theme = useThemeTokens().colors;
+  const { colors } = useThemeTokens();
 
   return (
-    <View className="flex-row items-center justify-between px-5 py-4">
-      <View>
-        <ThemedText className="text-2xl font-black">Insights</ThemedText>
-        <TouchableOpacity className="mt-1 flex-row items-center" onPress={onPickPeriod}>
-          <ThemedText className="text-xs font-bold" style={{ color: theme.accent }}>
+    <View style={styles.header}>
+      <View style={styles.titles}>
+        <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+          Insights
+        </ThemedText>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Period, ${rangeLabel}. Choose a period`}
+          onPress={onPickPeriod}
+          hitSlop={8}
+          style={styles.period}>
+          <ThemedText numberOfLines={1} style={[styles.periodLabel, { color: colors.text }]}>
             {rangeLabel}
           </ThemedText>
-          <MaterialCommunityIcons name="chevron-down" size={14} color={theme.accent} />
-        </TouchableOpacity>
+          <MaterialCommunityIcons name="chevron-down" size={20} color={colors.text} />
+        </Pressable>
       </View>
-      <View className="flex-row items-center gap-3">
-        {refreshing && <ActivityIndicator color={theme.accent} />}
-        <HeaderIcon name="magnify" onPress={() => router.push('/transactions')} />
+      <View style={styles.actions}>
+        {refreshing ? <ActivityIndicator color={colors.muted} /> : null}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Search transactions"
+          onPress={() => router.push('/transactions')}
+          style={styles.iconButton}>
+          <MaterialCommunityIcons name="magnify" size={24} color={colors.text} />
+        </Pressable>
       </View>
     </View>
   );
 }
-function HeaderIcon({
-  name,
-  onPress,
-}: {
-  name: keyof typeof MaterialCommunityIcons.glyphMap;
-  onPress?: () => void;
-}) {
-  const theme = useThemeTokens();
 
-  return (
-    <TouchableOpacity
-      className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-      style={{ backgroundColor: theme.colors.card }}
-      onPress={onPress}>
-      <MaterialCommunityIcons name={name} size={20} color={theme.colors.text} />
-    </TouchableOpacity>
-  );
-}
+const styles = StyleSheet.create({
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+  },
+  titles: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+  },
+  period: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 2,
+    marginTop: 2,
+  },
+  periodLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
