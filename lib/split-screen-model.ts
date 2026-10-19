@@ -1,6 +1,7 @@
 import {
   buildGroupRoster,
   formatBalance,
+  formatMonthYear,
   groupMatchesSearch,
 } from '@/components/split/split-utils';
 import { type FriendDetailSummary, type SplitGroupSummary } from '@/components/split/split-types';
@@ -431,4 +432,44 @@ export const buildActivityListItems = (
     });
   });
   return items;
+};
+
+export type BillMonthGroup = {
+  key: string;
+  /** "October 2026"; null for the one ungrouped run an amount sort gives. */
+  title: string | null;
+  bills: SplitBill[];
+  /** The viewer's side of the month, summed: positive is lent, negative borrowed. */
+  net: number;
+};
+
+/**
+ * A group's expenses by month (board R6-Group), in the order they arrive —
+ * each month a card, headed by what the viewer lent or borrowed in it.
+ *
+ * Only a date sort has months to show. Ranked by amount or by last edit, the
+ * dates jump about, so the list stays one card with no headings.
+ */
+export const groupBillsByMonth = (
+  bills: SplitBill[],
+  netOf: (bill: SplitBill) => number,
+  byMonth: boolean
+): BillMonthGroup[] => {
+  if (!byMonth) {
+    return bills.length === 0
+      ? []
+      : [{ key: 'all', title: null, bills, net: bills.reduce((sum, bill) => sum + netOf(bill), 0) }];
+  }
+  const groups: BillMonthGroup[] = [];
+  bills.forEach((bill) => {
+    const key = bill.date.slice(0, 7);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.bills.push(bill);
+      last.net += netOf(bill);
+    } else {
+      groups.push({ key, title: formatMonthYear(bill.date), bills: [bill], net: netOf(bill) });
+    }
+  });
+  return groups.map((group, index) => ({ ...group, key: `${group.key}:${index}` }));
 };

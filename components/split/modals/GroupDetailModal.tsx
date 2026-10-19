@@ -1,27 +1,46 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { cssInterop } from 'nativewind';
 import { useMemo, useState } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { AppHeader } from '@/components/navigation/AppHeader';
-import { DetailPill, FloatingExpenseButton } from '@/components/split/primitives/SplitPrimitives';
+import { GroupAvatar } from '@/components/split/GroupAvatar';
+import { SplitEmptyCard, SplitListCard } from '@/components/split/primitives/SplitChrome';
 import {
   formatBalance,
-  formatBillListDate,
   getExpenseIconConfig,
+  getGroupKindConfig,
   readBillForViewer,
 } from '@/components/split/split-utils';
 import type { GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import { SplitFullScreenModal } from '@/components/split/primitives/SplitFullScreenModal';
 import { ThemedText } from '@/components/themed-text';
+import { Button, PrimaryButton } from '@/components/ui/Button';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
+import { ListRow } from '@/components/ui/ListRow';
+import { PressableView } from '@/components/ui/PressableView';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { sortSplitBills, splitBillSortLabel, type SplitBillSort } from '@/lib/split-bill-sort';
+import { groupBillsByMonth } from '@/lib/split-screen-model';
 import type { SplitBill, SplitFriend } from '@/lib/splits';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
+/** `10 Oct` from an expense's `YYYY-MM-DD`. */
+const shortBillDate = (value: string) => {
+  const [year, month, day] = value.slice(0, 10).split('-').map(Number);
+  const date = new Date(year || 2000, (month || 1) - 1, day || 1);
+  return `${date.getDate()} ${date.toLocaleString('en-US', { month: 'short' })}`;
+};
 
+/** What the viewer lent or borrowed, worded; nothing for an even month. */
+const netPhrase = (net: number) =>
+  net > 0 ? `you lent ${formatBalance(net)}` : net < 0 ? `you borrowed ${formatBalance(Math.abs(net))}` : undefined;
+
+/**
+ * A group's own page (board R6-Group): its tile and name in the header, the
+ * balance card with Settle up and Add expense, the Totals · Balances · Export
+ * pills, then its expenses a card per month.
+ */
 export function GroupDetailModal({
   summary,
   friendById,
@@ -87,25 +106,44 @@ export function GroupDetailModal({
           .includes(normalizedGroupSearch);
       })
     : sortedBills;
-  const overallCopy =
-    summary.netBalance === 0
-      ? summary.billCount > 0
-        ? 'Everyone is settled up'
-        : 'No expenses yet'
-      : summary.netBalance > 0
-        ? `You are owed ${formatBalance(summary.netBalance)} overall`
-        : `You owe ${formatBalance(Math.abs(summary.netBalance))} overall`;
+  const months = groupBillsByMonth(
+    filteredBills,
+    (bill) => readBillForViewer(bill, friendById, currentUserName).net,
+    billSort === 'date_desc' || billSort === 'date_asc'
+  );
+  const kind = getGroupKindConfig(summary.kind);
+  const peopleLabel = `${summary.roster.length} ${summary.roster.length === 1 ? 'person' : 'people'}`;
+  const net = summary.netBalance;
+  const tone = net > 0 ? theme.positive : theme.negative;
 
   return (
     <SplitFullScreenModal onClose={onClose}>
       {(close) => (
         <>
+          {/*
+           * Members cannot edit a roster they do not own, but they can read
+           * it, so the title (with its people count) takes them to the list
+           * in settings instead.
+           */}
           <AppHeader
             title={summary.group.name}
-            subtitle={overallCopy}
+            subtitle={`${kind.label} · ${peopleLabel}`}
             onBack={close}
+            leading={
+              <GroupAvatar
+                icon={kind.icon}
+                photoUri={summary.group.photo_url || null}
+                size={40}
+                radius={10}
+              />
+            }
+            onTitlePress={() =>
+              canManageGroup ? onManageMembers(summary) : onOpenSettings(summary)
+            }
+            titleAccessibilityLabel={canManageGroup ? 'Manage group members' : 'See group members'}
+            style={{ paddingHorizontal: 16, paddingVertical: 10 }}
             rightNode={
-              <View className="ml-4 flex-row gap-2">
+              <View style={styles.headerActions}>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Search group"
@@ -113,109 +151,31 @@ export function GroupDetailModal({
                     setGroupSearchVisible((current) => !current);
                     if (groupSearchVisible) setGroupSearchQuery('');
                   }}
-                  className="h-10 w-10 items-center justify-center rounded-full"
-                  style={{ backgroundColor: theme.card }}>
+                  style={styles.iconButton}>
                   <MaterialCommunityIcons
                     name={groupSearchVisible ? 'close' : 'magnify'}
-                    size={22}
-                    color={theme.accent}
+                    size={24}
+                    color={theme.text}
                   />
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Group settings"
                   onPress={() => onOpenSettings(summary)}
-                  className="h-10 w-10 items-center justify-center rounded-full"
-                  style={{ backgroundColor: theme.card }}>
-                  <MaterialCommunityIcons name="cog-outline" size={22} color={theme.accent} />
+                  style={styles.iconButton}>
+                  <MaterialCommunityIcons name="cog-outline" size={24} color={theme.text} />
                 </Pressable>
               </View>
             }
           />
-          <View className="min-h-[150px] overflow-hidden" style={{ backgroundColor: theme.accent }}>
-            <View
-              style={{
-                position: 'absolute',
-                top: -34,
-                left: 82,
-                width: 260,
-                height: 170,
-                backgroundColor: `${theme.onAccent}14`,
-                transform: [{ rotate: '28deg' }],
-              }}
-            />
-            <View
-              style={{
-                position: 'absolute',
-                right: -78,
-                bottom: -4,
-                width: 360,
-                height: 172,
-                backgroundColor: `${theme.onAccent}17`,
-                transform: [{ rotate: '-18deg' }],
-              }}
-            />
-            <View className="px-6 pb-8 pt-8">
-              <View className="flex-row gap-3">
-                {/*
-                 * Dates are a trip's shape, not every group's: a home or couple
-                 * group runs indefinitely, so offering to bound it with a start
-                 * and end date is an invitation to describe it wrongly.
-                 */}
-                {summary.kind === 'trip' ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    className="min-h-12 flex-row items-center rounded-full border px-4"
-                    style={{
-                      borderColor: `${theme.onAccent}99`,
-                      backgroundColor: `${theme.shadow}14`,
-                    }}>
-                    <MaterialCommunityIcons
-                      name="calendar-blank-outline"
-                      size={19}
-                      color={theme.onAccent}
-                    />
-                    <TText variant="button" className="ml-3" style={{ color: theme.onAccent }}>
-                      Add trip dates
-                    </TText>
-                  </Pressable>
-                ) : null}
-                {/*
-                  * Members cannot edit a roster they do not own, but they can
-                  * read it — and this pill was simply inert for them, on a
-                  * screen that had nowhere else to say who was in the group.
-                  * It now takes them to the list in settings instead.
-                  */}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={canManageGroup ? 'Manage group members' : 'See group members'}
-                  onPress={() =>
-                    canManageGroup ? onManageMembers(summary) : onOpenSettings(summary)
-                  }
-                  className="min-h-12 flex-row items-center rounded-full px-4"
-                  style={{ backgroundColor: `${theme.shadow}B8` }}>
-                  <MaterialCommunityIcons
-                    name="account-group-outline"
-                    size={19}
-                    color={theme.onAccent}
-                  />
-                  <TText variant="button" className="ml-3" style={{ color: theme.onAccent }}>
-                    {summary.roster.length} people
-                  </TText>
-                </Pressable>
-              </View>
-            </View>
-          </View>
 
           <KeyboardAvoidingScreen
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 132 }}>
+            contentContainerStyle={styles.content}>
             {groupSearchVisible ? (
-              <View
-                className="mb-5 min-h-13 flex-row items-center rounded-full border px-4"
-                style={{ borderColor: theme.border, backgroundColor: theme.card }}>
-                <MaterialCommunityIcons name="magnify" size={22} color={theme.neutral} />
+              <View style={[styles.search, { borderColor: theme.border, backgroundColor: theme.card }]}>
+                <MaterialCommunityIcons name="magnify" size={20} color={theme.muted} />
                 <TextInput
                   value={groupSearchQuery}
                   onChangeText={setGroupSearchQuery}
@@ -223,62 +183,72 @@ export function GroupDetailModal({
                   autoCapitalize="none"
                   placeholder="Search expenses"
                   placeholderTextColor={theme.muted}
-                  style={{
-                    flex: 1,
-                    marginLeft: 10,
-                    minHeight: 48,
-                    color: theme.text,
-                    fontFamily: Fonts.body,
-                    fontSize: 16,
-                  }}
+                  style={[styles.searchInput, { color: theme.text, fontFamily: Fonts.body }]}
                 />
               </View>
             ) : null}
 
-            <View>
-              <TText variant="sectionTitle" style={{ color: theme.text }}>
-                {overallCopy}
-              </TText>
-              {summary.detailLines.length > 0 ? (
-                <View className="mt-3 border-l-4 py-1 pl-5" style={{ borderColor: theme.border }}>
-                  {summary.detailLines.map((line) => (
-                    <TText
-                      key={line}
-                      className="py-1 text-lg leading-7"
-                      style={{ color: theme.neutral }}>
-                      {line}
-                    </TText>
-                  ))}
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.balance}>
+                {net === 0 ? (
+                  <ThemedText style={[styles.zeroTitle, { color: theme.text }]}>
+                    {summary.billCount > 0 ? 'Everyone is settled up' : 'No expenses yet'}
+                  </ThemedText>
+                ) : (
+                  <>
+                    <ThemedText tone="muted" style={styles.eyebrow}>
+                      {net > 0 ? 'You’re owed' : 'You owe'}
+                    </ThemedText>
+                    <ThemedText style={[styles.amount, { color: tone }]}>
+                      {formatBalance(Math.abs(net))}
+                    </ThemedText>
+                  </>
+                )}
+                {summary.detailLines.map((line) => (
+                  <ThemedText key={line} tone="muted" style={styles.detail}>
+                    {line}
+                  </ThemedText>
+                ))}
+                <View style={styles.actions}>
+                  <Button
+                    variant="outline"
+                    height={48}
+                    icon="hand-coin-outline"
+                    label="Settle up"
+                    onPress={() => onOpenAction(summary, 'settle')}
+                    style={styles.action}
+                  />
+                  {canAddExpense ? (
+                    <PrimaryButton
+                      height={48}
+                      icon="receipt-text-plus-outline"
+                      label="Add expense"
+                      onPress={() => onAddExpense(summary.group.id)}
+                      style={styles.action}
+                    />
+                  ) : null}
                 </View>
-              ) : null}
+              </View>
+              <View style={[styles.pills, { borderTopColor: theme.border }]}>
+                <GroupPill
+                  label="Totals"
+                  icon="calculator-variant-outline"
+                  onPress={() => onOpenAction(summary, 'totals')}
+                />
+                <GroupPill
+                  label="Balances"
+                  icon="scale-balance"
+                  onPress={() => onOpenAction(summary, 'balances')}
+                  divider
+                />
+                <GroupPill
+                  label="Export"
+                  icon="export-variant"
+                  onPress={() => onOpenAction(summary, 'export')}
+                  divider
+                />
+              </View>
             </View>
-
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              className="mt-6"
-              contentContainerStyle={{ gap: 12 }}>
-              <DetailPill
-                label="Settle up"
-                icon="hand-coin-outline"
-                onPress={() => onOpenAction(summary, 'settle')}
-              />
-              <DetailPill
-                label="Totals"
-                icon="calculator-variant-outline"
-                onPress={() => onOpenAction(summary, 'totals')}
-              />
-              <DetailPill
-                label="Balances"
-                icon="scale-balance"
-                onPress={() => onOpenAction(summary, 'balances')}
-              />
-              <DetailPill
-                label="Export"
-                icon="export-variant"
-                onPress={() => onOpenAction(summary, 'export')}
-              />
-            </ScrollView>
 
             {/*
              * A group of one is the state every group starts in, and the only
@@ -288,46 +258,40 @@ export function GroupDetailModal({
              */}
             {others.length === 0 && canManageGroup ? (
               <View
-                className="mt-6 rounded-3xl border p-5"
-                style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                <TText
-                  className="text-center text-lg"
-                  style={{ color: theme.text, fontFamily: Fonts.title }}>
+                style={[
+                  styles.card,
+                  styles.alone,
+                  { backgroundColor: theme.card, borderColor: theme.border },
+                ]}>
+                <ThemedText style={[styles.zeroTitle, { color: theme.text }]}>
                   You&apos;re the only one here
-                </TText>
-                <TText
-                  className="mt-2 text-center text-base leading-6"
-                  style={{ color: theme.muted }}>
+                </ThemedText>
+                <ThemedText tone="muted" style={styles.detail}>
                   Add the people you split with, or send them a link to join.
-                </TText>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => onManageMembers(summary)}
-                  className="mt-5 min-h-14 flex-row items-center justify-center gap-3 rounded-full"
-                  style={{ backgroundColor: theme.accent }}>
-                  <MaterialCommunityIcons
-                    name="account-plus-outline"
-                    size={22}
-                    color={theme.onAccent}
+                </ThemedText>
+                <View style={styles.actions}>
+                  <Button
+                    variant="outline"
+                    height={44}
+                    icon="account-plus-outline"
+                    label="Add group members"
+                    onPress={() => onManageMembers(summary)}
+                    style={styles.action}
                   />
-                  <TText variant="button" style={{ color: theme.onAccent }}>
-                    Add group members
-                  </TText>
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => onInviteViaLink(summary)}
-                  className="mt-3 min-h-14 flex-row items-center justify-center gap-3 rounded-full border"
-                  style={{ borderColor: theme.border }}>
-                  <MaterialCommunityIcons name="link-variant" size={22} color={theme.accent} />
-                  <TText variant="button" style={{ color: theme.accent }}>
-                    Share group link
-                  </TText>
-                </Pressable>
+                  <Button
+                    variant="outline"
+                    height={44}
+                    icon="link-variant"
+                    label="Share group link"
+                    onPress={() => onInviteViaLink(summary)}
+                    style={styles.action}
+                  />
+                </View>
               </View>
             ) : null}
 
-            <View className="mt-6">
+            <View style={styles.expensesHead}>
+              <ThemedText style={[styles.expensesTitle, { color: theme.text }]}>Expenses</ThemedText>
               {/*
                * The list was date-descending with no way out of it, which
                * answers "what happened recently" and nothing else — a group
@@ -336,74 +300,83 @@ export function GroupDetailModal({
                * only earns its place once there is more than one row to order.
                */}
               {summary.bills.length > 1 ? (
-                <Pressable
+                <PressableView
                   accessibilityRole="button"
                   accessibilityLabel={`Sort expenses. Currently ${splitBillSortLabel(billSort)}`}
                   onPress={onOpenSort}
-                  className="mb-4 min-h-11 flex-row items-center justify-end gap-2 self-end rounded-full border px-4"
-                  style={{ borderColor: theme.border, backgroundColor: theme.card }}>
-                  <MaterialCommunityIcons name="sort-variant" size={18} color={theme.accent} />
-                  <TText className="text-sm" style={{ color: theme.accent, fontFamily: Fonts.title }}>
+                  hitSlop={6}
+                  style={styles.sort}
+                  pressedStyle={styles.pressed}>
+                  <MaterialCommunityIcons name="sort-variant" size={18} color={theme.text} />
+                  <ThemedText style={[styles.sortLabel, { color: theme.text }]}>
                     {splitBillSortLabel(billSort)}
-                  </TText>
-                </Pressable>
+                  </ThemedText>
+                </PressableView>
               ) : null}
-              {filteredBills.length > 0 ? (
-                filteredBills.map((bill) => (
-                  <GroupExpenseRow
-                    key={bill.id}
-                    bill={bill}
-                    currentUserName={currentUserName}
-                    friendById={friendById}
-                    onPress={() => onOpenExpense(bill)}
-                  />
-                ))
-              ) : normalizedGroupSearch ? (
-                <View className="items-center px-6 py-20">
-                  <MaterialCommunityIcons name="magnify" size={34} color={theme.neutral} />
-                  <TText
-                    className="mt-4 text-center text-lg"
-                    style={{ color: theme.text, fontFamily: Fonts.title }}>
-                    No matching expenses
-                  </TText>
-                  <TText
-                    className="mt-2 text-center text-sm leading-5"
-                    style={{ color: theme.muted }}>
-                    Try searching by title, amount, date, notes, or friend name.
-                  </TText>
-                </View>
-              ) : (
-                <View className="items-center px-6 py-24">
-                  <View
-                    className="h-16 w-16 items-center justify-center rounded-2xl"
-                    style={{ backgroundColor: theme.secondary }}>
-                    <MaterialCommunityIcons
-                      name="receipt-text-plus-outline"
-                      size={30}
-                      color={theme.accent}
-                    />
-                  </View>
-                  <TText
-                    className="mt-5 text-center text-lg"
-                    style={{ color: theme.text, fontFamily: Fonts.title }}>
-                    Add your first expense
-                  </TText>
-                  <TText
-                    className="mt-2 text-center text-sm leading-5"
-                    style={{ color: theme.muted }}>
-                    Expenses for {summary.group.name} will appear here once you add them.
-                  </TText>
-                </View>
-              )}
             </View>
-          </KeyboardAvoidingScreen>
 
-          {canAddExpense ? (
-            <FloatingExpenseButton onPress={() => onAddExpense(summary.group.id)} />
-          ) : null}
+            {months.length > 0 ? (
+              months.map((month) => (
+                <View key={month.key}>
+                  {month.title ? <GroupHeader label={month.title} total={netPhrase(month.net)} /> : null}
+                  <SplitListCard>
+                    {month.bills.map((bill, index) => (
+                      <GroupExpenseRow
+                        key={bill.id}
+                        bill={bill}
+                        currentUserName={currentUserName}
+                        friendById={friendById}
+                        divider={index > 0}
+                        onPress={() => onOpenExpense(bill)}
+                      />
+                    ))}
+                  </SplitListCard>
+                </View>
+              ))
+            ) : normalizedGroupSearch ? (
+              <SplitEmptyCard
+                icon="magnify"
+                title="No matching expenses"
+                message="Try searching by title, amount, date, notes, or friend name."
+              />
+            ) : (
+              <SplitEmptyCard
+                icon="receipt-text-plus-outline"
+                title="Add your first expense"
+                message={`Expenses for ${summary.group.name} will appear here once you add them.`}
+              />
+            )}
+          </KeyboardAvoidingScreen>
         </>
       )}
     </SplitFullScreenModal>
+  );
+}
+
+/** One of the three cells along the foot of the balance card. */
+function GroupPill({
+  label,
+  icon,
+  onPress,
+  divider = false,
+}: {
+  label: string;
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  onPress: () => void;
+  divider?: boolean;
+}) {
+  const theme = useThemeTokens().colors;
+  return (
+    <PressableView
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.pill, divider && { borderLeftWidth: 1, borderLeftColor: theme.border }]}
+      pressedStyle={styles.pressed}>
+      <MaterialCommunityIcons name={icon} size={18} color={theme.text} />
+      <ThemedText numberOfLines={1} style={[styles.pillLabel, { color: theme.text }]}>
+        {label}
+      </ThemedText>
+    </PressableView>
   );
 }
 
@@ -411,15 +384,16 @@ function GroupExpenseRow({
   bill,
   currentUserName,
   friendById,
+  divider,
   onPress,
 }: {
   bill: SplitBill;
   currentUserName: string;
   friendById: Map<number, SplitFriend>;
+  divider: boolean;
   onPress: () => void;
 }) {
   const theme = useThemeTokens().colors;
-  const date = formatBillListDate(bill.date);
   // Read for whoever is holding the phone. Straight off `participants` this row
   // said "You paid ₹5,880 … you lent ₹2,352" to the member who had done
   // neither: both figures belonged to the man who entered the expense.
@@ -427,45 +401,140 @@ function GroupExpenseRow({
   const iconConfig = getExpenseIconConfig(bill.title);
 
   return (
-    <Pressable
-      accessibilityRole="button"
+    <ListRow
+      icon={iconConfig.icon}
+      hue={theme.neutral}
+      title={bill.title}
+      meta={`${paidByYou ? 'You' : payerName} paid ${formatBalance(bill.total_amount)} · ${shortBillDate(bill.date)}`}
+      amount={net !== 0 ? formatBalance(Math.abs(net)) : undefined}
+      amountTone={net > 0 ? 'positive' : 'negative'}
+      status={net > 0 ? 'you lent' : net < 0 ? 'you borrowed' : undefined}
+      statusTone="muted"
+      divider={divider}
       onPress={onPress}
-      className="min-h-[88px] flex-row items-start gap-4 py-3">
-      <View className="w-9 items-center pt-1">
-        <TText className="text-base" style={{ color: theme.muted }}>
-          {date.month}
-        </TText>
-        <TText variant="cardTitle" style={{ color: theme.muted }}>
-          {date.day}
-        </TText>
-      </View>
-      <View
-        className="h-16 w-16 items-center justify-center rounded"
-        style={{ backgroundColor: theme.secondary }}>
-        <MaterialCommunityIcons name={iconConfig.icon} size={34} color={theme.text} />
-      </View>
-      <View className="flex-1 pt-1">
-        <TText variant="cardTitle" style={{ color: theme.text }}>
-          {bill.title}
-        </TText>
-        <TText className="mt-1 text-base" style={{ color: theme.muted }}>
-          {paidByYou ? 'You' : payerName} paid {formatBalance(bill.total_amount)}
-        </TText>
-      </View>
-      {net !== 0 ? (
-        <View className="items-end pt-1">
-          <TText
-            className="text-xs"
-            style={{ color: net > 0 ? theme.positive : theme.negative, fontFamily: Fonts.title }}>
-            {net > 0 ? 'you lent' : 'you borrowed'}
-          </TText>
-          <TText
-            className="mt-1 text-base"
-            style={{ color: net > 0 ? theme.positive : theme.negative, fontFamily: Fonts.title }}>
-            {formatBalance(net)}
-          </TText>
-        </View>
-      ) : null}
-    </Pressable>
+    />
   );
 }
+
+const styles = StyleSheet.create({
+  headerActions: {
+    flexDirection: 'row',
+    marginLeft: 8,
+    marginRight: -8,
+  },
+  iconButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  content: {
+    paddingTop: 8,
+    paddingBottom: 48,
+  },
+  search: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: SCREEN_GUTTER,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    fontSize: 15,
+  },
+  card: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  balance: {
+    gap: 2,
+    padding: 16,
+  },
+  eyebrow: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  amount: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  zeroTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  detail: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 14,
+  },
+  action: {
+    flex: 1,
+    paddingHorizontal: 8,
+  },
+  pills: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+  },
+  pill: {
+    flex: 1,
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  pillLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  alone: {
+    gap: 2,
+    marginTop: 12,
+    padding: 16,
+  },
+  expensesHead: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 20,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  expensesTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  sort: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  sortLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

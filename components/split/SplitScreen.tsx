@@ -2549,7 +2549,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           visible={modal === 'group'}
           saving={saving}
           title={editingGroupId ? 'Edit group' : 'Create a group'}
-          doneLabel={editingGroupId ? 'Save' : 'Done'}
+          doneLabel={editingGroupId ? 'Save changes' : 'Create group'}
           groupName={groupName}
           groupKind={groupKind}
           photoUri={groupPhotoUri}

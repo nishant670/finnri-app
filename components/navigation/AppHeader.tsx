@@ -13,6 +13,11 @@ type AppHeaderProps = {
   rightIcon?: keyof typeof MaterialCommunityIcons.glyphMap;
   onRightPress?: () => void;
   rightNode?: React.ReactNode;
+  /** Drawn between the back button and the title — a group's tile, say. */
+  leading?: React.ReactNode;
+  /** Makes the title block a button, for a title that opens something. */
+  onTitlePress?: () => void;
+  titleAccessibilityLabel?: string;
   style?: ViewStyle;
 };
 
@@ -23,6 +28,9 @@ export function AppHeader({
   rightIcon,
   onRightPress,
   rightNode,
+  leading,
+  onTitlePress,
+  titleAccessibilityLabel,
   style,
 }: AppHeaderProps) {
   const theme = useThemeTokens();
@@ -54,7 +62,14 @@ export function AppHeader({
         </Pressable>
       )}
 
-      <View className="min-w-0 flex-1">
+      {leading ? <View className="mr-3">{leading}</View> : null}
+
+      <Pressable
+        className="min-w-0 flex-1"
+        disabled={!onTitlePress}
+        onPress={onTitlePress}
+        accessibilityRole={onTitlePress ? 'button' : undefined}
+        accessibilityLabel={onTitlePress ? titleAccessibilityLabel : undefined}>
         <ThemedText
           numberOfLines={1}
           className="text-xl font-black"
@@ -66,7 +81,7 @@ export function AppHeader({
             {subtitle}
           </ThemedText>
         )}
-      </View>
+      </Pressable>
 
       {rightNode ??
         (rightIcon ? (

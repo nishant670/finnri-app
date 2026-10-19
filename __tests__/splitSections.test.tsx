@@ -251,10 +251,10 @@ describe('SplitFriendFormModal', () => {
 
   it('titles and labels itself for adding or editing', async () => {
     const add = await setup();
-    expect(add.screen.getByText('Add Friend')).toBeTruthy();
+    expect(add.screen.getByText('Add friend')).toBeTruthy();
     expect(add.screen.getByText('Save friend')).toBeTruthy();
     const edit = await setup({ isEditing: true });
-    expect(edit.screen.getByText('Edit Friend')).toBeTruthy();
+    expect(edit.screen.getByText('Edit friend')).toBeTruthy();
     expect(edit.screen.getByText('Update friend')).toBeTruthy();
   });
 

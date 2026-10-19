@@ -10,6 +10,7 @@ import {
   activityDayTitle,
   buildActivityListItems,
   buildRecentActivity,
+  groupBillsByMonth,
   computeBalanceTotals,
   filterVisibleActivity,
   filterVisibleFriends,
@@ -462,6 +463,30 @@ describe('buildActivityListItems', () => {
   it('names other days by weekday, with the year once it differs', () => {
     expect(activityDayTitle('2026-10-10', now)).toBe('Sat, 10 Oct');
     expect(activityDayTitle('2025-10-10', now)).toBe('Fri, 10 Oct 2025');
+  });
+});
+
+describe('groupBillsByMonth', () => {
+  const bills = [
+    bill({ id: 1, date: '2026-10-10', total_amount: 100 }),
+    bill({ id: 2, date: '2026-10-02', total_amount: 50 }),
+    bill({ id: 3, date: '2026-09-21', total_amount: 30 }),
+  ];
+  const netOf = (b: SplitBill) => (b.id === 2 ? -20 : b.total_amount / 2);
+
+  it('keeps the order and heads each month with the viewer’s net', () => {
+    const months = groupBillsByMonth(bills, netOf, true);
+    expect(months.map((month) => [month.title, month.bills.map((b) => b.id), month.net])).toEqual([
+      ['October 2026', [1, 2], 30],
+      ['September 2026', [3], 15],
+    ]);
+  });
+
+  it('is one untitled run when the sort is not by date', () => {
+    const months = groupBillsByMonth(bills, netOf, false);
+    expect(months).toHaveLength(1);
+    expect(months[0]).toMatchObject({ title: null, net: 45 });
+    expect(groupBillsByMonth([], netOf, false)).toEqual([]);
   });
 });
 
