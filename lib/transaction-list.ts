@@ -18,6 +18,12 @@ export type TransactionListItem =
       transaction: Transaction;
       /** Rows above this one, down the whole list — what the entrance staggers by. */
       position: number;
+      /**
+       * Where the row falls in its day's card (board R3-List): the first one
+       * draws the card's top edge, the last its bottom edge and no divider.
+       */
+      groupFirst: boolean;
+      groupLast: boolean;
     };
 
 /**
@@ -45,11 +51,14 @@ export const buildTransactionListItems = (
   }: { sort: TransactionSort; hasMore: boolean; pendingDeleteId?: string | null }
 ): TransactionListItem[] => {
   if (isAmountSort(sort)) {
+    // One card for the whole ranking: there are no days to split it by.
     return transactions.map((transaction, position) => ({
       kind: 'row',
       key: `row:${transaction.id}`,
       transaction,
       position,
+      groupFirst: position === 0,
+      groupLast: position === transactions.length - 1,
     }));
   }
 
@@ -74,8 +83,15 @@ export const buildTransactionListItems = (
           ),
       first: index === 0,
     });
-    section.data.forEach((transaction) => {
-      items.push({ kind: 'row', key: `row:${transaction.id}`, transaction, position });
+    section.data.forEach((transaction, row) => {
+      items.push({
+        kind: 'row',
+        key: `row:${transaction.id}`,
+        transaction,
+        position,
+        groupFirst: row === 0,
+        groupLast: row === section.data.length - 1,
+      });
       position += 1;
     });
   });

@@ -96,7 +96,11 @@ export function Button({
       ) : null}
       <ThemedText
         numberOfLines={1}
-        style={[LABEL_SIZE[size], { color: ink, fontWeight: primary ? '700' : '600' }]}>
+        // Two pills share a bar ("Repeat for today" beside "Edit"); on a narrow
+        // phone the label gives up a little size before it gives up words.
+        adjustsFontSizeToFit
+        minimumFontScale={0.85}
+        style={[LABEL_SIZE[size], { flexShrink: 1, color: ink, fontWeight: primary ? '700' : '600' }]}>
         {label}
       </ThemedText>
     </PressableView>
