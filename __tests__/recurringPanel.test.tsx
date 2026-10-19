@@ -134,7 +134,7 @@ describe('Recurring panel', () => {
 
     await findByTestId('recurring-overview');
     await fireEvent.press(await findByTestId('recurring-filter-loan'));
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
 
     // Everything about the loan beyond its EMI is optional, so it is folded.
     await fireEvent.press(await findByTestId('recurring-loan-details'));
@@ -181,7 +181,7 @@ describe('Recurring panel', () => {
       await render(<SubscriptionsPanel embedded />);
 
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Investment'));
     await findByTestId('recurring-investment-type');
     expect(queryByText('Swiggy')).toBeNull();
@@ -189,6 +189,7 @@ describe('Recurring panel', () => {
     await fireEvent.changeText(await findByPlaceholderText('5,000'), '3000');
 
     // Daily and every two weeks are in Repeats now, not under More options.
+    await fireEvent.press(await findByTestId('recurring-interval'));
     await findByText('Every 2 weeks');
 
     await fireEvent.press(await findByText("Also log this month's payment"));
@@ -224,7 +225,7 @@ describe('Recurring panel', () => {
       <SubscriptionsPanel embedded />
     );
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Investment'));
     await fireEvent.press(await findByText('Add investment'));
     await findByText(/Pick the investment type\./);
@@ -296,7 +297,7 @@ describe('Recurring panel', () => {
     const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByTestId } =
       await render(<SubscriptionsPanel embedded />);
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Bill'));
     await fireEvent.changeText(
       await findByPlaceholderText('Rent, Electricity, Insurance premium'),

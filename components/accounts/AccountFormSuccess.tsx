@@ -36,7 +36,7 @@ export function AccountFormSuccess({
 
   return (
     <>
-      <ScreenHeader subtitle="ACCOUNT ADDED" onBack={() => router.back()} />
+      <ScreenHeader subtitle="Account added" onBack={() => router.back()} />
       <View style={styles.successContent}>
         <View style={[styles.successCard, { backgroundColor: theme.card }]}>
           <View style={[styles.successIcon, { backgroundColor: visual.bgColor }]}>

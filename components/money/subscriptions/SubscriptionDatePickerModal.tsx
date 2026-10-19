@@ -45,7 +45,7 @@ export function SubscriptionDatePickerModal({
                   : 'Next payment on'}
             </ThemedText>
             <Pressable onPress={onDone}>
-              <ThemedText className="text-sm font-black" style={{ color: colors.accent }}>
+              <ThemedText className="text-sm font-black" style={{ color: colors.text }}>
                 Done
               </ThemedText>
             </Pressable>

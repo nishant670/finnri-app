@@ -191,7 +191,7 @@ export function PaymentAccountPicker({
         className="mt-3 flex-row items-center gap-2"
         onPress={onAddAccount}>
         <MaterialCommunityIcons name="plus-circle-outline" size={18} color={colors.accent} />
-        <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+        <ThemedText className="text-xs font-black" style={{ color: colors.text }}>
           Add a {noun}
         </ThemedText>
       </Pressable>

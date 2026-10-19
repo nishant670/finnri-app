@@ -64,16 +64,17 @@ describe('AccountFormStepOne', () => {
     const { screen, setName, setIsDefault } = await stepOne();
     await fireEvent.changeText(screen.getByPlaceholderText('My Spending Account'), 'Salary');
     expect(setName).toHaveBeenCalledWith('Salary');
-    await fireEvent.press(screen.getByText('Use as default account'));
+    await fireEvent.press(screen.getByLabelText('Use as default account'));
     const updater = setIsDefault.mock.calls[0][0] as (v: boolean) => boolean;
     expect(updater(false)).toBe(true);
     expect(updater(true)).toBe(false);
   });
 
-  it('folds colour and default behind a row that reads them back', async () => {
+  it('reads colour and default back on their rows, and opens the swatches from Colour', async () => {
     const { screen, setShowStyleOptions } = await stepOne({ showStyleOptions: false });
-    expect(screen.queryByText('Use as default account')).toBeNull();
-    expect(screen.getByText('Blue · Not your default')).toBeTruthy();
+    expect(screen.getByText('Blue')).toBeTruthy();
+    expect(screen.getByText('Not your default')).toBeTruthy();
+    expect(screen.queryByLabelText('Blue colour')).toBeNull();
     await fireEvent.press(screen.getByTestId('account-style-options'));
     expect(setShowStyleOptions).toHaveBeenCalledTimes(1);
   });

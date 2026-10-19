@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
-import { Fonts } from '@/constants/theme';
+import { recurringVisuals } from '@/components/money/money-visuals';
 import { RecurringScheduleLine } from '@/components/money/RecurringParts';
 import { Subscription } from '@/lib/subscriptions';
 import { ThemedText } from '@/components/themed-text';
+import { ListRow, type ListRowTone } from '@/components/ui/ListRow';
 import { formatDueDateLabel, intervalLabel, reminderLabel } from '@/lib/subscription-form';
 import { formatMoney } from '@/lib/money';
 import { kindOf, recurringKindMeta } from '@/lib/recurring';
@@ -13,27 +14,32 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 type SubscriptionCardProps = {
   subscription: Subscription;
   colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
+  muted?: string;
+  /** The rule above the row: every row in the card but the first. */
+  divider?: boolean;
   onPress: () => void;
   onMarkPaid: () => void;
   onCancelNow: () => void;
   onDelete: () => void;
 };
 
+/**
+ * One recurring payment as a row of the Recurring card (boards R5-*): its kind
+ * tile, name and what it is, the amount with where it stands under it — red
+ * overdue, amber due soon — then a loan's progress and the row's own actions.
+ */
 export function SubscriptionCard({
   subscription,
   colors,
-  muted,
+  divider = false,
   onPress,
   onMarkPaid,
   onCancelNow,
   onDelete,
 }: SubscriptionCardProps) {
-  const urgent = subscription.due_state === 'overdue' || subscription.due_state === 'due_soon';
   const totalInstalments = subscription.total_instalments ?? 0;
   const instalmentsPaid = subscription.instalments_paid ?? 0;
   const loanFinished = totalInstalments > 0 && instalmentsPaid >= totalInstalments;
-  const stateLabel = loanFinished ? 'completed' : subscription.due_state.replace('_', ' ');
   const instalmentLine =
     totalInstalments > 0
       ? loanFinished
@@ -42,92 +48,121 @@ export function SubscriptionCard({
       : null;
   const isActive = subscription.status === 'active';
   const kind = kindOf(subscription);
+  const visual = recurringVisuals[kind];
+  const detail =
+    kind === 'loan' && subscription.lender
+      ? subscription.lender
+      : kind === 'investment' && subscription.platform
+        ? subscription.platform
+        : subscription.category || 'Uncategorized';
+
+  const [status, statusTone]: [string, ListRowTone] = loanFinished
+    ? ['Completed', 'positive']
+    : subscription.due_state === 'overdue'
+      ? ['Overdue', 'negative']
+      : subscription.due_state === 'due_soon'
+        ? [`Due ${formatDueDateLabel(subscription.next_due_date)}`, 'warning']
+        : subscription.due_state === 'paused'
+          ? ['Paused', 'muted']
+          : subscription.due_state === 'cancelled'
+            ? ['Cancelled', 'muted']
+            : [`Due ${formatDueDateLabel(subscription.next_due_date)}`, 'muted'];
+
   return (
-    <Pressable
-      accessibilityRole="button"
+    <ListRow
+      icon={visual.icon}
+      hue={visual.hue}
+      title={subscription.name}
+      meta={`${recurringKindMeta[kind].label} · ${detail} · ${intervalLabel(subscription.billing_interval)}`}
+      amount={formatMoney(subscription.amount)}
+      status={status}
+      statusTone={statusTone}
+      divider={divider}
       accessibilityLabel={`Edit ${subscription.name}`}
-      onPress={onPress}
-      className="rounded-[28px] border p-4"
-      style={{
-        backgroundColor: colors.card,
-        borderColor: urgent ? '#F9A825' : colors.border,
-      }}>
-      <View className="flex-row items-start justify-between gap-3">
-        <View className="flex-1">
-          <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-            {subscription.name}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-            {recurringKindMeta[kind].label} ·{' '}
-            {kind === 'loan' && subscription.lender
-              ? subscription.lender
-              : kind === 'investment' && subscription.platform
-                ? subscription.platform
-                : subscription.category || 'Uncategorized'}{' '}
-            · {intervalLabel(subscription.billing_interval)}
-          </ThemedText>
-        </View>
-        <ThemedText className="text-base font-black" style={{ color: colors.accent }}>
-          {formatMoney(subscription.amount)}
+      onPress={onPress}>
+      {instalmentLine ? (
+        <ThemedText style={[styles.caption, styles.strong, { color: colors.text }]}>
+          {instalmentLine}
         </ThemedText>
-      </View>
-      <View className="mt-4 flex-row items-center justify-between">
-        <View className="flex-1 pr-3">
-          <ThemedText
-            className="text-xs font-bold capitalize"
-            style={{ color: urgent ? '#F57F17' : muted }}>
-            {stateLabel}
-          </ThemedText>
-          {instalmentLine ? (
-            <ThemedText className="mt-1 text-[11px] font-bold" style={{ color: colors.text }}>
-              {instalmentLine}
+      ) : null}
+      <RecurringScheduleLine item={subscription} kind={kind} />
+      <View style={styles.footer}>
+        <ThemedText tone="muted" numberOfLines={1} style={[styles.caption, styles.flex]}>
+          {loanFinished ? '' : reminderLabel(subscription.reminder_days)}
+        </ThemedText>
+        {subscription.cancel_before_due && (
+          <View style={[styles.tag, { backgroundColor: colors.warningSurface }]}>
+            <ThemedText tone="warning" style={styles.tagLabel}>
+              Cancel reminder
             </ThemedText>
-          ) : null}
-          <RecurringScheduleLine item={subscription} kind={kind} />
-          {loanFinished ? null : (
-            <ThemedText className="mt-1 text-[11px]" style={{ color: muted }}>
-              Due {formatDueDateLabel(subscription.next_due_date)} ·{' '}
-              {reminderLabel(subscription.reminder_days)}
-            </ThemedText>
-          )}
-          {subscription.cancel_before_due && (
-            <View
-              className="mt-2 self-start rounded-full px-2 py-1"
-              style={{ backgroundColor: '#FFF3E0' }}>
-              <ThemedText className="text-[10px] font-black uppercase" style={{ color: '#EF6C00' }}>
-                Cancel reminder
-              </ThemedText>
-            </View>
-          )}
-        </View>
-        <View className="flex-row items-center gap-4">
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Mark ${subscription.name} paid`}
-              onPress={onMarkPaid}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="check-circle-outline" size={22} color={colors.accent} />
-            </Pressable>
-          )}
-          {isActive && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Cancel ${subscription.name}`}
-              onPress={onCancelNow}
-              hitSlop={12}>
-              <MaterialCommunityIcons name="calendar-remove-outline" size={21} color="#EF6C00" />
-            </Pressable>
-          )}
+          </View>
+        )}
+        {isActive && (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Delete ${subscription.name}`}
-            onPress={onDelete}
-            hitSlop={12}>
-            <MaterialCommunityIcons name="trash-can-outline" size={21} color="#D32F2F" />
+            accessibilityLabel={`Mark ${subscription.name} paid`}
+            onPress={onMarkPaid}
+            hitSlop={8}
+            style={styles.action}>
+            <MaterialCommunityIcons name="check-circle-outline" size={20} color={colors.text} />
           </Pressable>
-        </View>
+        )}
+        {isActive && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Cancel ${subscription.name}`}
+            onPress={onCancelNow}
+            hitSlop={8}
+            style={styles.action}>
+            <MaterialCommunityIcons name="calendar-remove-outline" size={20} color={colors.warning} />
+          </Pressable>
+        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${subscription.name}`}
+          onPress={onDelete}
+          hitSlop={8}
+          style={styles.action}>
+          <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.negative} />
+        </Pressable>
       </View>
-    </Pressable>
+    </ListRow>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  strong: {
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  tag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  tagLabel: {
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '700',
+  },
+  action: {
+    width: 36,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

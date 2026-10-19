@@ -1,4 +1,4 @@
-import { TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -13,6 +13,7 @@ type FieldProps = {
   autoFocus?: boolean;
 };
 
+/** A labelled 48dp input on the card, as the redesign's sheets draw them. */
 export function Field({
   label,
   value,
@@ -23,26 +24,37 @@ export function Field({
   autoFocus = false,
 }: FieldProps) {
   return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
+    <View style={styles.field}>
+      <ThemedText style={[styles.label, { color: colors.text }]}>{label}</ThemedText>
       <TextInput
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
         keyboardType={keyboardType}
         placeholder={placeholder}
-        placeholderTextColor={`${colors.text}66`}
+        placeholderTextColor={colors.muted}
         autoFocus={autoFocus}
-        className="h-12 rounded-2xl border px-4 text-sm"
-        style={{
-          borderColor: colors.border,
-          color: colors.text,
-          backgroundColor: colors.background,
-        }}
+        style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  field: {
+    marginBottom: 12,
+  },
+  label: {
+    marginBottom: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  input: {
+    height: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 14,
+    fontSize: 15,
+  },
+});

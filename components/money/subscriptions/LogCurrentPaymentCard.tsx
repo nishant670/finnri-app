@@ -76,10 +76,10 @@ export function LogCurrentPaymentCard({
   return (
     <View
       testID="recurring-log-payment"
-      className="mb-4 rounded-2xl border p-4"
+      className="mb-3 rounded-2xl border p-4"
       style={{
-        borderColor: checked ? colors.accent : colors.border,
-        backgroundColor: colors.background,
+        borderColor: checked ? colors.selectedBorder : colors.border,
+        backgroundColor: checked ? colors.selectedFill : colors.card,
       }}>
       <Pressable
         accessibilityRole="checkbox"
@@ -90,7 +90,7 @@ export function LogCurrentPaymentCard({
         <MaterialCommunityIcons
           name={checked ? 'checkbox-marked' : 'checkbox-blank-outline'}
           size={24}
-          color={checked ? colors.accent : muted}
+          color={checked ? colors.text : muted}
         />
         <View className="flex-1">
           <ThemedText className="text-sm" style={{ color: colors.text, fontFamily: Fonts.title }}>

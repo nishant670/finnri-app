@@ -145,7 +145,7 @@ export function SubscriptionAdvancedFields({
         </View>
       ) : (
         <View className="mb-4 rounded-2xl p-3" style={{ backgroundColor: colors.secondary }}>
-          <ThemedText className="text-xs font-bold" style={{ color: colors.accent }}>
+          <ThemedText className="text-xs font-bold" style={{ color: colors.text }}>
             Daily transactions are added automatically. No daily reminder is sent.
           </ThemedText>
         </View>

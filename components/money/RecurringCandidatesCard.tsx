@@ -226,7 +226,7 @@ export function RecurringCandidatesCard({
                     {candidate.occurrences} seen
                   </ThemedText>
                 </View>
-                <ThemedText className="text-sm font-black" style={{ color: colors.accent }}>
+                <ThemedText className="text-sm font-black" style={{ color: colors.text }}>
                   {formatMoney(candidate.average_amount)}
                 </ThemedText>
               </Pressable>
@@ -276,7 +276,7 @@ export function RecurringCandidatesCard({
           onPress={() => router.push('/recurring-review')}
           className="h-11 flex-1 items-center justify-center rounded-2xl"
           style={{ backgroundColor: colors.secondary, opacity: busy ? 0.6 : 1 }}>
-          <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+          <ThemedText className="text-xs font-black" style={{ color: colors.text }}>
             Review each
           </ThemedText>
         </Pressable>
