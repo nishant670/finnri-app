@@ -1,9 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { Dispatch, SetStateAction } from 'react';
-import { Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { Segments } from '@/components/ui/Segments';
+import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { haptics } from '@/lib/haptics';
 import { roundToPaise, toAmountInputValue } from '@/lib/money';
 import {
   buildEqualParticipantsForGroup,
@@ -71,6 +75,8 @@ type TransactionSplitFieldsProps = {
 };
 
 /**
+ * The shared-expense card under More details (board R2-Split).
+ *
  * The shared-expense portion of the general transaction composer.
  *
  * Keeping this boundary independent from the transaction sheet makes the
@@ -89,278 +95,256 @@ export function TransactionSplitFields({
   onUpdateParticipant,
   onRemoveParticipant,
 }: TransactionSplitFieldsProps) {
-  const theme = useThemeTokens().colors;
-  const accent = theme.accent;
-  const accentSurface = theme.secondary;
+  const { colors } = useThemeTokens();
   const selectedGroup = groups.find((group) => group.id === form.splitGroupId) ?? null;
   const selectedGroupResolution = selectedGroup
     ? resolveParticipantsForGroup(selectedGroup, form.amount)
     : null;
+  const rule = { borderTopWidth: 1, borderTopColor: colors.border };
+  const inputStyle = [styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }];
 
   return (
-    <View className="px-5 mb-6">
-      <View
-        className="rounded-[24px] border p-3"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <View className="flex-row items-center justify-between">
-          <View className="flex-row items-center gap-3">
-            <View
-              className="h-10 w-10 items-center justify-center rounded-2xl"
-              style={{ backgroundColor: accentSurface }}>
-              <MaterialCommunityIcons name="account-multiple-outline" size={20} color={accent} />
-            </View>
-            <View>
-              <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                Split this expense
-              </ThemedText>
-              <ThemedText tone="muted" className="text-xs">
-                Keep track of who owes you.
-              </ThemedText>
-            </View>
-          </View>
-          <Pressable
-            accessibilityRole="switch"
-            accessibilityState={{ checked: form.splitEnabled }}
-            onPress={() =>
-              setForm((previous) =>
-                previous.splitEnabled
-                  ? { ...previous, splitEnabled: false }
-                  : withSplitTurnedOn(previous, friends)
-              )
-            }
-            className="h-8 w-14 justify-center rounded-full px-1"
-            style={{ backgroundColor: form.splitEnabled ? accent : theme.border }}>
-            <View
-              className="h-6 w-6 rounded-full bg-white"
-              style={{ alignSelf: form.splitEnabled ? 'flex-end' : 'flex-start' }}
-            />
-          </Pressable>
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.header}>
+        <View style={[styles.tile, { backgroundColor: colors.selectedFill }]}>
+          <MaterialCommunityIcons name="account-multiple-outline" size={20} color={colors.text} />
         </View>
+        <View style={styles.headerText}>
+          <ThemedText style={[styles.title, { color: colors.text }]}>Split this expense</ThemedText>
+          <ThemedText tone="muted" style={styles.caption}>
+            Keep track of who owes you.
+          </ThemedText>
+        </View>
+        <Pressable
+          accessibilityRole="switch"
+          accessibilityLabel="Split this expense"
+          accessibilityState={{ checked: form.splitEnabled }}
+          onPress={() => {
+            haptics.toggle(!form.splitEnabled);
+            setForm((previous) =>
+              previous.splitEnabled
+                ? { ...previous, splitEnabled: false }
+                : withSplitTurnedOn(previous, friends)
+            );
+          }}
+          style={[styles.switch, { backgroundColor: form.splitEnabled ? colors.accent : colors.track }]}>
+          <View
+            style={[
+              styles.thumb,
+              { alignSelf: form.splitEnabled ? 'flex-end' : 'flex-start' },
+            ]}
+          />
+        </Pressable>
+      </View>
 
-        {form.splitEnabled ? (
-          <View className="mt-5 gap-4">
-            {groups.length > 0 ? (
-              <View>
-                <ThemedText
-                  tone="muted"
-                  className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                  Group
-                </ThemedText>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <View className="flex-row gap-2">
+      {form.splitEnabled ? (
+        <>
+          {groups.length > 0 ? (
+            <View style={[styles.section, rule]}>
+              <ThemedText tone="muted" style={styles.label}>
+                Group
+              </ThemedText>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={styles.chipRow}>
+                  <SplitChoiceChip
+                    label="New"
+                    selected={form.splitGroupId === null}
+                    onPress={() => setForm((previous) => ({ ...previous, splitGroupId: null }))}
+                  />
+                  {groups.map((group) => (
                     <SplitChoiceChip
-                      label="New"
-                      selected={form.splitGroupId === null}
-                      onPress={() => setForm((previous) => ({ ...previous, splitGroupId: null }))}
-                    />
-                    {groups.map((group) => (
-                      <SplitChoiceChip
-                        key={group.id}
-                        label={group.name}
-                        selected={form.splitGroupId === group.id}
-                        onPress={() =>
-                          setForm((previous) => {
-                            const participants = buildParticipantsForGroup(group, previous.amount);
-                            return {
-                              ...previous,
-                              splitGroupId: group.id,
-                              splitGroupName: '',
-                              splitParticipants:
-                                participants.length > 0 ? participants : previous.splitParticipants,
-                            };
-                          })
-                        }
-                      />
-                    ))}
-                  </View>
-                </ScrollView>
-                {selectedGroup && (selectedGroup.members?.length ?? 0) > 0 ? (
-                  <>
-                    {selectedGroupResolution?.warning ? (
-                      <View className="mt-3 rounded-2xl bg-amber-50 px-3 py-2 dark:bg-amber-900/20">
-                        <ThemedText tone="warning" className="text-xs font-bold">
-                          {selectedGroupResolution.warning}
-                        </ThemedText>
-                      </View>
-                    ) : null}
-                    <Pressable
-                      accessibilityRole="button"
+                      key={group.id}
+                      label={group.name}
+                      selected={form.splitGroupId === group.id}
                       onPress={() =>
-                        onApplyEqualSplit(
-                          buildEqualParticipantsForGroup(selectedGroup, form.amount)
-                        )
+                        setForm((previous) => {
+                          const participants = buildParticipantsForGroup(group, previous.amount);
+                          return {
+                            ...previous,
+                            splitGroupId: group.id,
+                            splitGroupName: '',
+                            splitParticipants:
+                              participants.length > 0 ? participants : previous.splitParticipants,
+                          };
+                        })
                       }
-                      className="mt-3 flex-row items-center justify-center gap-2 rounded-2xl border py-3"
-                      style={{ borderColor: theme.border }}>
-                      <MaterialCommunityIcons
-                        name="account-group-outline"
-                        size={18}
-                        color={accent}
-                      />
-                      <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                        Split equally
-                      </ThemedText>
-                    </Pressable>
-                  </>
-                ) : null}
-              </View>
-            ) : null}
-
-            {form.splitGroupId === null ? (
-              <View className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                <ThemedText
-                  tone="muted"
-                  className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                  New group name
-                </ThemedText>
-                <TextInput
-                  value={form.splitGroupName}
-                  onChangeText={(text) =>
-                    setForm((previous) => ({ ...previous, splitGroupName: text }))
-                  }
-                  placeholder="Trip, flatmates, dinner crew"
-                  placeholderTextColor="#9CA3AF"
-                  className="p-0 text-sm font-bold"
-                  style={{ color: theme.text }}
-                />
-              </View>
-            ) : null}
-
-            {form.splitParticipants.length > 0 ? (
-              <View className="gap-3 rounded-2xl bg-gray-50 p-3 dark:bg-gray-800/50">
-                <View className="flex-row gap-2">
-                  <ShareModeButton
-                    label="Amount"
-                    selected={shareMode === 'amount'}
-                    onPress={() => onChangeShareMode('amount')}
-                  />
-                  <ShareModeButton
-                    label="Percentage"
-                    selected={shareMode === 'percentage'}
-                    onPress={() => onChangeShareMode('percentage')}
-                  />
+                    />
+                  ))}
                 </View>
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => onApplyEqualSplit()}
-                  className="flex-row items-center justify-center gap-2 rounded-2xl border py-3"
-                  style={{ borderColor: theme.border }}>
-                  <MaterialCommunityIcons name="call-split" size={18} color={accent} />
-                  <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                    Split equally
-                  </ThemedText>
-                </Pressable>
-              </View>
-            ) : null}
-
-            <View className="gap-3">
-              {form.splitParticipants.map((participant, index) => (
-                <View key={index} className="rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
-                  <View className="flex-row items-center justify-between">
-                    <ThemedText
-                      tone="muted"
-                      className="text-[10px] font-black uppercase tracking-widest">
-                      Share {index + 1}
-                    </ThemedText>
-                    <Pressable onPress={() => onRemoveParticipant(index)}>
-                      <MaterialCommunityIcons name="close" size={18} color={theme.text} />
-                    </Pressable>
-                  </View>
-                  {friends.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} className="mt-3">
-                      <View className="flex-row gap-2">
-                        <SplitChoiceChip
-                          label="New friend"
-                          selected={participant.friendId === null}
-                          onPress={() => onUpdateParticipant(index, { friendId: null })}
-                        />
-                        {friends.map((friend) => (
-                          <SplitChoiceChip
-                            key={friend.id}
-                            label={friend.name}
-                            selected={participant.friendId === friend.id}
-                            onPress={() =>
-                              onUpdateParticipant(index, {
-                                friendId: friend.id,
-                                friendName: '',
-                              })
-                            }
-                          />
-                        ))}
-                      </View>
-                    </ScrollView>
+              </ScrollView>
+              {selectedGroup && (selectedGroup.members?.length ?? 0) > 0 ? (
+                <>
+                  {selectedGroupResolution?.warning ? (
+                    <View style={[styles.warning, { backgroundColor: colors.warningSurface }]}>
+                      <ThemedText tone="warning" style={styles.caption}>
+                        {selectedGroupResolution.warning}
+                      </ThemedText>
+                    </View>
                   ) : null}
+                  <TextButton
+                    icon="account-group-outline"
+                    label="Split equally"
+                    onPress={() =>
+                      onApplyEqualSplit(buildEqualParticipantsForGroup(selectedGroup, form.amount))
+                    }
+                  />
+                </>
+              ) : null}
+            </View>
+          ) : null}
+
+          {form.splitParticipants.length > 0 ? (
+            <View style={[styles.controls, rule]}>
+              <Segments
+                active={shareMode}
+                options={[
+                  { key: 'amount', label: 'Amount' },
+                  { key: 'percentage', label: 'Percentage' },
+                ]}
+                onChange={onChangeShareMode}
+                style={styles.shareMode}
+              />
+              <TextButton icon="equal" label="Split equally" onPress={() => onApplyEqualSplit()} />
+            </View>
+          ) : null}
+
+          <View style={styles.people}>
+            {form.splitParticipants.map((participant, index) => (
+              <View key={index} style={styles.person}>
+                {friends.length > 0 ? (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    <View style={[styles.chipRow, styles.indent]}>
+                      <SplitChoiceChip
+                        label="New friend"
+                        selected={participant.friendId === null}
+                        onPress={() => onUpdateParticipant(index, { friendId: null })}
+                      />
+                      {friends.map((friend) => (
+                        <SplitChoiceChip
+                          key={friend.id}
+                          label={friend.name}
+                          selected={participant.friendId === friend.id}
+                          onPress={() =>
+                            onUpdateParticipant(index, { friendId: friend.id, friendName: '' })
+                          }
+                        />
+                      ))}
+                    </View>
+                  </ScrollView>
+                ) : null}
+                <View style={styles.personRow}>
+                  <View style={[styles.avatar, { backgroundColor: colors.track }]}>
+                    <MaterialCommunityIcons name="account-outline" size={18} color={colors.muted} />
+                  </View>
                   {participant.friendId === null ? (
                     <TextInput
+                      accessibilityLabel="Friend name"
                       value={participant.friendName}
                       onChangeText={(text) => onUpdateParticipant(index, { friendName: text })}
                       placeholder="Friend name"
-                      placeholderTextColor="#9CA3AF"
-                      className="mt-3 rounded-2xl bg-white px-4 py-3 text-sm font-bold dark:bg-gray-900"
-                      style={{ color: theme.text }}
+                      placeholderTextColor={colors.muted}
+                      style={[inputStyle, styles.name]}
                     />
-                  ) : null}
-                  <View className="mt-3 flex-row gap-3">
-                    <TextInput
-                      value={
-                        shareMode === 'percentage'
-                          ? (participant.sharePercent ??
-                            percentFromShare(participant.shareAmount, form.amount))
-                          : participant.shareAmount
-                      }
-                      onChangeText={(text) => {
-                        if (shareMode === 'percentage') {
-                          onUpdateParticipant(index, {
-                            sharePercent: text,
-                            shareAmount: shareFromPercent(text, form.amount),
-                          });
-                          return;
-                        }
-                        onUpdateParticipant(index, {
-                          shareAmount: text,
-                          sharePercent: undefined,
-                        });
-                      }}
-                      keyboardType="decimal-pad"
-                      placeholder={shareMode === 'percentage' ? 'Percent' : 'Amount'}
-                      placeholderTextColor="#9CA3AF"
-                      className="flex-1 rounded-2xl bg-white px-4 py-3 text-sm font-bold dark:bg-gray-900"
-                      style={{ color: theme.text }}
-                    />
-                    <Pressable
-                      onPress={() =>
-                        onUpdateParticipant(index, {
-                          direction:
-                            participant.direction === 'friend_owes_user'
-                              ? 'user_owes_friend'
-                              : 'friend_owes_user',
-                        })
-                      }
-                      className="justify-center rounded-2xl px-4"
-                      style={{ backgroundColor: accentSurface }}>
-                      <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                        {participant.direction === 'friend_owes_user' ? 'Owes me' : 'I owe'}
+                  ) : (
+                    <View style={[inputStyle, styles.name, styles.nameChosen]}>
+                      <ThemedText numberOfLines={1} style={[styles.nameText, { color: colors.text }]}>
+                        {friends.find((friend) => friend.id === participant.friendId)?.name ?? 'Friend'}
                       </ThemedText>
-                    </Pressable>
-                  </View>
+                    </View>
+                  )}
+                  <TextInput
+                    accessibilityLabel="Their share"
+                    value={
+                      shareMode === 'percentage'
+                        ? (participant.sharePercent ??
+                          percentFromShare(participant.shareAmount, form.amount))
+                        : participant.shareAmount
+                    }
+                    onChangeText={(text) => {
+                      if (shareMode === 'percentage') {
+                        onUpdateParticipant(index, {
+                          sharePercent: text,
+                          shareAmount: shareFromPercent(text, form.amount),
+                        });
+                        return;
+                      }
+                      onUpdateParticipant(index, { shareAmount: text, sharePercent: undefined });
+                    }}
+                    keyboardType="decimal-pad"
+                    placeholder={shareMode === 'percentage' ? '0%' : `${CURRENCY_SYMBOL}0`}
+                    placeholderTextColor={colors.muted}
+                    style={[inputStyle, styles.share]}
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Remove this friend"
+                    onPress={() => onRemoveParticipant(index)}
+                    style={styles.remove}>
+                    <MaterialCommunityIcons name="close" size={18} color={colors.muted} />
+                  </Pressable>
                 </View>
-              ))}
-            </View>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={onAddParticipant}
-              className="flex-row items-center justify-center gap-2 rounded-2xl border py-3"
-              style={{ borderColor: theme.border }}>
-              <MaterialCommunityIcons name="plus" size={18} color={accent} />
-              <ThemedText className="text-sm font-black" style={{ color: accent }}>
-                Add a friend
-              </ThemedText>
-            </Pressable>
+                <Segments
+                  active={participant.direction}
+                  options={[
+                    { key: 'friend_owes_user', label: 'Owes me' },
+                    { key: 'user_owes_friend', label: 'I owe' },
+                  ]}
+                  onChange={(direction) => onUpdateParticipant(index, { direction })}
+                  style={styles.direction}
+                />
+              </View>
+            ))}
           </View>
-        ) : null}
-      </View>
+
+          <PressableView
+            accessibilityRole="button"
+            onPress={onAddParticipant}
+            style={styles.addFriend}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="plus" size={20} color={colors.text} />
+            <ThemedText style={[styles.addFriendLabel, { color: colors.text }]}>Add a friend</ThemedText>
+          </PressableView>
+
+          {form.splitGroupId === null ? (
+            <View style={[styles.groupRow, rule]}>
+              <ThemedText tone="muted" style={styles.groupLabel}>
+                Group
+              </ThemedText>
+              <TextInput
+                accessibilityLabel="New group name"
+                value={form.splitGroupName}
+                onChangeText={(text) => setForm((previous) => ({ ...previous, splitGroupName: text }))}
+                placeholder="Optional · trip, flatmates"
+                placeholderTextColor={colors.muted}
+                style={[styles.groupInput, { color: colors.text }]}
+              />
+            </View>
+          ) : null}
+        </>
+      ) : null}
     </View>
+  );
+}
+
+function TextButton({
+  icon,
+  label,
+  onPress,
+}: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  label: string;
+  onPress: () => void;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <PressableView
+      accessibilityRole="button"
+      onPress={onPress}
+      style={styles.textButton}
+      pressedStyle={styles.pressed}>
+      <MaterialCommunityIcons name={icon} size={18} color={colors.text} />
+      <ThemedText style={[styles.textButtonLabel, { color: colors.text }]}>{label}</ThemedText>
+    </PressableView>
   );
 }
 
@@ -373,52 +357,222 @@ function SplitChoiceChip({
   selected: boolean;
   onPress: () => void;
 }) {
-  const theme = useThemeTokens().colors;
+  const { colors } = useThemeTokens();
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      className="rounded-full border px-3 py-2"
-      style={{
-        backgroundColor: selected ? theme.secondary : 'transparent',
-        borderColor: selected ? theme.accent : theme.border,
-      }}>
-      <ThemedText
-        className="text-xs font-bold"
-        style={{ color: selected ? theme.accent : theme.text }}>
+      style={[
+        styles.chip,
+        {
+          backgroundColor: selected ? colors.selectedFill : colors.card,
+          borderColor: selected ? colors.selectedBorder : colors.border,
+        },
+      ]}
+      pressedStyle={styles.pressed}>
+      <ThemedText style={[styles.chipLabel, { color: colors.text, fontWeight: selected ? '700' : '500' }]}>
         {label}
       </ThemedText>
-    </Pressable>
+    </PressableView>
   );
 }
 
-function ShareModeButton({
-  label,
-  selected,
-  onPress,
-}: {
-  label: string;
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const theme = useThemeTokens().colors;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className="flex-1 rounded-2xl px-3 py-3"
-      style={{
-        backgroundColor: selected ? theme.secondary : 'transparent',
-        borderColor: selected ? theme.accent : theme.border,
-        borderWidth: 1,
-      }}>
-      <ThemedText
-        className="text-center text-xs font-black"
-        style={{ color: selected ? theme.accent : theme.text }}>
-        {label}
-      </ThemedText>
-    </Pressable>
-  );
-}
+const styles = StyleSheet.create({
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  header: {
+    height: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingLeft: 14,
+    paddingRight: 12,
+  },
+  tile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  switch: {
+    width: 52,
+    height: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderRadius: 16,
+  },
+  thumb: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+  },
+  section: {
+    gap: 8,
+    paddingVertical: 12,
+    paddingLeft: 14,
+    paddingRight: 10,
+  },
+  label: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  warning: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+  controls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 12,
+    paddingLeft: 14,
+    paddingRight: 10,
+  },
+  shareMode: {
+    width: 196,
+    height: 36,
+  },
+  textButton: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  textButtonLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  people: {
+    gap: 12,
+    paddingTop: 6,
+    paddingBottom: 8,
+    paddingLeft: 14,
+    paddingRight: 8,
+  },
+  person: {
+    gap: 6,
+  },
+  indent: {
+    paddingLeft: 40,
+  },
+  personRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  input: {
+    height: 40,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderRadius: 10,
+    fontSize: 14,
+  },
+  name: {
+    flex: 1,
+    minWidth: 0,
+  },
+  nameChosen: {
+    justifyContent: 'center',
+  },
+  nameText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  share: {
+    width: 84,
+    textAlign: 'right',
+  },
+  remove: {
+    width: 36,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  direction: {
+    width: 164,
+    height: 32,
+    marginLeft: 40,
+    padding: 2,
+  },
+  addFriend: {
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+  },
+  addFriendLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  groupRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  groupLabel: {
+    width: 84,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  groupInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 40,
+    padding: 0,
+    fontSize: 14,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    height: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

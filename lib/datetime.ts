@@ -79,7 +79,7 @@ export const resetHourClockCache = () => {
  * timestamp, the parser's `HH:MM[:SS]`, or the legacy `10:09 PM` display
  * string that older manual entries wrote.
  */
-const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
+export const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime())
       ? null

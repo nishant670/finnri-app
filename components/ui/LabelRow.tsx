@@ -29,6 +29,12 @@ type LabelRowProps = {
   children?: ReactNode;
   testID?: string;
   accessibilityLabel?: string;
+  /**
+   * A value the AI was unsure of (board R2-Draft): the row turns amber, its
+   * label goes warning-bold, and a "Check" tag sits before the chevron until
+   * the field has been looked at.
+   */
+  flagged?: boolean;
 };
 
 /** The label column, from the boards: 84 wide, then a 10 gap. */
@@ -53,11 +59,15 @@ export function LabelRow({
   children,
   testID,
   accessibilityLabel,
+  flagged = false,
 }: LabelRowProps) {
   const { colors } = useThemeTokens();
   const content = (
     <>
-      <ThemedText tone="muted" numberOfLines={1} style={styles.label}>
+      <ThemedText
+        tone={flagged ? 'warning' : 'muted'}
+        numberOfLines={1}
+        style={[styles.label, flagged && styles.labelFlagged]}>
         {label}
       </ThemedText>
       <View style={styles.value}>
@@ -77,6 +87,7 @@ export function LabelRow({
           </>
         )}
       </View>
+      {flagged ? <CheckTag /> : null}
       {onPress ? (
         <MaterialCommunityIcons
           name="chevron-right"
@@ -89,7 +100,10 @@ export function LabelRow({
   const rowStyle = [
     styles.row,
     onPress ? styles.rowPressable : undefined,
-    divider ? { borderTopWidth: 1, borderTopColor: colors.border } : undefined,
+    divider
+      ? { borderTopWidth: 1, borderTopColor: flagged ? colors.warningBorder : colors.border }
+      : undefined,
+    flagged ? { backgroundColor: colors.warningSurface } : undefined,
   ];
 
   if (!onPress) {
@@ -105,6 +119,7 @@ export function LabelRow({
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? (value ? `${label}, ${value}` : label)}
+      accessibilityHint={flagged ? 'Finnri was not sure about this. Check it.' : undefined}
       onPress={onPress}
       style={rowStyle}
       pressedStyle={{ opacity: 0.7 }}>
@@ -113,7 +128,32 @@ export function LabelRow({
   );
 }
 
+/** The amber "Check" tag on a field the AI was unsure of. */
+export function CheckTag() {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={[styles.checkTag, { backgroundColor: withAlpha(colors.warning, 0.14) }]}>
+      <ThemedText tone="warning" style={styles.checkTagLabel}>
+        Check
+      </ThemedText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  checkTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  checkTagLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  labelFlagged: {
+    fontWeight: '700',
+  },
   row: {
     minHeight: 48,
     flexDirection: 'row',

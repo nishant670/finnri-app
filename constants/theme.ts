@@ -263,6 +263,14 @@ export function withAlpha(hex: string, alpha: number): string {
 }
 
 /**
+ * A chosen chip, tile or row (boards R2-Entry, R2-Category, R2-Payment): the
+ * card tinted toward the accent, with a firmer ring of the same tint. The
+ * label goes bold in ink; the accent itself is never the text.
+ */
+const SELECTED_FILL_MIX = 0.18;
+const SELECTED_BORDER_MIX = 0.38;
+
+/**
  * How far an outlined button's border sits past `border`, toward the text.
  *
  * The boards draw outlined buttons ("+ Add", "Settle up", "Add") one step
@@ -291,6 +299,8 @@ function createColors(mood: MoodPalette) {
       warningSurface: WARNING_SURFACE.light.surface,
       warningBorder: WARNING_SURFACE.light.border,
       warningOutline: WARNING_SURFACE.light.outline,
+      selectedFill: mixHex(mood.light.card, mood.accent, SELECTED_FILL_MIX),
+      selectedBorder: mixHex(mood.light.card, mood.accent, SELECTED_BORDER_MIX),
       onAccent: mood.onAccent,
       onNegative: '#FFFFFF',
       /** Outlined buttons. See `BORDER_STRONG_MIX`. */
@@ -326,6 +336,8 @@ function createColors(mood: MoodPalette) {
       warningSurface: WARNING_SURFACE.dark.surface,
       warningBorder: WARNING_SURFACE.dark.border,
       warningOutline: WARNING_SURFACE.dark.outline,
+      selectedFill: mixHex(mood.dark.card, mood.accent, SELECTED_FILL_MIX),
+      selectedBorder: mixHex(mood.dark.card, mood.accent, SELECTED_BORDER_MIX),
       onAccent: mood.onAccent,
       /**
        * Not white, because `negative` is not the same kind of colour in the

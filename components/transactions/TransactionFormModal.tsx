@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   AppState,
   Dimensions,
   Keyboard,
@@ -9,15 +8,14 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from 'react-native';
 import Animated, {
-  interpolate,
   runOnJS,
   useAnimatedStyle,
   useSharedValue,
-  withDelay,
   withSequence,
   withTiming,
 } from 'react-native-reanimated';
@@ -28,7 +26,11 @@ import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
-import { AddDetailChips, type AddDetailOption } from '@/components/ui/AddDetailChips';
+import { Button, PrimaryButton } from '@/components/ui/Button';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
+import { CheckTag, LabelRow } from '@/components/ui/LabelRow';
+import { Segments } from '@/components/ui/Segments';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -47,7 +49,7 @@ import {
 } from '@/lib/accounts';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { calculateEMI, type EMICalculation } from '@/lib/emi';
-import { formatTime, uses24HourClock } from '@/lib/datetime';
+import { formatTime, parseTimeOfDay } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
 import { formatMoney, toAmount, toAmountInputValue, toKeypadValue } from '@/lib/money';
 import { ATTACHMENT_PICKER_TYPES } from '@/lib/uploads';
@@ -66,34 +68,31 @@ import { categoryTypeOf, useUserCategories } from '@/lib/user-categories';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
-import { PAYMENT_MODES } from '@/lib/payment-modes';
+import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
-  draftSummaryParts,
   type DraftFieldKey,
   type DraftReviewPlan,
 } from '@/lib/ai-draft-review';
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
-import { DraftFieldCard } from './DraftFieldCard';
 import { TransactionAccountPicker } from './TransactionAccountPicker';
 import { TransactionCategoryPicker } from './TransactionCategoryPicker';
 import {
   TransactionCancellationDateSheet,
-  TransactionDateTimeSheet,
+  TransactionDateSheet,
   TransactionSubscriptionDateSheet,
 } from './TransactionDateSheets';
-import { TransactionDraftField, tagOptions } from './TransactionDraftField';
-import { TransactionDraftBanner, TransactionDraftSource } from './TransactionDraftHeader';
+import { TransactionDraftSource, TransactionDraftStatus } from './TransactionDraftHeader';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionModePicker } from './TransactionModePicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
+import { TransactionTagPicker, tagIcon } from './TransactionTagPicker';
 import {
   shareFromPercent,
   TransactionSplitFields,
-  withSplitTurnedOn,
   type TransactionSplitShareMode,
 } from './TransactionSplitFields';
 
@@ -262,32 +261,17 @@ const missingFieldMessages: Record<(typeof requiredFields)[number], string> = {
   date: 'Pick a date.',
 };
 
-/**
- * The optional details a transaction can carry, each offered as a chip until
- * it is wanted. The tag-driven cards (EMI, refund, subscription) are not in
- * this list: they follow from the tag, so choosing the tag is what adds them.
- */
-type EntryDetailKey = 'merchant' | 'notes' | 'tag' | 'receipt' | 'split';
-
-const ENTRY_DETAIL_OPTIONS: AddDetailOption<EntryDetailKey>[] = [
-  { key: 'notes', label: 'Note', icon: 'note-text-outline' },
-  { key: 'merchant', label: 'Merchant', icon: 'storefront-outline' },
-  { key: 'tag', label: 'Tag', icon: 'tag-outline' },
-  { key: 'receipt', label: 'Receipt', icon: 'paperclip' },
-  { key: 'split', label: 'Split', icon: 'account-multiple-outline' },
-];
-
 const getPaymentLanguage = (entryType: string) =>
   entryType === 'Income'
     ? {
         modeLabel: 'Received via',
-        accountLabel: 'Received in account',
+        accountLabel: 'Received in',
         modeAccessibilityPrefix: 'Received via',
         accountAccessibilityPrefix: 'Received in',
       }
     : {
         modeLabel: 'Paid via',
-        accountLabel: 'Paid from account',
+        accountLabel: 'Paid from',
         modeAccessibilityPrefix: 'Paid via',
         accountAccessibilityPrefix: 'Paid from',
       };
@@ -346,11 +330,6 @@ const equalSharePercent = (participantCount: number) => {
   return String(Math.round(percent * 100) / 100);
 };
 
-const formatFieldName = (field: string) => {
-  const normalized = field === 'account_hint' ? 'account' : field;
-  if (normalized === 'accountId') return 'Account';
-  return normalized.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
-};
 
 /**
  * Blank falls back to Misc; a legacy name resolves to its canonical form.
@@ -386,92 +365,57 @@ const formatApiDate = (value: Date) => {
 /** How far the sheet nudges when Save refuses. Two out-and-backs, per the spec. */
 const SHAKE_OFFSET = 6;
 
-/** How far a settling field travels on its way in. */
-const SETTLE_RISE = 10;
-
-/** The amount starts fractionally under size so it lands with weight. */
-const EMPHASIS_FROM = 0.92;
-
 /**
- * A field arriving into the draft, on the `fields` stagger.
- *
- * Mount-driven on purpose: the skeleton and the real fields are different
- * subtrees, so the parse landing unmounts one and mounts the other, and the
- * entrance runs exactly once per draft with no key or token to keep in sync.
+ * What the draft is about to look like: the amount, the title and the card of
+ * fields, drawn where they will land, so the parse result fills the space it
+ * was already occupying instead of shoving the sheet around — and so a wait
+ * of a few seconds reads as work in progress, not as a sheet that failed to
+ * fill.
  */
-function SettleIn({
-  index,
-  emphasis = false,
-  children,
-}: {
-  index: number;
-  /** The amount. Lands last and scales up into place rather than just fading. */
-  emphasis?: boolean;
-  children: React.ReactNode;
-}) {
-  const motion = useMotion();
-  const progress = useSharedValue(0);
-
-  useEffect(() => {
-    progress.value = withDelay(
-      motion.stagger(index, 'fields'),
-      withTiming(1, motion.enter('base'))
-    );
-  }, [index, motion, progress]);
-
-  const style = useAnimatedStyle(() => ({
-    opacity: progress.value,
-    transform: [
-      { translateY: interpolate(progress.value, [0, 1], [SETTLE_RISE, 0]) },
-      { scale: emphasis ? interpolate(progress.value, [0, 1], [EMPHASIS_FROM, 1]) : 1 },
-    ],
-  }));
-
-  return <Animated.View style={style}>{children}</Animated.View>;
-}
-
-/**
- * What the draft is about to look like. The amount card and the field cards
- * under it, drawn as the bordered cards they will become, so the parse result
- * lands into the space it was already occupying instead of shoving the sheet
- * around — and so a wait of a few seconds reads as work in progress, not as a
- * sheet that failed to fill.
- */
-const DRAFT_SKELETON_LABELS = ['Amount', 'Category', 'Account', 'Date'];
-const DRAFT_SKELETON_WIDTHS = ['72%', '54%', '64%'] as const;
+const DRAFT_SKELETON_ROWS = ['Category', 'Paid via', 'Paid from', 'Date'];
+const DRAFT_SKELETON_WIDTHS = ['54%', '40%', '64%', '48%'] as const;
 
 function DraftSkeleton() {
   const { colors } = useThemeTokens();
   return (
-    <View testID="draft-skeleton" accessibilityLabel="Reading your entry" className="mb-4 gap-3">
-      <View className="flex-row items-center justify-center gap-2 py-1">
-        <ActivityIndicator size="small" color={colors.accent} />
-        <ThemedText tone="muted" className="text-sm font-bold">
-          Finnri AI is reading your entry…
-        </ThemedText>
+    <View testID="draft-skeleton" accessibilityLabel="Reading your entry" style={formStyles.skeleton}>
+      <View style={formStyles.skeletonAmount}>
+        <Shimmer width={140} height={44} radius={12} index={0} />
       </View>
-      <View
-        className="gap-3 rounded-[20px] border p-4"
-        style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-        <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-          {DRAFT_SKELETON_LABELS[0]}
-        </ThemedText>
-        <Shimmer width={160} height={34} radius={10} index={0} />
+      <View style={[formStyles.titleField, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <Shimmer width="46%" height={16} radius={8} index={1} />
       </View>
-      {DRAFT_SKELETON_LABELS.slice(1).map((label, row) => (
-        <View
-          key={label}
-          className="gap-3 rounded-[20px] border p-4"
-          style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-          <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            {label}
-          </ThemedText>
-          <Shimmer width={DRAFT_SKELETON_WIDTHS[row]} height={18} radius={8} index={row + 1} />
-        </View>
-      ))}
+      <View style={[formStyles.fieldsCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        {DRAFT_SKELETON_ROWS.map((label, row) => (
+          <View
+            key={label}
+            style={[
+              formStyles.skeletonRow,
+              row > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+            ]}>
+            <ThemedText tone="muted" style={formStyles.skeletonLabel}>
+              {label}
+            </ThemedText>
+            <Shimmer width={DRAFT_SKELETON_WIDTHS[row]} height={14} radius={7} index={row + 2} />
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
+
+/** "5 Oct" for a date chip; the stored label when it does not parse. */
+const shortDateLabel = (label: string) =>
+  parseDateLabel(label)?.toLocaleString('en-GB', { day: 'numeric', month: 'short' }) ?? label;
+
+/** The entry's date with its stored time of day, for the date sheet to start from. */
+const entryDateTime = (date: string, time: string) => {
+  const day = parseDateLabel(date) ?? new Date();
+  const clock = parseTimeOfDay(time);
+  return clock
+    ? new Date(day.getFullYear(), day.getMonth(), day.getDate(), clock.hours, clock.minutes)
+    : day;
+};
 
 export function TransactionFormModal({
   visible,
@@ -508,11 +452,7 @@ export function TransactionFormModal({
   const personalPayment = splitContext?.personalPayment ?? true;
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const colorScheme = themeTokens.mode;
   const accent = theme.accent;
-  const accentSurface = colorScheme === 'dark' ? theme.secondary : theme.secondary;
-  const detailInputPlaceholderColor = colorScheme === 'dark' ? 'rgba(255,255,255,0.45)' : '#9CA3AF';
-  const detailIconSurface = colorScheme === 'dark' ? theme.secondary : accentSurface;
 
   /**
    * Compact entry: title, amount and transaction type stay visible, with each
@@ -533,7 +473,7 @@ export function TransactionFormModal({
    */
   const draftReview = mode === 'audio' && !isEdit;
 
-  const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+  const { height: SCREEN_HEIGHT } = Dimensions.get('window');
   const motion = useMotion();
   /**
    * The latest `initialData`, for the two places that deliberately re-seed.
@@ -545,7 +485,6 @@ export function TransactionFormModal({
   initialDataRef.current = initialData;
   const panelAnim = useSharedValue(SCREEN_HEIGHT);
   const backdropAnim = useSharedValue(0);
-  const typeSwitchAnim = useSharedValue(0);
   /** Horizontal nudge for the validation shake. */
   const shakeAnim = useSharedValue(0);
   const [showModal, setShowModal] = useState(visible);
@@ -649,11 +588,12 @@ export function TransactionFormModal({
   );
 
   /**
-   * Optional details asked for with a chip since the sheet opened. A detail
-   * that already holds a value shows without being asked for — see
-   * `isDetailShown`.
+   * More details, opened or closed by hand since the sheet opened; `null`
+   * until then, when it follows whether anything under it holds a value — a
+   * value hidden behind a fold would read as a value lost.
    */
-  const [revealedDetails, setRevealedDetails] = useState<EntryDetailKey[]>([]);
+  const [moreDetailsToggled, setMoreDetailsToggled] = useState<boolean | null>(null);
+  const [isTagPickerVisible, setIsTagPickerVisible] = useState(false);
   const [isSubscriptionOptionsOpen, setIsSubscriptionOptionsOpen] = useState(false);
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   /**
@@ -666,7 +606,6 @@ export function TransactionFormModal({
   const titleInputRef = useRef<TextInput>(null);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
-  const [isDraftSummaryExpanded, setIsDraftSummaryExpanded] = useState(false);
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
   /** Flagged fields the user has since opened or edited. */
   const [checkedDraftFields, setCheckedDraftFields] = useState<DraftFieldKey[]>([]);
@@ -994,7 +933,6 @@ export function TransactionFormModal({
     aiReview?.missingFields ||
     aiReview?.clarifications
   );
-  const categoryNeedsReview = reviewFields.includes('category');
   const accountNeedsReview = reviewFields.includes('account') || reviewFields.includes('accountId');
   const displayedCategory = normalizeCategoryValue(form.category, form.type);
   const customCategoryType = categoryTypeOf(form.type);
@@ -1043,12 +981,6 @@ export function TransactionFormModal({
   const isCompactEntry = fastEntry;
   const isKeypadVisible =
     isCompactEntry && !isTitleFocused && !isSystemKeyboardUp && keyboardInset === 0;
-  /**
-   * The stacked full form, for editing a saved entry and for quick prompts. The
-   * AI draft replaces it outright with the confidence-ranked list, so no field
-   * ever renders twice on the same screen.
-   */
-  const showFullForm = !draftReview && !fastEntry;
   const amountEntered = hasEnteredAmount(form.amount);
   const quickFills = useMemo(
     () => (fastEntry ? buildQuickFills(recentEntries, form.type) : []),
@@ -1068,8 +1000,6 @@ export function TransactionFormModal({
     ];
   }, []);
   const isCustomDate = !dateChoices.some((choice) => choice.value === form.date);
-  const draftDateLabel =
-    dateChoices.find((choice) => choice.value === form.date)?.label ?? form.date;
 
   /**
    * The ranking is pinned to the draft as it arrived, not recomputed as the
@@ -1087,7 +1017,6 @@ export function TransactionFormModal({
       return;
     }
     setCheckedDraftFields([]);
-    setIsDraftSummaryExpanded(false);
     setDraftPlan(
       buildDraftReviewPlan({
         confidence: aiReview?.confidence,
@@ -1131,48 +1060,10 @@ export function TransactionFormModal({
     (field: DraftFieldKey) => field !== 'amount' && (field !== 'tag' || tagsApply),
     [tagsApply]
   );
-  const draftFlaggedFields = useMemo(
-    () => (draftPlan?.flagged ?? []).filter(isDraftFieldShown),
-    [draftPlan, isDraftFieldShown]
-  );
-  /**
-   * Where each part of the draft falls in the settle order.
-   *
-   * The amount is rendered *first* and arrives *last*, which is the whole point
-   * of the spec's "landing last and largest": the eye is drawn to the number
-   * after the context around it is already there, rather than watching the
-   * headline appear and then wait for its own supporting cast.
-   */
-  const draftSettleOrder = useMemo(() => {
-    const flaggedCount = draftFlaggedFields.length;
-    return { summary: flaggedCount, amount: flaggedCount + 1 };
-  }, [draftFlaggedFields.length]);
-
-  const draftCollapsedFields = useMemo(
-    () =>
-      [...(draftPlan?.confident ?? []), ...(draftPlan?.optional ?? [])].filter(isDraftFieldShown),
-    [draftPlan, isDraftFieldShown]
-  );
-  const draftConfidentCount = (draftPlan?.confident ?? []).filter(isDraftFieldShown).length;
   const draftPendingCount = (draftPlan?.flagged ?? []).filter(
     (field) =>
       (field === 'amount' || isDraftFieldShown(field)) && !checkedDraftFields.includes(field)
   ).length;
-  const draftSummaryLine = useMemo(() => {
-    if (!draftPlan) return '';
-    return draftSummaryParts(draftPlan.confident.filter(isDraftFieldShown), {
-      amount: form.amount,
-      type: form.type,
-      title: form.title,
-      category: displayedCategory,
-      mode: form.mode,
-      account: form.account,
-      date: draftDateLabel,
-      merchant: form.merchant,
-      tag: form.tag,
-      notes: form.notes,
-    }).join(' · ');
-  }, [displayedCategory, draftDateLabel, draftPlan, form, isDraftFieldShown]);
 
   const handleAmountChange = useCallback((amount: string) => {
     setFormError(null);
@@ -1208,7 +1099,6 @@ export function TransactionFormModal({
       // See `tagsApply`: an expense's tag has nothing to mean on income.
       tag: type === 'Income' ? 'General' : previous.tag,
     }));
-    animateTypeSwitch(type === 'Income');
   };
 
   const focusAmountKeypad = () => {
@@ -1333,18 +1223,17 @@ export function TransactionFormModal({
     // A quick prompt seeds "120.00"; the keypad would then refuse every
     // further digit because both decimal places are already spent.
     setForm(fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded);
-    typeSwitchAnim.value = (initialData?.type || 'Expense') === 'Income' ? 1 : 0;
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
     // genuinely does not close over it. That is the point — reseeding on every
     // parent re-render would wipe in-progress edits, and the two moments that
     // *should* reseed call this deliberately.
-  }, [fastEntry, resolveEntryFormAccount, typeSwitchAnim]);
+  }, [fastEntry, resolveEntryFormAccount]);
 
   useEffect(() => {
     if (visible) {
       setShowModal(true);
-      setRevealedDetails([]);
+      setMoreDetailsToggled(null);
       setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
@@ -1393,42 +1282,11 @@ export function TransactionFormModal({
     });
   }, [visible, form.mode, resolveEntryFormAccount]);
 
-  const animateTypeSwitch = useCallback(
-    (isIncome: boolean) => {
-      typeSwitchAnim.value = withTiming(isIncome ? 1 : 0, motion.enter('base'));
-    },
-    [motion, typeSwitchAnim]
-  );
 
+  /** The themed calendar (board R2-Date) on both platforms, starting from the entry's own time. */
   const handleOpenDatePicker = () => {
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: parseDateLabel(form.date) ?? new Date(),
-        onValueChange: (_event, selectedDate) => {
-          if (selectedDate) {
-            const dateStr = formatDateLabel(selectedDate);
-            setForm((prev) => ({ ...prev, date: dateStr }));
-            DateTimePickerAndroid.open({
-              value: new Date(),
-              mode: 'time',
-              is24Hour: uses24HourClock(),
-              onValueChange: (_event, selectedTime) => {
-                if (selectedTime) {
-                  const timeStr = formatTime(selectedTime) ?? '';
-                  setForm((prev) => ({ ...prev, time: timeStr }));
-                }
-              },
-              onDismiss: () => undefined,
-            });
-          }
-        },
-        onDismiss: () => undefined,
-        mode: 'date',
-      });
-    } else {
-      setPendingDate(parseDateLabel(form.date) ?? new Date());
-      setIsDatePickerVisible(true);
-    }
+    setPendingDate(entryDateTime(form.date, form.time));
+    setIsDatePickerVisible(true);
   };
 
   const handleConfirmDatePicker = () => {
@@ -1474,7 +1332,7 @@ export function TransactionFormModal({
       if (!asset?.uri) {
         // The receipt row is where this message renders, so it has to be on
         // screen even though nothing was attached.
-        revealDetail('receipt');
+        setMoreDetailsToggled(true);
         setAttachmentError("That file couldn't be read. Try another one.");
         return;
       }
@@ -1482,58 +1340,19 @@ export function TransactionFormModal({
       // Stored as a local URI here; it is uploaded when the entry is saved.
       setForm((prev) => ({ ...prev, attachment: asset.uri }));
     } catch {
-      revealDetail('receipt');
+      setMoreDetailsToggled(true);
       setAttachmentError("That file couldn't be read. Try another one.");
     }
   };
 
-  const revealDetail = (detail: EntryDetailKey) =>
-    setRevealedDetails((previous) => (previous.includes(detail) ? previous : [...previous, detail]));
-
-  /**
-   * A detail is on screen once it was asked for, or whenever it already holds
-   * something — a merchant filled by a quick-fill chip, a note on an entry
-   * being edited. A value hidden behind a chip would read as a value lost.
-   */
-  const isDetailShown = (detail: EntryDetailKey) => {
-    if (revealedDetails.includes(detail)) return true;
-    switch (detail) {
-      case 'merchant':
-        return form.merchant.trim().length > 0;
-      case 'notes':
-        return form.notes.trim().length > 0;
-      case 'tag':
-        return form.tag.trim().length > 0 && form.tag !== 'General';
-      case 'receipt':
-        return Boolean(form.attachment);
-      case 'split':
-        return form.splitEnabled;
-    }
-  };
-
-  const handleAddDetail = (detail: EntryDetailKey) => {
-    if (detail === 'receipt') {
-      // Straight to the picker. An empty "attach a file" row would only be a
-      // second tap standing between the chip and the thing it promised.
-      void handlePickAttachment();
-      return;
-    }
-    if (detail === 'split') {
-      setForm((previous) => withSplitTurnedOn(previous, splitFriends));
-    }
-    revealDetail(detail);
-  };
-
-  /** The chips still on offer: details not yet on screen that fit this entry. */
-  const availableDetailOptions = ENTRY_DETAIL_OPTIONS.filter((option) => {
-    if (isDetailShown(option.key)) return false;
-    if (option.key === 'receipt') return mode !== 'quick-prompt';
-    if (option.key === 'tag') return tagsApply;
-    if (option.key === 'split') {
-      return !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
-    }
-    return true;
-  });
+  /** Whether anything folded under More details holds a value. */
+  const detailsHaveValues =
+    form.merchant.trim().length > 0 ||
+    form.notes.trim().length > 0 ||
+    (tagsApply && form.tag.trim().length > 0 && form.tag !== 'General') ||
+    Boolean(form.attachment) ||
+    (form.splitEnabled && !splitContext);
+  const isMoreDetailsOpen = moreDetailsToggled ?? detailsHaveValues;
 
   /** Bill scanning is for a fresh personal entry; a split has its own composer. */
   const canScanReceipt = fastEntry && !splitContext && !!onRequestReceiptScan;
@@ -1881,116 +1700,63 @@ export function TransactionFormModal({
       });
   }, [closeFromDrag, motion, panelAnim]);
 
-  // Measured out here. `Dimensions` is a JS-thread module and does not exist on
-  // the UI runtime, so reading it inside the worklet throws "undefined is not a
-  // function" — the same boundary that caught the prompt rotation in C2, and
-  // just as invisible to the type checker.
-  const typeSwitchTravel = (SCREEN_WIDTH - 60) * 0.5;
-  const typeSwitchStyle = useAnimatedStyle(
-    () => ({ transform: [{ translateX: typeSwitchAnim.value * typeSwitchTravel }] }),
-    [typeSwitchTravel]
-  );
-
   if (!showModal) return null;
 
-  const renderReceiptField = (withSectionLabel: boolean) => (
-    <TransactionReceiptField
-      attachment={form.attachment}
-      error={attachmentError}
-      withSectionLabel={withSectionLabel}
-      onPick={handlePickAttachment}
-      onRemove={handleRemoveAttachment}
-    />
-  );
+  /** The rows and inputs a parse was unsure of, until the user has looked. */
+  const isFlagged = (field: DraftFieldKey) => {
+    if (draftReview) {
+      return (draftPlan?.flagged.includes(field) ?? false) && !checkedDraftFields.includes(field);
+    }
+    if (field === 'account') return accountNeedsReview;
+    return reviewFields.includes(field);
+  };
+  const fieldsToCheck = draftReview ? draftPendingCount : reviewFields.length;
+  const showDraftStatus = draftReview || (isEdit && reviewFields.length > 0);
+  const sheetTitle =
+    heading ??
+    (mode === 'quick-prompt'
+      ? isEdit
+        ? 'Edit quick prompt'
+        : 'New quick prompt'
+      : splitContext
+        ? 'New split expense'
+        : null);
+  const canSplit = !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
+  const canAttach = mode !== 'quick-prompt';
+  const modeVisual = paymentModeVisual(form.mode);
+  const accountValue =
+    form.account ||
+    (compatibleAccounts.length === 0
+      ? `Add a ${form.mode || 'matching'} account`
+      : 'Select an account');
+  const moreDetailsSummary = [
+    form.merchant.trim(),
+    form.notes.trim() ? 'Note' : '',
+    tagsApply && form.tag && form.tag !== 'General' ? form.tag : '',
+    form.attachment ? 'Receipt' : '',
+    canSplit && form.splitEnabled ? 'Split' : '',
+  ].filter(Boolean);
+  const moreDetailsOffer = [
+    'Merchant',
+    'note',
+    tagsApply ? 'tag' : '',
+    canAttach ? 'receipt' : '',
+    canSplit ? 'split' : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const saveLabel = isEdit
+    ? mode === 'quick-prompt'
+      ? 'Save prompt'
+      : 'Save changes'
+    : mode === 'quick-prompt'
+      ? 'Create prompt'
+      : 'Save';
 
-  const renderDraftField = (field: DraftFieldKey) => (
-    <TransactionDraftField
-      key={field}
-      field={field}
-      form={form}
-      setForm={setForm}
-      flagged={draftPlan?.flagged.includes(field) ?? false}
-      checked={checkedDraftFields.includes(field)}
-      paymentLanguage={paymentLanguage}
-      category={displayedCategory}
-      categoryVisual={displayedCategoryVisual}
-      dateLabel={draftDateLabel}
-      compatibleAccountCount={compatibleAccounts.length}
-      onChecked={markDraftFieldChecked}
-      onSwitchType={animateTypeSwitch}
-      onOpenCategoryPicker={() => setIsCategoryPickerVisible(true)}
-      onOpenModePicker={() => setIsModePickerVisible(true)}
-      onOpenAccountPicker={() => setIsAccountPickerVisible(true)}
-      onOpenDatePicker={handleOpenDatePicker}
-    />
-  );
-
-  // Rendered inside the scroll view everywhere except the amount-first path,
-  // where it is pinned above the keypad so a save never needs a scroll.
-  const saveActions = (
-    <View className="px-5 gap-3">
-      <Pressable
-        testID="entry-save-button"
-        onPress={handleConfirmEntry}
-        disabled={isSaving || (draftReview && isParsing) || (fastEntry && !amountEntered)}
-        accessibilityState={{ disabled: isSaving || (draftReview && isParsing) }}
-        style={{
-          backgroundColor: accent,
-          opacity: (fastEntry && !amountEntered) || (draftReview && isParsing) ? 0.4 : 1,
-        }}
-        className="w-full py-4 rounded-[20px] flex-row items-center justify-center gap-2 shadow-lg">
-        {isSaving ? (
-          <ActivityIndicator color={theme.onAccent} />
-        ) : draftReview && isParsing ? (
-          <>
-            <ActivityIndicator color={theme.onAccent} />
-            <ThemedText tone="onAccent" className="text-base font-black">
-              Reading your entry…
-            </ThemedText>
-          </>
-        ) : (
-          <>
-            <ThemedText tone="onAccent" className="text-base font-black">
-              {isEdit
-                ? mode === 'quick-prompt'
-                  ? 'Save prompt'
-                  : 'Save changes'
-                : mode === 'quick-prompt'
-                  ? 'Create prompt'
-                  : fastEntry
-                    ? 'Save'
-                    : 'Confirm & save'}
-            </ThemedText>
-            <MaterialCommunityIcons name="check-circle-outline" size={24} color={theme.onAccent} />
-          </>
-        )}
-      </Pressable>
-      {mode === 'audio' && (
-        <Pressable
-          accessibilityRole="button"
-          onPress={requestClose}
-          className="w-full py-4 items-center justify-center active:opacity-50">
-          <ThemedText tone="muted" className="font-bold">
-            Cancel
-          </ThemedText>
-        </Pressable>
-      )}
-      {onDelete && (
-        <Pressable
-          onPress={onDelete}
-          className="w-full py-4 items-center justify-center active:opacity-50">
-          <ThemedText tone="negative" className="font-bold">
-            Delete prompt
-          </ThemedText>
-        </Pressable>
-      )}
-      {formError && (
-        <ThemedText tone="negative" className="text-center text-xs mt-2">
-          {formError}
-        </ThemedText>
-      )}
-    </View>
-  );
+  const setDateChoice = (date: string) => {
+    markDraftFieldChecked('date');
+    setForm((prev) => ({ ...prev, date, time: formatTime(new Date()) ?? prev.time }));
+  };
 
   return (
     <Modal
@@ -2004,1197 +1770,651 @@ export function TransactionFormModal({
         <Animated.View className="absolute inset-0 bg-black/40" style={backdropStyle}>
           <View style={{ flex: 1 }} />
         </Animated.View>
-        <Animated.View
-          style={[
-            {
-              height: '92%',
-              width: '100%',
-            },
-            panelStyle,
-          ]}>
+        <Animated.View style={[{ height: '92%', width: '100%' }, panelStyle]}>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             className="flex-1">
-            <View
-              className="flex-1 rounded-t-[32px] shadow-2xl relative overflow-hidden"
-              style={{ backgroundColor: theme.background }}>
+            <View style={[formStyles.panel, { backgroundColor: theme.background }]}>
+              {/* The handle and the header both drag the sheet down; a tap on
+                  the type control or the × still lands, since the pan only
+                  starts after 6dp of vertical travel. */}
               <GestureDetector gesture={dragToClose}>
-                <View
-                  testID="sheet-drag-handle"
-                  className="items-center pt-6 pb-1 relative"
-                  style={{ minHeight: 40 }}>
-                  <View
-                    className="h-1.5 w-12 rounded-full absolute top-3"
-                    style={{ backgroundColor: theme.border }}
-                  />
-                  <Pressable
-                    onPress={requestClose}
-                    className="absolute right-5 top-5 h-9 w-9 rounded-full items-center justify-center z-10"
-                    style={{ backgroundColor: colorScheme === 'dark' ? theme.card : '#F3F4F6' }}>
-                    <MaterialCommunityIcons name="close" size={18} color={theme.text} />
-                  </Pressable>
+                <View testID="sheet-drag-handle">
+                  <View style={[formStyles.handle, { backgroundColor: theme.borderStrong }]} />
+                  <View style={formStyles.header}>
+                    <View style={formStyles.headerSide}>
+                      {!splitContext && isFlagged('type') ? <CheckTag /> : null}
+                    </View>
+                    <View style={formStyles.headerCenter}>
+                      {splitContext ? (
+                        <ThemedText
+                          accessibilityRole="header"
+                          numberOfLines={1}
+                          style={[formStyles.headerTitle, { color: theme.text }]}>
+                          {sheetTitle}
+                        </ThemedText>
+                      ) : (
+                        <Segments
+                          active={form.type === 'Income' ? 'Income' : 'Expense'}
+                          options={[
+                            { key: 'Expense', label: 'Expense', testID: 'entry-type-expense' },
+                            { key: 'Income', label: 'Income', testID: 'entry-type-income' },
+                          ]}
+                          onChange={(type) => {
+                            markDraftFieldChecked('type');
+                            selectTransactionType(type);
+                          }}
+                          labelSize={14}
+                          style={formStyles.typeToggle}
+                        />
+                      )}
+                    </View>
+                    <View style={[formStyles.headerSide, formStyles.headerSideEnd]}>
+                      <SheetCloseButton onPress={requestClose} />
+                    </View>
+                  </View>
                 </View>
               </GestureDetector>
 
               <ScrollView
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                // Amount-first pins the keypad and the save button below this
-                // view, so it has to take the space that is left rather than a
-                // fixed share of the sheet.
-                style={fastEntry || draftReview ? { flex: 1 } : { maxHeight: '90%' }}
-                contentContainerStyle={{
-                  paddingBottom:
-                    keyboardInset > 0
-                      ? keyboardInset + 24
-                      : isKeypadVisible || fastEntry || draftReview
-                        ? 12
-                        : 28,
-                  // Capture is a short screen in a tall sheet. Growing the
-                  // content to fill it lets the amount block centre itself in
-                  // what is left, instead of stacking at the top with a third
-                  // of the panel empty beneath it.
-                  ...(isKeypadVisible ? { flexGrow: 1 } : null),
-                }}>
-                <View className={fastEntry ? 'items-center px-5 mb-2' : 'items-center px-5 mb-6'}>
-                  <ThemedText
-                    className={
-                      fastEntry ? 'text-base font-black mt-2' : 'text-xl font-black mt-4 mb-1.5'
-                    }
-                    style={{ color: theme.text }}>
-                    {heading ??
-                      (isEdit
-                        ? mode === 'quick-prompt'
-                          ? 'Edit quick prompt'
-                          : 'Edit transaction'
-                        : mode === 'audio'
-                          ? aiReview?.smartSortingDisabled
-                            ? 'Review your draft'
-                            : 'Here’s your draft'
-                          : mode === 'quick-prompt'
-                            ? 'New quick prompt'
-                            : splitContext
-                              ? 'New split expense'
-                              : form.type === 'Income'
-                                ? 'New income'
-                                : 'New expense')}
-                  </ThemedText>
-                  {canScanReceipt ? (
-                    // Under the title, centred, rather than pinned in the top
-                    // corner where it read as part of the window chrome and
-                    // could run into the title on a narrow phone.
-                    <PressableView
-                      testID="scan-receipt"
-                      onPress={onRequestReceiptScan}
-                      accessibilityRole="button"
-                      accessibilityLabel="Scan a bill"
-                      accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in this entry."
-                      hitSlop={6}
-                      className="mt-2 h-9 flex-row items-center gap-1.5 rounded-full px-4"
-                      style={{ backgroundColor: theme.secondary }}
-                      pressedStyle={{ opacity: 0.75 }}>
-                      <MaterialCommunityIcons name="camera-outline" size={17} color={theme.accent} />
-                      <ThemedText className="text-sm font-bold" style={{ color: theme.accent }}>
-                        Scan a bill instead
-                      </ThemedText>
-                    </PressableView>
-                  ) : null}
-                  {/* The review sheet's banner already says how many fields
-                      want a look, and a second line saying it again costs the
-                      height that keeps a clean draft scroll-free. Smart Sorting
-                      being off is the one thing the banner cannot say. */}
-                  {!fastEntry && (!draftReview || aiReview?.smartSortingDisabled) && (
-                    <ThemedText tone="muted" className="text-center text-sm leading-5 px-3">
-                      {isEdit
-                        ? 'Change what you need, then save.'
-                        : mode === 'audio'
-                          ? aiReview?.smartSortingDisabled
-                            ? 'Smart Sorting is off, so pick the category and payment details yourself.'
-                            : 'Check each field before you save.'
-                          : mode === 'quick-prompt'
-                            ? 'One tap on this prompt fills all of this in for you.'
-                            : 'Add the details below.'}
+                style={{ flex: 1 }}
+                contentContainerStyle={{ paddingBottom: keyboardInset > 0 ? keyboardInset + 24 : 16 }}>
+                {!splitContext && sheetTitle ? (
+                  <View style={formStyles.titleBlock}>
+                    <ThemedText style={[formStyles.sheetTitle, { color: theme.text }]}>
+                      {sheetTitle}
                     </ThemedText>
-                  )}
-                </View>
+                    {mode === 'quick-prompt' ? (
+                      <ThemedText tone="muted" style={formStyles.caption}>
+                        One tap on this prompt fills all of this in for you.
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                ) : null}
 
-                <View className={fastEntry ? 'px-5 mb-3' : 'px-5 mb-6'}>
-                  {draftReview && aiReview?.sourceText ? (
+                {draftReview && aiReview?.sourceText ? (
+                  <View style={formStyles.sourceBlock}>
                     <TransactionDraftSource
                       inputSource={aiReview.inputSource}
                       sourceText={aiReview.sourceText}
                     />
-                  ) : null}
+                  </View>
+                ) : null}
 
-                  {mode === 'audio' && (
-                    <TransactionDraftBanner
-                      isParsing={isParsing}
-                      fieldsToCheck={draftReview ? draftPendingCount : reviewFields.length}
-                      hasReviewMetadata={hasReviewMetadata}
-                      // The review sheet gives every flagged field its own card
-                      // below, so naming them here as well would say it twice.
-                      checkList={draftReview ? [] : reviewFields.map(formatFieldName)}
-                      // On the review sheet these exist to prompt the checks
-                      // below; once every flagged field has been answered the
-                      // banner reads "No issues flagged", and a question left
-                      // sitting under that line contradicts it.
-                      clarifications={
-                        !draftReview || draftPendingCount > 0 ? aiReview?.clarifications : undefined
-                      }
-                    />
-                  )}
-
-                  {draftReview && isParsing && <DraftSkeleton />}
-
-                  {draftReview && !isParsing && draftPlan && (
-                    <>
-                      <SettleIn index={draftSettleOrder.amount} emphasis>
-                        <View className="mb-4">
-                          <DraftFieldCard
-                            label="Amount"
-                            icon="currency-inr"
-                            onPress={() => amountInputRef.current?.focus()}
-                            accessibilityLabel="Edit amount"
-                            iconColor={form.type === 'Income' ? '#10B981' : accent}
-                            flagged={draftPlan.flagged.includes('amount')}
-                            checked={checkedDraftFields.includes('amount')}>
-                            <View className="flex-row items-center gap-1">
-                              <ThemedText
-                                className="text-2xl font-black"
-                                style={{ color: form.type === 'Income' ? '#10B981' : accent }}>
-                                {CURRENCY_SYMBOL}
-                              </ThemedText>
-                              <TextInput
-                                ref={amountInputRef}
-                                testID="entry-amount-input"
-                                value={form.amount}
-                                onChangeText={(text) => {
-                                  handleAmountChange(text);
-                                  markDraftFieldChecked('amount');
-                                }}
-                                keyboardType="decimal-pad"
-                                className="flex-1 p-0 text-3xl font-black"
-                                selectionColor={accent}
-                                style={{
-                                  color: form.type === 'Income' ? '#10B981' : accent,
-                                  height: 38,
-                                }}
-                              />
-                            </View>
-                          </DraftFieldCard>
-                        </View>
-                      </SettleIn>
-
-                      {draftFlaggedFields.length > 0 && (
-                        <View className="mb-4 gap-3">
-                          <ThemedText
-                            tone="warning"
-                            className="mb-1 text-[11px] font-black uppercase tracking-widest italic">
-                            {draftPendingCount > 0 ? 'Check these first' : 'You checked these'}
-                          </ThemedText>
-                          {draftFlaggedFields.map((field, fieldIndex) => (
-                            <SettleIn key={`settle-${field}`} index={fieldIndex}>
-                              {renderDraftField(field)}
-                            </SettleIn>
-                          ))}
-                        </View>
-                      )}
-
-                      {draftReview && refundReceived && !isParsing && (
-                        <View
-                          testID="refund-received-card"
-                          className="mb-4 flex-row items-center justify-between gap-3 rounded-[20px] border p-4"
-                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                          <View className="flex-1">
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              Also record the {formatMoney(refundReceived.amount)} refund?
-                            </ThemedText>
-                            <ThemedText tone="muted" className="mt-1 text-xs">
-                              {recordRefund
-                                ? 'Saved as a separate income on the same account, so the purchase keeps its full amount.'
-                                : 'Only the purchase will be saved.'}
-                            </ThemedText>
-                          </View>
-                          <HapticSwitch
-                            testID="refund-received-switch"
-                            value={recordRefund}
-                            onValueChange={onRecordRefundChange}
-                            trackColor={{ false: theme.border, true: accent }}
-                          />
-                        </View>
-                      )}
-
-                      {draftReview && accountMatches.length > 1 && !isParsing && (
-                        <View
-                          testID="account-match-choice"
-                          className="mb-4 rounded-[20px] border p-4"
-                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                            Which one did you mean?
-                          </ThemedText>
-                          <ThemedText tone="muted" className="mt-1 text-xs">
-                            More than one saved account fits what you said.
-                          </ThemedText>
-                          <View className="mt-3 flex-row flex-wrap gap-2">
-                            {accountMatches.slice(0, 4).map((match) => {
-                              const selected = form.accountId === match.id;
-                              return (
-                                <Pressable
-                                  key={match.id}
-                                  accessibilityRole="button"
-                                  accessibilityState={{ selected }}
-                                  onPress={() =>
-                                    setForm((p) => ({
-                                      ...p,
-                                      accountId: match.id,
-                                      account: match.name,
-                                    }))
-                                  }
-                                  className="rounded-full border px-4 py-2"
-                                  style={{
-                                    backgroundColor: selected ? `${accent}1F` : theme.card,
-                                    borderColor: selected ? accent : theme.border,
-                                  }}>
-                                  <ThemedText
-                                    className="text-xs font-black"
-                                    style={{ color: selected ? accent : theme.text }}>
-                                    {match.name}
-                                  </ThemedText>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                          {newAccountSuggestion && onSetupSuggestedAccount ? (
-                            <Pressable
-                              testID="account-match-new"
-                              accessibilityRole="button"
-                              onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
-                              className="mt-3 flex-row items-center justify-center gap-2 rounded-2xl border border-dashed px-4 py-3"
-                              style={{ borderColor: accent }}>
-                              <MaterialCommunityIcons
-                                name="plus-circle-outline"
-                                size={18}
-                                color={accent}
-                              />
-                              <ThemedText className="text-sm font-black" style={{ color: accent }}>
-                                None of these — add a new account
-                              </ThemedText>
-                            </Pressable>
-                          ) : null}
-                        </View>
-                      )}
-
-                      {draftReview && visibleAccountSuggestion && onSetupSuggestedAccount && (
-                        <View
-                          testID="account-suggestion"
-                          className="mb-4 rounded-[20px] border p-4"
-                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                            Add {visibleAccountSuggestion.name}?
-                          </ThemedText>
-                          <ThemedText tone="muted" className="mt-1 text-xs">
-                            {form.type === 'Income'
-                              ? 'Use it to record where this money was received. Review the details or create it now.'
-                              : 'Use it to keep this payment linked. Review the details or create it now.'}
-                          </ThemedText>
-                          <View className="mt-3 flex-row gap-3">
-                            <Pressable
-                              onPress={() => onSetupSuggestedAccount(visibleAccountSuggestion)}
-                              className="rounded-full px-4 py-2"
-                              style={{ backgroundColor: accent }}>
-                              <ThemedText tone="onAccent" className="text-xs font-black">
-                                Set up account
-                              </ThemedText>
-                            </Pressable>
-                            <Pressable
-                              disabled={autoCreatingAccount}
-                              onPress={() =>
-                                void handleAutoCreateSuggestedAccount(visibleAccountSuggestion)
-                              }
-                              className="rounded-full px-3 py-2">
-                              <ThemedText tone="muted" className="text-xs font-black">
-                                {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
-                              </ThemedText>
-                            </Pressable>
-                          </View>
-                        </View>
-                      )}
-
-                      {/* Outside the card: a successful create dismisses the
-                          suggestion, so feedback nested inside it would unmount
-                          in the same commit that produced it. */}
-                      {draftReview && <View className="mb-4">{renderAutoCreateFeedback()}</View>}
-
-                      <SettleIn index={draftSettleOrder.summary}>
-                        <View className="mb-2">
-                          <Pressable
-                            testID="draft-summary-toggle"
-                            accessibilityRole="button"
-                            accessibilityState={{ expanded: isDraftSummaryExpanded }}
-                            onPress={() => setIsDraftSummaryExpanded((expanded) => !expanded)}
-                            className="w-full flex-row items-center justify-between rounded-[20px] border p-3"
-                            style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                            <View className="flex-1 flex-row items-center gap-3 pr-2">
-                              <MaterialCommunityIcons
-                                name="check-circle-outline"
-                                size={20}
-                                color="#10B981"
-                              />
-                              <View className="flex-1">
-                                <ThemedText
-                                  tone="muted"
-                                  className="text-[10px] font-bold uppercase">
-                                  {draftConfidentCount > 0
-                                    ? `${draftConfidentCount} field${draftConfidentCount === 1 ? '' : 's'} the AI is sure about`
-                                    : 'Everything else'}
-                                </ThemedText>
-                                <ThemedText
-                                  testID="draft-summary-line"
-                                  numberOfLines={1}
-                                  className="text-sm font-black"
-                                  style={{ color: theme.text }}>
-                                  {draftSummaryLine || 'Merchant, tags, notes and receipt'}
-                                </ThemedText>
-                              </View>
-                            </View>
-                            <MaterialCommunityIcons
-                              name={isDraftSummaryExpanded ? 'chevron-up' : 'chevron-down'}
-                              size={22}
-                              color="#D1D5DB"
-                            />
-                          </Pressable>
-                          {isDraftSummaryExpanded && (
-                            <View className="mt-3 gap-3">
-                              {draftCollapsedFields.map(renderDraftField)}
-                              {renderReceiptField(false)}
-                            </View>
-                          )}
-                        </View>
-                      </SettleIn>
-                    </>
-                  )}
-
-                  {isEdit && reviewFields.length > 0 && (
-                    <View className="mb-5 rounded-3xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
-                      <View className="flex-row items-center">
-                        <MaterialCommunityIcons name="playlist-check" size={18} color="#D97706" />
-                        <ThemedText
-                          tone="warning"
-                          className="ml-2 text-[11px] font-black uppercase tracking-widest">
-                          Review cleanup
-                        </ThemedText>
-                      </View>
-                      <ThemedText tone="warning" className="mt-3 text-sm font-bold">
-                        Fix: {reviewFields.map(formatFieldName).join(', ')}
-                      </ThemedText>
-                      <ThemedText tone="warning" className="mt-2 text-xs">
-                        The highlighted field is opened first so you can resolve this transaction
-                        quickly.
-                      </ThemedText>
+                {draftReview && isParsing ? (
+                  <>
+                    <View style={formStyles.amountBlock}>
+                      <TransactionDraftStatus
+                        isParsing
+                        fieldsToCheck={0}
+                        hasReviewMetadata={false}
+                      />
                     </View>
-                  )}
-
-                  {!draftReview && (
-                    <View
-                      className={
-                        isCompactEntry
-                          ? 'rounded-[20px] px-3 py-3 border shadow-sm mb-2'
-                          : 'rounded-[20px] p-3 border shadow-sm mb-3'
-                      }
-                      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                      {/* On the capture path the title is one row, and its
-                          placeholder says it is optional — a blank one is saved
-                          as the merchant or category. Every row this screen
-                          spends on a label is a row the "add details" chips
-                          lose to the keypad. */}
-                      {!isCompactEntry && (
-                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase mb-2">
-                          Title
-                        </ThemedText>
-                      )}
-                      <View className="flex-row items-center gap-3">
-                        <MaterialCommunityIcons
-                          name="label-variant-outline"
-                          size={22}
-                          color={accent}
-                        />
-                        <TextInput
-                          ref={titleInputRef}
-                          testID="entry-title-input"
-                          value={form.title}
-                          onChangeText={handleTitleChange}
-                          onFocus={() => setIsTitleFocused(true)}
-                          onBlur={() => setIsTitleFocused(false)}
-                          onSubmitEditing={isCompactEntry ? focusAmountKeypad : undefined}
-                          returnKeyType={isCompactEntry ? 'next' : 'done'}
-                          className="text-base font-black flex-1 p-0"
-                          style={{ color: theme.text, height: 24 }}
-                          placeholder={
-                            isCompactEntry ? 'What was it for? (optional)' : 'What was this for?'
-                          }
-                          placeholderTextColor={theme.muted}
-                        />
-                      </View>
-                    </View>
-                  )}
-
-                  {showFullForm && (
-                    <View className="flex-row gap-3 mb-3">
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel="Edit amount"
-                        onPress={() => amountInputRef.current?.focus()}
-                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                          Amount
-                        </ThemedText>
-                        <View className="flex-row items-center gap-1">
-                          <ThemedText className="text-lg font-black" style={{ color: accent }}>
+                    <DraftSkeleton />
+                  </>
+                ) : (
+                  <>
+                    <View style={formStyles.amountBlock}>
+                      {fastEntry ? (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Edit amount"
+                          onPress={focusAmountKeypad}
+                          style={formStyles.amountTouch}>
+                          <AmountDisplay value={form.amount} />
+                        </Pressable>
+                      ) : (
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel="Edit amount"
+                          onPress={() => amountInputRef.current?.focus()}
+                          style={formStyles.amountRow}>
+                          <ThemedText tone="muted" style={formStyles.amountSymbol}>
                             {CURRENCY_SYMBOL}
                           </ThemedText>
                           <TextInput
                             ref={amountInputRef}
                             testID="entry-amount-input"
+                            accessibilityLabel="Amount"
                             value={form.amount}
-                            onChangeText={(text) => setForm((p) => ({ ...p, amount: text }))}
-                            className="text-xl font-black p-0 flex-1"
-                            style={{ color: theme.text, height: 32 }}
+                            onChangeText={(text) => {
+                              handleAmountChange(text);
+                              markDraftFieldChecked('amount');
+                            }}
                             keyboardType="decimal-pad"
+                            placeholder="0"
+                            placeholderTextColor={theme.muted}
+                            selectionColor={accent}
+                            style={[
+                              formStyles.amountInput,
+                              { color: isFlagged('amount') ? theme.warning : theme.text },
+                            ]}
                           />
-                        </View>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setIsModePickerVisible(true)}
-                        className="flex-1 rounded-[20px] p-3 border shadow-sm h-24 justify-between"
-                        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                        <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                          {paymentLanguage.modeLabel}
-                        </ThemedText>
-                        <View className="flex-row items-center gap-2">
-                          <MaterialCommunityIcons name="cash-multiple" size={21} color="#8B5CF6" />
-                          <ThemedText
-                            className="text-base font-black"
-                            style={{ color: theme.text }}>
-                            {form.mode}
+                        </Pressable>
+                      )}
+
+                      {canScanReceipt ? (
+                        <PressableView
+                          testID="scan-receipt"
+                          onPress={onRequestReceiptScan}
+                          accessibilityRole="button"
+                          accessibilityLabel="Scan a bill"
+                          accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in this entry."
+                          hitSlop={6}
+                          style={formStyles.scanLink}
+                          pressedStyle={formStyles.pressed}>
+                          <MaterialCommunityIcons name="camera-outline" size={18} color={theme.text} />
+                          <ThemedText style={[formStyles.scanLabel, { color: theme.text }]}>
+                            Scan a bill
                           </ThemedText>
-                        </View>
-                      </Pressable>
-                    </View>
-                  )}
+                        </PressableView>
+                      ) : null}
 
-                  {isCompactEntry && (
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Edit amount"
-                      onPress={focusAmountKeypad}>
-                      <AmountDisplay value={form.amount} />
-                    </Pressable>
-                  )}
-
-                  {/* The review sheet shows the type as a card in its ranked
-                      list instead, where it sits with the rest of the draft. */}
-                  {/* No label above it: a segmented Expense / Income control
-                      says what it is, and a heading saying it again was one
-                      more line to read before the amount. */}
-                  {!draftReview && !splitContext && (
-                    <View className="mb-4">
-                      <View
-                        accessibilityRole="radiogroup"
-                        accessibilityLabel="Transaction type"
-                        className="flex-row rounded-[22px] p-1 relative overflow-hidden"
-                        style={{ backgroundColor: `${theme.text}0D` }}>
-                        <Animated.View
-                          style={[
-                            {
-                              position: 'absolute',
-                              top: 4,
-                              bottom: 4,
-                              left: 4,
-                              width: '48%',
-                              backgroundColor: form.type === 'Expense' ? accent : '#10B981',
-                              borderRadius: 18,
-                            },
-                            typeSwitchStyle,
-                          ]}
-                          className="shadow-sm"
+                      {showDraftStatus ? (
+                        <TransactionDraftStatus
+                          isParsing={false}
+                          fieldsToCheck={fieldsToCheck}
+                          hasReviewMetadata={draftReview ? hasReviewMetadata : true}
+                          // Once every flagged field has been answered the line
+                          // reads "No issues flagged", and a question left under
+                          // it would contradict it.
+                          clarifications={fieldsToCheck > 0 ? aiReview?.clarifications : undefined}
                         />
-                        <Pressable
-                          testID="entry-type-expense"
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected: form.type === 'Expense' }}
-                          onPress={() => selectTransactionType('Expense')}
-                          className="flex-1 py-3 items-center justify-center z-10">
-                          {/* Colour by tone, not class: a colour className on
-                              ThemedText is overridden by its own style, which
-                              is how the selected label used to render in the
-                              theme's ink instead of white on the accent. */}
-                          <ThemedText
-                            tone={form.type === 'Expense' ? 'onAccent' : 'muted'}
-                            className="text-sm font-black tracking-tight">
-                            Expense
-                          </ThemedText>
-                        </Pressable>
-                        <Pressable
-                          testID="entry-type-income"
-                          accessibilityRole="radio"
-                          accessibilityState={{ selected: form.type === 'Income' }}
-                          onPress={() => selectTransactionType('Income')}
-                          className="flex-1 py-3 items-center justify-center z-10">
-                          <ThemedText
-                            tone={form.type === 'Income' ? 'onAccent' : 'muted'}
-                            className="text-sm font-black tracking-tight">
-                            Income
-                          </ThemedText>
-                        </Pressable>
-                      </View>
+                      ) : null}
+                      {draftReview && aiReview?.smartSortingDisabled ? (
+                        <ThemedText tone="muted" style={[formStyles.caption, formStyles.centered]}>
+                          Smart Sorting is off, so pick the category and payment details yourself.
+                        </ThemedText>
+                      ) : null}
                     </View>
-                  )}
 
-                  {/* Category sits with the other essentials when editing. It
-                      used to come after the split, EMI and subscription cards,
-                      so the one field every entry has was the last one found. */}
-                  {showFullForm && (
-                    <>
-                    {categoryNeedsReview && (
-                      <ThemedText
-                        tone="warning"
-                        className="text-[11px] font-black uppercase tracking-widest mb-4">
-                        Check the category
-                      </ThemedText>
-                    )}
-                    {visibleCategorySuggestions.length > 0 && (
-                      <View className="mb-3">
-                        <ThemedText
-                          tone="muted"
-                          className="mb-2 text-[10px] font-black uppercase tracking-widest">
+                    {/* Optional on the capture path, where a blank title saves
+                        as the merchant or category; asked for everywhere else. */}
+                    <View
+                      style={[
+                        formStyles.titleField,
+                        isFlagged('title')
+                          ? { backgroundColor: theme.warningSurface, borderColor: theme.warningBorder }
+                          : { backgroundColor: theme.card, borderColor: theme.border },
+                      ]}>
+                      <TextInput
+                        ref={titleInputRef}
+                        testID="entry-title-input"
+                        accessibilityLabel="What was it for?"
+                        value={form.title}
+                        onChangeText={(title) => {
+                          handleTitleChange(title);
+                          markDraftFieldChecked('title');
+                        }}
+                        onFocus={() => setIsTitleFocused(true)}
+                        onBlur={() => setIsTitleFocused(false)}
+                        onSubmitEditing={fastEntry ? focusAmountKeypad : undefined}
+                        returnKeyType={fastEntry ? 'next' : 'done'}
+                        placeholder={fastEntry ? 'What was it for? (optional)' : 'What was this for?'}
+                        placeholderTextColor={theme.muted}
+                        selectionColor={accent}
+                        style={[formStyles.titleInput, { color: theme.text }]}
+                      />
+                      {isFlagged('title') ? <CheckTag /> : null}
+                    </View>
+
+                    <View
+                      style={[
+                        formStyles.fieldsCard,
+                        { backgroundColor: theme.card, borderColor: theme.border },
+                      ]}>
+                      <LabelRow
+                        testID="entry-category-picker"
+                        accessibilityLabel={`Category ${displayedCategory}`}
+                        label="Category"
+                        value={displayedCategory}
+                        icon={displayedCategoryVisual.icon}
+                        iconColor={displayedCategoryVisual.color}
+                        flagged={isFlagged('category')}
+                        onPress={() => {
+                          markDraftFieldChecked('category');
+                          setIsCategoryPickerVisible(true);
+                        }}
+                      />
+                      <LabelRow
+                        testID="entry-mode-picker"
+                        accessibilityLabel={`${paymentLanguage.modeAccessibilityPrefix} ${form.mode}`}
+                        label={paymentLanguage.modeLabel}
+                        value={form.mode}
+                        icon={modeVisual.icon}
+                        iconColor={theme.text}
+                        flagged={isFlagged('mode')}
+                        divider
+                        onPress={() => {
+                          markDraftFieldChecked('mode');
+                          setIsModePickerVisible(true);
+                        }}
+                      />
+                      {personalPayment ? (
+                        <LabelRow
+                          testID="entry-account-picker"
+                          accessibilityLabel={`${paymentLanguage.accountAccessibilityPrefix} ${form.account || 'no account yet'}`}
+                          label={paymentLanguage.accountLabel}
+                          value={accountValue}
+                          icon="wallet-outline"
+                          iconColor={theme.text}
+                          flagged={isFlagged('account')}
+                          divider
+                          onPress={() => {
+                            markDraftFieldChecked('account');
+                            setIsAccountPickerVisible(true);
+                          }}
+                        />
+                      ) : null}
+                      {/* A quick prompt is a template: the date is whenever it is
+                          used, so it has none. */}
+                      {mode !== 'quick-prompt' ? (
+                        <LabelRow label="Date" divider flagged={isFlagged('date')}>
+                          <View style={formStyles.dateChips}>
+                            {dateChoices.map((choice) => (
+                              <DateChip
+                                key={choice.key}
+                                testID={`entry-date-${choice.key}`}
+                                label={choice.label}
+                                selected={form.date === choice.value}
+                                onPress={() => setDateChoice(choice.value)}
+                              />
+                            ))}
+                            <DateChip
+                              testID="entry-date-pick"
+                              accessibilityLabel={isCustomDate ? `Date ${form.date}` : 'Pick a date'}
+                              icon="calendar-blank-outline"
+                              label={isCustomDate ? shortDateLabel(form.date) : undefined}
+                              selected={isCustomDate}
+                              onPress={() => {
+                                markDraftFieldChecked('date');
+                                handleOpenDatePicker();
+                              }}
+                            />
+                          </View>
+                        </LabelRow>
+                      ) : null}
+                    </View>
+
+                    {!fastEntry && visibleCategorySuggestions.length > 0 ? (
+                      <View style={formStyles.block}>
+                        <ThemedText tone="muted" style={formStyles.caption}>
                           Suggested from history
                         </ThemedText>
-                        <View className="flex-row flex-wrap gap-2">
+                        <View style={formStyles.chipWrap}>
                           {visibleCategorySuggestions.map((suggestion) => (
-                            <Pressable
+                            <PressableView
                               key={suggestion}
                               accessibilityRole="button"
                               onPress={() => selectCategory(suggestion)}
-                              className="flex-row items-center rounded-full px-3 py-2"
-                              style={{ backgroundColor: accentSurface }}>
+                              style={[
+                                formStyles.chip,
+                                { backgroundColor: theme.card, borderColor: theme.border },
+                              ]}
+                              pressedStyle={formStyles.pressed}>
                               <MaterialCommunityIcons
                                 name="creation-outline"
-                                size={13}
-                                color={accent}
+                                size={16}
+                                color={theme.text}
                               />
-                              <ThemedText
-                                className="ml-1.5 text-[11px] font-black"
-                                style={{ color: accent }}>
+                              <ThemedText style={[formStyles.chipLabel, { color: theme.text }]}>
                                 {suggestion}
                               </ThemedText>
-                            </Pressable>
+                            </PressableView>
                           ))}
                         </View>
                       </View>
-                    )}
-                    <View className="relative mb-4">
-                      {categoryNeedsReview && (
-                        <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
-                          <ThemedText className="text-[8px] font-black">Check this</ThemedText>
-                        </View>
-                      )}
-                      <Pressable
-                        testID="entry-category-picker"
-                        onPress={() => setIsCategoryPickerVisible(true)}
-                        className="w-full rounded-[24px] border p-3 flex-row items-center justify-between"
-                        style={{
-                          backgroundColor: categoryNeedsReview
-                            ? colorScheme === 'dark'
-                              ? theme.secondary
-                              : '#FFFCF0'
-                            : theme.card,
-                          borderColor: categoryNeedsReview ? '#FDE68A' : theme.border,
-                        }}>
-                        <View className="flex-row items-center gap-4">
-                          <View
-                            className="h-10 w-10 items-center justify-center"
-                            style={{
-                              backgroundColor: categoryNeedsReview ? '#FEF3C7' : accentSurface,
-                              borderRadius: themeTokens.icon.containerRadius,
-                            }}>
-                            <MaterialCommunityIcons
-                              // Was hardcoded to a car, so Misc and Bills both
-                              // showed one. The amount-first chip renders the
-                              // real icon a few dp away, which made the two
-                              // disagree on the same screen. The amber tint and
-                              // the "Check this" badge still carry the review
-                              // state; the icon does not have to.
-                              name={displayedCategoryVisual.icon}
-                              size={21}
-                              color={categoryNeedsReview ? '#F59E0B' : accent}
-                            />
-                          </View>
-                          <View>
-                            <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                              Category
-                            </ThemedText>
-                            <ThemedText
-                              className="text-sm font-black"
-                              style={{ color: theme.text }}>
-                              {displayedCategory}
-                            </ThemedText>
-                          </View>
-                        </View>
-                        <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
-                      </Pressable>
-                    </View>
-                    </>
-                  )}
+                    ) : null}
 
-                  {isCompactEntry && (
-                    <>
-                      <View className="mb-3 mt-1 flex-row flex-wrap items-center justify-center gap-2">
-                        <Pressable
-                          testID="entry-category-chip"
-                          accessibilityRole="button"
-                          accessibilityLabel={`Category ${displayedCategory}`}
-                          onPress={() => setIsCategoryPickerVisible(true)}
-                          className="flex-row items-center gap-1.5 rounded-full border px-3 py-2 active:opacity-60"
-                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                          <MaterialCommunityIcons
-                            name={displayedCategoryVisual.icon}
-                            size={15}
-                            color={displayedCategoryVisual.color}
-                          />
-                          <ThemedText className="text-xs font-black" style={{ color: theme.text }}>
-                            {displayedCategory}
-                          </ThemedText>
-                          <MaterialCommunityIcons name="chevron-down" size={15} color="#9CA3AF" />
-                        </Pressable>
-
-                        <Pressable
-                          testID="entry-mode-chip"
-                          accessibilityRole="button"
-                          accessibilityLabel={`${paymentLanguage.modeAccessibilityPrefix} ${form.mode}`}
-                          onPress={() => setIsModePickerVisible(true)}
-                          className="flex-row items-center gap-1.5 rounded-full border px-3 py-2 active:opacity-60"
-                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                          <MaterialCommunityIcons name="cash-multiple" size={15} color="#8B5CF6" />
-                          <ThemedText className="text-xs font-black" style={{ color: theme.text }}>
-                            {form.mode}
-                          </ThemedText>
-                          <MaterialCommunityIcons name="chevron-down" size={15} color="#9CA3AF" />
-                        </Pressable>
-
-                        <Pressable
-                          testID="entry-account-chip"
-                          accessibilityRole="button"
-                          accessibilityLabel={`${paymentLanguage.accountAccessibilityPrefix} ${form.account || 'no account yet'}`}
-                          onPress={() => setIsAccountPickerVisible(true)}
-                          className="flex-row items-center gap-1.5 rounded-full border px-3 py-2 active:opacity-60"
-                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                          <MaterialCommunityIcons name="wallet-outline" size={15} color="#3B82F6" />
-                          <ThemedText
-                            numberOfLines={1}
-                            className="text-xs font-black"
-                            style={{ color: theme.text }}>
-                            {form.account || `Add ${form.mode} account`}
-                          </ThemedText>
-                          <MaterialCommunityIcons name="chevron-down" size={15} color="#9CA3AF" />
-                        </Pressable>
-                      </View>
-
-                      <View className="flex-row items-center justify-center gap-2">
-                        {dateChoices.map((choice) => {
-                          const isSelected = form.date === choice.value;
-                          return (
-                            <Pressable
-                              key={choice.key}
-                              testID={`entry-date-${choice.key}`}
-                              accessibilityRole="button"
-                              accessibilityState={{ selected: isSelected }}
-                              onPress={() =>
-                                setForm((prev) => ({
-                                  ...prev,
-                                  date: choice.value,
-                                  time: formatTime(new Date()) ?? prev.time,
-                                }))
-                              }
-                              className="rounded-full border px-4 py-2 active:opacity-60"
-                              style={{
-                                backgroundColor: isSelected ? accentSurface : theme.card,
-                                borderColor: isSelected ? accent : theme.border,
-                              }}>
-                              <ThemedText
-                                className="text-xs font-black"
-                                style={{ color: isSelected ? accent : theme.text }}>
-                                {choice.label}
-                              </ThemedText>
-                            </Pressable>
-                          );
-                        })}
-                        <Pressable
-                          testID="entry-date-pick"
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isCustomDate }}
-                          onPress={handleOpenDatePicker}
-                          className="flex-row items-center gap-1.5 rounded-full border px-4 py-2 active:opacity-60"
-                          style={{
-                            backgroundColor: isCustomDate ? accentSurface : theme.card,
-                            borderColor: isCustomDate ? accent : theme.border,
-                          }}>
-                          <MaterialCommunityIcons
-                            name="calendar-blank-outline"
-                            size={14}
-                            color={isCustomDate ? accent : '#9CA3AF'}
-                          />
-                          <ThemedText
-                            className="text-xs font-black"
-                            style={{ color: isCustomDate ? accent : theme.text }}>
-                            {isCustomDate ? form.date : 'Pick'}
-                          </ThemedText>
-                        </Pressable>
-                      </View>
-                    </>
-                  )}
-
-                  {showFullForm && (
-                    <>
-                      {/* A quick prompt is a template: the date is whenever it is used,
-                          so it has none. Which account it pays from is part of the
-                          template, though, so the picker stays. */}
-                      {mode !== 'quick-prompt' && (
-                        <Pressable
-                          onPress={handleOpenDatePicker}
-                          className="w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
-                          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                          <View>
-                            <ThemedText
-                              tone="muted"
-                              className="text-[10px] font-bold uppercase mb-2">
-                              Date & time
-                            </ThemedText>
-                            <View className="flex-row items-center gap-3">
-                              <View
-                                className="h-9 w-9 rounded-xl items-center justify-center"
-                                style={{ backgroundColor: accentSurface }}>
-                                <MaterialCommunityIcons
-                                  name="calendar-multiselect"
-                                  size={18}
-                                  color="#8B5CF6"
-                                />
-                              </View>
-                              <ThemedText
-                                className="text-sm font-bold"
-                                style={{ color: theme.text }}>
-                                {form.date}, {form.time}
-                              </ThemedText>
-                            </View>
-                          </View>
-                          <MaterialCommunityIcons name="pencil-outline" size={18} color="#D1D5DB" />
-                        </Pressable>
-                      )}
-                      {personalPayment && (
-                        <Pressable
-                          testID="entry-account-picker"
-                          onPress={() => setIsAccountPickerVisible(true)}
-                          className="mt-3 w-full rounded-[20px] p-3 border shadow-sm flex-row items-center justify-between"
-                          style={{
-                            backgroundColor: accountNeedsReview
-                              ? colorScheme === 'dark'
-                                ? theme.secondary
-                                : '#FFFCF0'
-                              : theme.card,
-                            borderColor: accountNeedsReview ? '#FDE68A' : theme.border,
-                          }}>
-                          {accountNeedsReview && (
-                            <View className="absolute -top-3 right-4 z-10 bg-yellow-400 px-2 py-0.5 rounded-lg">
-                              <ThemedText className="text-[8px] font-black">Check this</ThemedText>
-                            </View>
-                          )}
-                          <View className="flex-row items-center gap-3 flex-1 pr-2">
-                            <View
-                              className="h-10 w-10 rounded-2xl items-center justify-center"
-                              style={{
-                                backgroundColor: accountNeedsReview ? '#FEF3C7' : '#EFF6FF',
-                              }}>
-                              <MaterialCommunityIcons
-                                name="wallet-outline"
-                                size={21}
-                                color={accountNeedsReview ? '#F59E0B' : '#3B82F6'}
-                              />
-                            </View>
-                            <View className="flex-1">
-                              <ThemedText tone="muted" className="text-[10px] font-bold uppercase">
-                                {paymentLanguage.accountLabel}
-                              </ThemedText>
-                              <ThemedText
-                                className="text-sm font-bold"
-                                style={{ color: theme.text }}>
-                                {form.account ||
-                                  (compatibleAccounts.length === 0
-                                    ? `Add a ${form.mode || 'matching'} account`
-                                    : 'Select an account')}
-                              </ThemedText>
-                            </View>
-                          </View>
-                          <MaterialCommunityIcons name="chevron-down" size={24} color="#D1D5DB" />
-                        </Pressable>
-                      )}
-                      {!draftReview &&
-                        personalPayment &&
-                        visibleAccountSuggestion &&
-                        onSetupSuggestedAccount && (
-                          <View
-                            testID="account-suggestion"
-                            className="mt-3 rounded-[20px] border p-4"
-                            style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                            <View className="flex-row items-start gap-3">
-                              <MaterialCommunityIcons
-                                name="credit-card-plus-outline"
-                                size={22}
-                                color={accent}
-                              />
-                              <View className="flex-1">
-                                <ThemedText
-                                  className="text-sm font-black"
-                                  style={{ color: theme.text }}>
-                                  Add {visibleAccountSuggestion.name}?
-                                </ThemedText>
-                                <ThemedText tone="muted" className="mt-1 text-xs">
-                                  {form.type === 'Income'
-                                    ? 'Use it to record where this money was received. Review the details or create it now.'
-                                    : 'Use it to keep this payment linked. Review the details or create it now.'}
-                                </ThemedText>
-                                <View className="mt-3 flex-row gap-3">
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    onPress={() =>
-                                      onSetupSuggestedAccount(visibleAccountSuggestion)
-                                    }
-                                    className="rounded-full px-4 py-2"
-                                    style={{ backgroundColor: accent }}>
-                                    <ThemedText tone="onAccent" className="text-xs font-black">
-                                      Set up account
-                                    </ThemedText>
-                                  </Pressable>
-                                  <Pressable
-                                    accessibilityRole="button"
-                                    disabled={autoCreatingAccount}
-                                    onPress={() =>
-                                      void handleAutoCreateSuggestedAccount(
-                                        visibleAccountSuggestion
-                                      )
-                                    }
-                                    className="rounded-full px-3 py-2">
-                                    <ThemedText tone="muted" className="text-xs font-black">
-                                      {autoCreatingAccount ? 'Creating…' : 'Create one for me'}
-                                    </ThemedText>
-                                  </Pressable>
-                                </View>
-                              </View>
-                            </View>
-                          </View>
-                        )}
-                      {renderAutoCreateFeedback()}
-                    </>
-                  )}
-                </View>
-
-                {splitContext?.fields}
-
-                {/* Optional details. Each one is a field only once it has been
-                    asked for or already holds something; the rest wait as chips
-                    at the bottom. The review sheet has its own expandable
-                    summary, and a second place holding the same fields would
-                    compete with it. */}
-                {!draftReview &&
-                  (isDetailShown('merchant') ||
-                    isDetailShown('notes') ||
-                    (tagsApply && isDetailShown('tag'))) && (
-                    <View className="px-5 mb-6 gap-4">
-                      {isDetailShown('merchant') && (
-                        <Animated.View entering={motion.revealEntering()}>
-                          <ThemedText
-                            tone="muted"
-                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                            Merchant
-                          </ThemedText>
-                          <View
-                            className="rounded-[20px] border p-3 flex-row items-center gap-3"
-                            style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                            <View
-                              className="h-8 w-8 rounded-xl items-center justify-center"
-                              style={{ backgroundColor: detailIconSurface }}>
-                              <MaterialCommunityIcons
-                                name="storefront-outline"
-                                size={16}
-                                color={accent}
-                              />
-                            </View>
-                            <TextInput
-                              testID="entry-merchant-input"
-                              value={form.merchant}
-                              onChangeText={(t) => setForm((p) => ({ ...p, merchant: t }))}
-                              // Only when the chip just asked for it: a merchant
-                              // shown because it already had one stays put.
-                              autoFocus={revealedDetails.includes('merchant') && !form.merchant}
-                              className="text-sm font-black flex-1 p-0"
-                              placeholder="Merchant or store name"
-                              placeholderTextColor={detailInputPlaceholderColor}
-                              selectionColor={accent}
-                              style={{ color: theme.text, minHeight: 24 }}
-                            />
-                          </View>
-                        </Animated.View>
-                      )}
-
-                      {isDetailShown('notes') && (
-                        <Animated.View entering={motion.revealEntering()}>
-                          <ThemedText
-                            tone="muted"
-                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                            Note
-                          </ThemedText>
-                          <TextInput
-                            testID="entry-notes-input"
-                            multiline
-                            placeholder="Add a note…"
-                            placeholderTextColor={detailInputPlaceholderColor}
-                            value={form.notes}
-                            onChangeText={(t) => setForm((p) => ({ ...p, notes: t }))}
-                            autoFocus={revealedDetails.includes('notes') && !form.notes}
-                            className="rounded-[20px] border px-4 py-3 text-sm font-bold min-h-[84px]"
-                            textAlignVertical="top"
-                            selectionColor={accent}
-                            style={{
-                              backgroundColor: theme.card,
-                              borderColor: theme.border,
-                              color: theme.text,
-                            }}
-                          />
-                        </Animated.View>
-                      )}
-
-                      {tagsApply && isDetailShown('tag') && (
-                        <Animated.View entering={motion.revealEntering()}>
-                          <ThemedText
-                            tone="muted"
-                            className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                            Tag
-                          </ThemedText>
-                          <View className="flex-row flex-wrap gap-2">
-                            {tagOptions.map((tag) => {
-                              const selected = form.tag === tag;
-                              return (
-                                <Pressable
-                                  key={tag}
-                                  accessibilityRole="button"
-                                  accessibilityState={{ selected }}
-                                  onPress={() => {
-                                    haptics.select();
-                                    setForm((p) => ({ ...p, tag }));
-                                  }}
-                                  className="rounded-full border px-4 py-2 active:opacity-60"
-                                  style={{
-                                    backgroundColor: selected ? accentSurface : theme.card,
-                                    borderColor: selected ? accent : theme.border,
-                                  }}>
-                                  <ThemedText
-                                    className="text-xs font-bold"
-                                    style={{ color: selected ? accent : theme.mutedStrong }}>
-                                    {tag}
-                                  </ThemedText>
-                                </Pressable>
-                              );
-                            })}
-                          </View>
-                        </Animated.View>
-                      )}
-                    </View>
-                  )}
-
-                {!splitContext &&
-                  mode !== 'quick-prompt' &&
-                  form.type === 'Expense' &&
-                  // On the review sheet a split the parser did not hear about
-                  // is an extra, so it waits behind the summary rather than
-                  // pushing Confirm off a clean draft. Everywhere else it is a
-                  // chip until it is wanted.
-                  (draftReview
-                    ? form.splitEnabled || isDraftSummaryExpanded
-                    : isDetailShown('split')) && (
-                    <TransactionSplitFields
-                      form={form}
-                      setForm={setForm}
-                      friends={splitFriends}
-                      groups={splitGroups}
-                      shareMode={splitShareMode}
-                      onChangeShareMode={setSplitShareMode}
-                      onApplyEqualSplit={applyEqualSplit}
-                      onAddParticipant={addSplitParticipant}
-                      onUpdateParticipant={updateSplitParticipant}
-                      onRemoveParticipant={removeSplitParticipant}
-                    />
-                  )}
-
-                {personalPayment &&
-                  mode !== 'quick-prompt' &&
-                  tagsApply &&
-                  form.tag === 'EMI' && (
-                    <TransactionEmiFields
-                      isEdit={isEdit}
-                      emiLink={emiLink}
-                      paymentMode={form.mode}
-                      isCardConversion={isEMICreditCard}
-                      cardName={selectedAccount?.name}
-                      canRepeat={canRepeatEmi}
-                      repeatActive={emiRepeatActive}
-                      nextDebit={emiNextDebit}
-                      totalInstalments={form.emiTotalInstalments}
-                      paidInstalments={form.emiPaidInstalments}
-                      tenureMonths={form.emiTenureMonths}
-                      ratePct={form.emiRatePct}
-                      firstInstallment={emiFirstInstallment}
-                      calculation={emiCalculation}
-                      calculationError={emiCalculationError}
-                      isCalculating={isCalculatingEMI}
-                      onChangeRepeat={setEmiRepeats}
-                      onChangeTotalInstalments={(emiTotalInstalments) =>
-                        setForm((previous) => ({ ...previous, emiTotalInstalments }))
-                      }
-                      onChangePaidInstalments={(emiPaidInstalments) =>
-                        setForm((previous) => ({ ...previous, emiPaidInstalments }))
-                      }
-                      onChangeTenure={(emiTenureMonths) =>
-                        setForm((previous) => ({ ...previous, emiTenureMonths }))
-                      }
-                      onChangeRate={(emiRatePct) =>
-                        setForm((previous) => ({ ...previous, emiRatePct }))
-                      }
-                    />
-                  )}
-
-                {mode !== 'quick-prompt' &&
-                  personalPayment &&
-                  tagsApply &&
-                  form.tag === 'Refundable' && (
-                    <TransactionRefundFields
-                      refundableAmount={form.refundableAmount}
-                      expectedOn={form.refundExpectedOn}
-                      reminderEnabled={form.refundReminderEnabled}
-                      isPickerVisible={isRefundDatePickerVisible}
-                      onChangeAmount={(refundableAmount) =>
-                        setForm((previous) => ({ ...previous, refundableAmount }))
-                      }
-                      onChangeExpectedOn={(refundExpectedOn) =>
-                        setForm((previous) => ({ ...previous, refundExpectedOn }))
-                      }
-                      onToggleReminder={() =>
-                        setForm((previous) => ({
-                          ...previous,
-                          refundReminderEnabled: !previous.refundReminderEnabled,
-                        }))
-                      }
-                      onChangePickerVisible={setIsRefundDatePickerVisible}
-                    />
-                  )}
-
-                {mode !== 'quick-prompt' &&
-                  !isEdit &&
-                  personalPayment &&
-                  !emiRepeatActive &&
-                  (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
-                    <TransactionSubscriptionFields
-                      form={form}
-                      setForm={setForm}
-                      onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
-                      optionsOpen={isSubscriptionOptionsOpen}
-                      onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
-                      onOpenCancellationDatePicker={() => {
-                        setPendingCancellationDate(
-                          form.subscriptionCancelOnDate
-                            ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
-                            : new Date()
-                        );
-                        setIsCancellationDatePickerVisible(true);
-                      }}
-                    />
-                  )}
-
-                {!draftReview && mode !== 'quick-prompt' && isDetailShown('receipt') && (
-                  <Animated.View entering={motion.revealEntering()} className="px-5 mb-6">
-                    {renderReceiptField(true)}
-                  </Animated.View>
-                )}
-
-                {!draftReview && availableDetailOptions.length > 0 && (
-                  <View className={isCompactEntry ? 'px-5 mb-2' : 'px-5 mb-6'}>
-                    <AddDetailChips
-                      options={availableDetailOptions}
-                      onAdd={handleAddDetail}
-                      testIDPrefix="entry-add"
-                      // On the capture screen the chips explain themselves, and
-                      // the heading's line is what kept them under the keypad.
-                      title={isCompactEntry ? '' : 'Add details'}
-                      layout={isCompactEntry ? 'scroll' : 'wrap'}
-                    />
-                  </View>
-                )}
-
-                {!fastEntry && !draftReview && saveActions}
-              </ScrollView>
-
-              {(fastEntry || draftReview) && (
-                <View
-                  className="border-t px-5 pb-6 pt-3 gap-3"
-                  style={{ borderColor: theme.border, backgroundColor: theme.background }}>
-                  {isKeypadVisible && (
-                    <>
-                      {quickFills.length > 0 && (
-                        <ScrollView
-                          horizontal
-                          showsHorizontalScrollIndicator={false}
-                          keyboardShouldPersistTaps="handled"
-                          contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
-                          {quickFills.map((fill) => {
-                            const visual = categoryVisual(fill.category, form.type);
+                    {draftReview && accountMatches.length > 1 ? (
+                      <View
+                        testID="account-match-choice"
+                        style={[formStyles.notice, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <ThemedText style={[formStyles.noticeTitle, { color: theme.text }]}>
+                          Which one did you mean?
+                        </ThemedText>
+                        <ThemedText tone="muted" style={formStyles.caption}>
+                          More than one saved account fits what you said.
+                        </ThemedText>
+                        <View style={formStyles.chipWrap}>
+                          {accountMatches.slice(0, 4).map((match) => {
+                            const selected = form.accountId === match.id;
                             return (
-                              <Pressable
-                                key={fill.key}
-                                testID={`quick-fill-${fill.key}`}
+                              <PressableView
+                                key={match.id}
                                 accessibilityRole="button"
-                                accessibilityLabel={
-                                  fill.kind === 'merchant'
-                                    ? `${fill.label}, ${fill.category}`
-                                    : `Category ${fill.label}`
-                                }
-                                onPress={() => applyQuickFill(fill)}
-                                className="flex-row items-center gap-2 rounded-full border px-3 py-2 active:opacity-60"
-                                style={{
-                                  backgroundColor: theme.card,
-                                  borderColor: theme.border,
-                                }}>
-                                <MaterialCommunityIcons
-                                  name={visual.icon}
-                                  size={14}
-                                  color={visual.color}
-                                />
+                                accessibilityState={{ selected }}
+                                onPress={() => {
+                                  markDraftFieldChecked('account');
+                                  setForm((p) => ({ ...p, accountId: match.id, account: match.name }));
+                                }}
+                                style={[
+                                  formStyles.chip,
+                                  {
+                                    backgroundColor: selected ? theme.selectedFill : theme.card,
+                                    borderColor: selected ? theme.selectedBorder : theme.border,
+                                  },
+                                ]}
+                                pressedStyle={formStyles.pressed}>
                                 <ThemedText
-                                  numberOfLines={1}
-                                  className="text-xs font-black"
-                                  style={{ color: theme.text }}>
-                                  {fill.label}
+                                  style={[
+                                    formStyles.chipLabel,
+                                    { color: theme.text, fontWeight: selected ? '700' : '500' },
+                                  ]}>
+                                  {match.name}
                                 </ThemedText>
-                              </Pressable>
+                              </PressableView>
                             );
                           })}
-                        </ScrollView>
+                        </View>
+                        {newAccountSuggestion && onSetupSuggestedAccount ? (
+                          <Button
+                            testID="account-match-new"
+                            label="None of these — add a new account"
+                            variant="outline"
+                            icon="plus"
+                            height={40}
+                            onPress={() => onSetupSuggestedAccount(newAccountSuggestion)}
+                          />
+                        ) : null}
+                      </View>
+                    ) : null}
+
+                    {!fastEntry && personalPayment && visibleAccountSuggestion && onSetupSuggestedAccount ? (
+                      <View
+                        testID="account-suggestion"
+                        style={[formStyles.notice, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <ThemedText style={[formStyles.noticeTitle, { color: theme.text }]}>
+                          Add {visibleAccountSuggestion.name}?
+                        </ThemedText>
+                        <ThemedText tone="muted" style={formStyles.caption}>
+                          {form.type === 'Income'
+                            ? 'Use it to record where this money was received. Review the details or create it now.'
+                            : 'Use it to keep this payment linked. Review the details or create it now.'}
+                        </ThemedText>
+                        <View style={formStyles.buttonRow}>
+                          <Button
+                            label="Set up account"
+                            variant="outline"
+                            height={36}
+                            onPress={() => onSetupSuggestedAccount(visibleAccountSuggestion)}
+                          />
+                          <Button
+                            label={autoCreatingAccount ? 'Creating…' : 'Create one for me'}
+                            variant="outline"
+                            height={36}
+                            disabled={autoCreatingAccount}
+                            onPress={() => void handleAutoCreateSuggestedAccount(visibleAccountSuggestion)}
+                          />
+                        </View>
+                      </View>
+                    ) : null}
+
+                    {draftReview && refundReceived ? (
+                      <View
+                        testID="refund-received-card"
+                        style={[
+                          formStyles.notice,
+                          formStyles.noticeRow,
+                          { backgroundColor: theme.card, borderColor: theme.border },
+                        ]}>
+                        <View style={{ flex: 1 }}>
+                          <ThemedText style={[formStyles.noticeTitle, { color: theme.text }]}>
+                            Also record the {formatMoney(refundReceived.amount)} refund?
+                          </ThemedText>
+                          <ThemedText tone="muted" style={formStyles.caption}>
+                            {recordRefund
+                              ? 'Saved as a separate income on the same account, so the purchase keeps its full amount.'
+                              : 'Only the purchase will be saved.'}
+                          </ThemedText>
+                        </View>
+                        <HapticSwitch
+                          testID="refund-received-switch"
+                          value={recordRefund}
+                          onValueChange={onRecordRefundChange}
+                          trackColor={{ false: theme.border, true: accent }}
+                        />
+                      </View>
+                    ) : null}
+
+                    <View style={formStyles.feedback}>{renderAutoCreateFeedback()}</View>
+
+                    {splitContext?.fields ? <View style={formStyles.splitFields}>{splitContext.fields}</View> : null}
+
+                    <View style={formStyles.block}>
+                      <FormDisclosure
+                        testID="entry-more-details"
+                        label="More details"
+                        summary={
+                          moreDetailsSummary.length > 0 ? moreDetailsSummary.join(' · ') : moreDetailsOffer
+                        }
+                        expanded={isMoreDetailsOpen}
+                        onToggle={() => setMoreDetailsToggled(!isMoreDetailsOpen)}>
+                        <View
+                          style={[
+                            formStyles.fieldsCard,
+                            formStyles.flush,
+                            { backgroundColor: theme.card, borderColor: theme.border },
+                          ]}>
+                          <LabelRow label="Merchant" flagged={isFlagged('merchant')}>
+                            <TextInput
+                              testID="entry-merchant-input"
+                              accessibilityLabel="Merchant"
+                              value={form.merchant}
+                              onChangeText={(merchant) => {
+                                markDraftFieldChecked('merchant');
+                                setForm((p) => ({ ...p, merchant }));
+                              }}
+                              placeholder="Shop or service"
+                              placeholderTextColor={theme.muted}
+                              selectionColor={accent}
+                              style={[formStyles.rowInput, { color: theme.text }]}
+                            />
+                          </LabelRow>
+                          <LabelRow label="Note" divider flagged={isFlagged('notes')}>
+                            <TextInput
+                              testID="entry-notes-input"
+                              accessibilityLabel="Note"
+                              multiline
+                              value={form.notes}
+                              onChangeText={(notes) => {
+                                markDraftFieldChecked('notes');
+                                setForm((p) => ({ ...p, notes }));
+                              }}
+                              placeholder="Add a note"
+                              placeholderTextColor={theme.muted}
+                              selectionColor={accent}
+                              style={[formStyles.rowInput, formStyles.noteInput, { color: theme.text }]}
+                            />
+                          </LabelRow>
+                          {tagsApply ? (
+                            <LabelRow
+                              testID="entry-tag-picker"
+                              label="Tag"
+                              value={form.tag || 'General'}
+                              icon={tagIcon(form.tag || 'General')}
+                              iconColor={theme.text}
+                              flagged={isFlagged('tag')}
+                              divider
+                              onPress={() => {
+                                markDraftFieldChecked('tag');
+                                setIsTagPickerVisible(true);
+                              }}
+                            />
+                          ) : null}
+                          {canAttach ? (
+                            <TransactionReceiptField
+                              attachment={form.attachment}
+                              error={attachmentError}
+                              divider
+                              onPick={handlePickAttachment}
+                              onRemove={handleRemoveAttachment}
+                            />
+                          ) : null}
+                        </View>
+                        {canSplit ? (
+                          <View style={formStyles.splitCard}>
+                            <TransactionSplitFields
+                              form={form}
+                              setForm={setForm}
+                              friends={splitFriends}
+                              groups={splitGroups}
+                              shareMode={splitShareMode}
+                              onChangeShareMode={setSplitShareMode}
+                              onApplyEqualSplit={applyEqualSplit}
+                              onAddParticipant={addSplitParticipant}
+                              onUpdateParticipant={updateSplitParticipant}
+                              onRemoveParticipant={removeSplitParticipant}
+                            />
+                          </View>
+                        ) : null}
+                      </FormDisclosure>
+                    </View>
+
+                    {personalPayment && mode !== 'quick-prompt' && tagsApply && form.tag === 'EMI' && (
+                      <TransactionEmiFields
+                        isEdit={isEdit}
+                        emiLink={emiLink}
+                        paymentMode={form.mode}
+                        isCardConversion={isEMICreditCard}
+                        cardName={selectedAccount?.name}
+                        canRepeat={canRepeatEmi}
+                        repeatActive={emiRepeatActive}
+                        nextDebit={emiNextDebit}
+                        totalInstalments={form.emiTotalInstalments}
+                        paidInstalments={form.emiPaidInstalments}
+                        tenureMonths={form.emiTenureMonths}
+                        ratePct={form.emiRatePct}
+                        firstInstallment={emiFirstInstallment}
+                        calculation={emiCalculation}
+                        calculationError={emiCalculationError}
+                        isCalculating={isCalculatingEMI}
+                        onChangeRepeat={setEmiRepeats}
+                        onChangeTotalInstalments={(emiTotalInstalments) =>
+                          setForm((previous) => ({ ...previous, emiTotalInstalments }))
+                        }
+                        onChangePaidInstalments={(emiPaidInstalments) =>
+                          setForm((previous) => ({ ...previous, emiPaidInstalments }))
+                        }
+                        onChangeTenure={(emiTenureMonths) =>
+                          setForm((previous) => ({ ...previous, emiTenureMonths }))
+                        }
+                        onChangeRate={(emiRatePct) =>
+                          setForm((previous) => ({ ...previous, emiRatePct }))
+                        }
+                      />
+                    )}
+
+                    {mode !== 'quick-prompt' && personalPayment && tagsApply && form.tag === 'Refundable' && (
+                      <TransactionRefundFields
+                        refundableAmount={form.refundableAmount}
+                        expectedOn={form.refundExpectedOn}
+                        reminderEnabled={form.refundReminderEnabled}
+                        isPickerVisible={isRefundDatePickerVisible}
+                        onChangeAmount={(refundableAmount) =>
+                          setForm((previous) => ({ ...previous, refundableAmount }))
+                        }
+                        onChangeExpectedOn={(refundExpectedOn) =>
+                          setForm((previous) => ({ ...previous, refundExpectedOn }))
+                        }
+                        onToggleReminder={() =>
+                          setForm((previous) => ({
+                            ...previous,
+                            refundReminderEnabled: !previous.refundReminderEnabled,
+                          }))
+                        }
+                        onChangePickerVisible={setIsRefundDatePickerVisible}
+                      />
+                    )}
+
+                    {mode !== 'quick-prompt' &&
+                      !isEdit &&
+                      personalPayment &&
+                      !emiRepeatActive &&
+                      (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
+                        <TransactionSubscriptionFields
+                          form={form}
+                          setForm={setForm}
+                          onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
+                          optionsOpen={isSubscriptionOptionsOpen}
+                          onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
+                          onOpenCancellationDatePicker={() => {
+                            setPendingCancellationDate(
+                              form.subscriptionCancelOnDate
+                                ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
+                                : new Date()
+                            );
+                            setIsCancellationDatePickerVisible(true);
+                          }}
+                        />
                       )}
-                      <AmountKeypad value={form.amount} onChange={handleAmountChange} />
-                    </>
-                  )}
-                  {saveActions}
-                </View>
-              )}
+                  </>
+                )}
+              </ScrollView>
+
+              {/* Pinned under the scroll: the keypad on the capture path, and
+                  Save everywhere, so saving never needs a scroll. */}
+              <View style={[formStyles.footer, { backgroundColor: theme.background }]}>
+                {isKeypadVisible && (
+                  <>
+                    {quickFills.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        contentContainerStyle={formStyles.quickFills}>
+                        {quickFills.map((fill) => {
+                          const visual = categoryVisual(fill.category, form.type);
+                          return (
+                            <PressableView
+                              key={fill.key}
+                              testID={`quick-fill-${fill.key}`}
+                              accessibilityRole="button"
+                              accessibilityLabel={
+                                fill.kind === 'merchant'
+                                  ? `${fill.label}, ${fill.category}`
+                                  : `Category ${fill.label}`
+                              }
+                              onPress={() => applyQuickFill(fill)}
+                              style={[formStyles.chip, { backgroundColor: theme.card, borderColor: theme.border }]}
+                              pressedStyle={formStyles.pressed}>
+                              <MaterialCommunityIcons name={visual.icon} size={16} color={visual.color} />
+                              <ThemedText numberOfLines={1} style={[formStyles.chipLabel, { color: theme.text }]}>
+                                {fill.label}
+                              </ThemedText>
+                            </PressableView>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+                    <AmountKeypad value={form.amount} onChange={handleAmountChange} />
+                  </>
+                )}
+                <PrimaryButton
+                  testID="entry-save-button"
+                  label={draftReview && isParsing ? 'Reading your entry…' : saveLabel}
+                  loading={isSaving || (draftReview && isParsing)}
+                  disabled={fastEntry && !amountEntered}
+                  onPress={handleConfirmEntry}
+                />
+                {onDelete && (
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={onDelete}
+                    style={formStyles.deleteLink}>
+                    <ThemedText tone="negative" style={formStyles.deleteLabel}>
+                      Delete prompt
+                    </ThemedText>
+                  </Pressable>
+                )}
+                {formError && (
+                  <ThemedText tone="negative" style={[formStyles.caption, formStyles.centered]}>
+                    {formError}
+                  </ThemedText>
+                )}
+              </View>
               {splitContext?.overlay ? (
                 <View style={{ position: 'absolute', inset: 0, backgroundColor: theme.background }}>
                   {splitContext.overlay}
@@ -3204,15 +2424,13 @@ export function TransactionFormModal({
           </KeyboardAvoidingView>
         </Animated.View>
 
-        {/* Date Picker Modal (iOS) */}
-        {Platform.OS === 'ios' && isDatePickerVisible && (
-          <TransactionDateTimeSheet
-            pendingDate={pendingDate}
-            onChangePendingDate={setPendingDate}
-            onClose={() => setIsDatePickerVisible(false)}
-            onConfirm={handleConfirmDatePicker}
-          />
-        )}
+        <TransactionDateSheet
+          visible={isDatePickerVisible}
+          value={pendingDate}
+          onChange={setPendingDate}
+          onClose={() => setIsDatePickerVisible(false)}
+          onConfirm={handleConfirmDatePicker}
+        />
 
         {isCancellationDatePickerVisible && (
           <TransactionCancellationDateSheet
@@ -3246,6 +2464,7 @@ export function TransactionFormModal({
 
         <TransactionModePicker
           visible={isModePickerVisible}
+          title={paymentLanguage.modeLabel}
           options={modeOptions}
           selected={form.mode}
           onClose={() => setIsModePickerVisible(false)}
@@ -3258,6 +2477,7 @@ export function TransactionFormModal({
         <TransactionCategoryPicker
           visible={isCategoryPickerVisible}
           selected={form.category}
+          type={form.type}
           options={selectableCategoryOptions}
           suggestions={visibleCategorySuggestions}
           customCategory={customCategory}
@@ -3291,6 +2511,7 @@ export function TransactionFormModal({
 
         <TransactionAccountPicker
           visible={isAccountPickerVisible}
+          title={paymentLanguage.accountLabel}
           accounts={compatibleAccounts}
           selectedAccountId={form.accountId}
           mode={form.mode}
@@ -3309,6 +2530,17 @@ export function TransactionFormModal({
               : undefined
           }
           onManageAccounts={onManageAccounts}
+        />
+
+        <TransactionTagPicker
+          visible={isTagPickerVisible}
+          selected={form.tag}
+          onClose={() => setIsTagPickerVisible(false)}
+          onSelect={(tag) => {
+            haptics.select();
+            setForm((p) => ({ ...p, tag }));
+            setIsTagPickerVisible(false);
+          }}
         />
 
         <ThemedDeleteDialog
@@ -3333,3 +2565,320 @@ export function TransactionFormModal({
     </Modal>
   );
 }
+
+/** A 32dp chip in the Date row: Today, Yesterday, or the calendar (board R2-Entry). */
+function DateChip({
+  label,
+  icon,
+  selected,
+  onPress,
+  testID,
+  accessibilityLabel,
+}: {
+  label?: string;
+  icon?: keyof typeof MaterialCommunityIcons.glyphMap;
+  selected: boolean;
+  onPress: () => void;
+  testID?: string;
+  accessibilityLabel?: string;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <PressableView
+      testID={testID}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[
+        formStyles.dateChip,
+        !label && formStyles.dateChipIcon,
+        {
+          backgroundColor: selected ? colors.selectedFill : colors.card,
+          borderColor: selected ? colors.selectedBorder : colors.border,
+        },
+      ]}
+      pressedStyle={formStyles.pressed}>
+      {icon ? <MaterialCommunityIcons name={icon} size={18} color={colors.text} /> : null}
+      {label ? (
+        <ThemedText
+          numberOfLines={1}
+          style={[formStyles.dateChipLabel, { color: colors.text, fontWeight: selected ? '700' : '500' }]}>
+          {label}
+        </ThemedText>
+      ) : null}
+    </PressableView>
+  );
+}
+
+/** Boards R2-Entry, R2-Draft, R2-Split and R4-Edit; 1px on a board is 1dp. */
+const formStyles = StyleSheet.create({
+  panel: {
+    flex: 1,
+    overflow: 'hidden',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  header: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  headerSide: {
+    width: 56,
+    alignItems: 'flex-start',
+  },
+  headerSideEnd: {
+    alignItems: 'flex-end',
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  typeToggle: {
+    width: 220,
+  },
+  titleBlock: {
+    alignItems: 'center',
+    gap: 2,
+    paddingTop: 6,
+    paddingHorizontal: 16,
+  },
+  sheetTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  sourceBlock: {
+    marginTop: 4,
+    marginHorizontal: 16,
+  },
+  amountBlock: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingHorizontal: 16,
+  },
+  amountTouch: {
+    alignSelf: 'stretch',
+  },
+  amountRow: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 8,
+  },
+  amountSymbol: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '500',
+  },
+  amountInput: {
+    minWidth: 48,
+    padding: 0,
+    fontSize: 46,
+    lineHeight: 56,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    fontVariant: ['tabular-nums'],
+  },
+  scanLink: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  scanLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  titleField: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+    marginHorizontal: 16,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  titleInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 46,
+    padding: 0,
+    fontSize: 15,
+  },
+  fieldsCard: {
+    marginTop: 12,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  flush: {
+    marginTop: 0,
+    marginHorizontal: 0,
+  },
+  dateChips: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dateChip: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  dateChipIcon: {
+    width: 40,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+  },
+  dateChipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  rowInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 40,
+    padding: 0,
+    fontSize: 14,
+  },
+  // A one-line note sits on the label's line; a longer one grows the row.
+  noteInput: {
+    paddingVertical: 14,
+    textAlignVertical: 'top',
+  },
+  block: {
+    gap: 8,
+    marginTop: 8,
+    marginHorizontal: 16,
+  },
+  splitFields: {
+    marginTop: 12,
+  },
+  splitCard: {
+    marginTop: 8,
+  },
+  chipWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  chip: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  notice: {
+    gap: 6,
+    marginTop: 8,
+    marginHorizontal: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  noticeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  noticeTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  feedback: {
+    marginHorizontal: 16,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  centered: {
+    textAlign: 'center',
+  },
+  footer: {
+    gap: 10,
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  quickFills: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  deleteLink: {
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  skeleton: {
+    gap: 0,
+  },
+  skeletonAmount: {
+    height: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  skeletonRow: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  skeletonLabel: {
+    width: 84,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

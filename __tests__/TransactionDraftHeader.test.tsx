@@ -1,8 +1,8 @@
 import { render } from '@testing-library/react-native';
 
 import {
-  TransactionDraftBanner,
   TransactionDraftSource,
+  TransactionDraftStatus,
 } from '@/components/transactions/TransactionDraftHeader';
 
 describe('TransactionDraftSource', () => {
@@ -20,22 +20,20 @@ describe('TransactionDraftSource', () => {
   });
 });
 
-describe('TransactionDraftBanner', () => {
-  const setup = (props: Partial<React.ComponentProps<typeof TransactionDraftBanner>> = {}) =>
+describe('TransactionDraftStatus', () => {
+  const setup = (props: Partial<React.ComponentProps<typeof TransactionDraftStatus>> = {}) =>
     render(
-      <TransactionDraftBanner
+      <TransactionDraftStatus
         isParsing={false}
         fieldsToCheck={0}
         hasReviewMetadata={false}
-        checkList={[]}
         {...props}
       />
     );
 
   it('says it is reading while parsing, whatever the counts', async () => {
     const screen = await setup({ isParsing: true, fieldsToCheck: 3 });
-    expect(screen.getByText('Reading')).toBeTruthy();
-    expect(screen.getByText(/Picking out the amount, category and account/)).toBeTruthy();
+    expect(screen.getByText('Reading your entry…')).toBeTruthy();
     expect(screen.queryByText(/to check/)).toBeNull();
   });
 
@@ -49,16 +47,11 @@ describe('TransactionDraftBanner', () => {
     expect((await setup()).getByText('Review all fields')).toBeTruthy();
   });
 
-  it('lists the fields to check only when given some', async () => {
-    expect((await setup()).queryByText(/^Check:/)).toBeNull();
-    const screen = await setup({ fieldsToCheck: 2, checkList: ['Category', 'Account'] });
-    expect(screen.getByText('Check: Category, Account')).toBeTruthy();
-  });
-
-  it('shows the clarifying questions and the standing reassurance', async () => {
+  it('shows the clarifying questions once the draft has landed', async () => {
     const screen = await setup({ clarifications: ['Which card?', 'Was this a refund?'] });
     expect(screen.getByText('Which card?')).toBeTruthy();
     expect(screen.getByText('Was this a refund?')).toBeTruthy();
-    expect(screen.getByText('AI suggestions are never saved until you confirm.')).toBeTruthy();
+    const parsing = await setup({ isParsing: true, clarifications: ['Which card?'] });
+    expect(parsing.queryByText('Which card?')).toBeNull();
   });
 });

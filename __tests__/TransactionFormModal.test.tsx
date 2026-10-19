@@ -144,12 +144,10 @@ describe('TransactionFormModal', () => {
       },
     });
 
-    expect(await findByText('AI draft')).toBeTruthy();
-    // The flagged fields are named by their own cards now, so the banner
-    // carries the count and the trust line and nothing else.
+    // Each flagged field carries its own Check tag, so the line under the
+    // amount carries the count and the parser's questions.
     expect(await findByText('3 fields to check')).toBeTruthy();
     expect(await findByText('Which account paid for this?')).toBeTruthy();
-    expect(await findByText('AI suggestions are never saved until you confirm.')).toBeTruthy();
   });
 
   it('preselects the compatible account for the payment mode', async () => {
@@ -512,17 +510,16 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     );
   });
 
-  it('adds a note from its chip without leaving the capture screen', async () => {
+  it('adds a note under More details without leaving the capture screen', async () => {
     const { findByTestId, queryByTestId, onSave } = await renderModal({ initialData: blankEntry });
 
-    await fireEvent.press(await findByTestId('entry-add-notes'));
+    expect(queryByTestId('entry-notes-input')).toBeNull();
+    await fireEvent.press(await findByTestId('entry-more-details'));
 
-    // Only the note arrives. The full form — a second amount field, the
-    // category card — used to come with it, and does not any more.
+    // The note arrives in place; the keypad stays, and no second amount field
+    // comes with it.
     expect(await findByTestId('entry-notes-input')).toBeTruthy();
-    expect(queryByTestId('entry-add-notes')).toBeNull();
     expect(queryByTestId('entry-amount-input')).toBeNull();
-    expect(queryByTestId('entry-category-picker')).toBeNull();
     expect(await findByTestId('amount-key-1')).toBeTruthy();
 
     await fireEvent.changeText(await findByTestId('entry-notes-input'), 'Office lunch');
@@ -547,41 +544,45 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dinner', amount: '250' }));
   });
 
-  it('offers every optional detail as a chip and shows only the one asked for', async () => {
+  it('folds the optional details under one row until they are asked for', async () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
 
-    for (const detail of ['notes', 'merchant', 'tag', 'receipt', 'split']) {
-      expect(await ui.findByTestId(`entry-add-${detail}`)).toBeTruthy();
-    }
+    expect(await ui.findByText('Merchant, note, tag, receipt, split')).toBeTruthy();
     expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
     expect(ui.queryByText('Split this expense')).toBeNull();
 
-    await fireEvent.press(await ui.findByTestId('entry-add-merchant'));
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
 
     expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
-    expect(ui.queryByTestId('entry-notes-input')).toBeNull();
+    expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
+    expect(await ui.findByTestId('entry-tag-picker')).toBeTruthy();
+    expect(await ui.findByLabelText('Attach a receipt')).toBeTruthy();
+    expect(await ui.findByText('Split this expense')).toBeTruthy();
     expect(ui.getAllByTestId('entry-title-input')).toHaveLength(1);
     expect(await ui.findByTestId('entry-title-input')).toHaveDisplayValue('Dinner');
   });
 
-  it('turns the split on in the same tap that adds it', async () => {
+  it('turns the split on from its switch under More details', async () => {
     const ui = await renderModal({ initialData: blankEntry });
 
-    await fireEvent.press(await ui.findByTestId('entry-add-split'));
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+    expect(ui.getByRole('switch')).not.toBeChecked();
+    await fireEvent.press(ui.getByRole('switch'));
 
-    expect(await ui.findByText('Split this expense')).toBeTruthy();
     expect(ui.getByRole('switch')).toBeChecked();
-    expect(ui.queryByTestId('entry-add-split')).toBeNull();
+    expect(await ui.findByText('Add a friend')).toBeTruthy();
   });
 
-  it('does not offer a split on income', async () => {
+  it('does not offer a split or a tag on income', async () => {
     const ui = await renderModal({ initialData: blankEntry });
 
     await fireEvent.press(await ui.findByTestId('entry-type-income'));
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
 
-    expect(ui.queryByTestId('entry-add-split')).toBeNull();
-    expect(await ui.findByTestId('entry-add-notes')).toBeTruthy();
+    expect(ui.queryByText('Split this expense')).toBeNull();
+    expect(ui.queryByTestId('entry-tag-picker')).toBeNull();
+    expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
   });
 
   it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
@@ -625,7 +626,7 @@ describe('TransactionFormModal — title category suggestions', () => {
   it.each(['Shopping', 'Misc'])('preserves an explicit %s selection across title edits and same-type taps', async (category) => {
     const ui = await renderModal({ initialData: unclassified });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
-    await fireEvent.press(await ui.findByTestId('entry-category-chip'));
+    await fireEvent.press(await ui.findByTestId('entry-category-picker'));
     await fireEvent.press(await ui.findByText(category));
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Metro');
     await fireEvent.press(await ui.findByTestId('entry-type-expense'));
@@ -672,41 +673,34 @@ describe('TransactionFormModal — AI draft review', () => {
     );
   });
 
-  it('puts uncertain fields above the fold and folds the rest into one line', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({
+  it('tags the fields the AI was unsure of and shows the rest as they are', async () => {
+    const { findByTestId, findAllByText } = await renderModal({
       mode: 'audio',
       aiReview: { missingFields: ['account_hint'], confidence: { category: 0.3 } },
     });
 
-    // What the AI guessed at gets its own card...
-    expect(await findByTestId('entry-account-picker')).toBeTruthy();
+    // One sheet for drafts too: every field is on it, and the two the parser
+    // guessed at carry a Check tag.
     expect(await findByTestId('entry-category-picker')).toBeTruthy();
-    // ...and what it was sure about is one line until the user asks for it.
-    // Mode, then date, then who took the money — the flagged category is
-    // absent because it is already a card in full above.
-    expect(await findByTestId('draft-summary-line')).toHaveTextContent(
-      'Cash · 11 July 2026 · Cafe · Lunch'
-    );
-    expect(queryByTestId('entry-title-input')).toBeNull();
-
-    await fireEvent.press(await findByTestId('draft-summary-toggle'));
-
-    expect(await findByTestId('entry-title-input')).toBeTruthy();
-    expect(await findByTestId('entry-merchant-input')).toBeTruthy();
+    expect(await findByTestId('entry-account-picker')).toBeTruthy();
+    expect(await findAllByText('Check')).toHaveLength(2);
+    expect(await findByTestId('entry-title-input')).toHaveDisplayValue('Lunch');
+    // A field the AI filled always shows, so the merchant opens More details.
+    expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
   });
 
-  it('answers the Check this chip once the field has been opened', async () => {
-    const { findByText, findByTestId } = await renderModal({
+  it('answers the Check tag once the field has been opened', async () => {
+    const { findByText, findByTestId, queryByText } = await renderModal({
       mode: 'audio',
       aiReview: { confidence: { category: 0.3 } },
     });
 
     expect(await findByText('1 field to check')).toBeTruthy();
-    expect(await findByText('Check this')).toBeTruthy();
+    expect(await findByText('Check')).toBeTruthy();
 
     await fireEvent.press(await findByTestId('entry-category-picker'));
 
-    expect(await findByText('Checked')).toBeTruthy();
+    expect(queryByText('Check')).toBeNull();
     expect(await findByText('No issues flagged')).toBeTruthy();
   });
 
@@ -735,15 +729,13 @@ describe('TransactionFormModal — AI draft review', () => {
     expect(onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ amount: '325.50' }));
   });
 
-  it('leaves the manual and edit sheets on the stacked form', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({ isEdit: true });
+  it('opens an edit with its saved details showing and no draft status', async () => {
+    const { findByTestId, queryByText } = await renderModal({ isEdit: true });
 
     expect(await findByTestId('entry-category-picker')).toBeTruthy();
-    expect(queryByTestId('draft-summary-toggle')).toBeNull();
-    // The saved merchant is a field; the empty note is an offer.
+    expect(queryByText(/to check/)).toBeNull();
+    // The saved merchant is on screen, not folded away.
     expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
-    expect(queryByTestId('entry-add-merchant')).toBeNull();
-    expect(await findByTestId('entry-add-notes')).toBeTruthy();
   });
 });
 

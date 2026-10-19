@@ -17,6 +17,7 @@ export type SegmentOption<Key extends string> = {
    * actually clear.
    */
   badge?: boolean;
+  testID?: string;
 };
 
 type SegmentsProps<Key extends string> = {
@@ -26,6 +27,8 @@ type SegmentsProps<Key extends string> = {
   onChange: (key: Key) => void;
   /** Placement only — margins and width. The control draws its own track. */
   style?: StyleProp<ViewStyle>;
+  /** The transaction form's Expense · Income draws its labels at 14 (board R2-Entry). */
+  labelSize?: 13 | 14;
 };
 
 /**
@@ -43,6 +46,7 @@ export function Segments<Key extends string>({
   options,
   onChange,
   style,
+  labelSize = 13,
 }: SegmentsProps<Key>) {
   const theme = useThemeTokens();
   const { colors } = theme;
@@ -54,6 +58,7 @@ export function Segments<Key extends string>({
         return (
           <Pressable
             key={option.key}
+            testID={option.testID}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             accessibilityLabel={option.badge ? `${option.label}, new items` : option.label}
@@ -75,7 +80,7 @@ export function Segments<Key extends string>({
             <ThemedText
               numberOfLines={1}
               tone={selected ? 'default' : 'muted'}
-              style={[styles.label, { fontWeight: selected ? '700' : '500' }]}>
+              style={[styles.label, { fontSize: labelSize, fontWeight: selected ? '700' : '500' }]}>
               {option.label}
             </ThemedText>
             {option.badge ? (

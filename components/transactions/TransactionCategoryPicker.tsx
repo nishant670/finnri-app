@@ -1,15 +1,20 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { Button } from '@/components/ui/Button';
+import { PickerSheet } from '@/components/ui/PickerSheet';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { categoryVisual } from '@/lib/categories';
 
 type TransactionCategoryPickerProps = {
   visible: boolean;
   selected: string;
   options: readonly string[];
+  /** Expense or income, for each tile's icon. */
+  type?: string;
   /** Categories inferred from the user's history for this title or merchant. */
   suggestions: readonly string[];
   customCategory: string;
@@ -25,8 +30,9 @@ type TransactionCategoryPickerProps = {
 const REMOVE_RED = '#E5484D';
 
 /**
- * The category sheet: history suggestions, the type's categories (the user's
- * own after the built-ins) and a custom entry.
+ * The category sheet (board R2-Category): history suggestions, the type's
+ * categories as a two-column grid of tiles (the user's own after the
+ * built-ins), and a dashed "New category" that opens a field for one more.
  *
  * A category the user added stays in their list, so a typo would stay too.
  * Long-pressing one of theirs asks, inside the sheet, whether to remove it: a
@@ -35,8 +41,9 @@ const REMOVE_RED = '#E5484D';
  */
 export function TransactionCategoryPicker({
   visible,
-  selected,
+  selected: selected_,
   options,
+  type,
   suggestions,
   customCategory,
   onChangeCustomCategory,
@@ -46,14 +53,11 @@ export function TransactionCategoryPicker({
   removable = [],
   onRemoveCustom,
 }: TransactionCategoryPickerProps) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const colorScheme = themeTokens.mode;
-  const accent = theme.accent;
-  const accentSurface = theme.secondary;
+  const { colors } = useThemeTokens();
   const [pendingRemoval, setPendingRemoval] = useState<string | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
+  const [isAddingCustom, setIsAddingCustom] = useState(false);
 
   // A question left open from the last time the sheet was up is not one the
   // user is still being asked.
@@ -61,6 +65,7 @@ export function TransactionCategoryPicker({
     if (!visible) {
       setPendingRemoval(null);
       setRemoveError(null);
+      setIsAddingCustom(false);
     }
   }, [visible]);
 
@@ -82,150 +87,270 @@ export function TransactionCategoryPicker({
     }
   };
 
+  const showCustomField = isAddingCustom || customCategory.length > 0;
+
   return (
-    <AnimatedBottomSheet visible={visible} onClose={onClose} backdropOpacity={0.3}>
-      <View className="rounded-t-3xl px-4 pb-10 pt-4" style={{ backgroundColor: theme.background }}>
-        <ThemedText className="text-center text-base font-bold mb-6">Choose a category</ThemedText>
-        <ScrollView style={{ maxHeight: 430 }}>
-          {suggestions.length > 0 && (
-            <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
-              <ThemedText
-                tone="warning"
-                className="mb-2 text-[10px] font-black uppercase tracking-widest">
-                Suggested from history
-              </ThemedText>
-              <View className="flex-row flex-wrap gap-2">
-                {suggestions.map((suggestion) => (
-                  <Pressable
-                    key={suggestion}
-                    accessibilityRole="button"
-                    onPress={() => onSelect(suggestion)}
-                    className="rounded-full px-3 py-2"
-                    style={{ backgroundColor: theme.card }}>
-                    <ThemedText className="text-xs font-black" style={{ color: accent }}>
-                      {suggestion}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          )}
-          <View className="flex-row flex-wrap gap-4 justify-between">
-            {options.map((c) => (
-              <Pressable
-                key={c}
+    <PickerSheet
+      visible={visible}
+      title="Category"
+      onClose={onClose}
+      maxBodyHeight={480}
+      avoidKeyboard>
+      {suggestions.length > 0 && (
+        <View style={styles.suggestions}>
+          <ThemedText tone="muted" style={styles.caption}>
+            Suggested from history
+          </ThemedText>
+          <View style={styles.suggestionRow}>
+            {suggestions.map((suggestion) => (
+              <PressableView
+                key={suggestion}
                 accessibilityRole="button"
-                accessibilityHint={
-                  isRemovable(c) ? 'Long-press to remove it from your categories' : undefined
-                }
-                onPress={() => onSelect(c)}
-                onLongPress={
-                  isRemovable(c)
-                    ? () => {
-                        setRemoveError(null);
-                        setPendingRemoval(c);
-                      }
-                    : undefined
-                }
-                className="w-[47%] items-center gap-2 rounded-3xl border p-4"
-                style={{
-                  backgroundColor:
-                    selected === c
-                      ? accentSurface
-                      : colorScheme === 'dark'
-                        ? theme.card
-                        : '#F9FAFB',
-                  borderColor:
-                    pendingRemoval === c ? REMOVE_RED : selected === c ? accent : 'transparent',
-                }}>
-                <ThemedText
-                  className="text-xs font-bold"
-                  style={{ color: selected === c ? accent : theme.text }}>
-                  {c}
+                onPress={() => onSelect(suggestion)}
+                style={[styles.suggestion, { backgroundColor: colors.card, borderColor: colors.border }]}
+                pressedStyle={styles.pressed}>
+                <MaterialCommunityIcons name="creation-outline" size={16} color={colors.text} />
+                <ThemedText style={[styles.suggestionLabel, { color: colors.text }]}>
+                  {suggestion}
                 </ThemedText>
-              </Pressable>
+              </PressableView>
             ))}
           </View>
-          {pendingRemoval && (
-            <View
-              testID="category-remove-confirm"
-              className="mt-4 rounded-3xl border p-4"
-              style={{ borderColor: REMOVE_RED, backgroundColor: theme.card }}>
-              <ThemedText className="text-sm font-bold">
-                Remove “{pendingRemoval}” from your categories?
+        </View>
+      )}
+
+      <View accessibilityRole="radiogroup" accessibilityLabel="Category" style={styles.grid}>
+        {options.map((category) => {
+          const selected = selected_ === category;
+          const visual = categoryVisual(category, type);
+          return (
+            <PressableView
+              key={category}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityHint={
+                isRemovable(category) ? 'Long-press to remove it from your categories' : undefined
+              }
+              onPress={() => onSelect(category)}
+              onLongPress={
+                isRemovable(category)
+                  ? () => {
+                      setRemoveError(null);
+                      setPendingRemoval(category);
+                    }
+                  : undefined
+              }
+              style={[
+                styles.tile,
+                {
+                  backgroundColor: selected ? colors.selectedFill : colors.card,
+                  borderColor:
+                    pendingRemoval === category
+                      ? REMOVE_RED
+                      : selected
+                        ? colors.selectedBorder
+                        : colors.border,
+                },
+              ]}
+              pressedStyle={styles.pressed}>
+              <MaterialCommunityIcons name={visual.icon} size={20} color={colors.text} />
+              <ThemedText
+                numberOfLines={1}
+                style={[styles.tileLabel, { color: colors.text, fontWeight: selected ? '700' : '500' }]}>
+                {category}
               </ThemedText>
-              <ThemedText tone="muted" className="mt-1 text-xs">
-                Transactions that already use it keep it.
-              </ThemedText>
-              {removeError && (
-                <ThemedText className="mt-2 text-xs font-bold" style={{ color: REMOVE_RED }}>
-                  {removeError}
-                </ThemedText>
-              )}
-              <View className="mt-3 flex-row justify-end gap-2">
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={isRemoving}
-                  onPress={() => {
-                    setPendingRemoval(null);
-                    setRemoveError(null);
-                  }}
-                  className="rounded-2xl px-4 py-2.5">
-                  <ThemedText className="text-xs font-bold">Keep</ThemedText>
-                </Pressable>
-                <Pressable
-                  testID="category-remove-confirm-button"
-                  accessibilityRole="button"
-                  disabled={isRemoving}
-                  onPress={() => void confirmRemoval()}
-                  className="min-w-[84px] items-center rounded-2xl px-4 py-2.5"
-                  style={{ backgroundColor: REMOVE_RED }}>
-                  {isRemoving ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <ThemedText className="text-xs font-bold" style={{ color: '#FFFFFF' }}>
-                      Remove
-                    </ThemedText>
-                  )}
-                </Pressable>
-              </View>
-            </View>
-          )}
-          <View className="mt-5 rounded-3xl border p-4" style={{ borderColor: theme.border }}>
-            <ThemedText
-              tone="muted"
-              className="mb-3 text-[10px] font-black uppercase tracking-widest">
-              Custom category
-            </ThemedText>
-            <View className="flex-row gap-3">
-              <TextInput
-                testID="entry-custom-category-input"
-                value={customCategory}
-                onChangeText={onChangeCustomCategory}
-                placeholder="Add category"
-                // The API keeps names up to 40 characters.
-                maxLength={40}
-                placeholderTextColor="#9CA3AF"
-                className="flex-1 rounded-2xl bg-gray-50 px-4 py-3 text-sm font-bold dark:bg-gray-800"
-                style={{ color: theme.text }}
-              />
-              <Pressable
-                testID="entry-add-custom-category-button"
-                accessibilityRole="button"
-                onPress={onAddCustom}
-                className="items-center justify-center rounded-2xl px-4"
-                style={{ backgroundColor: accent }}>
-                <MaterialCommunityIcons name="plus" size={20} color={theme.onAccent} />
-              </Pressable>
-            </View>
-            <ThemedText tone="muted" className="mt-3 text-xs">
-              {removable.length > 0 && onRemoveCustom
-                ? 'Categories you add stay in this list. Long-press one of yours to remove it.'
-                : 'Categories you add stay in this list for next time.'}
-            </ThemedText>
-          </View>
-        </ScrollView>
+              {selected ? <MaterialCommunityIcons name="check" size={18} color={colors.text} /> : null}
+            </PressableView>
+          );
+        })}
       </View>
-    </AnimatedBottomSheet>
+
+      {pendingRemoval && (
+        <View
+          testID="category-remove-confirm"
+          style={[styles.confirm, { borderColor: REMOVE_RED, backgroundColor: colors.card }]}>
+          <ThemedText style={[styles.confirmTitle, { color: colors.text }]}>
+            Remove “{pendingRemoval}” from your categories?
+          </ThemedText>
+          <ThemedText tone="muted" style={styles.caption}>
+            Transactions that already use it keep it.
+          </ThemedText>
+          {removeError && (
+            <ThemedText style={[styles.caption, { color: REMOVE_RED, fontWeight: '700' }]}>
+              {removeError}
+            </ThemedText>
+          )}
+          <View style={styles.confirmActions}>
+            <Button
+              label="Keep"
+              variant="outline"
+              height={36}
+              disabled={isRemoving}
+              onPress={() => {
+                setPendingRemoval(null);
+                setRemoveError(null);
+              }}
+            />
+            <Button
+              testID="category-remove-confirm-button"
+              label="Remove"
+              height={36}
+              loading={isRemoving}
+              onPress={() => void confirmRemoval()}
+              style={{ backgroundColor: REMOVE_RED, borderColor: REMOVE_RED }}
+            />
+          </View>
+        </View>
+      )}
+
+      {showCustomField ? (
+        <View style={[styles.customCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.customRow}>
+            <TextInput
+              testID="entry-custom-category-input"
+              value={customCategory}
+              onChangeText={onChangeCustomCategory}
+              placeholder="New category name"
+              autoFocus={isAddingCustom && customCategory.length === 0}
+              // The API keeps names up to 40 characters.
+              maxLength={40}
+              placeholderTextColor={colors.muted}
+              style={[styles.customInput, { color: colors.text, borderColor: colors.border }]}
+            />
+            <Button
+              testID="entry-add-custom-category-button"
+              accessibilityLabel="Add category"
+              label="Add"
+              height={40}
+              onPress={onAddCustom}
+            />
+          </View>
+          <ThemedText tone="muted" style={styles.caption}>
+            {removable.length > 0 && onRemoveCustom
+              ? 'Categories you add stay in this list. Long-press one of yours to remove it.'
+              : 'Categories you add stay in this list for next time.'}
+          </ThemedText>
+        </View>
+      ) : (
+        <PressableView
+          accessibilityRole="button"
+          onPress={() => setIsAddingCustom(true)}
+          style={[styles.newCategory, { borderColor: colors.borderStrong }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="plus" size={20} color={colors.text} />
+          <ThemedText style={[styles.newCategoryLabel, { color: colors.text }]}>
+            New category
+          </ThemedText>
+        </PressableView>
+      )}
+    </PickerSheet>
   );
 }
+
+const styles = StyleSheet.create({
+  suggestions: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  suggestion: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  suggestionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 8,
+  },
+  tile: {
+    width: '48.8%',
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  tileLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  confirm: {
+    gap: 4,
+    marginTop: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  confirmTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  confirmActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+    marginTop: 8,
+  },
+  customCard: {
+    gap: 8,
+    marginTop: 8,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  customRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  customInput: {
+    flex: 1,
+    height: 40,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 10,
+    fontSize: 14,
+  },
+  newCategory: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderRadius: 14,
+  },
+  newCategoryLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

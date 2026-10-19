@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Animated, Pressable, View } from 'react-native';
+import { Animated, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useReducedMotion } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
 import { formatAmountEntry } from '@/lib/money';
@@ -33,7 +35,7 @@ const KEY_ROWS: AmountKey[][] = [
   ['.', '0', 'delete'],
 ];
 
-const KEY_HEIGHT = 54;
+const KEY_HEIGHT = 50;
 
 /**
  * One keystroke against the raw amount string.
@@ -110,45 +112,40 @@ export function AmountDisplay({ value }: { value: string }) {
     return () => blink.stop();
   }, [caretOpacity, reducedMotion]);
 
+  const display = formatAmountEntry(value);
+  // The symbol is drawn smaller and muted beside the figure (board R2-Entry).
+  const figure = display.startsWith(CURRENCY_SYMBOL) ? display.slice(CURRENCY_SYMBOL.length) : display;
+
   return (
     <View
       testID="entry-amount-display"
       accessibilityRole="text"
       accessibilityLiveRegion="polite"
-      accessibilityLabel={`Amount ${formatAmountEntry(value)}`}
-      className="w-full flex-row items-center justify-center py-2">
+      accessibilityLabel={`Amount ${display}`}
+      style={styles.display}>
+      <ThemedText tone="muted" style={styles.symbol}>
+        {CURRENCY_SYMBOL}
+      </ThemedText>
       <ThemedText
         numberOfLines={1}
         adjustsFontSizeToFit
-        className="font-black"
-        style={{
-          fontSize: 46,
-          lineHeight: 56,
-          color: theme.text,
-          // ₹0 is a placeholder until a digit lands, so it reads as one.
-          opacity: isEmpty ? 0.28 : 1,
-        }}>
-        {formatAmountEntry(value)}
+        style={[
+          styles.figure,
+          {
+            color: theme.text,
+            // ₹0 is a placeholder until a digit lands, so it reads as one.
+            opacity: isEmpty ? 0.28 : 1,
+          },
+        ]}>
+        {figure}
       </ThemedText>
       <Animated.View
-        style={{
-          opacity: caretOpacity,
-          width: 3,
-          height: 40,
-          marginLeft: 4,
-          borderRadius: 2,
-          backgroundColor: theme.accent,
-        }}
+        style={[styles.caret, { opacity: caretOpacity, backgroundColor: theme.accent }]}
       />
     </View>
   );
 }
 
-/**
- * The pad itself. It replaces the system keyboard rather than sitting beside
- * it: a decimal-pad has letters, punctuation and an emoji key competing with
- * ten digits, and it hides the sheet it belongs to.
- */
 export function AmountKeypad({
   value,
   onChange,
@@ -180,11 +177,11 @@ export function AmountKeypad({
   }, [onChange, value]);
 
   return (
-    <View className="gap-2" accessibilityLabel="Amount keypad">
+    <View style={styles.pad} accessibilityLabel="Amount keypad">
       {KEY_ROWS.map((row) => (
-        <View key={row.join('')} className="flex-row gap-2">
+        <View key={row.join('')} style={styles.padRow}>
           {row.map((key) => (
-            <Pressable
+            <PressableView
               key={key}
               testID={`amount-key-${key}`}
               accessibilityRole="button"
@@ -195,25 +192,69 @@ export function AmountKeypad({
               disabled={disabled}
               onPress={() => press(key)}
               onLongPress={key === 'delete' ? clear : undefined}
-              className="flex-1 items-center justify-center rounded-2xl active:opacity-60"
-              style={{
-                height: KEY_HEIGHT,
-                backgroundColor: theme.card,
-                borderColor: theme.border,
-                borderWidth: 1,
-                opacity: disabled ? 0.4 : 1,
-              }}>
+              style={[styles.key, { backgroundColor: theme.card, opacity: disabled ? 0.4 : 1 }]}
+              pressedStyle={styles.keyPressed}>
               {key === 'delete' ? (
                 <MaterialCommunityIcons name="backspace-outline" size={22} color={theme.text} />
               ) : (
-                <ThemedText className="text-2xl font-black" style={{ color: theme.text }}>
-                  {key}
-                </ThemedText>
+                <ThemedText style={[styles.keyLabel, { color: theme.text }]}>{key}</ThemedText>
               )}
-            </Pressable>
+            </PressableView>
           ))}
         </View>
       ))}
     </View>
   );
 }
+
+/** Board R2-Entry: 50dp keys, radius 12, on the card with no outline, 6 apart. */
+const styles = StyleSheet.create({
+  display: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  symbol: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '500',
+  },
+  figure: {
+    flexShrink: 1,
+    fontSize: 46,
+    lineHeight: 56,
+    fontWeight: '700',
+    letterSpacing: -0.5,
+    fontVariant: ['tabular-nums'],
+  },
+  caret: {
+    width: 2,
+    height: 40,
+    marginLeft: 3,
+    borderRadius: 1,
+  },
+  pad: {
+    gap: 6,
+  },
+  padRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  key: {
+    flex: 1,
+    height: KEY_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  keyPressed: {
+    opacity: 0.6,
+  },
+  keyLabel: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '500',
+  },
+});
