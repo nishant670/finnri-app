@@ -288,6 +288,78 @@ export function MonogramTile({ name }: { name: string }) {
   );
 }
 
+/**
+ * A row with a bar under its name (boards R7-Analysis "By category",
+ * R7-Monthly "Where it went"): tile, name and amount, the bar, a caption,
+ * and a chevron when it opens something.
+ */
+export function BarRow({
+  icon,
+  hue,
+  title,
+  amount,
+  fraction,
+  caption,
+  divider = false,
+  onPress,
+  accessibilityLabel,
+}: {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  hue: string;
+  title: string;
+  amount: string;
+  fraction: number;
+  caption?: string;
+  divider?: boolean;
+  onPress?: () => void;
+  accessibilityLabel?: string;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <PressableView
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityLabel={accessibilityLabel}
+      disabled={!onPress}
+      onPress={onPress}
+      style={[styles.barRow, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}
+      pressedStyle={styles.pressed}>
+      <HueTile icon={icon} hue={hue} />
+      <View style={styles.barRowText}>
+        <View style={styles.barRowLine}>
+          <ThemedText numberOfLines={1} style={[styles.barRowTitle, { color: colors.text }]}>
+            {title}
+          </ThemedText>
+          <ThemedText style={[styles.barRowAmount, { color: colors.text }]}>{amount}</ThemedText>
+        </View>
+        <ProgressBar fraction={fraction} color={hue} style={styles.barRowBar} />
+        {caption ? (
+          <ThemedText tone="muted" style={styles.body}>
+            {caption}
+          </ThemedText>
+        ) : null}
+      </View>
+      {onPress ? <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} /> : null}
+    </PressableView>
+  );
+}
+
+/** `1–12 Oct`, `28 Sep – 4 Oct`, or `1 Oct` for a single day, from two `YYYY-MM-DD`. */
+export const periodRangeLabel = (start?: string | null, end?: string | null) => {
+  const parse = (value?: string | null) => {
+    const match = value?.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+  };
+  const from = parse(start);
+  const to = parse(end) ?? from;
+  if (!from || !to) return '';
+  const month = (date: Date) => date.toLocaleString('en-US', { month: 'short' });
+  if (from.toDateString() === to.toDateString()) return `${from.getDate()} ${month(from)}`;
+  if (from.getMonth() === to.getMonth() && from.getFullYear() === to.getFullYear()) {
+    return `${from.getDate()}–${to.getDate()} ${month(to)}`;
+  }
+  return `${from.getDate()} ${month(from)} – ${to.getDate()} ${month(to)}`;
+};
+
 /** A small rounded label — "Finnri plan", "Exceeded". */
 export function Tag({ label, color, background }: { label: string; color: string; background: string }) {
   return (
@@ -389,6 +461,38 @@ const styles = StyleSheet.create({
   barFill: {
     height: 6,
     borderRadius: 3,
+  },
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  barRowText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  barRowLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  barRowTitle: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  barRowAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  barRowBar: {
+    marginTop: 6,
+    marginBottom: 4,
   },
   monogram: {
     width: 36,

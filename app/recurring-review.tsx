@@ -1,16 +1,25 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  HueTile,
+  InsightCard,
+  ProgressBar,
+  Tag,
+  insightText,
+} from '@/components/insights/insight-ui';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { Button, PrimaryButton } from '@/components/ui/Button';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { categoryVisual } from '@/lib/categories';
 import { formatMoney } from '@/lib/money';
 import { DashboardRecurringCandidate, fetchDashboard, saveRecurringCandidateDecision } from '@/lib/insights';
 
@@ -29,7 +38,6 @@ export default function RecurringReviewScreen() {
   const params = useLocalSearchParams();
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const muted = `${colors.text}99`;
   const { token } = useAuthStore();
   const start = toParam(params.start);
   const end = toParam(params.end);
@@ -108,36 +116,33 @@ export default function RecurringReviewScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
         title="Recurring review"
         subtitle={`${visibleCandidates.length} pattern${visibleCandidates.length === 1 ? '' : 's'} to check`}
         onBack={() => router.back()}
-        rightIcon="refresh"
-        onRightPress={load}
+        style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+        rightNode={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reload"
+            onPress={load}
+            style={styles.headerIcon}>
+            <MaterialCommunityIcons name="refresh" size={24} color={colors.text} />
+          </Pressable>
+        }
       />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 110, gap: 16 }}>
-        <View className="rounded-[24px] border p-4" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-          <View className="flex-row items-start gap-3">
-            <View className="h-10 w-10 items-center justify-center rounded-2xl" style={{ backgroundColor: colors.secondary }}>
-              <MaterialCommunityIcons name="repeat-variant" size={21} color={colors.accent} />
-            </View>
-            <View className="flex-1">
-              <ThemedText className="text-sm font-black">Confirm patterns before tracking</ThemedText>
-              <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-                These are suggestions from repeated confirmed expenses. Nothing is added to subscriptions until you track it.
-              </ThemedText>
-            </View>
-          </View>
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <ThemedText tone="muted" style={insightText.body}>
+          Suggestions from repeated confirmed expenses. Nothing is added to subscriptions until you
+          track it.
+        </ThemedText>
 
         {loading ? (
           <SkeletonFrame label="Loading recurring review" testID="recurring-review-skeleton">
-            <SkeletonCards count={3} lines={3} radius={28} />
+            <SkeletonCards count={3} lines={3} radius={16} />
           </SkeletonFrame>
         ) : error ? (
           <StateView icon="wifi-off" title="Recurring review did not load" message={error} actionLabel="Try again" onAction={load} compact />
@@ -153,8 +158,6 @@ export default function RecurringReviewScreen() {
             <RecurringCandidateCard
               key={candidateKey(candidate)}
               candidate={candidate}
-              colors={colors}
-              muted={muted}
               onTrack={() =>
                 router.push({
                   pathname: '/subscriptions',
@@ -197,103 +200,178 @@ function dateAfterDays(days: number) {
 
 function RecurringCandidateCard({
   candidate,
-  colors,
-  muted,
   onTrack,
   onLater,
   onDismiss,
   saving,
 }: {
   candidate: DashboardRecurringCandidate;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
   onTrack: () => void;
   onLater: () => void;
   onDismiss: () => void;
   saving: boolean;
 }) {
+  const { colors } = useThemeTokens();
   const confidence = Math.round(candidate.confidence * 100);
+  const visual = categoryVisual(candidate.category);
 
   return (
-    <View className="rounded-[28px] border p-5 shadow-sm" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-      <View className="flex-row items-start justify-between gap-4">
-        <View className="min-w-0 flex-1">
-          <View className="flex-row items-center gap-2">
-            {candidate.review_due && (
-              <View className="rounded-full px-2 py-1" style={{ backgroundColor: '#FFF3D6' }}>
-                <ThemedText tone="warning" className="text-[10px] font-black uppercase">Review</ThemedText>
-              </View>
-            )}
-            <ThemedText className="text-[10px] font-black uppercase tracking-widest" style={{ color: muted }}>
-              {intervalLabel(candidate.interval_guess)}
+    <InsightCard flush>
+      <View style={styles.cardHead}>
+        <HueTile icon={visual.icon} hue={visual.color} />
+        <View style={styles.headText}>
+          <View style={styles.titleLine}>
+            <ThemedText numberOfLines={1} style={[styles.title, { color: colors.text }]}>
+              {candidate.label}
             </ThemedText>
+            {candidate.review_due ? (
+              <Tag label="Review" color={colors.warning} background={colors.warningSurface} />
+            ) : null}
           </View>
-          <ThemedText className="mt-3 text-xl font-black" numberOfLines={1}>
-            {candidate.label}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: muted }} numberOfLines={1}>
-            {candidate.category} · {candidate.occurrences} occurrences
+          <ThemedText tone="muted" numberOfLines={2} style={insightText.caption}>
+            {candidate.category} · seen {candidate.occurrences} times ·{' '}
+            {intervalLabel(candidate.interval_guess).toLowerCase()}
           </ThemedText>
         </View>
-        <View className="items-end">
-          <ThemedText className="text-xl font-black" style={{ color: colors.accent }}>
+        <View style={styles.amountBlock}>
+          <ThemedText style={[styles.amount, { color: colors.text }]}>
             {formatMoney(candidate.average_amount)}
           </ThemedText>
-          <ThemedText className="mt-1 text-[10px] font-bold" style={{ color: muted }}>
-            avg amount
+          <ThemedText tone="muted" style={insightText.caption}>
+            average
           </ThemedText>
         </View>
       </View>
 
-      <View className="mt-5 flex-row gap-3">
-        <MiniMetric label="Last seen" value={formatDate(candidate.last_seen_date)} colors={colors} />
-        <MiniMetric label="Expected" value={formatDate(candidate.next_expected_date)} colors={colors} />
-        <MiniMetric label="Match" value={`${confidence}%`} colors={colors} />
+      <DetailLine label="Last seen" value={formatDate(candidate.last_seen_date)} />
+      <DetailLine label="Expected" value={formatDate(candidate.next_expected_date)} />
+      <View style={[styles.detail, { borderTopColor: colors.border }]}>
+        <ThemedText tone="muted" style={styles.detailLabel}>
+          Match
+        </ThemedText>
+        <ProgressBar fraction={confidence / 100} color={colors.mutedStrong} style={styles.match} />
+        <ThemedText style={[styles.detailValue, { color: colors.text }]}>{confidence}%</ThemedText>
       </View>
 
-      <View className="mt-5 h-2 overflow-hidden rounded-full" style={{ backgroundColor: colors.secondary }}>
-        <View className="h-full rounded-full" style={{ width: `${Math.min(100, confidence)}%`, backgroundColor: colors.accent }} />
-      </View>
-
-      <View className="mt-5 gap-2">
-        <Pressable disabled={saving} onPress={onTrack} className="h-12 flex-row items-center justify-center rounded-2xl" style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
-          {saving ? (
-            <ActivityIndicator color={colors.onAccent} />
-          ) : (
-            <>
-              <MaterialCommunityIcons name="bell-check-outline" size={20} color={colors.onAccent} />
-              <ThemedText tone="onAccent" className="ml-2 text-sm font-black">Track as subscription</ThemedText>
-            </>
-          )}
-        </Pressable>
-        <View className="flex-row gap-2">
-          <Pressable disabled={saving} onPress={onLater} className="h-11 flex-1 items-center justify-center rounded-2xl" style={{ backgroundColor: colors.secondary, opacity: saving ? 0.6 : 1 }}>
-            <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>Remind me later</ThemedText>
-          </Pressable>
-          <Pressable disabled={saving} onPress={onDismiss} className="h-11 flex-1 items-center justify-center rounded-2xl border" style={{ borderColor: colors.border, opacity: saving ? 0.6 : 1 }}>
-            <ThemedText className="text-xs font-black" style={{ color: muted }}>Not recurring</ThemedText>
-          </Pressable>
+      <View style={[styles.actions, { borderTopColor: colors.border }]}>
+        <PrimaryButton
+          label="Track as subscription"
+          loading={saving}
+          disabled={saving}
+          onPress={onTrack}
+        />
+        <View style={styles.secondary}>
+          <Button
+            variant="outline"
+            height={44}
+            label="Remind me later"
+            disabled={saving}
+            onPress={onLater}
+            style={styles.flex}
+          />
+          <Button
+            variant="outline"
+            height={44}
+            label="Not recurring"
+            disabled={saving}
+            onPress={onDismiss}
+            style={styles.flex}
+          />
         </View>
       </View>
+    </InsightCard>
+  );
+}
+
+function DetailLine({ label, value }: { label: string; value: string }) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={[styles.detail, { borderTopColor: colors.border }]}>
+      <ThemedText tone="muted" style={styles.detailLabel}>
+        {label}
+      </ThemedText>
+      <ThemedText style={[styles.detailValue, { color: colors.text }]}>{value}</ThemedText>
     </View>
   );
 }
 
-function MiniMetric({
-  label,
-  value,
-  colors,
-}: {
-  label: string;
-  value: string;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-}) {
-  return (
-    <View className="flex-1 rounded-2xl border px-3 py-3" style={{ backgroundColor: colors.background, borderColor: colors.border }}>
-      <ThemedText tone="muted" className="text-[10px] font-black uppercase">{label}</ThemedText>
-      <ThemedText className="mt-1 text-xs font-black" numberOfLines={1}>
-        {value}
-      </ThemedText>
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  content: {
+    gap: 16,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 48,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    marginRight: -8,
+  },
+  cardHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 16,
+  },
+  headText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  titleLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  title: {
+    flexShrink: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  amountBlock: {
+    alignItems: 'flex-end',
+  },
+  amount: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  detail: {
+    minHeight: 46,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+  },
+  detailLabel: {
+    width: 92,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  detailValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  match: {
+    flex: 1,
+  },
+  actions: {
+    gap: 10,
+    padding: 16,
+    borderTopWidth: 1,
+  },
+  secondary: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  flex: {
+    flex: 1,
+  },
+});

@@ -34,9 +34,14 @@ type SpendTrendChartProps = {
   dashboard: DashboardResponse;
   /** Opens the transaction list over the bucket's own date range. */
   onOpenRange: (bucket: SpendBucket) => void;
+  /**
+   * Just the plot, the axis and the selection line, for a card that already
+   * has its own heading (board R7-Analysis puts the chart under the total).
+   */
+  bare?: boolean;
 };
 
-export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps) {
+export function SpendTrendChart({ dashboard, onOpenRange, bare = false }: SpendTrendChartProps) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const [width, setWidth] = useState(0);
@@ -77,19 +82,23 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
     setSelected(index);
   };
 
+  const Frame = bare ? View : InsightCard;
+
   return (
-    <InsightCard>
-      <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Eyebrow>Spending over time</Eyebrow>
-          <ThemedText style={[insightText.title, { color: theme.text }]}>
-            {granularity === 'week' ? 'Each week' : 'Each day'} of {periodLabel(dashboard)}
+    <Frame>
+      {bare ? null : (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Eyebrow>Spending over time</Eyebrow>
+            <ThemedText style={[insightText.title, { color: theme.text }]}>
+              {granularity === 'week' ? 'Each week' : 'Each day'} of {periodLabel(dashboard)}
+            </ThemedText>
+          </View>
+          <ThemedText tone="muted" style={[insightText.caption, { marginTop: 2 }]}>
+            avg {formatMoney(average)} {averageLabel}
           </ThemedText>
         </View>
-        <ThemedText tone="muted" style={[insightText.caption, { marginTop: 2 }]}>
-          avg {formatMoney(average)} {averageLabel}
-        </ThemedText>
-      </View>
+      )}
 
       <View
         className="mt-5"
@@ -137,7 +146,7 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
                   backgroundColor: theme.card,
                 }}>
                 <ThemedText tone="muted" style={{ fontSize: 11, lineHeight: 14 }}>
-                  avg
+                  {bare ? `avg ${formatMoney(average)}` : 'avg'}
                 </ThemedText>
               </View>
             )}
@@ -162,7 +171,7 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
         averageLabel={averageLabel}
         onOpen={() => selectedBucket && onOpenRange(selectedBucket)}
       />
-    </InsightCard>
+    </Frame>
   );
 }
 
