@@ -83,6 +83,12 @@ export type SubscriptionPayload = {
   start_date?: string;
   platform?: string;
   step_up_pct?: number;
+  /**
+   * Create only: a payment already made, written to the transactions as a
+   * confirmed entry. When it is the one that was due, the server moves the
+   * schedule on; an older one leaves it alone.
+   */
+  log_payment_on?: string;
 };
 
 export type RecurringKind = 'subscription' | 'loan' | 'investment' | 'bill';
@@ -252,15 +258,30 @@ export const updateSubscription = async (
   return (await response.json()) as Subscription;
 };
 
+/**
+ * Moves an item's schedule on, and — with `logTransaction` — writes the
+ * payment to the transactions too, from `accountId`/`paymentMode` when this
+ * payment came from somewhere other than the item's own account.
+ */
 export const markSubscriptionPaid = async (
   token: string,
   id: number,
-  paidDate: string
-): Promise<Subscription> => {
+  paidDate: string,
+  options: { logTransaction?: boolean; accountId?: number | null; paymentMode?: string } = {}
+): Promise<Subscription & { logged_entry_id?: number }> => {
   const response = await fetch(`${API_BASE_URL}/v1/subscriptions/${id}/mark-paid`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ paid_date: paidDate }),
+    body: JSON.stringify({
+      paid_date: paidDate,
+      ...(options.logTransaction
+        ? {
+            log_transaction: true,
+            ...(options.accountId != null ? { account_id: options.accountId } : {}),
+            ...(options.paymentMode ? { payment_mode: options.paymentMode } : {}),
+          }
+        : {}),
+    }),
   });
   if (!response.ok) {
     throw new Error(

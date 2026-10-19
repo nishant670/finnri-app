@@ -142,7 +142,6 @@ describe('SubscriptionAdvancedFields', () => {
       setAutopay: fn(),
       setCancelBeforeDue: fn(),
       setCategory: fn(),
-      setInterval: fn(),
       setName: fn(),
       setNotes: fn(),
       setPaymentMode: fn(),
@@ -159,6 +158,7 @@ describe('SubscriptionAdvancedFields', () => {
         cancelBeforeDue={false}
         cancelOnDate=""
         category="Entertainment"
+        formKind="subscription"
         interval="monthly"
         isEditing={false}
         merchant="Netflix"
@@ -196,16 +196,48 @@ describe('SubscriptionAdvancedFields', () => {
 
   it('keeps the account choices hidden until Autopay is on, then lists them', async () => {
     const off = await setup();
-    expect(off.screen.queryByText('Add a payment account')).toBeNull();
+    expect(off.screen.queryByText('Pay from')).toBeNull();
     const on = await setup({ autopay: true });
-    expect(on.screen.getByText('GPay')).toBeTruthy();
-    await fireEvent.press(on.screen.getByText('GPay'));
+    expect(on.screen.getByText('Pay from')).toBeTruthy();
+    await fireEvent.press(on.screen.getByLabelText('Pay from GPay'));
     expect(on.setAccountID).toHaveBeenCalledWith(1);
+    await fireEvent.press(on.screen.getByText('Add a UPI account'));
+    expect(on.onAddAccount).toHaveBeenCalledTimes(1);
+  });
+
+  // On device, "Bank Account" the mode and "Bank Account" the account read as
+  // one question asked twice. The account is now a row under "Pay from".
+  it('picks the default account of a mode, and says when there is none', async () => {
+    const bank = { id: 2, type: 'bank', name: 'Bank Account' } as Account;
+    const hdfc = { id: 3, type: 'bank', name: 'HDFC', is_default: true } as Account;
+    const on = await setup({ autopay: true, accounts: [upi, bank, hdfc] });
     await fireEvent.press(on.screen.getByText('Bank Account'));
     expect(on.setPaymentMode).toHaveBeenCalledWith('Bank Account');
-    expect(on.setAccountID).toHaveBeenCalledWith(null);
-    await fireEvent.press(on.screen.getByText('Add a payment account'));
-    expect(on.onAddAccount).toHaveBeenCalledTimes(1);
+    expect(on.setAccountID).toHaveBeenLastCalledWith(3);
+
+    const none = await setup({ autopay: true, paymentMode: 'Credit Card' });
+    expect(none.screen.getByText('No credit card added yet.')).toBeTruthy();
+  });
+
+  it('has no second interval picker', async () => {
+    const { screen } = await setup();
+    expect(screen.queryByText('Other intervals')).toBeNull();
+    expect(screen.queryByText('Daily')).toBeNull();
+  });
+
+  // "What are these categories about?" — asked of a PPF instalment.
+  it('asks an investment for no spending category and no cancel reminder', async () => {
+    const subscription = await setup();
+    expect(subscription.screen.getByText('Spending category')).toBeTruthy();
+    expect(subscription.screen.getByText('Remind me to cancel')).toBeTruthy();
+    const investment = await setup({ formKind: 'investment', merchant: 'PPF' });
+    expect(investment.screen.queryByText('Spending category')).toBeNull();
+    expect(investment.screen.queryByText('Food & Drinks')).toBeNull();
+    expect(investment.screen.queryByText('Remind me to cancel')).toBeNull();
+    expect(investment.screen.getByPlaceholderText('Folio number, goal, nominee')).toBeTruthy();
+    // An older item that already has it on can still turn it off.
+    const legacy = await setup({ formKind: 'investment', cancelBeforeDue: true });
+    expect(legacy.screen.getByText('Remind me to cancel')).toBeTruthy();
   });
 
   it('opens the cancellation date only when reminders are on', async () => {

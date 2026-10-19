@@ -6,6 +6,7 @@ import {
   buildFriendDetailSummaries,
   buildGroupSummaries,
   buildNonGroupSummary,
+  activityDateLabel,
   buildRecentActivity,
   computeBalanceTotals,
   filterVisibleActivity,
@@ -311,6 +312,78 @@ describe('buildRecentActivity', () => {
     expect(pending.icon).toBe('hand-coin-outline');
     expect(confirmed.status).toBeNull();
     expect(friendRow.caption).toBe('Friend added');
+  });
+});
+
+// On device, an expense added today for the 13th sat below one added yesterday
+// for the 14th. The feed is now in the order things happened, so each row says
+// when that was, and the expense's own date when it differs.
+describe('activityDateLabel', () => {
+  const now = new Date(2026, 9, 15, 11, 0);
+  const at = (day: number, hour = 10, minute = 0) =>
+    new Date(2026, 9, day, hour, minute).toISOString();
+  const item = (over: Partial<SplitActivityItem>) =>
+    ({
+      id: '1',
+      title: 'Uber ride',
+      date: '2026-10-15',
+      type: 'bill',
+      created_at: at(15),
+      activity_at: at(15),
+      ...over,
+    }) as SplitActivityItem;
+
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+  });
+  afterAll(() => jest.useRealTimers());
+
+  it('says when an expense dated the day it was added happened', () => {
+    expect(activityDateLabel(item({}), now)).toBe('Today');
+    expect(
+      activityDateLabel(item({ date: '2026-10-14', created_at: at(14), activity_at: at(14) }), now)
+    ).toBe('Yesterday');
+  });
+
+  it('adds the expense date when it was added on another day', () => {
+    expect(activityDateLabel(item({ date: '2026-10-13' }), now)).toBe('Added today · for 13 Oct');
+    expect(
+      activityDateLabel(item({ date: '2026-10-01', created_at: at(9), activity_at: at(9) }), now)
+    ).toBe('Added 6 days ago · for 1 Oct');
+  });
+
+  it('calls a later save an edit', () => {
+    expect(
+      activityDateLabel(item({ date: '2026-10-14', created_at: at(14), activity_at: at(15) }), now)
+    ).toBe('Edited today · for 14 Oct');
+    expect(activityDateLabel(item({ created_at: at(15, 9), activity_at: at(15, 10) }), now)).toBe(
+      'Edited today'
+    );
+    // Two writes in the same save are still one "added".
+    expect(
+      activityDateLabel(item({ created_at: at(15, 10, 0), activity_at: at(15, 10, 0) }), now)
+    ).toBe('Today');
+  });
+
+  it('gives a group or a friend just the day', () => {
+    expect(
+      activityDateLabel(
+        item({
+          type: 'group_created',
+          date: '2026-10-12',
+          created_at: at(12),
+          activity_at: at(12),
+        }),
+        now
+      )
+    ).toBe('3 days ago');
+  });
+
+  it('falls back to the row date from an older server', () => {
+    expect(
+      activityDateLabel(item({ date: '2026-10-14', created_at: '', activity_at: undefined }), now)
+    ).toBe('Yesterday');
   });
 });
 

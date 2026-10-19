@@ -27,6 +27,7 @@ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-g
 import * as DocumentPicker from 'expo-document-picker';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { AddDetailChips, type AddDetailOption } from '@/components/ui/AddDetailChips';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
@@ -61,6 +62,8 @@ import {
   defaultCategoryForType,
   resolveCategory,
 } from '@/lib/categories';
+import { categoryTypeOf, useUserCategories } from '@/lib/user-categories';
+import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
 import { PAYMENT_MODES } from '@/lib/payment-modes';
@@ -370,8 +373,8 @@ const normalizeDateValue = (date?: string | null) => {
   return trimmed && trimmed.length > 0 ? trimmed : formatDateLabel(new Date());
 };
 
-const mergeCategoryOptions = (category: string, type: string) =>
-  categoryOptionsFor(normalizeCategoryValue(category, type), type);
+const mergeCategoryOptions = (category: string, type: string, custom: readonly string[]) =>
+  categoryOptionsFor(normalizeCategoryValue(category, type), type, custom);
 
 const formatApiDate = (value: Date) => {
   const year = value.getFullYear();
@@ -740,9 +743,18 @@ export function TransactionFormModal({
     () => accounts.find((account) => account.id === form.accountId) ?? null,
     [accounts, form.accountId]
   );
+  /**
+   * Tags only mean something for money going out. Every one but General is an
+   * expense idea — money invested, lent, paid in instalments, paid for a
+   * subscription, or partly coming back — and EMI, Refundable and Subscription
+   * each open fields only an expense can fill (the API refuses a refund on
+   * income outright). So income has no tag picker and saves as General.
+   */
+  const tagsApply = form.type === 'Expense';
   const isEMICreditCard =
     personalPayment &&
     !isEdit &&
+    tagsApply &&
     form.tag === 'EMI' &&
     normalizeAccountType(selectedAccount?.type) === 'credit_card';
   const emiFirstInstallment = useMemo(() => nextMonthClamped(form.date), [form.date]);
@@ -887,7 +899,26 @@ export function TransactionFormModal({
       : null);
   const [autoCreatingAccount, setAutoCreatingAccount] = useState(false);
   const [autoCreateAccountError, setAutoCreateAccountError] = useState<string | null>(null);
-  const [autoCreatedAccountName, setAutoCreatedAccountName] = useState('');
+  /**
+   * The account "Create one for me" just made, for its confirmation line.
+   *
+   * Held with its id, and the line shows only while that account is still the
+   * one selected. Reported from a device: the sheet stays mounted between bill
+   * scans, and "Axis Bank Account created and selected" from one scan sat on
+   * the next one's review — over a credit card draft it had nothing to do with.
+   */
+  const [autoCreatedAccount, setAutoCreatedAccount] = useState<{ id: number; name: string } | null>(
+    null
+  );
+  const autoCreatedAccountName =
+    autoCreatedAccount && autoCreatedAccount.id === form.accountId ? autoCreatedAccount.name : '';
+
+  /** A new sheet, or a new draft in it, starts with no account-creation news. */
+  const resetAutoCreateFeedback = useCallback(() => {
+    setAutoCreatedAccount(null);
+    setAutoCreateAccountError(null);
+    setDismissedSuggestionKey('');
+  }, []);
 
   const handleAutoCreateSuggestedAccount = useCallback(
     async (suggestion: AccountSuggestion) => {
@@ -897,7 +928,7 @@ export function TransactionFormModal({
       try {
         const saved = await onAutoCreateSuggestedAccount(suggestion);
         setForm((previous) => ({ ...previous, accountId: saved.id, account: saved.name }));
-        setAutoCreatedAccountName(saved.name);
+        setAutoCreatedAccount({ id: saved.id, name: saved.name });
         setDismissedSuggestionKey(suggestionKey);
         setIsAccountPickerVisible(false);
         haptics.saved();
@@ -966,9 +997,20 @@ export function TransactionFormModal({
   const categoryNeedsReview = reviewFields.includes('category');
   const accountNeedsReview = reviewFields.includes('account') || reviewFields.includes('accountId');
   const displayedCategory = normalizeCategoryValue(form.category, form.type);
+  const customCategoryType = categoryTypeOf(form.type);
+  const customCategories = useUserCategories((state) => state.categories[customCategoryType]);
+  const loadCustomCategories = useUserCategories((state) => state.load);
+  const keepCustomCategory = useUserCategories((state) => state.add);
+  const removeCustomCategory = useUserCategories((state) => state.remove);
+  const sessionToken = useAuthStore((state) => state.token);
+  // Read each time the sheet opens: a category added on another device, or
+  // carried by an entry saved since, belongs in this list too.
+  useEffect(() => {
+    if (visible && sessionToken) void loadCustomCategories(sessionToken);
+  }, [loadCustomCategories, sessionToken, visible]);
   const selectableCategoryOptions = useMemo(
-    () => mergeCategoryOptions(form.category, form.type),
-    [form.category, form.type]
+    () => mergeCategoryOptions(form.category, form.type, customCategories),
+    [customCategories, form.category, form.type]
   );
   const visibleCategorySuggestions = useMemo(() => {
     const unique = new Set<string>();
@@ -1084,9 +1126,14 @@ export function TransactionFormModal({
   }, []);
 
   // The amount is its own headline above the list, so it never appears twice.
+  // An income draft has no tag to review — see `tagsApply`.
+  const isDraftFieldShown = useCallback(
+    (field: DraftFieldKey) => field !== 'amount' && (field !== 'tag' || tagsApply),
+    [tagsApply]
+  );
   const draftFlaggedFields = useMemo(
-    () => (draftPlan?.flagged ?? []).filter((field) => field !== 'amount'),
-    [draftPlan]
+    () => (draftPlan?.flagged ?? []).filter(isDraftFieldShown),
+    [draftPlan, isDraftFieldShown]
   );
   /**
    * Where each part of the draft falls in the settle order.
@@ -1103,20 +1150,17 @@ export function TransactionFormModal({
 
   const draftCollapsedFields = useMemo(
     () =>
-      [...(draftPlan?.confident ?? []), ...(draftPlan?.optional ?? [])].filter(
-        (field) => field !== 'amount'
-      ),
-    [draftPlan]
+      [...(draftPlan?.confident ?? []), ...(draftPlan?.optional ?? [])].filter(isDraftFieldShown),
+    [draftPlan, isDraftFieldShown]
   );
-  const draftConfidentCount = (draftPlan?.confident ?? []).filter(
-    (field) => field !== 'amount'
-  ).length;
+  const draftConfidentCount = (draftPlan?.confident ?? []).filter(isDraftFieldShown).length;
   const draftPendingCount = (draftPlan?.flagged ?? []).filter(
-    (field) => !checkedDraftFields.includes(field)
+    (field) =>
+      (field === 'amount' || isDraftFieldShown(field)) && !checkedDraftFields.includes(field)
   ).length;
   const draftSummaryLine = useMemo(() => {
     if (!draftPlan) return '';
-    return draftSummaryParts(draftPlan.confident, {
+    return draftSummaryParts(draftPlan.confident.filter(isDraftFieldShown), {
       amount: form.amount,
       type: form.type,
       title: form.title,
@@ -1128,7 +1172,7 @@ export function TransactionFormModal({
       tag: form.tag,
       notes: form.notes,
     }).join(' · ');
-  }, [displayedCategory, draftDateLabel, draftPlan, form]);
+  }, [displayedCategory, draftDateLabel, draftPlan, form, isDraftFieldShown]);
 
   const handleAmountChange = useCallback((amount: string) => {
     setFormError(null);
@@ -1161,6 +1205,8 @@ export function TransactionFormModal({
       category:
         (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
         defaultCategoryForType(type),
+      // See `tagsApply`: an expense's tag has nothing to mean on income.
+      tag: type === 'Income' ? 'General' : previous.tag,
     }));
     animateTypeSwitch(type === 'Income');
   };
@@ -1302,6 +1348,7 @@ export function TransactionFormModal({
       setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
+      resetAutoCreateFeedback();
       seedForm();
 
       // A timed slide, not a spring: the spring overshot and rang two or three
@@ -1329,11 +1376,12 @@ export function TransactionFormModal({
   const wasParsing = useRef(isParsing);
   useEffect(() => {
     if (wasParsing.current && !isParsing && visible) {
+      resetAutoCreateFeedback();
       seedForm();
       settlePanel();
     }
     wasParsing.current = isParsing;
-  }, [isParsing, seedForm, settlePanel, visible]);
+  }, [isParsing, resetAutoCreateFeedback, seedForm, settlePanel, visible]);
 
   useEffect(() => {
     if (!visible) {
@@ -1480,6 +1528,7 @@ export function TransactionFormModal({
   const availableDetailOptions = ENTRY_DETAIL_OPTIONS.filter((option) => {
     if (isDetailShown(option.key)) return false;
     if (option.key === 'receipt') return mode !== 'quick-prompt';
+    if (option.key === 'tag') return tagsApply;
     if (option.key === 'split') {
       return !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
     }
@@ -1564,7 +1613,7 @@ export function TransactionFormModal({
       rejectSave('Enter an amount above zero.');
       return;
     }
-    if (personalPayment && form.tag === 'Refundable') {
+    if (personalPayment && tagsApply && form.tag === 'Refundable') {
       const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
       if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
         rejectSave('Enter how much you expect back.');
@@ -2034,7 +2083,7 @@ export function TransactionFormModal({
                     // Under the title, centred, rather than pinned in the top
                     // corner where it read as part of the window chrome and
                     // could run into the title on a narrow phone.
-                    <Pressable
+                    <PressableView
                       testID="scan-receipt"
                       onPress={onRequestReceiptScan}
                       accessibilityRole="button"
@@ -2042,15 +2091,13 @@ export function TransactionFormModal({
                       accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in this entry."
                       hitSlop={6}
                       className="mt-2 h-9 flex-row items-center gap-1.5 rounded-full px-4"
-                      style={({ pressed }) => ({
-                        backgroundColor: theme.secondary,
-                        opacity: pressed ? 0.75 : 1,
-                      })}>
+                      style={{ backgroundColor: theme.secondary }}
+                      pressedStyle={{ opacity: 0.75 }}>
                       <MaterialCommunityIcons name="camera-outline" size={17} color={theme.accent} />
                       <ThemedText className="text-sm font-bold" style={{ color: theme.accent }}>
                         Scan a bill instead
                       </ThemedText>
-                    </Pressable>
+                    </PressableView>
                   ) : null}
                   {/* The review sheet's banner already says how many fields
                       want a look, and a second line saying it again costs the
@@ -2860,7 +2907,9 @@ export function TransactionFormModal({
                     summary, and a second place holding the same fields would
                     compete with it. */}
                 {!draftReview &&
-                  (isDetailShown('merchant') || isDetailShown('notes') || isDetailShown('tag')) && (
+                  (isDetailShown('merchant') ||
+                    isDetailShown('notes') ||
+                    (tagsApply && isDetailShown('tag'))) && (
                     <View className="px-5 mb-6 gap-4">
                       {isDetailShown('merchant') && (
                         <Animated.View entering={motion.revealEntering()}>
@@ -2925,7 +2974,7 @@ export function TransactionFormModal({
                         </Animated.View>
                       )}
 
-                      {isDetailShown('tag') && (
+                      {tagsApply && isDetailShown('tag') && (
                         <Animated.View entering={motion.revealEntering()}>
                           <ThemedText
                             tone="muted"
@@ -2989,6 +3038,7 @@ export function TransactionFormModal({
 
                 {personalPayment &&
                   mode !== 'quick-prompt' &&
+                  tagsApply &&
                   form.tag === 'EMI' && (
                     <TransactionEmiFields
                       isEdit={isEdit}
@@ -3025,6 +3075,7 @@ export function TransactionFormModal({
 
                 {mode !== 'quick-prompt' &&
                   personalPayment &&
+                  tagsApply &&
                   form.tag === 'Refundable' && (
                     <TransactionRefundFields
                       refundableAmount={form.refundableAmount}
@@ -3051,7 +3102,7 @@ export function TransactionFormModal({
                   !isEdit &&
                   personalPayment &&
                   !emiRepeatActive &&
-                  (form.subscriptionEnabled || form.tag === 'Subscription') && (
+                  (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
                     <TransactionSubscriptionFields
                       form={form}
                       setForm={setForm}
@@ -3217,11 +3268,25 @@ export function TransactionFormModal({
             setIsCategoryPickerVisible(false);
           }}
           onAddCustom={() => {
-            const nextCategory = normalizeCategoryValue(customCategory, form.type);
+            if (!customCategory.trim()) return;
+            // Kept for this user, not just this entry: the next form offers it
+            // too. A built-in typed by another name comes back as the built-in.
+            const nextCategory = keepCustomCategory(
+              sessionToken,
+              // Inner runs of spaces collapsed, as the server keeps the name.
+              normalizeCategoryValue(customCategory.replace(/\s+/g, ' '), form.type),
+              customCategoryType
+            );
             selectCategory(nextCategory);
             setCustomCategory('');
             setIsCategoryPickerVisible(false);
           }}
+          removable={customCategories}
+          onRemoveCustom={
+            sessionToken
+              ? (category) => removeCustomCategory(sessionToken, category, customCategoryType)
+              : undefined
+          }
         />
 
         <TransactionAccountPicker

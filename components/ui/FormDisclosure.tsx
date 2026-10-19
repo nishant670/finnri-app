@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -58,7 +59,7 @@ export function FormDisclosure({
 
   return (
     <View>
-      <Pressable
+      <PressableView
         testID={testID}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -67,10 +68,8 @@ export function FormDisclosure({
           haptics.toggle(!expanded);
           onToggle();
         }}
-        style={({ pressed }) => [
-          styles.row,
-          { borderColor: theme.border, opacity: pressed ? 0.7 : 1 },
-        ]}>
+        style={[styles.row, { borderColor: theme.border }]}
+        pressedStyle={{ opacity: 0.7 }}>
         <View style={styles.text}>
           <ThemedText style={[styles.label, { color: theme.text }]}>{label}</ThemedText>
           {summary ? (
@@ -87,7 +86,7 @@ export function FormDisclosure({
           size={16}
           color={withAlpha(theme.text, 0.6)}
         />
-      </Pressable>
+      </PressableView>
       {expanded ? (
         <Animated.View entering={motion.revealEntering()} className="mt-3">
           {children}

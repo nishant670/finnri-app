@@ -1,11 +1,12 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { Card } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
@@ -65,15 +66,16 @@ export default function PurchaseHistoryScreen() {
   );
 
   const supportLink = (
-    <Pressable
+    <PressableView
       testID="purchase-history-support"
       accessibilityRole="button"
       onPress={() => router.push('/help-support')}
-      style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1, alignSelf: 'center' })}>
+      style={{ alignSelf: 'center' }}
+      pressedStyle={{ opacity: 0.6 }}>
       <ThemedText variant="captionStrong" style={{ color: colors.accent }}>
         Contact support
       </ThemedText>
-    </Pressable>
+    </PressableView>
   );
 
   return (
@@ -92,14 +94,14 @@ export default function PurchaseHistoryScreen() {
           ) : error ? (
             <Card compact style={{ padding: theme.spacing.lg, gap: theme.spacing.sm }}>
               <ThemedText style={{ color: colors.text }}>{error}</ThemedText>
-              <Pressable
+              <PressableView
                 accessibilityRole="button"
                 onPress={() => void loadPayments()}
-                style={({ pressed }) => ({ opacity: pressed ? 0.6 : 1 })}>
+                pressedStyle={{ opacity: 0.6 }}>
                 <ThemedText variant="captionStrong" style={{ color: colors.accent }}>
                   Try again
                 </ThemedText>
-              </Pressable>
+              </PressableView>
             </Card>
           ) : payments.length === 0 ? (
             <Card

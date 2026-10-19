@@ -14,6 +14,7 @@ import {
   type SplitGroup,
 } from '@/lib/splits';
 import { getActivityIcon } from '@/lib/split-screen-helpers';
+import { formatRelativeDay } from '@/lib/datetime';
 
 export const computeBalanceTotals = (balances: SplitBalance[]) => {
   return balances.reduce(
@@ -178,6 +179,59 @@ export const buildNonGroupSummary = (bills: SplitBill[], friendById: Map<number,
   };
 };
 
+const localDay = (value: Date) =>
+  [
+    value.getFullYear(),
+    String(value.getMonth() + 1).padStart(2, '0'),
+    String(value.getDate()).padStart(2, '0'),
+  ].join('-');
+
+/** `13 Oct`, or `13 Oct 2025` from another year. */
+const shortDate = (value: string, now: Date) => {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!match) return value;
+  const day = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const month = day.toLocaleString('en-US', { month: 'short' });
+  return day.getFullYear() === now.getFullYear()
+    ? `${day.getDate()} ${month}`
+    : `${day.getDate()} ${month} ${day.getFullYear()}`;
+};
+
+/** Saves within this long of the first one are the same "added", not an edit. */
+const EDIT_GRACE_MS = 60_000;
+
+/**
+ * When a row happened, for its time line.
+ *
+ * The feed is in the order things happened, not by the dates they carry: on
+ * device, an expense added today for the 13th sat below one added yesterday
+ * for the 14th. So the line says when it happened — `Today`, `Yesterday`,
+ * `12 Oct` — and, when an expense or payment is dated another day, that day as
+ * well: `Added today · for 13 Oct`. An edit says so: `Edited today`.
+ *
+ * Rows from a server that predates `activity_at` show their own date, as before.
+ */
+export const activityDateLabel = (item: SplitActivityItem, now: Date = new Date()) => {
+  const stamp = item.activity_at || item.created_at;
+  const at = stamp ? new Date(stamp) : null;
+  if (!at || Number.isNaN(at.getTime())) {
+    return formatRelativeDay(item.date) ?? item.date;
+  }
+  const when = formatRelativeDay(at) ?? shortDate(localDay(at), now);
+  if (item.type !== 'bill' && item.type !== 'settlement') return when;
+
+  const created = item.created_at ? new Date(item.created_at).getTime() : at.getTime();
+  const edited = item.type === 'bill' && at.getTime() - created > EDIT_GRACE_MS;
+  const datedElsewhere =
+    /^\d{4}-\d{2}-\d{2}/.test(item.date) && item.date.slice(0, 10) !== localDay(at);
+  if (!edited && !datedElsewhere) return when;
+  const verb = edited ? 'Edited' : 'Added';
+  const relative = when === 'Today' || when === 'Yesterday' ? when.toLowerCase() : when;
+  return datedElsewhere
+    ? `${verb} ${relative} · for ${shortDate(item.date, now)}`
+    : `${verb} ${relative}`;
+};
+
 export const buildRecentActivity = (activity: SplitActivityItem[]) => {
   return activity.map((item) => {
     const fallbackCaption =
@@ -216,7 +270,7 @@ export const buildRecentActivity = (activity: SplitActivityItem[]) => {
       id: item.id,
       item,
       title: item.title,
-      date: item.date,
+      date: activityDateLabel(item),
       amount: item.amount,
       icon: getActivityIcon(item.type),
       caption,

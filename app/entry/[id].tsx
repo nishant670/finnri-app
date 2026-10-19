@@ -284,6 +284,7 @@ export default function TransactionDetailsScreen() {
   }, [params.categorySuggestions]);
 
   const meta = resolveCategoryMetadata(displayData.category, displayData.type);
+  const isIncomeEntry = String(displayData.type ?? '').toLowerCase() === 'income';
   const icon = meta.icon;
   const iconColor = meta.color;
   const bgColor = meta.bgColor;
@@ -807,36 +808,39 @@ export default function TransactionDetailsScreen() {
                 </View>
               </View>
 
-              {/* Tags */}
-              <View className="flex-row items-start gap-3 mb-8">
-                <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                  <MaterialCommunityIcons name="tag-outline" size={20} color="#64748B" />
-                </View>
-                <View className="flex-1">
-                  <ThemedText tone="muted" className="text-[9px] uppercase font-black mb-2">
-                    TAG
-                  </ThemedText>
-                  {/* An untagged entry showed a "Personal" chip that looked like a
-                      real tag but was never stored and was not in the tag picker. */}
-                  <View className="flex-row gap-2">
-                    {displayData.tag ? (
-                      <View
-                        className="rounded-full border px-3 py-1"
-                        style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                        <ThemedText
-                          className="text-[10px] font-black"
-                          style={{ color: theme.accent }}>
-                          {displayData.tag}
+              {/* Tags. Not on income: every tag but General is about money
+                  going out, and the form no longer offers one for income. */}
+              {!isIncomeEntry && (
+                <View className="flex-row items-start gap-3 mb-8">
+                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
+                    <MaterialCommunityIcons name="tag-outline" size={20} color="#64748B" />
+                  </View>
+                  <View className="flex-1">
+                    <ThemedText tone="muted" className="text-[9px] uppercase font-black mb-2">
+                      TAG
+                    </ThemedText>
+                    {/* An untagged entry showed a "Personal" chip that looked like a
+                        real tag but was never stored and was not in the tag picker. */}
+                    <View className="flex-row gap-2">
+                      {displayData.tag ? (
+                        <View
+                          className="rounded-full border px-3 py-1"
+                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
+                          <ThemedText
+                            className="text-[10px] font-black"
+                            style={{ color: theme.accent }}>
+                            {displayData.tag}
+                          </ThemedText>
+                        </View>
+                      ) : (
+                        <ThemedText className="text-[11px]" style={{ color: `${theme.text}66` }}>
+                          No tag
                         </ThemedText>
-                      </View>
-                    ) : (
-                      <ThemedText className="text-[11px]" style={{ color: `${theme.text}66` }}>
-                        No tag
-                      </ThemedText>
-                    )}
+                      )}
+                    </View>
                   </View>
                 </View>
-              </View>
+              )}
             </View>
           )}
 

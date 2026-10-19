@@ -10,6 +10,8 @@ type SegmentedControlProps<T extends string> = {
   active: T;
   onSelect: (value: T) => void;
   colors: ReturnType<typeof useThemeTokens>['colors'];
+  /** Wrap into rows this many segments wide, for more choices than fit in one. */
+  columns?: number;
 };
 
 export function SegmentedControl<T extends string>({
@@ -18,6 +20,7 @@ export function SegmentedControl<T extends string>({
   active,
   onSelect,
   colors,
+  columns,
 }: SegmentedControlProps<T>) {
   return (
     <View className="mb-3">
@@ -26,7 +29,9 @@ export function SegmentedControl<T extends string>({
         style={{ color: `${colors.text}99` }}>
         {label}
       </ThemedText>
-      <View className="flex-row rounded-2xl p-1" style={{ backgroundColor: colors.background }}>
+      <View
+        className={`flex-row rounded-2xl p-1 ${columns ? 'flex-wrap' : ''}`}
+        style={{ backgroundColor: colors.background }}>
         {values.map((option) => {
           const selected = option.value === active;
           return (
@@ -38,8 +43,11 @@ export function SegmentedControl<T extends string>({
                 haptics.select();
                 onSelect(option.value);
               }}
-              className="min-h-11 flex-1 items-center justify-center rounded-xl py-2"
-              style={{ backgroundColor: selected ? colors.secondary : 'transparent' }}>
+              className={`min-h-11 items-center justify-center rounded-xl py-2 ${columns ? '' : 'flex-1'}`}
+              style={{
+                backgroundColor: selected ? colors.secondary : 'transparent',
+                ...(columns ? { width: `${100 / columns}%` as const } : null),
+              }}>
               <ThemedText
                 className="text-[11px] font-black uppercase"
                 style={{ color: selected ? colors.accent : `${colors.text}99` }}>

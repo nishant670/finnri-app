@@ -163,17 +163,27 @@ export const defaultCategoryForType = (type?: string | null): Category =>
   type?.toLowerCase() === 'income' ? DEFAULT_INCOME_CATEGORY : DEFAULT_CATEGORY;
 
 /**
- * The picker list. An unrecognised category from an older row is appended so
- * editing that entry never silently rewrites it.
+ * The picker list: the built-in categories, then the ones this user named
+ * themselves (`custom`, from `useUserCategories`). An unrecognised category on
+ * the entry being edited is appended too, so editing it never silently
+ * rewrites it — even one the user has since removed from their list.
  */
-export const categoryOptionsFor = (current?: string | null, type?: string | null): string[] => {
+export const categoryOptionsFor = (
+  current?: string | null,
+  type?: string | null,
+  custom: readonly string[] = []
+): string[] => {
   const income = type?.toLowerCase() === 'income';
-  const options = income ? INCOME_CATEGORIES : CATEGORIES;
-  const resolved = resolveCategory(current, type);
-  if (resolved || !current?.trim()) {
-    return [...options];
-  }
-  return [...options, current.trim()];
+  const options: string[] = [...(income ? INCOME_CATEGORIES : CATEGORIES)];
+  const append = (value?: string | null) => {
+    const name = value?.trim();
+    if (!name || resolveCategory(name, type)) return;
+    if (options.some((option) => option.toLowerCase() === name.toLowerCase())) return;
+    options.push(name);
+  };
+  custom.forEach(append);
+  append(current);
+  return options;
 };
 
 /** Icon and colour for a category, falling back to income or unknown. */

@@ -1,9 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, type PressableProps, StyleSheet, View, type ViewProps } from 'react-native';
+import { Pressable, StyleSheet, View, type ViewProps } from 'react-native';
 import { SafeAreaView, type SafeAreaViewProps } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView, type PressableViewProps } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type ScreenProps = SafeAreaViewProps & {
@@ -136,7 +137,7 @@ export function SectionHeader({ title, actionLabel, onAction }: SectionHeaderPro
   );
 }
 
-type TextActionProps = Omit<PressableProps, 'children'> & {
+type TextActionProps = Omit<PressableViewProps, 'children'> & {
   label: string;
   expanded?: boolean;
   children?: ReactNode;
@@ -146,24 +147,24 @@ export function TextAction({ label, expanded, style, children, ...props }: TextA
   const theme = useThemeTokens();
 
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       hitSlop={10}
-      style={(state) => [
+      style={[
         styles.textAction,
         {
           minHeight: theme.components.textAction.minHeight,
           gap: theme.components.textAction.gap,
-          opacity: state.pressed ? 0.7 : 1,
         },
-        typeof style === 'function' ? style(state) : style,
+        style,
       ]}
+      pressedStyle={{ opacity: 0.7 }}
       {...props}>
       <ThemedText variant="captionStrong" style={{ color: theme.colors.text }}>
         {label}
       </ThemedText>
       {children}
-    </Pressable>
+    </PressableView>
   );
 }
 

@@ -1,4 +1,5 @@
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { TextAction } from '@/components/ui/theme-primitives';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
@@ -339,17 +340,17 @@ export function VoiceInputCard({
             justifyContent: 'center',
             alignItems: 'center',
           }}>
-          <Pressable
+          <PressableView
             onPress={onProcess}
             disabled={isProcessing}
-            style={({ pressed }) => ({
+            style={{
               flexGrow: 1,
               flexShrink: 1,
               flexBasis: 132,
               minWidth: 0,
-              opacity: pressed ? 0.9 : isProcessing ? 0.7 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
+              opacity: isProcessing ? 0.7 : 1,
+            }}
+            pressedStyle={{ opacity: 0.9, transform: [{ scale: 0.98 }] }}>
             <View
               style={{
                 height: 38,
@@ -385,19 +386,13 @@ export function VoiceInputCard({
                 </>
               )}
             </View>
-          </Pressable>
+          </PressableView>
 
-          <Pressable
+          <PressableView
             onPress={onClear}
             disabled={isProcessing}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              flexShrink: 1,
-              flexBasis: 132,
-              minWidth: 0,
-              opacity: pressed ? 0.8 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
+            style={{ flexGrow: 1, flexShrink: 1, flexBasis: 132, minWidth: 0 }}
+            pressedStyle={{ opacity: 0.8, transform: [{ scale: 0.98 }] }}>
             <View
               style={{
                 height: 38,
@@ -427,7 +422,7 @@ export function VoiceInputCard({
                 Cancel
               </ThemedText>
             </View>
-          </Pressable>
+          </PressableView>
         </View>
       </View>
     );

@@ -1,8 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
@@ -100,14 +101,15 @@ export function LabelRow({
   }
 
   return (
-    <Pressable
+    <PressableView
       testID={testID}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? (value ? `${label}, ${value}` : label)}
       onPress={onPress}
-      style={({ pressed }) => [...rowStyle, { opacity: pressed ? 0.7 : 1 }]}>
+      style={rowStyle}
+      pressedStyle={{ opacity: 0.7 }}>
       {content}
-    </Pressable>
+    </PressableView>
   );
 }
 

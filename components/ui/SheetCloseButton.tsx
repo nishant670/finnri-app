@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, View, type PressableProps } from 'react-native';
+import { StyleSheet, View, type PressableProps } from 'react-native';
+
+import { PressableView } from '@/components/ui/PressableView';
 
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
@@ -17,16 +19,17 @@ export function SheetCloseButton({ accessibilityLabel = 'Close', ...props }: She
   const { colors } = useThemeTokens();
 
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel}
       hitSlop={4}
-      style={({ pressed }) => [styles.target, { opacity: pressed ? 0.7 : 1 }]}
+      style={styles.target}
+      pressedStyle={{ opacity: 0.7 }}
       {...props}>
       <View style={[styles.circle, { backgroundColor: colors.track }]}>
         <MaterialCommunityIcons name="close" size={18} color={colors.text} />
       </View>
-    </Pressable>
+    </PressableView>
   );
 }
 

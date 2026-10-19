@@ -164,4 +164,151 @@ describe('Recurring panel', () => {
       })
     );
   });
+
+  // The device report: the investment was a blank box, this month's PPF
+  // instalment could not be logged, and the bank account to pay from looked
+  // like a second copy of the mode.
+  it('adds a PPF from the type chips, logging this payment from a bank account', async () => {
+    jest
+      .spyOn(accounts, 'fetchAccounts')
+      .mockResolvedValue([
+        { id: 4, type: 'bank', name: 'HDFC Bank', color: '#000', last4: '1234' },
+      ] as accounts.Account[]);
+    const createSpy = jest
+      .spyOn(subscriptions, 'createSubscription')
+      .mockResolvedValue({ ...netflix, id: 10 } as Subscription);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByText } =
+      await render(<SubscriptionsPanel embedded />);
+
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Investment'));
+    await findByTestId('recurring-investment-type');
+    expect(queryByText('Swiggy')).toBeNull();
+    await fireEvent.press(await findByText('PPF'));
+    await fireEvent.changeText(await findByPlaceholderText('5,000'), '3000');
+
+    // Daily and every two weeks are in Repeats now, not under More options.
+    await findByText('Every 2 weeks');
+
+    await fireEvent.press(await findByText("Also log this month's payment"));
+    await findByText('Paid from');
+    await findByText('•• 1234');
+    await fireEvent.press(await findByText('Add investment'));
+
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    const today = new Date();
+    const todayISO = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('-');
+    expect(createSpy.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        name: 'PPF',
+        merchant: 'PPF',
+        kind: 'investment',
+        amount: 3000,
+        payment_mode: 'Bank Account',
+        account_id: 4,
+        log_payment_on: todayISO,
+      })
+    );
+  });
+
+  it('takes a type that is not listed under Other', async () => {
+    const createSpy = jest
+      .spyOn(subscriptions, 'createSubscription')
+      .mockResolvedValue({ ...netflix, id: 11 } as Subscription);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText } = await render(
+      <SubscriptionsPanel embedded />
+    );
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Investment'));
+    await fireEvent.press(await findByText('Add investment'));
+    await findByText(/Pick the investment type\./);
+
+    await fireEvent.press(await findByText('Other'));
+    await fireEvent.changeText(
+      await findByPlaceholderText('ULIP, Sukanya Samriddhi, chit fund'),
+      'Chit fund'
+    );
+    await fireEvent.changeText(await findByPlaceholderText('5,000'), '2000');
+    await fireEvent.press(await findByText('Add investment'));
+    await waitFor(() => expect(createSpy).toHaveBeenCalled());
+    expect(createSpy.mock.calls[0][1]).toEqual(
+      expect.objectContaining({ name: 'Chit fund', kind: 'investment' })
+    );
+    expect(createSpy.mock.calls[0][1]).not.toHaveProperty('log_payment_on');
+  });
+
+  // Mark paid moved the date on and wrote nothing, so the payment never
+  // reached the transactions. It now logs it — from the account it came
+  // from — unless turned off for a payment already logged.
+  it('marks a payment paid and logs it from the chosen account', async () => {
+    jest.spyOn(accounts, 'fetchAccounts').mockResolvedValue([
+      { id: 4, type: 'bank', name: 'SBI Savings', color: '#000', is_default: true },
+      { id: 5, type: 'upi', name: 'GPay', color: '#000' },
+    ] as accounts.Account[]);
+    const paidSpy = jest
+      .spyOn(subscriptions, 'markSubscriptionPaid')
+      .mockResolvedValue({ ...netflix, logged_entry_id: 7 } as never);
+    const { findByLabelText, findByText, findByTestId } = await render(
+      <SubscriptionsPanel embedded />
+    );
+
+    await fireEvent.press(await findByLabelText('Mark Netflix paid'));
+    await findByTestId('mark-paid-sheet');
+    // Cash, the item's mode, is not one an account can be picked for.
+    await findByLabelText('Paid from SBI Savings');
+    await fireEvent.press(await findByText('UPI'));
+    await fireEvent.press(await findByText('Mark paid'));
+
+    await waitFor(() => expect(paidSpy).toHaveBeenCalled());
+    expect(paidSpy.mock.calls[0][1]).toBe(netflix.id);
+    expect(paidSpy.mock.calls[0][3]).toEqual({
+      logTransaction: true,
+      paymentMode: 'UPI',
+      accountId: 5,
+    });
+  });
+
+  it('can mark paid without logging, for a payment already logged', async () => {
+    const paidSpy = jest.spyOn(subscriptions, 'markSubscriptionPaid').mockResolvedValue(netflix);
+    const { findByLabelText, findByText } = await render(<SubscriptionsPanel embedded />);
+
+    await fireEvent.press(await findByLabelText('Mark Netflix paid'));
+    await fireEvent.press(await findByLabelText('Add to transactions'));
+    await findByText(/Nothing is added to your transactions/);
+    await fireEvent.press(await findByText('Mark paid'));
+
+    await waitFor(() => expect(paidSpy).toHaveBeenCalled());
+    expect(paidSpy.mock.calls[0][3]).toEqual(expect.objectContaining({ logTransaction: false }));
+  });
+
+  it('points a credit card bill to the card instead of adding it here', async () => {
+    jest
+      .spyOn(accounts, 'fetchAccounts')
+      .mockResolvedValue([
+        { id: 8, type: 'credit_card', name: 'HDFC Regalia', color: '#000' },
+      ] as accounts.Account[]);
+    const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByTestId } =
+      await render(<SubscriptionsPanel embedded />);
+    await findByTestId('recurring-overview');
+    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press(await findByText('Bill'));
+    await fireEvent.changeText(
+      await findByPlaceholderText('Rent, Electricity, Insurance premium'),
+      'Electricity'
+    );
+    expect(queryByTestId('recurring-card-bill-note')).toBeNull();
+    await fireEvent.changeText(
+      await findByPlaceholderText('Rent, Electricity, Insurance premium'),
+      'HDFC credit card bill'
+    );
+    await findByTestId('recurring-card-bill-note');
+    await fireEvent.press(await findByText('Open HDFC Regalia'));
+    expect(mockPush).toHaveBeenCalledWith({ pathname: '/accounts/[id]', params: { id: '8' } });
+  });
 });

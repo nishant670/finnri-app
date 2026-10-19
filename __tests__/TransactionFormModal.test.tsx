@@ -937,3 +937,46 @@ describe('TransactionFormModal — which account did you mean', () => {
   });
 });
 
+
+// Reported from a device: "Axis Bank Account created and selected", from one
+// bill scan, sat on the next scan's review over a credit card draft.
+describe('TransactionFormModal — created-account confirmation', () => {
+  const axisSuggestion: AccountSuggestion = {
+    type: 'bank',
+    name: 'Axis Bank Account',
+    color: '#000',
+    provider: 'Axis',
+    identifier: '',
+    reason: '',
+  };
+  const axis: Account = { id: 9, type: 'bank', name: 'Axis Bank Account', color: '#000' };
+  const card: Account = { id: 10, type: 'credit_card', name: 'HDFC Regalia', color: '#000' };
+  const bankDraft = { ...completeInitialData, mode: 'Bank Account', accountId: null, account: '' };
+  const cardDraft = { ...completeInitialData, mode: 'Credit Card', accountId: 10, account: 'HDFC Regalia' };
+
+  const sheet = (visible: boolean, initialData: Partial<EntryForm>, accounts: Account[]) => (
+    <TransactionFormModal
+      visible={visible}
+      mode="audio"
+      initialData={initialData}
+      accounts={accounts}
+      accountSuggestion={axisSuggestion}
+      onAutoCreateSuggestedAccount={jest.fn().mockResolvedValue(axis)}
+      onSetupSuggestedAccount={jest.fn()}
+      onSave={jest.fn().mockResolvedValue(undefined)}
+      onClose={jest.fn()}
+    />
+  );
+
+  it('confirms the account it made, and forgets it on the next draft', async () => {
+    const { findByText, queryByText, rerender } = await render(sheet(true, bankDraft, [card]));
+    await fireEvent.press(await findByText('Create one for me'));
+    await findByText('Axis Bank Account created and selected');
+
+    await rerender(sheet(false, bankDraft, [card, axis]));
+    await rerender(sheet(true, cardDraft, [card, axis]));
+    await waitFor(() =>
+      expect(queryByText('Axis Bank Account created and selected')).toBeNull()
+    );
+  });
+});

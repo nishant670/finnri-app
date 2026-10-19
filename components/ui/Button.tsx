@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
-  Pressable,
   StyleSheet,
   type PressableProps,
   type StyleProp,
@@ -9,6 +8,7 @@ import {
 } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /**
@@ -65,11 +65,12 @@ export function Button({
   const inactive = Boolean(disabled) || loading;
 
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityState={{ disabled: Boolean(disabled), busy: loading, ...accessibilityState }}
       disabled={inactive}
-      style={({ pressed }) => [
+      pressedStyle={styles.pressed}
+      style={[
         styles.base,
         {
           height: size,
@@ -83,7 +84,7 @@ export function Button({
           paddingRight: size === 36 ? 14 : size === 40 ? 16 : 12,
           backgroundColor: primary ? colors.accent : colors.card,
           borderColor: primary ? colors.accent : colors.borderStrong,
-          opacity: disabled && !loading ? 0.45 : pressed ? 0.85 : 1,
+          opacity: disabled && !loading ? 0.45 : 1,
         },
         style,
       ]}
@@ -98,7 +99,7 @@ export function Button({
         style={[LABEL_SIZE[size], { color: ink, fontWeight: primary ? '700' : '600' }]}>
         {label}
       </ThemedText>
-    </Pressable>
+    </PressableView>
   );
 }
 
@@ -108,6 +109,9 @@ export function PrimaryButton(props: Omit<ButtonProps, 'variant'>) {
 }
 
 const styles = StyleSheet.create({
+  pressed: {
+    opacity: 0.85,
+  },
   base: {
     alignItems: 'center',
     borderWidth: 1,

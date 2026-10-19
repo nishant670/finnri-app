@@ -17,7 +17,7 @@ import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { fetchAccounts, type Account } from '@/lib/accounts';
+import { fetchAccounts, normalizeAccountType, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
 import {
@@ -42,7 +42,7 @@ import {
   updateSubscription,
 } from '@/lib/subscriptions';
 
-import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
+import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, looksLikeCardBill, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
@@ -50,6 +50,10 @@ import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionC
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
 import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
+import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
+import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
+import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
+import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
@@ -125,6 +129,15 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [paymentMode, setPaymentMode] = useState('Cash');
   const [accountID, setAccountID] = useState<number | null>(null);
   const [notes, setNotes] = useState('');
+  /** Create only: write the payment already made as a transaction too. */
+  const [logPayment, setLogPayment] = useState(false);
+  /** Bumped each time the sheet opens, so pickers holding state start fresh. */
+  const [formSession, setFormSession] = useState(0);
+  /** The item "Mark paid" was tapped on; kept after closing for the exit slide. */
+  const [payingFor, setPayingFor] = useState<Subscription | null>(null);
+  const [isMarkPaidVisible, setIsMarkPaidVisible] = useState(false);
+  const [markingPaid, setMarkingPaid] = useState(false);
+  const [markPaidError, setMarkPaidError] = useState<string | null>(null);
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [pendingDate, setPendingDate] = useState(apiDateToLocalDate(nextDueDate));
   const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel' | 'start'>('due');
@@ -224,6 +237,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setPaymentMode('Cash');
     setAccountID(null);
     setNotes('');
+    setLogPayment(false);
     setShowAdvanced(false);
     setShowKindDetails(false);
     setError(null);
@@ -343,11 +357,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setShowAdvanced(false);
     setShowKindDetails(false);
     setError(null);
+    setFormSession((session) => session + 1);
     setShowForm(true);
   };
 
   const openCreateForm = () => {
     resetForm();
+    setFormSession((session) => session + 1);
     // A filtered list is a statement of intent: "+" on Loans adds a loan.
     const kind = filter === 'all' ? 'subscription' : filter;
     setFormKind(kind);
@@ -362,6 +378,30 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     if (category === recurringKindMeta[formKind].defaultCategory) {
       setCategory(recurringKindMeta[kind].defaultCategory);
     }
+  };
+
+  /** A mode and account to start on, for whatever now needs one. */
+  const ensurePaymentAccount = () => {
+    const next = usablePayment(accounts, paymentMode, accountID);
+    setPaymentMode(next.paymentMode);
+    setAccountID(next.accountID);
+  };
+
+  const chooseInterval = (next: BillingInterval) => {
+    setInterval(next);
+    if (next === 'daily') {
+      // A daily payment exists only through Autopay, which adds each one;
+      // there is no reminder to send for it.
+      setAutopay(true);
+      setReminderDays(0);
+      ensurePaymentAccount();
+    }
+  };
+
+  const toggleLogPayment = (checked: boolean) => {
+    haptics.select();
+    setLogPayment(checked);
+    if (checked && !autopay) ensurePaymentAccount();
   };
 
   const openStartDatePicker = () => {
@@ -477,6 +517,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         foreclosurePct,
         platform,
         stepUpPct,
+        logPayment,
         editing,
         kindMeta,
       });
@@ -511,13 +552,26 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     }
   };
 
-  const markPaid = async (subscription: Subscription) => {
-    if (!token) return;
+  const openMarkPaid = (subscription: Subscription) => {
+    setPayingFor(subscription);
+    setMarkPaidError(null);
+    setIsMarkPaidVisible(true);
+  };
+
+  const markPaid = async (choice: MarkPaidChoice) => {
+    if (!token || !payingFor || markingPaid) return;
+    setMarkingPaid(true);
+    setMarkPaidError(null);
     try {
-      await markSubscriptionPaid(token, subscription.id, todayISO());
+      await markSubscriptionPaid(token, payingFor.id, todayISO(), choice);
+      haptics.saved();
+      setIsMarkPaidVisible(false);
       await load();
     } catch (paidError) {
-      setListError(getFriendlyErrorMessage(paidError, 'Unable to mark this subscription paid.'));
+      haptics.rejected();
+      setMarkPaidError(getFriendlyErrorMessage(paidError, 'Unable to mark this paid.'));
+    } finally {
+      setMarkingPaid(false);
     }
   };
 
@@ -598,7 +652,8 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     editing && status !== 'active'
       ? statusOptions.find((option) => option.value === status)?.label
       : '',
-    category || 'Uncategorized',
+    // Investments are not filed under a spending category; see the fold.
+    formKind === 'investment' ? '' : category || 'Uncategorized',
     interval === 'daily' || interval === 'business_daily'
       ? 'Added automatically'
       : reminderDays === 0
@@ -687,7 +742,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 colors={colors}
                 muted={muted}
                 onPress={() => editSubscription(subscription)}
-                onMarkPaid={() => void markPaid(subscription)}
+                onMarkPaid={() => openMarkPaid(subscription)}
                 onCancelNow={() => void cancelNow(subscription)}
                 onDelete={() => void confirmDelete(subscription)}
               />
@@ -752,15 +807,42 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             ))}
           </View>
 
-          <Field
-            label={kindMeta.nameLabel}
-            value={merchant}
-            onChangeText={setMerchant}
-            colors={colors}
-            placeholder={kindMeta.namePlaceholder}
-            autoFocus={!editing}
-          />
-          {merchantSuggestions.length > 0 && (
+          {formKind === 'investment' ? (
+            <InvestmentTypePicker
+              key={formSession}
+              value={merchant}
+              onChange={setMerchant}
+              colors={colors}
+              muted={muted}
+            />
+          ) : (
+            <Field
+              label={kindMeta.nameLabel}
+              value={merchant}
+              onChangeText={setMerchant}
+              colors={colors}
+              placeholder={kindMeta.namePlaceholder}
+              autoFocus={!editing}
+            />
+          )}
+          {formKind !== 'investment' && looksLikeCardBill(`${merchant} ${name}`) ? (
+            <CardBillNote
+              cards={accounts.filter(
+                (account) => normalizeAccountType(account.type) === 'credit_card'
+              )}
+              colors={colors}
+              onOpen={(cardId) => {
+                closeForm();
+                if (cardId != null) {
+                  router.push({ pathname: '/accounts/[id]', params: { id: String(cardId) } });
+                } else {
+                  router.push('/accounts/manage');
+                }
+              }}
+            />
+          ) : null}
+          {/* Past merchants — Swiggy, Netflix — are no help naming an SIP. */}
+          {formKind !== 'investment' && merchantSuggestions.length > 0 && (
             <View className="mb-3 flex-row flex-wrap gap-2">
               {merchantSuggestions.slice(0, 6).map((suggestion) => (
                 <Pill
@@ -826,9 +908,31 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             label="Repeats"
             values={intervalOptions}
             active={interval}
-            onSelect={setInterval}
+            onSelect={chooseInterval}
             colors={colors}
+            columns={3}
           />
+
+          {!editing ? (
+            <LogCurrentPaymentCard
+              checked={logPayment}
+              onToggle={toggleLogPayment}
+              amount={amount}
+              interval={interval}
+              nextDueDate={nextDueDate}
+              autopay={autopay}
+              accounts={accounts}
+              accountID={accountID}
+              paymentMode={paymentMode}
+              onPaymentChange={(next) => {
+                setPaymentMode(next.paymentMode);
+                setAccountID(next.accountID);
+              }}
+              onAddAccount={() => router.push('/accounts/manage')}
+              colors={colors}
+              muted={muted}
+            />
+          ) : null}
 
           {/* The loan's or investment's own details. None of them is needed
               to schedule the payment — the amount and the date do that — so
@@ -909,6 +1013,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 cancelOnDate={cancelOnDate}
                 category={category}
                 colors={colors}
+                formKind={formKind}
                 interval={interval}
                 isEditing={Boolean(editing)}
                 merchant={merchant}
@@ -923,7 +1028,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 setAutopay={setAutopay}
                 setCancelBeforeDue={setCancelBeforeDue}
                 setCategory={setCategory}
-                setInterval={setInterval}
                 setName={setName}
                 setNotes={setNotes}
                 setPaymentMode={setPaymentMode}
@@ -961,6 +1065,21 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         </ScrollView>
       </AnimatedBottomSheet>
 
+      <MarkPaidSheet
+        key={payingFor?.id ?? 'none'}
+        visible={isMarkPaidVisible}
+        subscription={payingFor}
+        accounts={accounts}
+        submitting={markingPaid}
+        error={markPaidError}
+        onClose={() => setIsMarkPaidVisible(false)}
+        onConfirm={(choice) => void markPaid(choice)}
+        onAddAccount={() => {
+          setIsMarkPaidVisible(false);
+          router.push('/accounts/manage');
+        }}
+      />
+
       <SubscriptionDatePickerModal
         visible={isDatePickerVisible}
         target={datePickerTarget}
@@ -976,6 +1095,42 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         colors={colors}
         muted={muted}
       />
+    </View>
+  );
+}
+
+/**
+ * Said when a new item is named like a credit card bill. It does not block:
+ * the name might mean something else. It points to where the bill belongs.
+ */
+function CardBillNote({
+  cards,
+  colors,
+  onOpen,
+}: {
+  cards: Account[];
+  colors: ReturnType<typeof useThemeTokens>['colors'];
+  onOpen: (cardId: number | null) => void;
+}) {
+  const only = cards.length === 1 ? cards[0] : null;
+  return (
+    <View
+      testID="recurring-card-bill-note"
+      className="mb-3 rounded-2xl p-3"
+      style={{ backgroundColor: colors.secondary }}>
+      <ThemedText className="text-xs leading-5" style={{ color: colors.text }}>
+        Credit card bills belong on the card’s own page. Your card spends are already logged one
+        by one, so a bill here would count them twice.
+      </ThemedText>
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => onOpen(only?.id ?? null)}
+        className="mt-2 self-start"
+        hitSlop={8}>
+        <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+          {only ? `Open ${only.name}` : 'Go to your accounts'}
+        </ThemedText>
+      </Pressable>
     </View>
   );
 }

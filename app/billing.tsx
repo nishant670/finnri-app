@@ -7,6 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { Card } from '@/components/ui/theme-primitives';
@@ -446,12 +447,12 @@ export default function BillingScreen() {
         </View>
 
         {!isGuest && token ? (
-          <Pressable
+          <PressableView
             testID="purchase-history-link"
             accessibilityRole="button"
             accessibilityHint="Shows every pass you bought, with dates and payment references"
             onPress={() => router.push('/purchase-history')}
-            style={({ pressed }) => ({ opacity: pressed ? 0.86 : 1 })}>
+            pressedStyle={{ opacity: 0.86 }}>
             <Card
               compact
               style={{
@@ -472,7 +473,7 @@ export default function BillingScreen() {
               </View>
               <MaterialCommunityIcons name="chevron-right" size={22} color={`${colors.text}66`} />
             </Card>
-          </Pressable>
+          </PressableView>
         ) : null}
 
         {isGuest ? (
