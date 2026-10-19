@@ -7,6 +7,8 @@ import {
   buildGroupSummaries,
   buildNonGroupSummary,
   activityDateLabel,
+  activityDayTitle,
+  buildActivityListItems,
   buildRecentActivity,
   computeBalanceTotals,
   filterVisibleActivity,
@@ -384,6 +386,82 @@ describe('activityDateLabel', () => {
     expect(
       activityDateLabel(item({ date: '2026-10-14', created_at: '', activity_at: undefined }), now)
     ).toBe('Yesterday');
+  });
+});
+
+describe('buildActivityListItems', () => {
+  const now = new Date(2026, 9, 15, 11, 0);
+  const at = (day: number, hour = 10) => new Date(2026, 9, day, hour, 0).toISOString();
+  const item = (id: string, day: number, over: Partial<SplitActivityItem> = {}) =>
+    ({
+      id,
+      title: `Item ${id}`,
+      date: `2026-10-${String(day).padStart(2, '0')}`,
+      type: 'bill',
+      amount: 100,
+      created_at: at(day),
+      activity_at: at(day),
+      ...over,
+    }) as SplitActivityItem;
+
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(now);
+  });
+  afterAll(() => jest.useRealTimers());
+
+  it('heads each day and marks where each row falls in its card', () => {
+    const rows = buildRecentActivity([
+      item('a', 15),
+      item('b', 15, { amount: 250 }),
+      item('c', 14),
+      item('d', 10),
+    ]);
+    const items = buildActivityListItems(rows, { hasMore: false, now });
+    expect(items.map((entry) => (entry.kind === 'day' ? entry.title : entry.row.id))).toEqual([
+      'Today',
+      'a',
+      'b',
+      'Yesterday',
+      'c',
+      'Sat, 10 Oct',
+      'd',
+    ]);
+    const flags = items
+      .filter((entry) => entry.kind === 'row')
+      .map((entry) => (entry.kind === 'row' ? [entry.groupFirst, entry.groupLast] : null));
+    expect(flags).toEqual([
+      [true, false],
+      [false, true],
+      [true, true],
+      [true, true],
+    ]);
+    expect(items[0]).toMatchObject({ kind: 'day', total: 350, first: true });
+  });
+
+  it('totals only expenses, and leaves the total off a day with none', () => {
+    const rows = buildRecentActivity([
+      item('a', 15, { amount: 400 }),
+      item('b', 15, { type: 'settlement', amount: 900 }),
+      item('c', 14, { type: 'friend_created', amount: null as unknown as number }),
+    ]);
+    const days = buildActivityListItems(rows, { hasMore: false, now }).filter(
+      (entry) => entry.kind === 'day'
+    );
+    expect(days.map((day) => (day.kind === 'day' ? day.total : undefined))).toEqual([400, null]);
+  });
+
+  it('leaves the total off the last day while more of it may still load', () => {
+    const rows = buildRecentActivity([item('a', 15), item('b', 14)]);
+    const days = buildActivityListItems(rows, { hasMore: true, now }).filter(
+      (entry) => entry.kind === 'day'
+    );
+    expect(days.map((day) => (day.kind === 'day' ? day.total : undefined))).toEqual([100, null]);
+  });
+
+  it('names other days by weekday, with the year once it differs', () => {
+    expect(activityDayTitle('2026-10-10', now)).toBe('Sat, 10 Oct');
+    expect(activityDayTitle('2025-10-10', now)).toBe('Fri, 10 Oct 2025');
   });
 });
 

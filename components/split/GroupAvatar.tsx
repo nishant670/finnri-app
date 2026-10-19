@@ -23,15 +23,18 @@ export function GroupAvatar({
   icon,
   photoUri,
   size = 58,
+  radius: radiusOverride,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   /** A hosted URL, or a local file the user has just picked and not yet saved. */
   photoUri?: string | null;
   size?: number;
+  /** The corner, for a tile drawn smaller than the default (the 36dp list tile uses 10). */
+  radius?: number;
 }) {
   const theme = useThemeTokens();
   const { token } = useAuthStore();
-  const radius = theme.icon.containerRadius;
+  const radius = radiusOverride ?? theme.icon.containerRadius;
   // A freshly picked file is already displayable and must not wait on the
   // network; anything hosted needs the signature before it will load.
   const isLocal = isLocalAttachmentUri(photoUri);

@@ -78,13 +78,15 @@ type GroupHeaderProps = {
   total?: string;
   /** `negative` for a group that is a warning in itself, such as "Overdue". */
   tone?: 'muted' | 'negative';
+  /** A small control on the right, in place of a total — a filter, say. */
+  accessory?: ReactNode;
 };
 
 /**
  * The label over a group of rows — a day, a month, a status — with its total
  * on the right. Sits outside the card it heads (board R3-List).
  */
-export function GroupHeader({ label, total, tone = 'muted' }: GroupHeaderProps) {
+export function GroupHeader({ label, total, tone = 'muted', accessory }: GroupHeaderProps) {
   const theme = useThemeTokens();
 
   return (
@@ -101,6 +103,7 @@ export function GroupHeader({ label, total, tone = 'muted' }: GroupHeaderProps) 
           {total}
         </ThemedText>
       ) : null}
+      {accessory}
     </View>
   );
 }

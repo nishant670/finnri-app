@@ -1,9 +1,5 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ActivityIndicator, Pressable, View } from 'react-native';
-
-import { AppHeader } from '@/components/navigation/AppHeader';
 import { type ActiveSection } from '@/components/split/primitives/SplitChrome';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { TabHeader } from '@/components/ui/TabHeader';
 
 type SplitHeaderProps = {
   loading: boolean;
@@ -13,6 +9,7 @@ type SplitHeaderProps = {
   onCreate: () => void;
 };
 
+/** The Splits tab's header (board R6-Groups): search, and add for the section. */
 export function SplitHeader({
   loading,
   searchVisible,
@@ -20,52 +17,32 @@ export function SplitHeader({
   onToggleSearch,
   onCreate,
 }: SplitHeaderProps) {
-  const theme = useThemeTokens().colors;
   return (
-    <AppHeader
+    <TabHeader
       title="Splits"
-      style={{ marginBottom: 20, paddingHorizontal: 0, paddingVertical: 0 }}
-      rightNode={
-        <View className="ml-4 flex-row items-center gap-2">
-          {loading ? <ActivityIndicator color={theme.accent} /> : null}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={searchVisible ? 'Hide split search' : 'Search splits'}
-            onPress={onToggleSearch}
-            className="h-10 w-10 items-center justify-center rounded-full"
-            style={{ backgroundColor: theme.card }}>
-            <MaterialCommunityIcons
-              name={searchVisible ? 'close' : 'magnify'}
-              size={22}
-              color={theme.accent}
-            />
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              activeSection === 'friends'
-                ? 'Add split friend'
-                : activeSection === 'activity'
-                  ? 'Create split group'
-                  : 'Create split friend or group'
-            }
-            onPress={onCreate}
-            className="h-10 w-10 items-center justify-center rounded-full"
-            style={{ backgroundColor: theme.card }}>
-            <MaterialCommunityIcons
-              name={
-                activeSection === 'friends'
-                  ? 'account-plus-outline'
-                  : activeSection === 'activity'
-                    ? 'account-group-outline'
-                    : 'account-multiple-plus-outline'
-              }
-              size={22}
-              color={theme.accent}
-            />
-          </Pressable>
-        </View>
-      }
+      busy={loading}
+      actions={[
+        {
+          icon: searchVisible ? 'close' : 'magnify',
+          accessibilityLabel: searchVisible ? 'Hide split search' : 'Search splits',
+          onPress: onToggleSearch,
+        },
+        {
+          icon:
+            activeSection === 'friends'
+              ? 'account-plus-outline'
+              : activeSection === 'activity'
+                ? 'account-group-outline'
+                : 'account-multiple-plus-outline',
+          accessibilityLabel:
+            activeSection === 'friends'
+              ? 'Add split friend'
+              : activeSection === 'activity'
+                ? 'Create split group'
+                : 'Create split friend or group',
+          onPress: onCreate,
+        },
+      ]}
     />
   );
 }

@@ -4,7 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Share, View, type ListRenderItem } from 'react-native';
+import { FlatList, Share, StyleSheet, View, type ListRenderItem } from 'react-native';
 
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import {
@@ -20,7 +20,6 @@ import { GroupSettingsModal } from '@/components/split/modals/GroupSettingsModal
 import { GroupMembersModal } from '@/components/split/modals/GroupMembersModal';
 import { GroupActionModal } from '@/components/split/modals/GroupActionModal';
 import { BillDetailModal } from '@/components/split/modals/BillDetailModal';
-import { FloatingExpenseButton } from '@/components/split/primitives/SplitPrimitives';
 import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
 import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
@@ -70,7 +69,7 @@ import { fetchAccounts, getPreferredAccountForPaymentMode, type Account } from '
 import { userDisplayName } from '@/lib/display-name';
 import { fetchEntry, updateEntry } from '@/lib/entries';
 import type { ApiEntry } from '@/lib/transactions';
-import { toAmountString } from '@/lib/money';
+import { formatMoney, toAmountString } from '@/lib/money';
 import { resolveAttachmentForSave } from '@/lib/uploads';
 import {
   buildSeedWeights,
@@ -97,17 +96,14 @@ import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSp
 import { TView } from '@/components/split/primitives/themed-interop';
 import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
-import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
+import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildNonGroupSummary, buildActivityListItems, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups, matchesBalanceFilter } from '@/lib/split-screen-model';
 import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
 import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
 import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
 import { SplitNonGroupRow } from '@/components/split/rows/SplitNonGroupRow';
-import {
-  SplitActivityEmpty,
-  SplitActivityFooter,
-  SplitActivityHeading,
-  SplitActivitySeparator,
-} from '@/components/split/SplitActivitySection';
+import { SplitActivityEmpty, SplitActivityFooter } from '@/components/split/SplitActivitySection';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import type { ActivityListItem, ActivityRowModel } from '@/lib/split-screen-model';
 import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
 import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
 import { SplitGroupInviteModal } from '@/components/split/SplitGroupInviteModal';
@@ -130,13 +126,12 @@ const ACTIVITY_ENTRANCE_ROWS = 10;
 
 const activityKey = (item: SplitActivityItem) => item.id;
 
-type ActivityRowModel = ReturnType<typeof buildRecentActivity>[number];
-const activityRowKey = (row: ActivityRowModel) => row.id;
-const noActivityRows: ActivityRowModel[] = [];
+const activityItemKey = (item: ActivityListItem) => item.key;
+const noActivityItems: ActivityListItem[] = [];
 
 export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const router = useRouter();
-  const scrollRef = useRef<FlatList<ActivityRowModel>>(null);
+  const scrollRef = useRef<FlatList<ActivityListItem>>(null);
   useScrollToTop(scrollRef);
   const { token, user } = useAuthStore();
   const themeTokens = useThemeTokens();
@@ -791,6 +786,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const visibleActivity = useMemo(
     () => filterVisibleActivity(recentActivity, normalizedSearch),
     [normalizedSearch, recentActivity]
+  );
+
+  // The feed by day, a card per day (board R6-Activity).
+  const visibleActivityItems = useMemo(
+    () => buildActivityListItems(visibleActivity, { hasMore: activityFeed.hasMore }),
+    [activityFeed.hasMore, visibleActivity]
   );
 
   // A search matches what is loaded, so searching Activity reads the rest of
@@ -2018,9 +2019,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     );
   }
 
-  const renderFriendRow = (friend: SplitFriend, entranceIndex: number) => (
+  const renderFriendRow = (friend: SplitFriend, entranceIndex: number, divider: boolean) => (
     <SplitFriendRow
       key={friend.id}
+      divider={divider}
       friend={friend}
       netBalance={balanceByFriendId.get(friend.id)?.net_balance ?? 0}
       entranceIndex={entranceIndex}
@@ -2033,9 +2035,10 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     />
   );
 
-  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number) => (
+  const renderGroupCard = (summary: SplitGroupSummary, entranceIndex: number, divider: boolean) => (
     <SplitGroupCard
       key={summary.group.id}
+      divider={divider}
       summary={summary}
       entranceIndex={entranceIndex}
       isOpen={openSwipeRow === `group-${summary.group.id}`}
@@ -2046,21 +2049,40 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     />
   );
 
-  const renderNonGroupRow = (entranceIndex: number) => (
+  const renderNonGroupRow = (entranceIndex: number, divider: boolean) => (
     <SplitNonGroupRow
+      divider={divider}
       summary={nonGroupSummary}
       entranceIndex={entranceIndex}
       onPress={() => openModal('bill')}
     />
   );
 
-  const renderActivityItem: ListRenderItem<ActivityRowModel> = ({ item, index }) => (
-    <SplitActivityRow
-      item={item}
-      entranceIndex={index < ACTIVITY_ENTRANCE_ROWS ? index : undefined}
-      onOpen={openActivity}
-    />
-  );
+  const renderActivityItem: ListRenderItem<ActivityListItem> = ({ item }) =>
+    item.kind === 'day' ? (
+      <GroupHeader
+        label={item.title}
+        total={item.total != null ? formatMoney(item.total) : undefined}
+      />
+    ) : (
+      // Each row draws its slice of the day's card, so the feed stays one
+      // flat, virtualised list while it reads as a card per day.
+      <View
+        style={[
+          styles.rowSlice,
+          { backgroundColor: theme.card, borderColor: theme.border },
+          item.groupFirst && styles.sliceFirst,
+          item.groupLast && styles.sliceLast,
+        ]}>
+        <SplitActivityRow
+          item={item.row}
+          entranceIndex={item.position < ACTIVITY_ENTRANCE_ROWS ? item.position : undefined}
+          onOpen={openActivity}
+          divider={!item.groupFirst}
+          showDate={false}
+        />
+      </View>
+    );
 
   // Only Activity is a list of rows; Groups and Friends live in the header,
   // as they did in the ScrollView this replaced.
@@ -2074,10 +2096,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         <FlatList
           ref={scrollRef}
           testID="split-screen-list"
-          data={isActivityList ? visibleActivity : noActivityRows}
-          keyExtractor={activityRowKey}
+          data={isActivityList ? visibleActivityItems : noActivityItems}
+          keyExtractor={activityItemKey}
           renderItem={renderActivityItem}
-          ItemSeparatorComponent={SplitActivitySeparator}
           ListEmptyComponent={
             isActivityList ? (
               <SplitActivityEmpty
@@ -2108,9 +2129,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{
-            paddingHorizontal: 24,
-            paddingTop: embedded ? 14 : 10,
-            paddingBottom: 136,
+            paddingTop: embedded ? 14 : 0,
+            paddingBottom: 120,
           }}
           ListHeaderComponent={
             <>
@@ -2124,32 +2144,34 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                 />
               )}
 
-              {searchVisible && (
-                <SearchField
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  onClear={() => setSearchQuery('')}
-                />
-              )}
+              <View style={styles.gutter}>
+                {searchVisible && (
+                  <SearchField
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onClear={() => setSearchQuery('')}
+                  />
+                )}
 
-              {error && <ErrorBanner message={error} style={{ marginTop: 16 }} />}
+                {error && <ErrorBanner message={error} style={{ marginBottom: 12 }} />}
 
-              {/* A load that failed on top of a ledger we already have is a
-              warning, not a wall: the figures below are real, just possibly a
-              few minutes old, and blanking them would cost the user more than
-              the staleness does. The retry is on the banner because there is
-              nowhere else on the screen it would belong. */}
-              {loadError && screenState === 'ledger' ? (
-                <ErrorBanner
-                  message={loadError}
-                  onRetry={() => void loadSplitData()}
-                  retryLabel="Try again"
-                  style={{ marginTop: 16 }}
-                />
-              ) : null}
+                {/* A load that failed on top of a ledger we already have is a
+                warning, not a wall: the figures below are real, just possibly a
+                few minutes old, and blanking them would cost the user more than
+                the staleness does. The retry is on the banner because there is
+                nowhere else on the screen it would belong. */}
+                {loadError && screenState === 'ledger' ? (
+                  <ErrorBanner
+                    message={loadError}
+                    onRetry={() => void loadSplitData()}
+                    retryLabel="Try again"
+                    style={{ marginBottom: 12 }}
+                  />
+                ) : null}
+              </View>
 
               {loadError && screenState === 'unavailable' ? (
-                <View className="mt-8">
+                <View style={[styles.gutter, { marginTop: 16 }]}>
                   <StateView
                     compact
                     icon="wifi-off"
@@ -2161,33 +2183,37 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                 </View>
               ) : (
                 <>
-                  <SegmentedSections
-                    activeSection={activeSection}
-                    onChange={openSection}
-                    activityBadge={unreadSplitCount > 0}
-                  />
-
-                  {/*
-                   * Above the balances, on every section, because it is the only
-                   * thing on this screen that is waiting on the user rather than
-                   * describing what they already have.
-                   */}
-                  <SettlementRequests
-                    settlements={settlementRequests}
-                    decidingId={decidingSettlementId}
-                    onDecide={(settlement, decision) => {
-                      void decideSettlementRequest(settlement, decision);
-                    }}
-                  />
-
-                  {activeSection !== 'activity' ? (
+                  <View style={styles.gutter}>
+                    {/* On every section (board R6-Groups), with Add expense in
+                        it: the floating button this replaced, same action. */}
                     <SplitOverallBalance
                       value={overallNetBalance}
                       color={overallTone.color}
                       hasActivity={hasLedgerActivity}
-                      onOpenFilter={() => setFilterSheetVisible(true)}
+                      onAddExpense={friends.length > 0 ? openExpenseComposer : undefined}
                     />
-                  ) : null}
+
+                    <View style={styles.segments}>
+                      <SegmentedSections
+                        activeSection={activeSection}
+                        onChange={openSection}
+                        activityBadge={unreadSplitCount > 0}
+                      />
+                    </View>
+
+                    {/*
+                     * Above the section, on every section, because it is the only
+                     * thing on this screen that is waiting on the user rather than
+                     * describing what they already have.
+                     */}
+                    <SettlementRequests
+                      settlements={settlementRequests}
+                      decidingId={decidingSettlementId}
+                      onDecide={(settlement, decision) => {
+                        void decideSettlementRequest(settlement, decision);
+                      }}
+                    />
+                  </View>
 
                   {activeSection === 'groups' && (
                     <SplitGroupsSection
@@ -2202,6 +2228,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                         setFilterSheetVisible(false);
                       }}
                       onNewGroup={() => openModal('group')}
+                      filterActive={balanceFilter !== 'open'}
+                      onOpenFilter={() => setFilterSheetVisible(true)}
                     />
                   )}
 
@@ -2212,17 +2240,16 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                       normalizedSearch={normalizedSearch}
                       renderFriendRow={renderFriendRow}
                       onAddFriend={() => openModal('friend')}
+                      filterActive={balanceFilter !== 'open'}
+                      onOpenFilter={() => setFilterSheetVisible(true)}
                     />
                   )}
-
-                  {isActivityList && <SplitActivityHeading />}
                 </>
               )}
             </>
           }
         />
 
-        {friends.length > 0 ? <FloatingExpenseButton onPress={openExpenseComposer} /> : null}
 
         <BalanceFilterSheet
           visible={filterSheetVisible}
@@ -2638,3 +2665,28 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     </SplitScreenFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  gutter: {
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  segments: {
+    marginTop: 16,
+  },
+  rowSlice: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    overflow: 'hidden',
+  },
+  sliceFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sliceLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+});

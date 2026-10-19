@@ -24,6 +24,7 @@ type ListRowProps = {
   status?: string;
   statusTone?: ListRowTone;
   onPress?: () => void;
+  onLongPress?: () => void;
   /** The 1dp rule above the row, inset past the tile (every row in a card but the first). */
   divider?: boolean;
   /** Shows a chevron in place of the amount column, for rows that open a choice. */
@@ -32,6 +33,8 @@ type ListRowProps = {
   children?: ReactNode;
   /** A control at the row's end, outside its press target — a delete button. */
   accessory?: ReactNode;
+  /** Replaces the hue tile — a group's photo, a friend's initials. */
+  leading?: ReactNode;
   testID?: string;
   accessibilityLabel?: string;
 };
@@ -54,10 +57,12 @@ export function ListRow({
   status,
   statusTone = 'muted',
   onPress,
+  onLongPress,
   divider = false,
   chevron = false,
   children,
   accessory,
+  leading,
   testID,
   accessibilityLabel,
 }: ListRowProps) {
@@ -78,9 +83,11 @@ export function ListRow({
   const body = (
     <>
       <View style={styles.row}>
-        <View style={[styles.tile, { backgroundColor: tile.background }]}>
-          <MaterialCommunityIcons name={icon} size={18} color={tile.foreground} />
-        </View>
+        {leading ?? (
+          <View style={[styles.tile, { backgroundColor: tile.background }]}>
+            <MaterialCommunityIcons name={icon} size={18} color={tile.foreground} />
+          </View>
+        )}
         <View style={styles.text}>
           <View style={styles.line}>
             <ThemedText numberOfLines={1} style={[styles.title, { color: colors.text }]}>
@@ -126,6 +133,7 @@ export function ListRow({
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? [title, amount, status].filter(Boolean).join(', ')}
       onPress={onPress}
+      onLongPress={onLongPress}
       style={styles.flex}
       pressedStyle={styles.pressed}>
       {body}

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -16,7 +16,16 @@ export type TabHeaderAction = {
  * the left, and up to two plain 44dp icon buttons on the right. Pushed
  * screens keep `AppHeader`, which has a back arrow.
  */
-export function TabHeader({ title, actions = [] }: { title: string; actions?: TabHeaderAction[] }) {
+export function TabHeader({
+  title,
+  actions = [],
+  busy = false,
+}: {
+  title: string;
+  actions?: TabHeaderAction[];
+  /** A small spinner before the actions while the tab refreshes. */
+  busy?: boolean;
+}) {
   const { colors } = useThemeTokens();
   return (
     <View style={styles.header}>
@@ -27,6 +36,7 @@ export function TabHeader({ title, actions = [] }: { title: string; actions?: Ta
         {title}
       </ThemedText>
       <View style={styles.actions}>
+        {busy ? <ActivityIndicator color={colors.muted} style={styles.busy} /> : null}
         {actions.map((action) => (
           <Pressable
             key={action.accessibilityLabel}
@@ -59,6 +69,10 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    alignItems: 'center',
+  },
+  busy: {
+    marginRight: 6,
   },
   button: {
     width: 44,

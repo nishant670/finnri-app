@@ -57,9 +57,15 @@ describe('SplitFriendRow', () => {
   };
 
   it('words the balance from the user’s side', async () => {
-    expect((await setup(120)).screen.getByText(`${formatBalance(120)} owes you`)).toBeTruthy();
-    expect((await setup(-120)).screen.getByText(`${formatBalance(-120)} you owe`)).toBeTruthy();
-    expect((await setup(0)).screen.getByText(`${formatBalance(0)} settled`)).toBeTruthy();
+    const owed = (await setup(120)).screen;
+    expect(owed.getByText(formatBalance(120))).toBeTruthy();
+    expect(owed.getByText('owes you')).toBeTruthy();
+    const owing = (await setup(-120)).screen;
+    expect(owing.getByText(formatBalance(-120))).toBeTruthy();
+    expect(owing.getByText('you owe')).toBeTruthy();
+    const settled = (await setup(0)).screen;
+    expect(settled.getByText(formatBalance(0))).toBeTruthy();
+    expect(settled.getByText('settled')).toBeTruthy();
   });
 
   it('shows the contact line, or says none is saved', async () => {
