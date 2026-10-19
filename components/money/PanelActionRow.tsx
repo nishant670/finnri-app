@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
@@ -34,11 +34,8 @@ export function PanelActionRow({
   colors,
 }: PanelActionRowProps) {
   return (
-    <View className="flex-row items-center justify-between gap-3 px-6 pb-1" style={{ minHeight: 36 }}>
-      <ThemedText
-        numberOfLines={2}
-        className="min-w-0 flex-1"
-        style={{ color: colors.muted, fontSize: 13, lineHeight: 18 }}>
+    <View style={styles.row}>
+      <ThemedText numberOfLines={2} style={[styles.subtitle, { color: colors.muted }]}>
         {subtitle}
       </ThemedText>
       {actionLabel && onAction && (
@@ -54,3 +51,22 @@ export function PanelActionRow({
     </View>
   );
 }
+
+/** Board R5-Accounts: 14 under the segments, the line of state, and "+ Add". */
+const styles = StyleSheet.create({
+  row: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 14,
+    marginHorizontal: 16,
+  },
+  subtitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});

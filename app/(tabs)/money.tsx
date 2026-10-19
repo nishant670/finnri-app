@@ -12,7 +12,7 @@ import {
 } from '@/components/money/MoneySegments';
 import { SubscriptionsPanel } from '@/components/money/SubscriptionsPanel';
 import { UpcomingPanel } from '@/components/money/UpcomingPanel';
-import { AppHeader } from '@/components/navigation/AppHeader';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { fetchAccounts, type Account } from '@/lib/accounts';
@@ -133,10 +133,15 @@ export default function MoneyScreen() {
       className="flex-1"
       edges={['top', 'left', 'right']}
       style={{ backgroundColor: colors.background }}>
-      <AppHeader
+      <TabHeader
         title="Money"
-        rightIcon="calculator-variant-outline"
-        onRightPress={() => router.push('/tools')}
+        actions={[
+          {
+            icon: 'calculator-variant-outline',
+            accessibilityLabel: 'Calculators',
+            onPress: () => router.push('/tools'),
+          },
+        ]}
       />
 
       <MoneySegments active={activeSegment} onChange={setSegment} />

@@ -1,0 +1,69 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { Pressable, StyleSheet, View } from 'react-native';
+
+import { ThemedText } from '@/components/themed-text';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
+
+export type TabHeaderAction = {
+  icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  accessibilityLabel: string;
+  onPress: () => void;
+  testID?: string;
+};
+
+/**
+ * A tab's own header (boards R5-*, R6-*, R7-*): the tab's name at 22/700 on
+ * the left, and up to two plain 44dp icon buttons on the right. Pushed
+ * screens keep `AppHeader`, which has a back arrow.
+ */
+export function TabHeader({ title, actions = [] }: { title: string; actions?: TabHeaderAction[] }) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={styles.header}>
+      <ThemedText
+        accessibilityRole="header"
+        numberOfLines={1}
+        style={[styles.title, { color: colors.text }]}>
+        {title}
+      </ThemedText>
+      <View style={styles.actions}>
+        {actions.map((action) => (
+          <Pressable
+            key={action.accessibilityLabel}
+            testID={action.testID}
+            accessibilityRole="button"
+            accessibilityLabel={action.accessibilityLabel}
+            onPress={action.onPress}
+            style={styles.button}>
+            <MaterialCommunityIcons name={action.icon} size={24} color={colors.text} />
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: 8,
+  },
+  title: {
+    flex: 1,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+  },
+  actions: {
+    flexDirection: 'row',
+  },
+  button: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

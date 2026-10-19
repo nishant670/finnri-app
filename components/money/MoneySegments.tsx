@@ -28,9 +28,8 @@ export function MoneySegments({ active, onChange }: MoneySegmentsProps) {
       active={active}
       options={MONEY_SEGMENTS.map((segment) => ({ key: segment, ...moneySegmentMeta[segment] }))}
       onChange={onChange}
-      // The spacing the old scrolling row carried in its content inset; the
-      // Money screen moves to the 16 gutter when it is rebuilt (area 4).
-      style={{ marginHorizontal: 22, marginBottom: 14 }}
+      // Board R5-*: 4 under the header, on the 16 gutter.
+      style={{ marginTop: 4, marginHorizontal: 16 }}
     />
   );
 }
