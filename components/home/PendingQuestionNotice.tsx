@@ -9,7 +9,7 @@ export function PendingQuestionNotice() {
 
   return (
     <View
-      className="mx-6 mb-4 flex-row items-center gap-3 rounded-3xl border p-4"
+      className="mx-4 mb-3 flex-row items-center gap-3 rounded-2xl border p-4"
       style={{
         backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
         borderColor: themeTokens.colors.border,

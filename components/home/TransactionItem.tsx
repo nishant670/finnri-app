@@ -2,6 +2,7 @@ import { ThemedText } from '@/components/themed-text';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { getMoodIconName } from '@/constants/theme';
 import { categoryTile, UNKNOWN_VISUAL } from '@/lib/categories';
+import { rowTimeLabel } from '@/lib/datetime';
 import { formatMoney, MINUS_SIGN } from '@/lib/money';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
@@ -509,7 +510,7 @@ export function TransactionItem({
                 ) : null}
                 {date ? (
                   <ThemedText tone="muted" numberOfLines={1} style={styles.rowTime}>
-                    {date}
+                    {rowTimeLabel(date)}
                   </ThemedText>
                 ) : null}
               </View>

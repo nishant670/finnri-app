@@ -46,8 +46,7 @@ describe('CreditStatusCard', () => {
     const { getByText } = await render(<CreditStatusCard status={status(summary())} compact />);
 
     expect(getByText('AI credits')).toBeTruthy();
-    expect(getByText('10/50 used today')).toBeTruthy();
-    expect(getByText('420 total credits left')).toBeTruthy();
+    expect(getByText('10 of 50 used · 420 total credits left')).toBeTruthy();
   });
 
   it('says the account is out of credits instead of showing 0/50 used', async () => {

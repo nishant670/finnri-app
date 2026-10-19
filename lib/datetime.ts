@@ -136,6 +136,14 @@ export const formatTime = (value: Date | string | null | undefined): string | nu
 };
 
 /**
+ * A time label as the redesign draws it on a row: "3:48 pm", not "3:48 PM".
+ * Display only — `formatTime` keeps its capitals because the transaction form
+ * stores what it returns. A 24-hour label passes through unchanged.
+ */
+export const rowTimeLabel = (label: string): string =>
+  label.replace(/\s(AM|PM)$/, (meridiem) => meridiem.toLowerCase());
+
+/**
  * The canonical `HH:MM` we put on the wire, matching the shape the AI parser
  * already emits. Storing the display string is what let two clocks into the
  * database in the first place.

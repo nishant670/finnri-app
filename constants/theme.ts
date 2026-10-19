@@ -227,6 +227,17 @@ const WARNING_LIGHT = '#B45309';
 const WARNING_DARK = '#FCD34D';
 
 /**
+ * The amber notice the warning ink sits on — Home's "No AI credits left today"
+ * (boards R1-Home-CreditsLow, -Dark, -UsedUp): its fill, its hairline, and the
+ * outline of a button drawn on it. Flat across moods for the same reason as
+ * the ink.
+ */
+const WARNING_SURFACE: Record<'light' | 'dark', { surface: string; border: string; outline: string }> = {
+  light: { surface: '#FFFBEB', border: '#F6E7C1', outline: '#E9D9AE' },
+  dark: { surface: '#35271F', border: '#4A3820', outline: '#5C4628' },
+};
+
+/**
  * `from` moved `amount` of the way toward `to`, as an opaque `#RRGGBB`.
  *
  * For the few roles the redesign boards draw as "one step past" an existing
@@ -277,6 +288,9 @@ function createColors(mood: MoodPalette) {
       negative: mood.light.negative,
       neutral: mood.light.neutral,
       warning: WARNING_LIGHT,
+      warningSurface: WARNING_SURFACE.light.surface,
+      warningBorder: WARNING_SURFACE.light.border,
+      warningOutline: WARNING_SURFACE.light.outline,
       onAccent: mood.onAccent,
       onNegative: '#FFFFFF',
       /** Outlined buttons. See `BORDER_STRONG_MIX`. */
@@ -309,6 +323,9 @@ function createColors(mood: MoodPalette) {
       negative: mood.dark.negative,
       neutral: mood.dark.neutral,
       warning: WARNING_DARK,
+      warningSurface: WARNING_SURFACE.dark.surface,
+      warningBorder: WARNING_SURFACE.dark.border,
+      warningOutline: WARNING_SURFACE.dark.outline,
       onAccent: mood.onAccent,
       /**
        * Not white, because `negative` is not the same kind of colour in the

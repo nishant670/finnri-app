@@ -21,7 +21,7 @@ export function AccountSetupNudgeCard({
 
   return (
     <View
-      className="mx-6 mb-4 rounded-3xl border p-4"
+      className="mx-4 mb-3 rounded-2xl border p-4"
       style={{
         backgroundColor: themeTokens.colors.card,
         borderColor: themeTokens.colors.border,

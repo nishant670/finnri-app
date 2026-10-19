@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet } from 'react-native';
 import Animated, {
   interpolate,
   runOnJS,
@@ -12,7 +12,6 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /**
@@ -41,8 +40,8 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 /** Height of the collapsed pill, per the spec. */
 export const CAPTURE_PILL_HEIGHT = 56;
 
-/** Horizontal inset, matching the capture card's own `marginHorizontal: 24`. */
-const CAPTURE_INSET = 24;
+/** Horizontal inset, matching the capture card's own `marginHorizontal: 16`. */
+const CAPTURE_INSET = 16;
 
 /** The pill is fully formed before the card is completely gone. */
 const CROSSFADE_END = 0.55;
@@ -92,9 +91,7 @@ export function CollapsibleCapture({
   locked = false,
   onExpandedHeightChange,
 }: CollapsibleCaptureProps) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const isDark = themeTokens.mode === 'dark';
+  const theme = useThemeTokens().colors;
   const reducedMotion = useReducedMotion();
   const [expandedHeight, setExpandedHeight] = useState(0);
   const [pillActive, setPillActive] = useState(false);
@@ -182,31 +179,51 @@ export function CollapsibleCapture({
           accessibilityRole="button"
           accessibilityLabel="Expand capture and write an expense"
           onPress={onExpand}
-          className="h-full flex-row items-center justify-between rounded-full pl-5 pr-2"
-          style={{ backgroundColor: isDark ? theme.card : theme.secondary }}>
-          <ThemedText
-            className="min-w-0 flex-1 text-sm"
-            numberOfLines={1}
-            style={{ fontFamily: Fonts.body, color: `${theme.text}99` }}>
+          style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
             {isRecording ? 'Listening…' : 'Log an expense'}
           </ThemedText>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={isRecording ? 'Stop recording' : 'Start recording'}
             onPress={onMicPress}
-            hitSlop={8}>
-            <View
-              className="h-10 w-10 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.accent }}>
-              <MaterialCommunityIcons
-                name={isRecording ? 'stop' : 'microphone'}
-                size={20}
-                color={theme.onAccent}
-              />
-            </View>
+            hitSlop={8}
+            style={[styles.pillMic, { backgroundColor: theme.accent }]}>
+            <MaterialCommunityIcons
+              name={isRecording ? 'stop' : 'microphone'}
+              size={22}
+              color={theme.onAccent}
+            />
           </Pressable>
         </Pressable>
       </Animated.View>
     </Animated.View>
   );
 }
+
+/** Board R3-Home: a 56dp bar on the card, the mic a 44dp accent circle at its end. */
+const styles = StyleSheet.create({
+  pill: {
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 20,
+    paddingRight: 6,
+    borderRadius: CAPTURE_PILL_HEIGHT / 2,
+    borderWidth: 1,
+  },
+  pillLabel: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  pillMic: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});

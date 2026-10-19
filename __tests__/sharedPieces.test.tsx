@@ -54,7 +54,7 @@ describe('the transaction row', () => {
     const screen = await render(<TransactionItem {...row} />);
 
     expect(screen.getByText('Shopping · Flipkart Axis')).toBeTruthy();
-    expect(screen.getByText('2:44 PM')).toBeTruthy();
+    expect(screen.getByText('2:44 pm')).toBeTruthy();
   });
 
   it('still says when an entry has no account', async () => {

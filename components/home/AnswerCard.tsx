@@ -122,7 +122,7 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
     <Animated.View
       entering={enter}
       exiting={exit}
-      className="mx-6 mb-4 rounded-3xl border p-5"
+      className="mx-4 mb-3 rounded-2xl border p-5"
       style={{
         backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
         borderColor: colors.border,
@@ -217,7 +217,7 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
               }}
               className="self-start rounded-full border px-3 py-2"
               style={{ borderColor: colors.border }}>
-              <ThemedText variant="caption" style={{ color: colors.accent }}>
+              <ThemedText variant="captionStrong" style={{ color: colors.text }}>
                 {suggestion}
               </ThemedText>
             </Pressable>
@@ -272,10 +272,10 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
               accessibilityLabel={`See the ${answer.transaction_count} transactions behind this`}
               onPress={openList}
               className={`flex-row items-center justify-between gap-3 ${entry ? 'mt-4' : ''}`}>
-              <ThemedText variant="button" style={{ color: colors.accent }}>
+              <ThemedText variant="button" style={{ color: colors.text }}>
                 {`See the ${answer.transaction_count} transactions`}
               </ThemedText>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.accent} />
+              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.text} />
             </Pressable>
           ) : null}
         </View>

@@ -86,7 +86,7 @@ export function ParseErrorCard({
       accessibilityRole="alert"
       style={[
         {
-          borderRadius: theme.radius.xxl,
+          borderRadius: 16,
           borderWidth: 1,
           borderColor: dangerBorder,
           backgroundColor: dangerSurface,
