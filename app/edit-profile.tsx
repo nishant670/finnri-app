@@ -2,7 +2,6 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useRouter } from 'expo-router';
-import { cssInterop } from 'nativewind';
 import React, { useCallback, useRef, useState } from 'react';
 import {
   Image,
@@ -10,20 +9,20 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
   View,
-  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '@/components/navigation/AppHeader';
+import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { PrimaryButton } from '@/components/ui/Button';
 import { ThemedAlertDialog } from '@/components/ui/ThemedConfirmDialog';
-import { Colors, Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import {
   updateProfile,
@@ -35,7 +34,6 @@ import {
 } from '@/lib/auth';
 import { getMonogram } from '@/lib/monogram';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
 
 /** The backend issues six-digit codes; the boxes on screen have to say so. */
 const OTP_LENGTH = 6;
@@ -49,8 +47,7 @@ type AlertState = {
 
 export default function EditProfileScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const { colors } = useThemeTokens();
   const { user, token, updateUser } = useAuthStore();
 
   const [name, setName] = useState(user?.username || '');
@@ -78,14 +75,6 @@ export default function EditProfileScreen() {
     setAlert(null);
     onDismiss?.();
   }, [alert]);
-
-  const cardColor = colorScheme === 'light' ? '#FFFFFF' : '#1E1E1E';
-  const backgroundColor = colorScheme === 'light' ? '#F9F7FB' : theme.background;
-  const isDark = colorScheme === 'dark';
-  const sheetSurface = isDark ? theme.card : '#FFFFFF';
-  const otpBoxSurface = isDark ? 'rgba(255,255,255,0.06)' : '#F7F7F9';
-  const otpBoxBorder = isDark ? 'rgba(255,255,255,0.12)' : '#EDEDF1';
-  const otpFilledBorder = isDark ? 'rgba(33,150,243,0.55)' : '#C9DFF5';
 
   const handleChangePhoto = async () => {
     try {
@@ -247,122 +236,95 @@ export default function EditProfileScreen() {
 
   return (
     <>
-      <SafeAreaView className="flex-1" style={{ backgroundColor }}>
-        <AppHeader title="Edit profile" onBack={() => router.back()} />
+      <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]}>
+        <ScreenHeader title="Edit profile" onBack={() => router.back()} />
 
         <KeyboardAvoidingView
           // `adjustResize` already handles Android; see the note in AuthScreen2.
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          className="flex-1">
+          style={styles.flex}>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>
-            {/* Avatar Section */}
-            <View className="items-center mt-6 mb-8">
-              <View className="relative">
-                {user?.profile_photo_uri ? (
-                  <View className="w-36 h-36 rounded-full border-4 border-white overflow-hidden shadow-md">
-                    <Image
-                      source={{ uri: user.profile_photo_uri }}
-                      style={{ width: '100%', height: '100%' }}
-                      resizeMode="cover"
-                    />
-                  </View>
-                ) : (
-                  <View
-                    accessible
-                    accessibilityLabel="Profile monogram"
-                    className="w-36 h-36 rounded-full border-4 border-white items-center justify-center shadow-md"
-                    style={{ backgroundColor: theme.secondary }}>
-                    <TText
-                      className="text-5xl"
-                      style={{ color: theme.accent, fontFamily: Fonts.title }}>
-                      {monogram}
-                    </TText>
-                  </View>
-                )}
-                <Pressable
-                  onPress={() => void handleChangePhoto()}
-                  className="absolute bottom-1 right-1 w-10 h-10 rounded-full border-2 border-white items-center justify-center shadow-lg"
-                  style={{ backgroundColor: theme.accent }}>
-                  <MaterialCommunityIcons name="camera" size={20} color={theme.onAccent} />
-                </Pressable>
-              </View>
-              <Pressable className="mt-4" onPress={() => void handleChangePhoto()}>
-                <TText
-                  className="text-sm font-bold tracking-widest"
-                  style={{ color: theme.accent, fontFamily: Fonts.body }}>
-                  CHANGE PHOTO
-                </TText>
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.content}>
+            <View style={styles.avatarBlock}>
+              {user?.profile_photo_uri ? (
+                <Image source={{ uri: user.profile_photo_uri }} style={styles.avatar} resizeMode="cover" />
+              ) : (
+                <View
+                  accessible
+                  accessibilityLabel="Profile monogram"
+                  style={[styles.avatar, styles.monogram, { backgroundColor: colors.selectedFill }]}>
+                  <ThemedText style={[styles.monogramText, { color: colors.text }]}>{monogram}</ThemedText>
+                </View>
+              )}
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void handleChangePhoto()}
+                hitSlop={6}
+                style={styles.changePhoto}>
+                <MaterialCommunityIcons name="camera-outline" size={18} color={colors.text} />
+                <ThemedText style={[styles.changePhotoLabel, { color: colors.text }]}>Change photo</ThemedText>
               </Pressable>
             </View>
 
-            {/* Form Fields */}
-            <View className="gap-6">
-              {/* Name */}
-              <View>
-                <TText
-                  className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
-                  style={{ fontFamily: Fonts.body }}>
-                  What should we call you?
-                </TText>
-                <View
-                  className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
-                  style={{ backgroundColor: cardColor }}>
-                  <View
-                    className="w-10 h-10 rounded-full items-center justify-center mr-3"
-                    style={{ backgroundColor: '#F3E5F5' }}>
-                    <MaterialCommunityIcons name="account-outline" size={22} color="#7B1FA2" />
-                  </View>
-                  <TextInput
-                    value={name}
-                    onChangeText={setName}
-                    placeholder="Enter your name"
-                    style={{ flex: 1, fontFamily: Fonts.body, fontSize: 14, color: theme.text }}
-                  />
-                </View>
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.row}>
+                <ThemedText tone="muted" style={styles.rowLabel}>
+                  Your name
+                </ThemedText>
+                <TextInput
+                  accessibilityLabel="Your name"
+                  value={name}
+                  onChangeText={setName}
+                  placeholder="Enter your name"
+                  placeholderTextColor={colors.muted}
+                  style={[styles.input, { color: colors.text }]}
+                />
               </View>
 
-              {/* Email */}
-              <View>
-                <TText
-                  className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
-                  style={{ fontFamily: Fonts.body }}>
-                  Email
-                </TText>
-                <View
-                  className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
-                  style={{ backgroundColor: cardColor }}>
-                  <View
-                    className="w-10 h-10 rounded-full items-center justify-center mr-3"
-                    style={{ backgroundColor: '#FFEBEE' }}>
-                    <MaterialCommunityIcons name="email-outline" size={22} color="#D32F2F" />
-                  </View>
-                  {/*
-                    Changing an email address has to be proved by an OTP, and
-                    OTP sign-in is off. The address also *is* the Google
-                    identity the account signs in with, so editing it here
-                    could only ever disagree with the thing that actually
-                    authenticates. Shown, not edited.
-                  */}
+              {/*
+                Changing an email address has to be proved by an OTP, and OTP
+                sign-in is off. The address also *is* the Google identity the
+                account signs in with, so editing it here could only ever
+                disagree with the thing that actually authenticates. Shown as
+                text with a lock, not as a faded field that looks broken.
+              */}
+              {EMAIL_LOGIN_ENABLED ? (
+                <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                  <ThemedText tone="muted" style={styles.rowLabel}>
+                    Email
+                  </ThemedText>
                   <TextInput
+                    accessibilityLabel="Email"
                     value={email}
                     onChangeText={setEmail}
-                    editable={EMAIL_LOGIN_ENABLED}
-                    placeholder={EMAIL_LOGIN_ENABLED ? 'Enter your email' : 'No email on this account'}
+                    placeholder="Enter your email"
+                    placeholderTextColor={colors.muted}
                     keyboardType="email-address"
-                    style={{
-                      flex: 1,
-                      fontFamily: Fonts.body,
-                      fontSize: 14,
-                      color: theme.text,
-                      opacity: EMAIL_LOGIN_ENABLED ? 1 : 0.6,
-                    }}
+                    autoCapitalize="none"
+                    style={[styles.input, { color: colors.text }]}
                   />
                 </View>
-              </View>
+              ) : (
+                <View style={[styles.row, styles.readOnlyRow, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                  <ThemedText tone="muted" style={styles.rowLabel}>
+                    Email
+                  </ThemedText>
+                  <View style={styles.readOnly}>
+                    <ThemedText numberOfLines={1} style={[styles.readOnlyValue, { color: colors.text }]}>
+                      {email || 'No email on this account'}
+                    </ThemedText>
+                    {email ? (
+                      <ThemedText tone="muted" style={styles.caption}>
+                        From your Google sign-in
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                  <MaterialCommunityIcons name="lock-outline" size={16} color={colors.muted} />
+                </View>
+              )}
 
-              {/* Mobile */}
               {/*
                 Changing a mobile number has to be proved by an OTP, and there
                 is no SMS channel to carry one — the backend answers
@@ -371,79 +333,32 @@ export default function EditProfileScreen() {
                 The existing value is still submitted unchanged by
                 performUpdate, so nothing is lost by not showing it.
               */}
-              <View style={{ display: PHONE_IDENTIFIER_ENABLED ? 'flex' : 'none' }}>
-                <TText
-                  className="text-xs font-bold opacity-60 mb-2 ml-4 uppercase"
-                  style={{ fontFamily: Fonts.body }}>
-                  Mobile number
-                </TText>
-                <View
-                  className="flex-row items-center px-4 h-16 rounded-[28px] shadow-sm"
-                  style={{ backgroundColor: cardColor }}>
-                  <View
-                    className="w-10 h-10 rounded-full items-center justify-center mr-3"
-                    style={{ backgroundColor: '#FFF3E0' }}>
-                    <MaterialCommunityIcons name="phone-outline" size={22} color="#EF6C00" />
-                  </View>
+              {PHONE_IDENTIFIER_ENABLED ? (
+                <View style={[styles.row, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                  <ThemedText tone="muted" style={styles.rowLabel}>
+                    Mobile
+                  </ThemedText>
                   <TextInput
+                    accessibilityLabel="Mobile number"
                     value={phone}
                     onChangeText={setPhone}
                     placeholder="Enter your mobile number"
+                    placeholderTextColor={colors.muted}
                     keyboardType="phone-pad"
-                    style={{ flex: 1, fontFamily: Fonts.body, fontSize: 14, color: theme.text }}
+                    style={[styles.input, { color: colors.text }]}
                   />
                 </View>
-              </View>
+              ) : null}
             </View>
 
-            {/* Info Callout */}
-            <View
-              className="flex-row p-5 rounded-[28px] mt-8 items-center"
-              style={{ backgroundColor: theme.secondary }}>
-              <View
-                className="w-8 h-8 rounded-full items-center justify-center mr-4"
-                style={{ backgroundColor: '#9575CD' }}>
-                <MaterialCommunityIcons name="information-variant" size={20} color="white" />
-              </View>
-              <Text
-                className="flex-1 text-xs leading-relaxed opacity-70"
-                style={{ fontFamily: Fonts.body, color: theme.text }}>
-                Keep these up to date so your account stays easy to recover.
-              </Text>
-            </View>
-
-            {/* Update Button */}
-            <Pressable
-              onPress={handleUpdate}
-              disabled={isLoading}
-              className={`flex-row items-center justify-center h-18 rounded-[32px] mt-10 shadow-lg p-4 ${isLoading ? 'opacity-70' : ''}`}
-              style={{ backgroundColor: theme.accent }}>
-              {isLoading ? (
-                <ActivityIndicator color={theme.onAccent} />
-              ) : (
-                <>
-                  <MaterialCommunityIcons
-                    name="check-decagram"
-                    size={24}
-                    color={theme.onAccent}
-                    style={{ marginRight: 10 }}
-                  />
-                  <TText
-                    className="text-base font-black"
-                    style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
-                    Save changes
-                  </TText>
-                </>
-              )}
-            </Pressable>
-
-            {/* Footer Text */}
-            <TText
-              className="text-center text-[10px] font-bold tracking-widest opacity-30 mt-6 uppercase"
-              style={{ fontFamily: Fonts.body }}>
-              CHANGES TAKE EFFECT IMMEDIATELY
-            </TText>
+            <ThemedText tone="muted" style={styles.note}>
+              Keep these up to date so your account stays easy to recover.
+            </ThemedText>
           </ScrollView>
+
+          <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+            <PrimaryButton label="Save changes" loading={isLoading} onPress={() => void handleUpdate()} />
+          </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
@@ -454,26 +369,17 @@ export default function EditProfileScreen() {
         * without it the number pad slid straight over the boxes being typed in.
         */}
       <AnimatedBottomSheet visible={showOtp} onClose={() => setShowOtp(false)} avoidKeyboard>
-          <View
-            className="rounded-t-[32px] p-8 pb-12 items-center"
-            style={{ backgroundColor: sheetSurface }}>
-            <View
-              className="w-12 h-1 rounded-full mb-6"
-              style={{ backgroundColor: isDark ? 'rgba(255,255,255,0.24)' : '#D5D0D8' }}
-            />
-            <View
-              className="w-16 h-16 rounded-full items-center justify-center mb-4"
-              style={{ backgroundColor: isDark ? 'rgba(33,150,243,0.18)' : '#E3F2FD' }}>
-              <MaterialCommunityIcons name="shield-check" size={32} color="#2196F3" />
+          <View style={[styles.sheet, { backgroundColor: colors.background }]}>
+            <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+            <View style={[styles.sheetIcon, { backgroundColor: colors.selectedFill }]}>
+              <MaterialCommunityIcons name="shield-check-outline" size={26} color={colors.text} />
             </View>
-            <TText
-              className="text-lg font-bold mb-2 text-center"
-              style={{ fontFamily: Fonts.title }}>
-              {"Verify It's You"}
-            </TText>
-            <TText className="text-center opacity-60 mb-8" style={{ fontFamily: Fonts.body }}>
+            <ThemedText accessibilityRole="header" style={[styles.sheetTitle, { color: colors.text }]}>
+              Verify it’s you
+            </ThemedText>
+            <ThemedText tone="muted" style={styles.sheetBody}>
               We sent a code to {verifyingIdentifier}.{'\n'}Enter it below to confirm this change.
-            </TText>
+            </ThemedText>
 
             {/*
               * One input behind six boxes rather than a single free-text field:
@@ -483,9 +389,9 @@ export default function EditProfileScreen() {
               */}
             <Pressable
               accessibilityRole="none"
-              className="w-full mb-6"
+              style={styles.otpWrap}
               onPress={() => otpInputRef.current?.focus()}>
-              <View className="flex-row justify-between">
+              <View style={styles.otpRow}>
                 {Array.from({ length: OTP_LENGTH }).map((_, index) => {
                   const digit = otpCode[index] ?? '';
                   const isCaret =
@@ -495,16 +401,15 @@ export default function EditProfileScreen() {
                   return (
                     <View
                       key={index}
-                      className="h-16 flex-1 mx-1 rounded-2xl items-center justify-center border"
-                      style={{
-                        backgroundColor: otpBoxSurface,
-                        borderColor: isCaret ? '#2196F3' : digit ? otpFilledBorder : otpBoxBorder,
-                        borderWidth: isCaret ? 2 : 1,
-                      }}>
-                      <Text
-                        style={{ fontFamily: Fonts.title, fontSize: 22, color: theme.text }}>
-                        {digit}
-                      </Text>
+                      style={[
+                        styles.otpBox,
+                        {
+                          backgroundColor: colors.card,
+                          borderColor: isCaret ? colors.text : digit ? colors.borderStrong : colors.border,
+                          borderWidth: isCaret ? 2 : 1,
+                        },
+                      ]}>
+                      <Text style={[styles.otpDigit, { color: colors.text }]}>{digit}</Text>
                     </View>
                   );
                 })}
@@ -512,49 +417,26 @@ export default function EditProfileScreen() {
               <TextInput
                 ref={otpInputRef}
                 value={otpCode}
-                onChangeText={(text) =>
-                  setOtpCode(text.replace(/\D/g, '').slice(0, OTP_LENGTH))
-                }
+                onChangeText={(text) => setOtpCode(text.replace(/\D/g, '').slice(0, OTP_LENGTH))}
                 onFocus={() => setOtpFocused(true)}
                 onBlur={() => setOtpFocused(false)}
                 keyboardType="number-pad"
                 maxLength={OTP_LENGTH}
                 caretHidden
                 autoFocus
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  opacity: 0,
-                }}
+                style={styles.otpInput}
               />
             </Pressable>
 
-            <Pressable
-              onPress={verifyOtp}
+            <PrimaryButton
+              label="Verify and save"
+              loading={isVerifying}
               disabled={isVerifying || otpCode.length < OTP_LENGTH}
-              className="w-full h-14 rounded-full items-center justify-center mb-4"
-              style={{
-                backgroundColor: '#2196F3',
-                opacity: isVerifying || otpCode.length < OTP_LENGTH ? 0.6 : 1,
-              }}>
-              {isVerifying ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <TText
-                  className="text-white font-bold text-base"
-                  style={{ fontFamily: Fonts.title }}>
-                  Verify and save
-                </TText>
-              )}
-            </Pressable>
-
-            <Pressable onPress={() => setShowOtp(false)} className="p-2">
-              <TText className="opacity-50 text-sm" style={{ fontFamily: Fonts.body }}>
-                Cancel
-              </TText>
+              onPress={() => void verifyOtp()}
+              style={styles.fullWidth}
+            />
+            <Pressable accessibilityRole="button" onPress={() => setShowOtp(false)} style={styles.cancel}>
+              <ThemedText style={[styles.cancelLabel, { color: colors.text }]}>Cancel</ThemedText>
             </Pressable>
           </View>
       </AnimatedBottomSheet>
@@ -569,3 +451,175 @@ export default function EditProfileScreen() {
     </>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+  },
+  avatarBlock: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  avatar: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+  },
+  monogram: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: {
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '700',
+  },
+  changePhoto: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  changePhotoLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  card: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  row: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  readOnlyRow: {
+    minHeight: 64,
+    paddingVertical: 8,
+  },
+  rowLabel: {
+    width: 96,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    padding: 0,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  readOnly: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  readOnlyValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  note: {
+    marginTop: 10,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  footer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+  },
+  sheet: {
+    alignItems: 'center',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingHorizontal: 20,
+    paddingBottom: 28,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    marginVertical: 8,
+  },
+  sheetIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  sheetTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+  sheetBody: {
+    marginTop: 6,
+    marginBottom: 20,
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  otpWrap: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  otpRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  otpBox: {
+    flex: 1,
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  otpDigit: {
+    fontSize: 22,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  otpInput: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
+  },
+  fullWidth: {
+    alignSelf: 'stretch',
+  },
+  cancel: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  cancelLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+});

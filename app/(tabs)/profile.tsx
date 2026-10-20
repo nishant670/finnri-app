@@ -1,15 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
-import { cssInterop } from 'nativewind';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '@/components/navigation/AppHeader';
+import { SettingsRow, SettingsSection } from '@/components/profile/SettingsRow';
 import { ThemedText } from '@/components/themed-text';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
-import { Fonts, getMoodIconName } from '@/constants/theme';
+import { PressableView } from '@/components/ui/PressableView';
+import { TabHeader } from '@/components/ui/TabHeader';
 import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useHasPassed } from '@/hooks/use-has-passed';
@@ -19,8 +18,8 @@ import { userDisplayName } from '@/lib/display-name';
 import { clearGuestUpgradeSnooze } from '@/lib/guest-upgrade';
 import { getMonogram } from '@/lib/monogram';
 import { logoutSession } from '@/lib/auth';
+import { appVersionLabel } from '@/lib/app-version';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
 
 /**
  * Identity, plan, security, support — and nothing else.
@@ -30,13 +29,9 @@ const TText = cssInterop(ThemedText, { className: 'style' });
  * to the logout button. They live in the Money tab now; what is left is the
  * four things a profile is actually for.
  */
-/** What the build actually is, so the footer cannot drift from it again. */
-const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
 export default function ProfileScreen() {
-  const theme = useThemeTokens();
-  const colors = theme.colors;
-  const isDark = theme.mode === 'dark';
+  const { colors } = useThemeTokens();
   const router = useRouter();
   const { user, token, clearAuth } = useAuthStore();
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
@@ -76,16 +71,16 @@ export default function ProfileScreen() {
     }, [token])
   );
 
-  const backgroundColor = colors.background;
-  const cardColor = colors.card;
-  const borderColor = isDark ? colors.border : 'rgba(0,0,0,0.05)';
-  const iconStyle = theme.mood.iconStyle;
   const { smartSorting, setSmartSorting } = useAppSettingsStore();
   const displayName = userDisplayName(user?.username);
   const monogram = getMonogram(displayName);
   const hasEmail = !!user?.email?.trim();
-  const hasPhone = !!user?.phone?.trim();
-  const isProfileIncomplete = !user?.username?.trim() || !hasEmail || !hasPhone;
+  /*
+   * Name and email only. The dot also waited for a phone number, but the
+   * phone field is hidden until SMS sign-in exists, so it could never clear
+   * (a bug noted in the design review).
+   */
+  const isProfileIncomplete = !user?.username?.trim() || !hasEmail;
 
   /**
    * One fact, one line — and the fact has to be the one the balance is in.
@@ -124,323 +119,246 @@ export default function ProfileScreen() {
             : 'No AI credits left today — they reset tomorrow';
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor }}>
-      <AppHeader
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <TabHeader
         title="Profile"
-        rightIcon="magic-staff"
-        onRightPress={() => router.push('/app-mood')}
+        actions={[{ icon: 'magic-staff', accessibilityLabel: 'App mood', onPress: () => router.push('/app-mood') }]}
       />
 
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}>
-        <View className="px-6 gap-6">
-          {/* Identity */}
-          <View className="items-center py-2">
-            {user?.profile_photo_uri ? (
-              <View className="w-28 h-28 rounded-full border-4 border-white overflow-hidden shadow-sm">
-                <Image
-                  source={{ uri: user.profile_photo_uri }}
-                  style={{ width: '100%', height: '100%' }}
-                  resizeMode="cover"
-                />
-              </View>
-            ) : (
-              <View
-                accessible
-                accessibilityLabel={`${displayName} monogram`}
-                className="w-28 h-28 rounded-full items-center justify-center border-4 border-white shadow-sm"
-                style={{ backgroundColor: colors.secondary }}>
-                <TText
-                  className="text-4xl"
-                  style={{ color: colors.accent, fontFamily: Fonts.title }}>
-                  {monogram}
-                </TText>
-              </View>
-            )}
-
-            <TText
-              className="text-xl mt-4 font-bold text-center px-4"
-              style={{ fontFamily: Fonts.title }}>
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <View style={[styles.card, styles.identity, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {user?.profile_photo_uri ? (
+            <Image source={{ uri: user.profile_photo_uri }} style={styles.avatar} resizeMode="cover" />
+          ) : (
+            <View
+              accessible
+              accessibilityLabel={`${displayName} monogram`}
+              style={[styles.avatar, styles.monogram, { backgroundColor: colors.selectedFill }]}>
+              <ThemedText style={[styles.monogramText, { color: colors.text }]}>{monogram}</ThemedText>
+            </View>
+          )}
+          <View style={styles.identityText}>
+            <ThemedText numberOfLines={1} style={[styles.name, { color: colors.text }]}>
               {displayName}
-            </TText>
-            <View className="mt-2 mb-6 items-center gap-1">
-              {hasEmail && (
-                <TText className="text-sm italic opacity-60" style={{ fontFamily: Fonts.body }}>
-                  {user?.email}
-                </TText>
-              )}
-              {hasPhone && (
-                <TText className="text-sm italic opacity-60" style={{ fontFamily: Fonts.body }}>
-                  {user?.phone}
-                </TText>
-              )}
-            </View>
-
-            <Pressable
-              onPress={() => router.push('/edit-profile')}
-              className="relative flex-row items-center px-8 py-3 rounded-full"
-              style={{ backgroundColor: colors.secondary }}>
-              <MaterialCommunityIcons
-                name={getMoodIconName('pencil', iconStyle) as any}
-                size={18}
-                color={colors.accent}
-                style={{ marginRight: 8 }}
-              />
-              <TText
-                className="font-bold text-sm"
-                style={{ color: colors.accent, fontFamily: Fonts.title }}>
-                Edit profile
-              </TText>
-              {isProfileIncomplete && (
-                <View
-                  className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-white"
-                  style={{ backgroundColor: '#F9A825' }}
-                />
-              )}
-            </Pressable>
-          </View>
-
-          {/* The one thing a guest most needs from this screen, so it opens the
-            screen rather than closing it. Signing out is an exit and earns the
-            bottom of the page; signing in is an invitation and does not. */}
-          {isGuest ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => router.push('/auth?mode=link')}
-              className="flex-row items-center rounded-[28px] p-5"
-              style={{ backgroundColor: colors.secondary }}>
-              <View
-                className="w-11 h-11 rounded-2xl items-center justify-center mr-4"
-                style={{ backgroundColor: cardColor }}>
-                <MaterialCommunityIcons
-                  name={getMoodIconName('login', iconStyle) as any}
-                  size={22}
-                  color={colors.accent}
-                />
-              </View>
-              <View className="flex-1 mr-3">
-                <TText
-                  className="text-base font-bold"
-                  style={{ color: colors.accent, fontFamily: Fonts.title }}>
-                  Sign in / Create account
-                </TText>
-                <TText className="text-xs opacity-60 mt-0.5" style={{ fontFamily: Fonts.body }}>
-                  Keep your data safe and unlock more AI credits
-                </TText>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color={colors.accent} />
-            </Pressable>
-          ) : null}
-
-          {/* Plan */}
-          <View>
-            <SectionLabel>PLAN & AI</SectionLabel>
-
-            <View className="rounded-[32px] overflow-hidden" style={{ backgroundColor: cardColor }}>
-              <ProfileRow
-                icon="creation"
-                iconColor="#EF6C00"
-                iconSurface="#FFF3E0"
-                title="Plans & credits"
-                subtitle={creditLine}
-                borderColor={borderColor}
-                onPress={() => router.push('/billing')}
-              />
-
-              <ProfileRow
-                icon="history"
-                iconColor="#7B1FA2"
-                iconSurface="#F3E5F5"
-                title="AI usage history"
-                subtitle="What each AI action was spent on"
-                borderColor={borderColor}
-                onPress={() => router.push('/ai-usage')}
-              />
-
-              <View className="flex-row items-center p-5">
-                <View
-                  className="w-10 h-10 rounded-2xl items-center justify-center mr-4"
-                  style={{ backgroundColor: colors.secondary }}>
-                  <MaterialCommunityIcons name="creation" size={20} color={colors.accent} />
-                </View>
-                <View className="flex-1 mr-3">
-                  <TText className="text-base font-bold" style={{ fontFamily: Fonts.title }}>
-                    Smart Sorting
-                  </TText>
-                  <TText className="text-xs opacity-50" style={{ fontFamily: Fonts.body }}>
-                    Auto-apply AI category, tag, and payment suggestions
-                  </TText>
-                </View>
-                <HapticSwitch
-                  value={smartSorting}
-                  onValueChange={setSmartSorting}
-                  trackColor={{ false: '#E0E0E0', true: colors.accent }}
-                  thumbColor="white"
-                />
-              </View>
-            </View>
-
-            {isGuest ? (
-              <TText className="mt-3 px-1 text-xs opacity-50" style={{ fontFamily: Fonts.body }}>
-                Create an account before subscribing so your plan and credits stay with you.
-              </TText>
+            </ThemedText>
+            {hasEmail || user?.phone ? (
+              <ThemedText tone="muted" numberOfLines={1} style={styles.contact}>
+                {[user?.email, user?.phone].filter((value) => value?.trim()).join(' · ')}
+              </ThemedText>
             ) : null}
           </View>
-
-          {/* Security */}
-          <View>
-            <SectionLabel>SECURITY</SectionLabel>
-
-            <View className="rounded-[32px] overflow-hidden" style={{ backgroundColor: cardColor }}>
-              <ProfileRow
-                icon={getMoodIconName('shield-check', iconStyle) as any}
-                iconColor="#388E3C"
-                iconSurface="#E8F5E9"
-                title="Security & privacy"
-                subtitle="PIN lock, biometrics and stealth mode"
-                onPress={() => router.push('/security')}
-              />
-            </View>
-          </View>
-
-          {/* Support */}
-          <View>
-            <SectionLabel>SUPPORT</SectionLabel>
-
-            <View className="rounded-[32px] overflow-hidden" style={{ backgroundColor: cardColor }}>
-              <ProfileRow
-                icon={getMoodIconName('help-circle', iconStyle) as any}
-                iconColor="#7B1FA2"
-                iconSurface="#F3E5F5"
-                title="Help & support"
-                subtitle="Answers, contact and what's next"
-                borderColor={borderColor}
-                onPress={() => router.push('/help-support')}
-              />
-
-              <ProfileRow
-                icon="message-draw"
-                iconColor="#00796B"
-                iconSurface="#E0F2F1"
-                title="Feedback & ideas"
-                subtitle="Suggest features or report issues"
-                borderColor={borderColor}
-                onPress={() => router.push('/feedback')}
-              />
-
-              <ProfileRow
-                icon={getMoodIconName('information', iconStyle) as any}
-                iconColor="#EF6C00"
-                iconSurface="#FFF3E0"
-                title="About Finnri"
-                subtitle="Our story & values"
-                onPress={() => router.push('/about-finnri')}
-              />
-            </View>
-          </View>
-
-          {/* Sign out — last thing on the screen, where a destructive action
-            belongs. A guest sees the sign-in invitation up top instead. */}
-          {isGuest ? null : (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Log out of Finnri"
-              disabled={isLoggingOut}
-              onPress={() => void handleLogout()}
-              className="flex-row items-center justify-center h-16 rounded-[24px] mt-2 mb-2"
-              style={{ backgroundColor: '#FFF5F2' }}>
-              {isLoggingOut ? (
-                <ActivityIndicator size="small" color="#D32F2F" style={{ marginRight: 10 }} />
-              ) : (
-                <MaterialCommunityIcons
-                  name={getMoodIconName('logout', iconStyle) as any}
-                  size={20}
-                  color="#D32F2F"
-                  style={{ marginRight: 10 }}
-                />
-              )}
-              <TText
-                className="text-base font-bold"
-                style={{ color: '#D32F2F', fontFamily: Fonts.title }}>
-                Log out
-              </TText>
-            </Pressable>
-          )}
-
-          {/* Footer. The version is read rather than written: this line was a
-              typed literal and had drifted three major versions ahead of the
-              build, and it is the one string on the screen a user might quote
-              back in a bug report. */}
-          <TText
-            className="text-center text-[10px] tracking-widest opacity-30 mt-2 mb-4 uppercase"
-            style={{ fontFamily: Fonts.body }}>
-            FINNRI V{appVersion} • HANDMADE WITH LOVE
-          </TText>
+          <PressableView
+            accessibilityRole="button"
+            accessibilityLabel={isProfileIncomplete ? 'Edit profile, incomplete' : 'Edit profile'}
+            onPress={() => router.push('/edit-profile')}
+            style={[styles.editButton, { borderColor: colors.borderStrong, backgroundColor: colors.card }]}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.text} />
+            <ThemedText style={[styles.editLabel, { color: colors.text }]}>Edit</ThemedText>
+            {isProfileIncomplete ? (
+              <View style={[styles.dot, { backgroundColor: colors.warning, borderColor: colors.card }]} />
+            ) : null}
+          </PressableView>
         </View>
+
+        {/* The one thing a guest most needs from this screen, so it opens the
+            screen rather than closing it. Signing out is an exit and earns the
+            bottom of the page; signing in is an invitation and does not. */}
+        {isGuest ? (
+          <SettingsSection>
+            <SettingsRow
+              icon="login"
+              title="Sign in / Create account"
+              subtitle="Keep your data safe and unlock more AI credits"
+              onPress={() => router.push('/auth?mode=link')}
+            />
+          </SettingsSection>
+        ) : null}
+
+        <SettingsSection title="Plan & AI">
+          <SettingsRow icon="creation" title="Plans & credits" subtitle={creditLine} onPress={() => router.push('/billing')} />
+          <SettingsRow
+            icon="history"
+            title="AI usage history"
+            subtitle="What each AI action was spent on"
+            onPress={() => router.push('/ai-usage')}
+            divider
+          />
+          <SettingsRow
+            icon="auto-fix"
+            title="Smart Sorting"
+            subtitle="Auto-apply AI category, tag and payment suggestions"
+            divider
+            accessory={<HapticSwitch accessibilityLabel="Smart Sorting" value={smartSorting} onValueChange={setSmartSorting} />}
+          />
+        </SettingsSection>
+        {isGuest ? (
+          <ThemedText tone="muted" style={styles.note}>
+            Create an account before subscribing so your plan and credits stay with you.
+          </ThemedText>
+        ) : null}
+
+        <SettingsSection title="Security">
+          <SettingsRow
+            icon="shield-check-outline"
+            title="Security & privacy"
+            subtitle="PIN lock, biometrics and stealth mode"
+            onPress={() => router.push('/security')}
+          />
+        </SettingsSection>
+
+        <SettingsSection title="Support">
+          <SettingsRow
+            icon="help-circle-outline"
+            title="Help & support"
+            subtitle="Answers, contact and what’s next"
+            onPress={() => router.push('/help-support')}
+          />
+          <SettingsRow
+            icon="message-text-outline"
+            title="Feedback & ideas"
+            subtitle="Suggest features or report issues"
+            onPress={() => router.push('/feedback')}
+            divider
+          />
+          <SettingsRow
+            icon="information-outline"
+            title="About Finnri"
+            subtitle="Our story and values"
+            onPress={() => router.push('/about-finnri')}
+            divider
+          />
+        </SettingsSection>
+
+        {/* Sign out — last thing on the screen, where a destructive action
+            belongs. A guest sees the sign-in invitation up top instead. */}
+        {isGuest ? null : (
+          <PressableView
+            accessibilityRole="button"
+            accessibilityLabel="Log out of Finnri"
+            disabled={isLoggingOut}
+            onPress={() => void handleLogout()}
+            style={[styles.card, styles.logout, { backgroundColor: colors.card, borderColor: colors.border }]}
+            pressedStyle={styles.pressed}>
+            {isLoggingOut ? (
+              <ActivityIndicator size="small" color={colors.negative} />
+            ) : (
+              <MaterialCommunityIcons name="logout" size={18} color={colors.negative} />
+            )}
+            <ThemedText style={[styles.logoutLabel, { color: colors.negative }]}>Log out</ThemedText>
+          </PressableView>
+        )}
+
+        {/* The version is read rather than written: this line was a typed
+            literal and had drifted three major versions ahead of the build,
+            and it is the one string a user might quote back in a bug report. */}
+        <ThemedText tone="muted" style={styles.footer}>
+          Finnri v{appVersionLabel} · Handmade with love
+        </ThemedText>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
-function SectionLabel({ children }: { children: string }) {
-  return (
-    <TText
-      className="text-xs tracking-widest font-bold opacity-40 mb-4 ml-2"
-      style={{ fontFamily: Fonts.body }}>
-      {children}
-    </TText>
-  );
-}
-
-type ProfileRowProps = {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  iconColor: string;
-  iconSurface: string;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-  /** Omit on the last row of a card — a divider under nothing is a stray line. */
-  borderColor?: string;
-};
-
-function ProfileRow({
-  icon,
-  iconColor,
-  iconSurface,
-  title,
-  subtitle,
-  onPress,
-  borderColor,
-}: ProfileRowProps) {
-  const colors = useThemeTokens().colors;
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      className={`flex-row items-center p-5${borderColor ? ' border-b' : ''}`}
-      style={borderColor ? { borderColor } : undefined}>
-      <View
-        className="w-10 h-10 rounded-2xl items-center justify-center mr-4"
-        style={{ backgroundColor: iconSurface }}>
-        <MaterialCommunityIcons name={icon} size={20} color={iconColor} />
-      </View>
-      <View className="flex-1">
-        <TText className="text-base font-bold" style={{ fontFamily: Fonts.title }}>
-          {title}
-        </TText>
-        <TText className="text-xs opacity-50" style={{ fontFamily: Fonts.body }}>
-          {subtitle}
-        </TText>
-      </View>
-      <MaterialCommunityIcons
-        name="chevron-right"
-        size={20}
-        color={colors.text}
-        style={{ opacity: 0.3 }}
-      />
-    </Pressable>
-  );
-}
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  content: {
+    gap: 22,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 40,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    paddingLeft: 16,
+    paddingRight: 12,
+  },
+  avatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  monogram: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  monogramText: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+  },
+  identityText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  name: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  contact: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  editButton: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 10,
+    paddingRight: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  editLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  dot: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
+  },
+  note: {
+    marginTop: -14,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  logout: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    marginTop: -6,
+  },
+  logoutLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  footer: {
+    marginTop: -8,
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});
