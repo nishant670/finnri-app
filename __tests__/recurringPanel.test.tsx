@@ -168,7 +168,7 @@ describe('Recurring panel', () => {
   // The device report: the investment was a blank box, this month's PPF
   // instalment could not be logged, and the bank account to pay from looked
   // like a second copy of the mode.
-  it('adds a PPF from the type chips, logging this payment from a bank account', async () => {
+  it('adds a PPF from the type picker, logging this payment from a bank account', async () => {
     jest
       .spyOn(accounts, 'fetchAccounts')
       .mockResolvedValue([
@@ -185,6 +185,7 @@ describe('Recurring panel', () => {
     await fireEvent.press(await findByText('Investment'));
     await findByTestId('recurring-investment-type');
     expect(queryByText('Swiggy')).toBeNull();
+    await fireEvent.press(await findByTestId('recurring-investment-type-row'));
     await fireEvent.press(await findByText('PPF'));
     await fireEvent.changeText(await findByPlaceholderText('5,000'), '3000');
 
@@ -230,6 +231,7 @@ describe('Recurring panel', () => {
     await fireEvent.press(await findByText('Add investment'));
     await findByText(/Pick the investment type\./);
 
+    await fireEvent.press(await findByTestId('recurring-investment-type-row'));
     await fireEvent.press(await findByText('Other'));
     await fireEvent.changeText(
       await findByPlaceholderText('ULIP, Sukanya Samriddhi, chit fund'),
@@ -263,6 +265,7 @@ describe('Recurring panel', () => {
     await findByTestId('mark-paid-sheet');
     // Cash, the item's mode, is not one an account can be picked for.
     await findByLabelText('Paid from SBI Savings');
+    await fireEvent.press(await findByText('Paid via'));
     await fireEvent.press(await findByText('UPI'));
     await fireEvent.press(await findByText('Mark paid'));
 

@@ -1,10 +1,7 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 
+import { RowsCard, RowsNote, ToggleRow } from '@/components/money/subscriptions/FormRows';
 import { PaymentAccountPicker } from '@/components/money/subscriptions/PaymentAccountPicker';
-import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Account } from '@/lib/accounts';
 import { formatMoney } from '@/lib/money';
 import {
@@ -29,8 +26,8 @@ type LogCurrentPaymentCardProps = {
   paymentMode: string;
   onPaymentChange: (next: { paymentMode: string; accountID: number | null }) => void;
   onAddAccount: () => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-  muted: string;
+  /** Spacing from the rows around it. */
+  style?: StyleProp<ViewStyle>;
 };
 
 /**
@@ -41,6 +38,9 @@ type LogCurrentPaymentCardProps = {
  * this month's was already paid — left that payment out of the transactions.
  * Ticked, the item is created with that payment already logged; the line under
  * it says which date and what happens to the schedule.
+ *
+ * Drawn as a switch row on a card (board R5-NewLoan's rows); when on, the
+ * "Paid via" and "Paid from" rows join the same card.
  */
 export function LogCurrentPaymentCard({
   checked,
@@ -54,8 +54,7 @@ export function LogCurrentPaymentCard({
   paymentMode,
   onPaymentChange,
   onAddAccount,
-  colors,
-  muted,
+  style,
 }: LogCurrentPaymentCardProps) {
   const logged = paymentToLog(nextDueDate, interval);
   if (!logged) return null;
@@ -74,52 +73,31 @@ export function LogCurrentPaymentCard({
   const autopayAccount = accounts.find((account) => account.id === accountID)?.name;
 
   return (
-    <View
-      testID="recurring-log-payment"
-      className="mb-3 rounded-2xl border p-4"
-      style={{
-        borderColor: checked ? colors.selectedBorder : colors.border,
-        backgroundColor: checked ? colors.selectedFill : colors.card,
-      }}>
-      <Pressable
-        accessibilityRole="checkbox"
-        accessibilityState={{ checked }}
-        accessibilityLabel={title}
-        onPress={() => onToggle(!checked)}
-        className="flex-row items-center gap-3">
-        <MaterialCommunityIcons
-          name={checked ? 'checkbox-marked' : 'checkbox-blank-outline'}
-          size={24}
-          color={checked ? colors.text : muted}
+    <View testID="recurring-log-payment" style={style}>
+      <RowsCard>
+        <ToggleRow
+          title={title}
+          caption={`${adds} on ${formatDueDateLabel(logged.date)} to your transactions. ${schedule}`}
+          value={checked}
+          onValueChange={onToggle}
+          accessibilityLabel={title}
         />
-        <View className="flex-1">
-          <ThemedText className="text-sm" style={{ color: colors.text, fontFamily: Fonts.title }}>
-            {title}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-            {`${adds} on ${formatDueDateLabel(logged.date)} to your transactions. ${schedule}`}
-          </ThemedText>
-        </View>
-      </Pressable>
-
-      {/* Autopay already names the account below; without it, ask here. */}
-      {checked && !autopay ? (
-        <PaymentAccountPicker
-          testID="recurring-log-payment-account"
-          accounts={accounts}
-          accountID={accountID}
-          paymentMode={paymentMode}
-          onChange={onPaymentChange}
-          onAddAccount={onAddAccount}
-          accountLabel="Paid from"
-          colors={colors}
-          muted={muted}
-        />
-      ) : null}
+        {/* Autopay already names the account below; without it, ask here. */}
+        {checked && !autopay ? (
+          <PaymentAccountPicker
+            testID="recurring-log-payment-account"
+            accounts={accounts}
+            accountID={accountID}
+            paymentMode={paymentMode}
+            onChange={onPaymentChange}
+            onAddAccount={onAddAccount}
+            accountLabel="Paid from"
+            divider
+          />
+        ) : null}
+      </RowsCard>
       {checked && autopay && autopayAccount ? (
-        <ThemedText className="mt-2 text-xs" style={{ color: muted }}>
-          From {autopayAccount}, the Autopay account.
-        </ThemedText>
+        <RowsNote>From {autopayAccount}, the Autopay account.</RowsNote>
       ) : null}
     </View>
   );

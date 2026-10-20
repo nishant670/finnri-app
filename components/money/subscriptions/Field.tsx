@@ -1,6 +1,5 @@
 import { StyleSheet, TextInput, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type FieldProps = {
@@ -13,7 +12,11 @@ type FieldProps = {
   autoFocus?: boolean;
 };
 
-/** A labelled 48dp input on the card, as the redesign's sheets draw them. */
+/**
+ * The sheet's name field (board R5-NewLoan): a 48dp input on the card with
+ * only its placeholder — "Car loan, home loan, iPhone EMI" says what to type.
+ * The label is what a screen reader announces.
+ */
 export function Field({
   label,
   value,
@@ -25,7 +28,6 @@ export function Field({
 }: FieldProps) {
   return (
     <View style={styles.field}>
-      <ThemedText style={[styles.label, { color: colors.text }]}>{label}</ThemedText>
       <TextInput
         accessibilityLabel={label}
         value={value}
@@ -33,6 +35,7 @@ export function Field({
         keyboardType={keyboardType}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
+        selectionColor={colors.accent}
         autoFocus={autoFocus}
         style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
       />
@@ -43,12 +46,6 @@ export function Field({
 const styles = StyleSheet.create({
   field: {
     marginBottom: 12,
-  },
-  label: {
-    marginBottom: 6,
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: '600',
   },
   input: {
     height: 48,

@@ -35,6 +35,10 @@ type LabelRowProps = {
    * the field has been looked at.
    */
   flagged?: boolean;
+  /** The label column's width, for a form whose labels run longer (R5-NewLoan uses 96). */
+  labelWidth?: number;
+  /** Draws the value in the caption colour, for a prompt like "Pick a date" rather than a value. */
+  valueMuted?: boolean;
 };
 
 /** The label column, from the boards: 84 wide, then a 10 gap. */
@@ -60,6 +64,8 @@ export function LabelRow({
   testID,
   accessibilityLabel,
   flagged = false,
+  labelWidth,
+  valueMuted = false,
 }: LabelRowProps) {
   const { colors } = useThemeTokens();
   const content = (
@@ -67,7 +73,7 @@ export function LabelRow({
       <ThemedText
         tone={flagged ? 'warning' : 'muted'}
         numberOfLines={1}
-        style={[styles.label, flagged && styles.labelFlagged]}>
+        style={[styles.label, labelWidth != null && { width: labelWidth }, flagged && styles.labelFlagged]}>
         {label}
       </ThemedText>
       <View style={styles.value}>
@@ -76,7 +82,7 @@ export function LabelRow({
             {icon ? (
               <MaterialCommunityIcons name={icon} size={16} color={iconColor ?? colors.muted} />
             ) : null}
-            <ThemedText numberOfLines={1} style={[styles.valueText, { color: colors.text }]}>
+            <ThemedText numberOfLines={1} style={[styles.valueText, { color: valueMuted ? colors.muted : colors.text }]}>
               {value}
               {detail ? (
                 <ThemedText tone="muted" style={styles.detail}>

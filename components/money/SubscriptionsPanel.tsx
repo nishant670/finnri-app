@@ -57,6 +57,7 @@ import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/Su
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
 import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
 import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
+import { RECURRING_LABEL_WIDTH } from '@/components/money/subscriptions/FormRows';
 import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
 import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
@@ -818,7 +819,13 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             <SheetCloseButton onPress={closeForm} />
           </View>
 
-          <View testID="recurring-kind-picker" style={styles.kinds}>
+          {/* One line, as on the board; it scrolls on a phone too narrow for all four. */}
+          <ScrollView
+            testID="recurring-kind-picker"
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.kindsScroll}
+            contentContainerStyle={styles.kindsRow}>
             {recurringKinds.map((kind) => (
               <Pill
                 key={kind}
@@ -828,15 +835,14 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 colors={colors}
               />
             ))}
-          </View>
+          </ScrollView>
 
           {formKind === 'investment' ? (
             <InvestmentTypePicker
               key={formSession}
               value={merchant}
               onChange={setMerchant}
-              colors={colors}
-              muted={muted}
+              style={styles.block}
             />
           ) : (
             <Field
@@ -907,6 +913,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               value={formatDueDateLabel(nextDueDate)}
               icon="calendar-blank-outline"
               iconColor={colors.text}
+              labelWidth={RECURRING_LABEL_WIDTH}
               onPress={openDueDatePicker}
             />
             <LabelRow
@@ -914,6 +921,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               label="Repeats"
               value={intervalOptions.find((option) => option.value === interval)?.label ?? interval}
               divider
+              labelWidth={RECURRING_LABEL_WIDTH}
               onPress={() => setIsIntervalPickerVisible(true)}
             />
           </View>
@@ -934,8 +942,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 setAccountID(next.accountID);
               }}
               onAddAccount={() => router.push('/accounts/manage')}
-              colors={colors}
-              muted={muted}
+              style={styles.block}
             />
           ) : null}
 
@@ -953,13 +960,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 onToggle={() => setShowKindDetails((open) => !open)}>
                 <SubscriptionLoanFields
                   amount={amount}
-                  colors={colors}
                   emisPaid={emisPaid}
                   foreclosurePct={foreclosurePct}
                   lender={lender}
                   loanSuggestion={loanSuggestion}
                   loanType={loanType}
-                  muted={muted}
                   name={name}
                   openStartDatePicker={openStartDatePicker}
                   principal={principal}
@@ -990,8 +995,6 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 expanded={showKindDetails}
                 onToggle={() => setShowKindDetails((open) => !open)}>
                 <SubscriptionInvestmentFields
-                  colors={colors}
-                  muted={muted}
                   openStartDatePicker={openStartDatePicker}
                   platform={platform}
                   setPlatform={setPlatform}
@@ -1017,12 +1020,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 cancelBeforeDue={cancelBeforeDue}
                 cancelOnDate={cancelOnDate}
                 category={category}
-                colors={colors}
                 formKind={formKind}
                 interval={interval}
                 isEditing={Boolean(editing)}
                 merchant={merchant}
-                muted={muted}
                 name={name}
                 notes={notes}
                 onAddAccount={() => router.push('/accounts/manage')}
@@ -1204,9 +1205,19 @@ const styles = StyleSheet.create({
   kinds: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 6,
     marginTop: 4,
     marginBottom: 12,
+  },
+  kindsScroll: {
+    marginTop: 4,
+    marginBottom: 12,
+    marginHorizontal: -16,
+    flexGrow: 0,
+  },
+  kindsRow: {
+    gap: 6,
+    paddingHorizontal: 16,
   },
   amountRow: {
     minHeight: 56,
@@ -1219,7 +1230,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   amountLabel: {
-    width: 92,
+    width: RECURRING_LABEL_WIDTH,
     fontSize: 13,
     lineHeight: 18,
   },
@@ -1244,6 +1255,9 @@ const styles = StyleSheet.create({
   },
   fold: {
     marginBottom: 10,
+  },
+  block: {
+    marginBottom: 12,
   },
   error: {
     marginTop: 4,
