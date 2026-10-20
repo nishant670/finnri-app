@@ -1,110 +1,124 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
-import { ScrollView, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '@/components/navigation/AppHeader';
+import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
+import { ListRow } from '@/components/ui/ListRow';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { appVersionLabel } from '@/lib/app-version';
 
-// Read from the manifest. This line used to say "Finnri Playbook V3.1.2" on a
-// 1.x build — the one string here a user might quote back in a bug report.
-const appVersion = Constants.expoConfig?.version ?? '1.0.0';
-
+/** What Finnri does, one row each (board R8-About). */
 const values = [
-  {
-    icon: 'microphone-outline',
-    title: 'Fast capture',
-    body: 'Record, type, or tap quick prompts so expenses are logged before details are forgotten.',
-    color: '#0288D1',
-    surface: '#E1F5FE',
-  },
+  { icon: 'microphone-outline', hue: '#1E6FB8', title: 'Fast capture', body: 'Say it, type it or tap a quick prompt.' },
   {
     icon: 'creation-outline',
+    hue: '#6A4BBC',
     title: 'Assistive AI',
-    body: 'AI fills in the category, merchant, date and payment method. Nothing is saved until you say so.',
-    color: '#7B1FA2',
-    surface: '#F3E5F5',
+    body: 'Fills category, merchant, date and payment. Nothing saves until you say so.',
   },
   {
-    icon: 'shield-check-outline',
-    title: 'Private by design',
-    body: 'PIN lock, biometrics, stealth mode, and profile controls help keep your money data personal.',
-    color: '#388E3C',
-    surface: '#E8F5E9',
+    icon: 'chart-donut',
+    hue: '#B45309',
+    title: 'Budgets and alerts',
+    body: 'Monthly limits, with a nudge before you cross them.',
   },
+  { icon: 'repeat-variant', hue: '#00897B', title: 'Recurring', body: 'EMIs, SIPs, subscriptions and bills in one place.' },
+  { icon: 'account-multiple-outline', hue: '#C2185B', title: 'Splits', body: 'Shared expenses with friends and groups.' },
+  { icon: 'shield-check-outline', hue: '#16825D', title: 'Private by design', body: 'PIN lock, fingerprint and stealth mode.' },
 ] as const;
-
-const stats = [
-  { label: 'Budgets', value: 'Limits + alerts' },
-  { label: 'Recurring', value: 'EMIs, SIPs, subscriptions and bills' },
-  { label: 'Splits', value: 'Shared expenses' },
-];
 
 export default function AboutFinnriScreen() {
   const router = useRouter();
-  const theme = useThemeTokens();
-  const colors = theme.colors;
+  const { colors } = useThemeTokens();
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor: colors.background }}>
-      <AppHeader title="About Finnri" onBack={() => router.back()} />
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <ScreenHeader title="About Finnri" onBack={() => router.back()} />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>
-        <View className="items-center pt-4 pb-8">
-          <View className="h-24 w-24 items-center justify-center rounded-[28px]" style={{ backgroundColor: colors.secondary }}>
-            <MaterialCommunityIcons name="wallet-bifold-outline" size={38} color={colors.accent} />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <View style={styles.identity}>
+          <View style={[styles.mark, { backgroundColor: colors.text }]}>
+            <ThemedText style={[styles.markLetter, { color: colors.background }]}>f</ThemedText>
           </View>
-          <ThemedText className="mt-5 text-2xl font-black text-center" style={{ fontFamily: Fonts.title }}>
-            Your money, easier to read
-          </ThemedText>
-          <ThemedText className="mt-3 text-center text-sm leading-6 opacity-60">
-            Finnri is a personal finance companion for everyday tracking, quick transaction capture,
-            budgets, subscriptions, account views, and spending insights.
-          </ThemedText>
+          <View>
+            <ThemedText style={[styles.name, { color: colors.text }]}>Finnri</ThemedText>
+            {/* Read from the manifest, with the build number, so two builds can
+                be told apart from this screen (a fix on board R8-About). */}
+            <ThemedText tone="muted" style={styles.caption}>
+              Version {appVersionLabel}
+            </ThemedText>
+          </View>
         </View>
 
-        <View className="mb-8 flex-row gap-3">
-          {stats.map((item) => (
-            <View key={item.label} className="flex-1 rounded-[24px] p-4" style={{ backgroundColor: colors.card }}>
-              <ThemedText className="text-[10px] font-black uppercase opacity-40">{item.label}</ThemedText>
-              <ThemedText className="mt-2 text-xs font-black leading-4" style={{ color: colors.text }}>
-                {item.value}
-              </ThemedText>
-            </View>
+        <ThemedText style={[styles.intro, { color: colors.text }]}>
+          Your money, easier to read. Finnri helps you log spending fast, see where it goes, and keep bills,
+          budgets and splits in one place.
+        </ThemedText>
+
+        <ThemedText tone="muted" accessibilityRole="header" style={styles.groupTitle}>
+          What Finnri does
+        </ThemedText>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {values.map((item, index) => (
+            <ListRow key={item.title} icon={item.icon} hue={item.hue} title={item.title} meta={item.body} metaLines={2} divider={index > 0} />
           ))}
-        </View>
-
-        <View className="gap-4">
-          {values.map((item) => (
-            <View key={item.title} className="flex-row rounded-[28px] p-5" style={{ backgroundColor: colors.card }}>
-              <View className="mr-4 h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: item.surface }}>
-                <MaterialCommunityIcons name={item.icon} size={24} color={item.color} />
-              </View>
-              <View className="flex-1">
-                <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-                  {item.title}
-                </ThemedText>
-                <ThemedText className="mt-1 text-xs leading-5 opacity-55">{item.body}</ThemedText>
-              </View>
-            </View>
-          ))}
-        </View>
-
-        <View className="mt-8 rounded-[28px] p-5" style={{ backgroundColor: colors.secondary }}>
-          <ThemedText className="text-xs font-black uppercase tracking-widest" style={{ color: colors.accent }}>
-            Version
-          </ThemedText>
-          <ThemedText className="mt-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
-            Finnri {appVersion}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs leading-5 opacity-60">
-            Built for quick, everyday money tracking — with AI that always asks before it saves.
-          </ThemedText>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 40,
+  },
+  identity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  mark: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  markLetter: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+  },
+  name: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+  caption: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  intro: {
+    marginTop: 14,
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  groupTitle: {
+    marginTop: 20,
+    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+});

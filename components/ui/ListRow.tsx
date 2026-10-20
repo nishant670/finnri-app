@@ -17,6 +17,8 @@ type ListRowProps = {
   title: string;
   /** The muted line under the title. */
   meta?: string;
+  /** How many lines the meta may wrap to; one by default, for lists that scan. */
+  metaLines?: number;
   /** Top right, 15/600: the money. */
   amount?: string;
   amountTone?: ListRowTone;
@@ -52,6 +54,7 @@ export function ListRow({
   hue,
   title,
   meta,
+  metaLines = 1,
   amount,
   amountTone = 'default',
   status,
@@ -99,7 +102,7 @@ export function ListRow({
           </View>
           {meta || status ? (
             <View style={styles.line}>
-              <ThemedText tone="muted" numberOfLines={1} style={[styles.meta, styles.flex]}>
+              <ThemedText tone="muted" numberOfLines={metaLines} style={[styles.meta, styles.flex]}>
                 {meta}
               </ThemedText>
               {status ? (
