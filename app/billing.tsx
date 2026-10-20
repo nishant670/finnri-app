@@ -386,9 +386,12 @@ export default function BillingScreen() {
                 credits left
               </ThemedText>
             </View>
-            <ThemedText tone="muted" style={styles.caption}>
-              {subscriptionCopy}
-            </ThemedText>
+            {/* The tag already says when the trial or pass ends. */}
+            {accessTag ? null : (
+              <ThemedText tone="muted" style={styles.caption}>
+                {subscriptionCopy}
+              </ThemedText>
+            )}
             {dailyLimit > 0 ? (
               <>
                 <View style={styles.todayLine}>
