@@ -43,6 +43,9 @@ const formatHistoryMoment = (value?: string | null) => {
   return time ? `${date}, ${time}` : date;
 };
 
+/** The server's reason for a checkout it closed because a newer one replaced it. */
+const isSuperseded = (reason?: string | null) => !!reason && /superseded/i.test(reason);
+
 export const describePayment = (payment: BillingPayment, now: Date = new Date()): PaymentRow => {
   const original =
     payment.original_amount_minor && payment.original_amount_minor > payment.amount_minor
@@ -59,6 +62,20 @@ export const describePayment = (payment: BillingPayment, now: Date = new Date())
     offerLabel: original ? payment.offer_label || null : null,
     reference: payment.reference || null,
   };
+
+  if (payment.status === 'failed' && isSuperseded(payment.failure_reason)) {
+    // Not a failure: the person opened a newer checkout, and the server closed
+    // this one so the launch price could be taken once. A red "Failed" with
+    // the raw reason read like money had gone missing (a fix on board R8-Purchases).
+    const triedAt = formatHistoryMoment(payment.created_at);
+    return {
+      ...row,
+      badge: { label: 'Not completed', tone: 'neutral' },
+      details: [triedAt ? `Started ${triedAt}` : null, 'Closed when you started a newer checkout.'].filter(
+        (line): line is string => !!line
+      ),
+    };
+  }
 
   if (payment.status === 'failed') {
     const triedAt = formatHistoryMoment(payment.created_at);
