@@ -211,9 +211,9 @@ export const AuthSecuritySetupScreen = ({
             onPress={() => onContinue({ pin: pinConfigured ? pin : null, biometricsEnabled })}
           >
             {isLoading ? (
-              <ActivityIndicator color="white" />
+              <ActivityIndicator color={theme.onAccent} />
             ) : (
-              <Text style={styles.primaryButtonText}>
+              <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>
                 {pinConfigured ? continueLabel : 'Set up later'}
               </Text>
             )}

@@ -410,7 +410,7 @@ function SplitAvatarStack({
     <View className="h-12 w-[82px] flex-row items-center">
       <AvatarCircle label={primaryLabel} size={48} borderColor={primaryColor} />
       <View style={{ marginLeft: -18 }}>
-        <AvatarCircle label={secondaryLabel} size={42} borderColor={theme.onAccent} />
+        <AvatarCircle label={secondaryLabel} size={42} borderColor={theme.card} />
       </View>
     </View>
   );

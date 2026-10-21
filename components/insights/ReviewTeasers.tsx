@@ -1,11 +1,9 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useMemo } from 'react';
-import { TouchableOpacity, View } from 'react-native';
 
-import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { DashboardResponse } from '@/lib/insights';
+import { NavCard } from './insight-ui';
 import { SectionHeader } from './SectionHeader';
 
 /**
@@ -30,9 +28,12 @@ export function MonthlyReviewTeaser() {
   const label = lastMonth.toLocaleDateString('en-IN', { month: 'long' });
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.84}
-      accessibilityRole="button"
+    <NavCard
+      icon="calendar-month"
+      hue={theme.colors.accent}
+      eyebrow="Monthly review"
+      title={`${label} in review`}
+      body="The finished month, with what changed and a summary you can share."
       accessibilityLabel={`Open the ${label} review`}
       onPress={() =>
         router.push({
@@ -42,26 +43,7 @@ export function MonthlyReviewTeaser() {
           },
         })
       }
-      className="rounded-[24px] border p-5 shadow-sm"
-      style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-      <View className="flex-row items-start">
-        <View
-          className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: theme.colors.secondary }}>
-          <MaterialCommunityIcons name="calendar-month" size={23} color={theme.colors.accent} />
-        </View>
-        <View className="flex-1">
-          <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Monthly review
-          </ThemedText>
-          <ThemedText className="mt-1 text-base font-black">{label} in review</ThemedText>
-          <ThemedText tone="muted" className="mt-1 text-xs leading-5">
-            The finished month, with what changed and a summary you can share.
-          </ThemedText>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={22} color={theme.colors.accent} />
-      </View>
-    </TouchableOpacity>
+    />
   );
 }
 export function WeeklyReviewTeaser({
@@ -80,8 +62,12 @@ export function WeeklyReviewTeaser({
   ).length;
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.84}
+    <NavCard
+      icon="file-chart-outline"
+      hue={theme.colors.accent}
+      eyebrow="Weekly review"
+      title="See how your week went"
+      body={`${budgetRisks} budget risk${budgetRisks === 1 ? '' : 's'} · ${recurringCount} recurring · ${warningCount} alert${warningCount === 1 ? '' : 's'}`}
       onPress={() =>
         router.push({
           pathname: '/weekly-review',
@@ -92,27 +78,7 @@ export function WeeklyReviewTeaser({
           },
         })
       }
-      className="rounded-[24px] border p-5 shadow-sm"
-      style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-      <View className="flex-row items-start">
-        <View
-          className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: theme.colors.secondary }}>
-          <MaterialCommunityIcons name="file-chart-outline" size={23} color={theme.colors.accent} />
-        </View>
-        <View className="flex-1">
-          <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-            Weekly review
-          </ThemedText>
-          <ThemedText className="mt-1 text-base font-black">See how your week went</ThemedText>
-          <ThemedText tone="muted" className="mt-1 text-xs leading-5">
-            {budgetRisks} budget risk{budgetRisks === 1 ? '' : 's'} · {recurringCount} recurring ·{' '}
-            {warningCount} alert{warningCount === 1 ? '' : 's'}
-          </ThemedText>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={22} color={theme.colors.accent} />
-      </View>
-    </TouchableOpacity>
+    />
   );
 }
 export function RecurringReviewTeaser({
@@ -142,8 +108,14 @@ export function RecurringReviewTeaser({
           },
         })
       }>
-      <TouchableOpacity
-        activeOpacity={0.82}
+      <NavCard
+        icon="repeat-variant"
+        hue={theme.colors.accent}
+        eyebrow={
+          dueCount > 0 ? `${dueCount} due now` : `${dashboard.recurring_candidates.length} detected`
+        }
+        title={topCandidate?.label ?? 'Recurring patterns'}
+        body="Confirm repeated spends before Finnri tracks them as subscriptions."
         onPress={() =>
           router.push({
             pathname: '/recurring-review',
@@ -155,30 +127,7 @@ export function RecurringReviewTeaser({
             },
           })
         }
-        className="rounded-[24px] border p-5 shadow-sm"
-        style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-        <View className="flex-row items-start">
-          <View
-            className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: theme.colors.secondary }}>
-            <MaterialCommunityIcons name="repeat-variant" size={23} color={theme.colors.accent} />
-          </View>
-          <View className="flex-1">
-            <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-              {dueCount > 0
-                ? `${dueCount} due now`
-                : `${dashboard.recurring_candidates.length} detected`}
-            </ThemedText>
-            <ThemedText className="mt-1 text-base font-black">
-              {topCandidate?.label ?? 'Recurring patterns'}
-            </ThemedText>
-            <ThemedText tone="muted" className="mt-1 text-xs leading-5">
-              Confirm repeated spends before Finnri tracks them as subscriptions.
-            </ThemedText>
-          </View>
-          <MaterialCommunityIcons name="chevron-right" size={22} color={theme.colors.accent} />
-        </View>
-      </TouchableOpacity>
+      />
     </SectionHeader>
   );
 }

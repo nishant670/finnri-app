@@ -1,11 +1,7 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { memo } from 'react';
-import { Pressable, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { Card } from '@/components/ui/theme-primitives';
-import { Fonts } from '@/constants/theme';
-import { TText } from '@/components/split/primitives/themed-interop';
+import { ListRow } from '@/components/ui/ListRow';
 import { buildRecentActivity } from '@/lib/split-screen-model';
 import { formatBalance } from '@/components/split/split-utils';
 import { useMotion } from '@/hooks/use-motion';
@@ -18,73 +14,54 @@ type SplitActivityRowProps = {
   entranceIndex?: number;
   /** Stable across renders, so a row only redraws when its own item changes. */
   onOpen: (activity: SplitActivityItem) => void;
+  /** The rule above the row: every row in a day's card but the first. */
+  divider?: boolean;
+  /**
+   * Whether the caption carries the date. Under a day heading a plain day
+   * would repeat it, so only an "Edited …" or "Added …" note is kept.
+   */
+  showDate?: boolean;
 };
 
 /**
- * One line of the Activity feed. Memoised: the feed is a virtualised list that
- * can run to hundreds of rows, and every row redrawing whenever the screen
- * above it changed is the cost the list exists to avoid.
+ * One line of the Activity feed, as a row of its day's card (board
+ * R6-Activity). Memoised: the feed is a virtualised list that can run to
+ * hundreds of rows, and every row redrawing whenever the screen above it
+ * changed is the cost the list exists to avoid.
  */
 export const SplitActivityRow = memo(function SplitActivityRow({
   item,
   entranceIndex,
   onOpen,
+  divider = false,
+  showDate = true,
 }: SplitActivityRowProps) {
   const theme = useThemeTokens().colors;
   const motion = useMotion();
+  const dateNote = showDate || /^(Edited|Added)\b/.test(item.date) ? item.date : '';
   return (
     <Animated.View
       entering={entranceIndex == null ? undefined : motion.rowEntering(entranceIndex)}
       layout={motion.reflow()}>
-      <Card compact style={{ padding: 0 }}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Open activity ${item.title}`}
-          onPress={() => onOpen(item.item)}
-          className="flex-row items-center gap-4 p-4">
-          <View
-            className="h-[58px] w-[58px] items-center justify-center rounded-xl"
-            style={{ backgroundColor: theme.secondary }}>
-            <MaterialCommunityIcons name={item.icon} size={26} color={theme.accent} />
-          </View>
-          <View className="flex-1">
-            <TText variant="cardTitle" style={{ color: theme.text }}>
-              {item.title}
-            </TText>
-            <TText className="mt-1 text-xs" style={{ color: theme.muted }}>
-              {item.caption} • {item.date}
-            </TText>
-            {item.status ? (
-              <View
-                className="mt-2 self-start rounded-full px-2 py-1"
-                style={{
-                  backgroundColor:
-                    item.status === 'denied' ? `${theme.negative}1F` : theme.secondary,
-                }}>
-                <TText
-                  className="text-[11px]"
-                  style={{
-                    color: item.status === 'denied' ? theme.negative : theme.accent,
-                    fontFamily: Fonts.title,
-                  }}>
-                  {item.status === 'denied' ? 'Denied' : 'Awaiting confirmation'}
-                </TText>
-              </View>
-            ) : null}
-          </View>
-          {item.amount != null ? (
-            <TText
-              className="text-sm"
-              style={{
-                color: theme.text,
-                fontFamily: Fonts.title,
-                textDecorationLine: item.status === 'denied' ? 'line-through' : 'none',
-              }}>
-              {formatBalance(item.amount)}
-            </TText>
-          ) : null}
-        </Pressable>
-      </Card>
+      <ListRow
+        icon={item.icon}
+        hue={theme.accent}
+        title={item.title}
+        meta={[item.caption, dateNote].filter(Boolean).join(' • ')}
+        amount={item.amount != null ? formatBalance(item.amount) : undefined}
+        amountTone={item.status === 'denied' ? 'muted' : 'default'}
+        status={
+          item.status === 'denied'
+            ? 'Denied'
+            : item.status
+              ? 'Awaiting confirmation'
+              : undefined
+        }
+        statusTone={item.status === 'denied' ? 'negative' : 'warning'}
+        divider={divider}
+        accessibilityLabel={`Open activity ${item.title}`}
+        onPress={() => onOpen(item.item)}
+      />
     </Animated.View>
   );
 });

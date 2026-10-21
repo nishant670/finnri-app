@@ -11,7 +11,6 @@ const setup = async (
     <TransactionReceiptField
       attachment={null}
       error={null}
-      withSectionLabel
       onPick={onPick}
       onRemove={onRemove}
       {...overrides}
@@ -29,9 +28,8 @@ describe('TransactionReceiptField', () => {
     expect(onPick).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the section label only when asked to', async () => {
+  it('labels itself as a row of the More details card', async () => {
     expect((await setup()).screen.getByText('Receipt')).toBeTruthy();
-    expect((await setup({ withSectionLabel: false })).screen.queryByText('Receipt')).toBeNull();
   });
 
   it('names a freshly picked local file and says it uploads on save', async () => {

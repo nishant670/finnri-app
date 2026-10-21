@@ -23,6 +23,15 @@ type MoodPalette = {
   message: string;
   preview: string;
   accent: string;
+  /**
+   * Ink for text and icons drawn *on* an accent fill.
+   *
+   * Per mood because the accents are not equally dark: white reads on Sky's
+   * and Plum's deeper accents (4.9:1, 5.5:1) but not on Finnri's coral or
+   * Mint's green (2.3:1, 3.0:1), which take the mood's own dark ink instead.
+   * Shared by both modes, like `accent` — the fill under it does not invert.
+   */
+  onAccent: string;
   light: {
     background: string;
     text: string;
@@ -52,6 +61,7 @@ export const ThemeMoods = {
     message: 'The current Finnri look stays as your default.',
     preview: palette.backgroundLight,
     accent: palette.accent,
+    onAccent: palette.textLight,
     light: {
       background: palette.backgroundLight,
       text: palette.textLight,
@@ -79,6 +89,7 @@ export const ThemeMoods = {
     message: 'Fresh green accents for a quieter money dashboard.',
     preview: '#EAF8F1',
     accent: '#17A978',
+    onAccent: '#182C24',
     light: {
       background: '#F3FBF7',
       text: '#182C24',
@@ -105,7 +116,8 @@ export const ThemeMoods = {
     label: 'Sky',
     message: 'Cool blue surfaces for a crisp planning feel.',
     preview: '#EAF4FC',
-    accent: '#2F80ED',
+    accent: '#1F6FD6',
+    onAccent: '#FFFFFF',
     light: {
       background: '#F4F9FE',
       text: '#172437',
@@ -132,7 +144,8 @@ export const ThemeMoods = {
     label: 'Plum',
     message: 'Warmer contrast with richer highlight moments.',
     preview: '#F5ECF7',
-    accent: '#A855F7',
+    accent: '#8B3FD9',
+    onAccent: '#FFFFFF',
     light: {
       background: '#FCF6FD',
       text: '#2E2134',
@@ -181,16 +194,18 @@ export const DefaultAppMood: AppMoodSettings = {
  * above it, and the opacity was chosen per call site, which is how the split
  * feature alone ended up carrying six different values for one rank of text.
  *
- * Two ranks is the whole vocabulary. `muted` is the caption band, and lands on
- * `99` because that is what `AppHeader` had already settled on for a subtitle.
- * `mutedStrong` is for text that is secondary but still read as prose — an
- * empty state's explanation, a sheet's opening line.
+ * Two ranks is the whole vocabulary. `muted` is the caption band. It was `99`
+ * (60%), which put a caption on a white card at 3.9:1; the palette update of
+ * 11 Oct 2026 raised it to `BF` (75%, 6.1:1). `mutedStrong` is for text that
+ * is secondary but still read as prose — an empty state's explanation, a
+ * sheet's opening line — and was already `BF`, so the two ranks now draw the
+ * same. Both names stay so the call sites keep saying which rank they mean.
  *
  * They stay alpha rather than pre-blended so they composite correctly over a
  * card, the screen background, or a tinted surface — which is exactly what the
  * `text-black/55` they replace was doing.
  */
-const MUTED_ALPHA = '99';
+const MUTED_ALPHA = 'BF';
 const MUTED_STRONG_ALPHA = 'BF';
 
 /**
@@ -202,14 +217,67 @@ const MUTED_STRONG_ALPHA = 'BF';
  * `text-amber-700 dark:text-amber-300`, which did not — see the note on
  * `ThemedText`. These are the two values those classes were asking for.
  *
- * Flat rather than per-mood, like `onAccent`: the surface under it is amber in
- * every mood, so tinting the ink per mood would only pull it off that surface.
+ * Flat rather than per-mood: the surface under it is amber in every mood, so
+ * tinting the ink per mood would only pull it off that surface.
  * It inverts between modes for the ordinary reason — the light value is a deep
  * amber to be read on a pale card, the dark value a pale one to be read on a
  * dark card.
  */
 const WARNING_LIGHT = '#B45309';
 const WARNING_DARK = '#FCD34D';
+
+/**
+ * The amber notice the warning ink sits on — Home's "No AI credits left today"
+ * (boards R1-Home-CreditsLow, -Dark, -UsedUp): its fill, its hairline, and the
+ * outline of a button drawn on it. Flat across moods for the same reason as
+ * the ink.
+ */
+const WARNING_SURFACE: Record<'light' | 'dark', { surface: string; border: string; outline: string }> = {
+  light: { surface: '#FFFBEB', border: '#F6E7C1', outline: '#E9D9AE' },
+  dark: { surface: '#35271F', border: '#4A3820', outline: '#5C4628' },
+};
+
+/**
+ * `from` moved `amount` of the way toward `to`, as an opaque `#RRGGBB`.
+ *
+ * For the few roles the redesign boards draw as "one step past" an existing
+ * one — a button outline a shade stronger than a card's border, an icon a
+ * shade lighter than its tile's hue in dark mode. Deriving them keeps Mint, Sky
+ * and Plum in step without a hand-picked value per mood. Both inputs must be
+ * six-digit hex; any alpha suffix is ignored.
+ */
+export function mixHex(from: string, to: string, amount: number): string {
+  const channel = (hex: string, index: number) => parseInt(hex.slice(1 + index * 2, 3 + index * 2), 16);
+  const mixed = [0, 1, 2].map((index) => {
+    const start = channel(from, index);
+    const value = Math.round(start + (channel(to, index) - start) * amount);
+    return value.toString(16).padStart(2, '0');
+  });
+  return `#${mixed.join('').toUpperCase()}`;
+}
+
+/** A six-digit hex colour with an alpha, `0`–`1`, appended as two hex digits. */
+export function withAlpha(hex: string, alpha: number): string {
+  const byte = Math.round(Math.min(1, Math.max(0, alpha)) * 255);
+  return `${hex.slice(0, 7)}${byte.toString(16).padStart(2, '0').toUpperCase()}`;
+}
+
+/**
+ * A chosen chip, tile or row (boards R2-Entry, R2-Category, R2-Payment): the
+ * card tinted toward the accent, with a firmer ring of the same tint. The
+ * label goes bold in ink; the accent itself is never the text.
+ */
+const SELECTED_FILL_MIX = 0.18;
+const SELECTED_BORDER_MIX = 0.38;
+
+/**
+ * How far an outlined button's border sits past `border`, toward the text.
+ *
+ * The boards draw outlined buttons ("+ Add", "Settle up", "Add") one step
+ * stronger than card borders: #E6D3D8 against #F0E5E7 in light, #4A4A4A
+ * against #3C3C3C in dark. 7% of the way to the text colour lands on both.
+ */
+const BORDER_STRONG_MIX = 0.07;
 
 function createColors(mood: MoodPalette) {
   return {
@@ -228,8 +296,24 @@ function createColors(mood: MoodPalette) {
       negative: mood.light.negative,
       neutral: mood.light.neutral,
       warning: WARNING_LIGHT,
-      onAccent: '#FFFFFF',
+      warningSurface: WARNING_SURFACE.light.surface,
+      warningBorder: WARNING_SURFACE.light.border,
+      warningOutline: WARNING_SURFACE.light.outline,
+      selectedFill: mixHex(mood.light.card, mood.accent, SELECTED_FILL_MIX),
+      selectedBorder: mixHex(mood.light.card, mood.accent, SELECTED_BORDER_MIX),
+      onAccent: mood.onAccent,
       onNegative: '#FFFFFF',
+      /** Outlined buttons. See `BORDER_STRONG_MIX`. */
+      borderStrong: mixHex(mood.light.border, mood.light.text, BORDER_STRONG_MIX),
+      /**
+       * The groove a segmented control's pill slides in, and the circle behind
+       * a sheet's close ×. The light boards draw it at the border's weight;
+       * the dark ones use `secondary`, since a border-weight groove vanishes
+       * against a dark card.
+       */
+      track: mood.light.border,
+      /** The selected pill inside `track`: the card, lifted by a small shadow. */
+      trackSelected: mood.light.card,
       shadow: '#000000',
       tabIconDefault: '#9BA1A6',
       tabIconSelected: mood.accent,
@@ -249,7 +333,12 @@ function createColors(mood: MoodPalette) {
       negative: mood.dark.negative,
       neutral: mood.dark.neutral,
       warning: WARNING_DARK,
-      onAccent: '#FFFFFF',
+      warningSurface: WARNING_SURFACE.dark.surface,
+      warningBorder: WARNING_SURFACE.dark.border,
+      warningOutline: WARNING_SURFACE.dark.outline,
+      selectedFill: mixHex(mood.dark.card, mood.accent, SELECTED_FILL_MIX),
+      selectedBorder: mixHex(mood.dark.card, mood.accent, SELECTED_BORDER_MIX),
+      onAccent: mood.onAccent,
       /**
        * Not white, because `negative` is not the same kind of colour in the
        * two modes. In light it is a deep red that white sits on cleanly; in
@@ -260,6 +349,13 @@ function createColors(mood: MoodPalette) {
        * mood.
        */
       onNegative: mood.dark.background,
+      borderStrong: mixHex(mood.dark.border, mood.dark.text, BORDER_STRONG_MIX),
+      track: mood.dark.secondary,
+      /**
+       * A card-coloured pill would sink into the groove in dark mode, so the
+       * selected part is drawn a step lighter than the border instead.
+       */
+      trackSelected: mixHex(mood.dark.border, mood.dark.text, BORDER_STRONG_MIX),
       shadow: '#000000',
       tabIconDefault: '#9BA1A6',
       tabIconSelected: mood.accent,

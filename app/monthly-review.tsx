@@ -1,12 +1,24 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useState } from 'react';
-import { Pressable, ScrollView, Share, View } from 'react-native';
+import { Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  BarRow,
+  Eyebrow,
+  InsightCard,
+  MetricStrip,
+  MonogramTile,
+  NavRow,
+  insightText,
+} from '@/components/insights/insight-ui';
+import { SectionHeader } from '@/components/insights/SectionHeader';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { ListRow } from '@/components/ui/ListRow';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { useAuthStore } from '@/hooks/use-auth-store';
@@ -51,7 +63,6 @@ export default function MonthlyReviewScreen() {
   const month = toParam(params.month);
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const muted = `${colors.text}99`;
   const { token } = useAuthStore();
 
   const [review, setReview] = useState<MonthlyReview | null>(null);
@@ -113,26 +124,41 @@ export default function MonthlyReviewScreen() {
     ? (review.summary.expense_count ?? review.summary.transaction_count)
     : 0;
 
+  const monthName = review?.label.split(' ')[0] ?? 'the month';
+  const change = review?.summary.spend_change ?? 0;
+
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
         title="Monthly review"
         subtitle={review?.label ?? 'Last month'}
         onBack={() => router.back()}
-        rightIcon={review?.available ? 'share-variant' : 'refresh'}
-        onRightPress={review?.available ? share : load}
+        style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+        rightNode={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={review?.available ? 'Share this month' : 'Reload'}
+            onPress={review?.available ? share : load}
+            style={styles.headerIcon}>
+            <MaterialCommunityIcons
+              name={review?.available ? 'share-variant-outline' : 'refresh'}
+              size={24}
+              color={colors.text}
+            />
+          </Pressable>
+        }
       />
 
       {loading && !review ? (
         <SkeletonFrame
           label="Loading monthly review"
           testID="monthly-review-skeleton"
-          style={{ paddingHorizontal: 20, paddingTop: 16, gap: 16 }}>
-          <SkeletonCards count={4} lines={3} radius={28} />
+          style={{ paddingHorizontal: 16, paddingTop: 16, gap: 16 }}>
+          <SkeletonCards count={4} lines={3} radius={16} />
         </SkeletonFrame>
       ) : !review ? (
-        <View className="flex-1 justify-center">
+        <View style={styles.center}>
           <StateView
             icon={error ? 'wifi-off' : 'calendar-month'}
             title={error ? 'Review did not load' : 'No review yet'}
@@ -145,7 +171,7 @@ export default function MonthlyReviewScreen() {
         // A month with almost nothing in it gets told so plainly. Rendering a
         // story about ₹0 across 1 transaction would be worse than saying there
         // is nothing to tell.
-        <View className="flex-1 justify-center">
+        <View style={styles.center}>
           <StateView
             icon="calendar-blank"
             title={`Not much to review in ${review.label}`}
@@ -155,193 +181,178 @@ export default function MonthlyReviewScreen() {
           />
         </View>
       ) : (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 110, gap: 16 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
           {error && <ErrorBanner message={error} onRetry={load} />}
 
-          <View
-            className="rounded-[28px] border p-5 shadow-sm"
-            style={{ backgroundColor: colors.card, borderColor: colors.border }}>
+          <InsightCard>
+            <Eyebrow>Spent in {monthName}</Eyebrow>
             <ThemedText
-              variant="micro"
-              style={{ color: muted, textTransform: 'uppercase', letterSpacing: 1 }}>
-              {review.label}
-            </ThemedText>
-            {/* amountHero carries its own line height; a bare text-[Npx] would
-                clip the comma out of ₹40,091. */}
-            <ThemedText variant="amountHero" style={{ marginTop: 6, color: colors.text }}>
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[insightText.figure, { color: colors.text }]}>
               {formatMoney(review.summary.total_spent)}
             </ThemedText>
-            <ThemedText variant="caption" style={{ marginTop: 4, color: muted }}>
-              across {spentAcross} transaction
-              {spentAcross === 1 ? '' : 's'}
-              {comparison ? ` · ${comparison}` : ''}
+            <ThemedText tone="muted" style={insightText.body}>
+              {spentAcross} expense{spentAcross === 1 ? '' : 's'}
+              {comparison ? ' · ' : ''}
+              {comparison ? (
+                <ThemedText
+                  style={[
+                    insightText.body,
+                    styles.bold,
+                    { color: change < 0 ? colors.positive : colors.negative },
+                  ]}>
+                  {comparison}
+                </ThemedText>
+              ) : null}
             </ThemedText>
 
-            <View className="mt-5 flex-row gap-3">
-              <MiniStat label="Income" value={formatMoney(review.summary.total_income)} />
-              <MiniStat label={net >= 0 ? 'Kept' : 'Over by'} value={formatMoney(Math.abs(net))} />
-              <MiniStat label="Per day" value={formatMoney(review.summary.daily_average)} />
-            </View>
+            <MetricStrip
+              items={[
+                { label: 'Income', value: formatMoney(review.summary.total_income) },
+                {
+                  label: net >= 0 ? 'Kept' : 'Over by',
+                  value: formatMoney(Math.abs(net)),
+                  tone: net >= 0 ? 'positive' : 'negative',
+                },
+                { label: 'Per day', value: formatMoney(review.summary.daily_average) },
+              ]}
+            />
 
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={`See the ${review.summary.transaction_count} transactions`}
               onPress={() => openMonth()}
-              className="mt-4 self-start rounded-full px-4 py-2"
-              style={{ backgroundColor: colors.secondary }}>
-              <ThemedText variant="button" style={{ color: colors.accent }}>
-                See the {review.summary.transaction_count} transactions
+              hitSlop={8}
+              style={styles.link}>
+              <ThemedText style={[styles.linkLabel, { color: colors.text }]}>
+                See {monthName}’s transactions
               </ThemedText>
+              <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text} />
             </Pressable>
-          </View>
+          </InsightCard>
 
           {review.biggest_change && (
-            <ReviewSection title="The month's story">
-              <ReviewRow
-                icon={review.biggest_change.direction === 'lower' ? 'trending-down' : 'trending-up'}
-                title={`${review.biggest_change.category} went ${review.biggest_change.direction}`}
-                body={
-                  review.biggest_change.comparable
-                    ? `${formatMoney(review.biggest_change.previous_amount)} in ${review.previous_label} → ${formatMoney(review.biggest_change.amount)} · ${formatChangeMagnitude(review.biggest_change.change)} ${review.biggest_change.direction}`
-                    : `${formatMoney(review.biggest_change.amount)} this month, with nothing comparable in ${review.previous_label}`
-                }
-                onPress={() => openMonth(review.biggest_change?.category)}
-              />
-              {review.busiest_day && (
-                <ReviewRow
-                  icon="calendar-star"
-                  title={`Busiest day: ${shortDate(review.busiest_day.date)}`}
-                  body={`${formatMoney(review.busiest_day.amount)} across ${review.busiest_day.count} transaction${review.busiest_day.count === 1 ? '' : 's'}`}
+            <SectionHeader title="The month’s story">
+              <InsightCard flush>
+                <NavRow
+                  icon={review.biggest_change.direction === 'lower' ? 'trending-down' : 'trending-up'}
+                  hue={review.biggest_change.direction === 'lower' ? colors.positive : colors.negative}
+                  title={`${review.biggest_change.category} went ${review.biggest_change.direction}`}
+                  body={
+                    review.biggest_change.comparable
+                      ? `${formatMoney(review.biggest_change.previous_amount)} in ${review.previous_label} → ${formatMoney(review.biggest_change.amount)} · ${formatChangeMagnitude(review.biggest_change.change)} ${review.biggest_change.direction}`
+                      : `${formatMoney(review.biggest_change.amount)} this month, with nothing comparable in ${review.previous_label}`
+                  }
+                  onPress={() => openMonth(review.biggest_change?.category)}
                 />
-              )}
-            </ReviewSection>
+                {review.busiest_day && (
+                  <ListRow
+                    icon="calendar-star"
+                    hue={colors.neutral}
+                    title={`Busiest day: ${shortDate(review.busiest_day.date)}`}
+                    meta={`${formatMoney(review.busiest_day.amount)} across ${review.busiest_day.count} transaction${review.busiest_day.count === 1 ? '' : 's'}`}
+                    divider
+                  />
+                )}
+              </InsightCard>
+            </SectionHeader>
           )}
 
           {review.top_categories.length > 0 && (
-            <ReviewSection title="Where it went">
-              {review.top_categories.slice(0, 5).map((category) => (
-                <ReviewRow
-                  key={category.category}
-                  // The same icon map every other surface uses. A single
-                  // `shape-outline` for all five rows was X8's defect one
-                  // screen over: the category is the thing being named, so it
-                  // should look the way it looks everywhere else.
-                  icon={categoryVisual(category.category).icon}
-                  title={category.category}
-                  body={`${formatMoney(category.amount)} · ${Math.round(category.percentage)}% of spend${
-                    category.change_comparable
-                      ? ` · ${formatChangeMagnitude(category.change)} ${category.change < 0 ? 'lower' : 'higher'}`
-                      : ''
-                  }`}
-                  onPress={() => openMonth(category.category)}
-                />
-              ))}
-            </ReviewSection>
+            <SectionHeader title="Where it went">
+              <InsightCard flush>
+                {review.top_categories.slice(0, 5).map((category, index) => {
+                  // The same icon map every other surface uses: the category
+                  // is the thing being named, so it should look the way it
+                  // looks everywhere else.
+                  const visual = categoryVisual(category.category);
+                  return (
+                    <BarRow
+                      key={category.category}
+                      icon={visual.icon}
+                      hue={visual.color}
+                      title={category.category}
+                      amount={formatMoney(category.amount)}
+                      fraction={category.percentage / 100}
+                      caption={`${Math.round(category.percentage)}% of spend${
+                        category.change_comparable
+                          ? ` · ${formatChangeMagnitude(category.change)} ${category.change < 0 ? 'lower' : 'higher'}`
+                          : ''
+                      }`}
+                      divider={index > 0}
+                      onPress={() => openMonth(category.category)}
+                    />
+                  );
+                })}
+              </InsightCard>
+            </SectionHeader>
           )}
 
           {review.top_merchants.length > 0 && (
-            <ReviewSection title="Who you paid">
-              {review.top_merchants.slice(0, 5).map((merchant) => (
-                <ReviewRow
-                  key={merchant.merchant}
-                  icon="storefront-outline"
-                  title={merchant.merchant}
-                  body={`${formatMoney(merchant.amount)} across ${merchant.transaction_count} transaction${merchant.transaction_count === 1 ? '' : 's'}`}
-                />
-              ))}
-            </ReviewSection>
+            <SectionHeader title="Who you paid">
+              <InsightCard flush>
+                {review.top_merchants.slice(0, 5).map((merchant, index) => (
+                  <ListRow
+                    key={merchant.merchant}
+                    icon="storefront-outline"
+                    hue={colors.neutral}
+                    leading={<MonogramTile name={merchant.merchant} />}
+                    title={merchant.merchant}
+                    meta={`${merchant.transaction_count} transaction${merchant.transaction_count === 1 ? '' : 's'}`}
+                    amount={formatMoney(merchant.amount)}
+                    divider={index > 0}
+                  />
+                ))}
+              </InsightCard>
+            </SectionHeader>
           )}
 
-          <Pressable
-            accessibilityRole="button"
+          <Button
+            variant="outline"
+            icon="share-variant-outline"
+            label="Share this month"
             accessibilityLabel={`Share your ${review.label} review`}
             onPress={share}
-            className="flex-row items-center justify-center gap-2 rounded-[24px] px-5 py-4"
-            style={{ backgroundColor: colors.accent }}>
-            <MaterialCommunityIcons name="share-variant" size={18} color="#FFFFFF" />
-            <ThemedText variant="button" style={{ color: '#FFFFFF' }}>
-              Share this month
-            </ThemedText>
-          </Pressable>
+          />
         </ScrollView>
       )}
     </SafeAreaView>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  const theme = useThemeTokens();
-  return (
-    <View
-      className="flex-1 rounded-2xl border px-3 py-3"
-      style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }}>
-      <ThemedText variant="micro" style={{ color: `${theme.colors.text}99`, textTransform: 'uppercase' }}>
-        {label}
-      </ThemedText>
-      <ThemedText variant="captionStrong" style={{ marginTop: 4 }} numberOfLines={1}>
-        {value}
-      </ThemedText>
-    </View>
-  );
-}
-
-function ReviewSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const theme = useThemeTokens();
-  return (
-    <View>
-      <ThemedText variant="sectionTitle" style={{ marginBottom: 12, paddingHorizontal: 4 }}>
-        {title}
-      </ThemedText>
-      <View
-        className="overflow-hidden rounded-[24px] border"
-        style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function ReviewRow({
-  icon,
-  title,
-  body,
-  onPress,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  title: string;
-  body: string;
-  onPress?: () => void;
-}) {
-  const theme = useThemeTokens();
-  return (
-    <Pressable
-      accessibilityRole={onPress ? 'button' : undefined}
-      onPress={onPress}
-      disabled={!onPress}
-      // 48dp minimum target, whole row pressable — X9's rule, applied here
-      // rather than to the corner beside the icon.
-      style={{ minHeight: 64 }}
-      className="flex-row items-center border-b border-gray-100 p-4 last:border-b-0 dark:border-gray-700">
-      <View
-        className="mr-3 h-10 w-10 items-center justify-center rounded-2xl"
-        style={{ backgroundColor: theme.colors.secondary }}>
-        <MaterialCommunityIcons name={icon} size={19} color={theme.colors.accent} />
-      </View>
-      <View className="flex-1">
-        <ThemedText variant="bodyStrong" numberOfLines={1}>
-          {title}
-        </ThemedText>
-        <ThemedText
-          variant="caption"
-          style={{ marginTop: 2, color: `${theme.colors.text}99` }}
-          numberOfLines={2}>
-          {body}
-        </ThemedText>
-      </View>
-      {onPress && (
-        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.colors.accent} />
-      )}
-    </Pressable>
-  );
-}
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  content: {
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 48,
+  },
+  bold: {
+    fontWeight: '700',
+  },
+  link: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 2,
+    marginTop: 14,
+  },
+  linkLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    marginRight: -8,
+  },
+});

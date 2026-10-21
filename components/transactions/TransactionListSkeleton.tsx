@@ -1,4 +1,4 @@
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { Shimmer } from '@/components/ui/Shimmer';
 import {
@@ -9,6 +9,8 @@ import {
   SkeletonStat,
   lineWidth,
 } from '@/components/ui/Skeleton';
+import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /**
  * What the transaction feed is about to look like: two day headings with their
@@ -36,17 +38,20 @@ const TOTAL_ROWS = DAY_SHAPE.reduce((total, rows) => total + rows, 0);
 const HEADING_BAND = TOTAL_ROWS * ROW_BLOCKS;
 
 export function TransactionListSkeleton() {
+  const { colors } = useThemeTokens();
   return (
     <SkeletonFrame label="Loading transactions" testID="transaction-list-skeleton">
       {DAY_SHAPE.map((rows, day) => (
-        <View key={day} className="mb-6">
-          <View className="mb-3 flex-row items-center justify-between px-6">
-            <Shimmer width={92} height={10} index={HEADING_BAND + day * 2} />
-            <Shimmer width={62} height={20} radius={8} index={HEADING_BAND + day * 2 + 1} />
+        <View key={day}>
+          <View style={styles.dayHeading}>
+            <Shimmer width={72} height={12} index={HEADING_BAND + day * 2} />
+            <Shimmer width={56} height={12} index={HEADING_BAND + day * 2 + 1} />
           </View>
-          <View className="px-6">
+          <View style={[styles.dayCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <SkeletonRows
               count={rows}
+              variant="list"
+              carded={false}
               startIndex={DAY_SHAPE.slice(0, day).reduce((total, count) => total + count, 0)}
             />
           </View>
@@ -101,30 +106,62 @@ export function HistoryDetailSkeleton({ label }: { label: string }) {
  * user just tapped lands exactly where the placeholder held it.
  */
 export function EntryDetailSkeleton() {
+  const { colors } = useThemeTokens();
   return (
-    <SkeletonFrame
-      label="Loading transaction"
-      testID="entry-detail-skeleton"
-      style={{ padding: 24 }}>
-      <View className="mb-10 items-center">
-        <Shimmer width={112} height={112} radius={32} index={0} />
-        <Shimmer width={180} height={36} radius={10} index={1} style={{ marginTop: 24 }} />
-        <Shimmer width={148} height={18} radius={8} index={2} style={{ marginTop: 12 }} />
+    <SkeletonFrame label="Loading transaction" testID="entry-detail-skeleton">
+      <View style={styles.hero}>
+        <Shimmer width={48} height={48} radius={14} index={0} />
+        <Shimmer width={140} height={36} radius={10} index={1} style={{ marginTop: 12 }} />
+        <Shimmer width={148} height={16} radius={8} index={2} style={{ marginTop: 8 }} />
+        <Shimmer width={200} height={12} radius={6} index={3} style={{ marginTop: 8 }} />
       </View>
 
-      <SkeletonCard radius={40} padding={32}>
+      <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
         {[0, 1, 2].map((row) => (
           <View
             key={row}
-            style={{ flexDirection: 'row', gap: 20, marginBottom: row === 2 ? 0 : 32 }}>
-            <Shimmer width={48} height={48} radius={24} index={3 + row * 3} />
-            <View style={{ flex: 1, gap: 8, justifyContent: 'center' }}>
-              <Shimmer width="38%" height={9} index={4 + row * 3} />
-              <Shimmer width={lineWidth(row)} height={14} index={5 + row * 3} />
-            </View>
+            style={[styles.detailRow, row > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+            <Shimmer width={64} height={12} index={4 + row * 2} />
+            <Shimmer width={lineWidth(row)} height={14} index={5 + row * 2} style={{ flex: 1 }} />
           </View>
         ))}
-      </SkeletonCard>
+      </View>
     </SkeletonFrame>
   );
 }
+
+const styles = StyleSheet.create({
+  dayHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 18,
+    marginBottom: 8,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  dayCard: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  hero: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  detailCard: {
+    marginTop: 20,
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  detailRow: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 30,
+    paddingHorizontal: 14,
+  },
+});

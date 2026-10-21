@@ -1,17 +1,17 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
+import { RowsCard, ToggleRow } from '@/components/money/subscriptions/FormRows';
 import {
   PaymentAccountPicker,
   usablePayment,
 } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
-import { Fonts } from '@/constants/theme';
+import { PrimaryButton } from '@/components/ui/Button';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Account } from '@/lib/accounts';
-import { haptics } from '@/lib/haptics';
 import { formatMoney } from '@/lib/money';
 import {
   formatDueDateLabel,
@@ -63,6 +63,9 @@ type MarkPaidSheetProps = {
  * would otherwise be counted twice.
  *
  * Mount it with a `key` per item: the choices start from that item's account.
+ *
+ * Drawn like the recurring sheet (board R5-NewLoan): handle, title on the left
+ * with the round close, then one card of rows and the primary button.
  */
 export function MarkPaidSheet({
   visible,
@@ -75,7 +78,6 @@ export function MarkPaidSheet({
   onAddAccount,
 }: MarkPaidSheetProps) {
   const { colors } = useThemeTokens();
-  const muted = `${colors.text}99`;
   const [logTransaction, setLogTransaction] = useState(true);
   const [payment, setPayment] = useState(() =>
     usablePayment(accounts, subscription?.payment_mode ?? '', subscription?.account_id ?? null)
@@ -89,7 +91,7 @@ export function MarkPaidSheet({
       visible={visible && subscription != null}
       onClose={onClose}
       sheetStyle={{
-        backgroundColor: colors.card,
+        backgroundColor: colors.background,
         borderTopLeftRadius: 28,
         borderTopRightRadius: 28,
         maxHeight: '85%',
@@ -99,61 +101,34 @@ export function MarkPaidSheet({
           testID="mark-paid-sheet"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 20, paddingBottom: 28 }}>
-          <View className="mb-1 flex-row items-center justify-between gap-3">
+          contentContainerStyle={styles.sheet}>
+          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+          <View style={styles.header}>
             <ThemedText
-              className="flex-1 text-lg font-black"
+              accessibilityRole="header"
               numberOfLines={1}
-              style={{ fontFamily: Fonts.title }}>
+              style={[styles.title, { color: colors.text }]}>
               Mark {subscription.name} paid
             </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              onPress={onClose}
-              hitSlop={10}>
-              <MaterialCommunityIcons name="close" size={22} color={muted} />
-            </Pressable>
+            <SheetCloseButton onPress={onClose} />
           </View>
-          <ThemedText className="mb-4 text-xs" style={{ color: muted }}>
+          <ThemedText tone="muted" style={styles.lede}>
             {formatMoney(amount)} due{' '}
             {formatDueDateLabel(toApiDateOnly(subscription.next_due_date))}. The next one moves to{' '}
             {formatDueDateLabel(nextDueAfterPaying(subscription))}.
           </ThemedText>
 
-          <View
-            className="mb-4 rounded-2xl border p-4"
-            style={{
-              borderColor: logTransaction ? colors.accent : colors.border,
-              backgroundColor: colors.background,
-            }}>
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityState={{ checked: logTransaction }}
-              accessibilityLabel="Add to transactions"
-              onPress={() => {
-                haptics.select();
-                setLogTransaction((on) => !on);
-              }}
-              className="flex-row items-center gap-3">
-              <MaterialCommunityIcons
-                name={logTransaction ? 'checkbox-marked' : 'checkbox-blank-outline'}
-                size={24}
-                color={logTransaction ? colors.accent : muted}
-              />
-              <View className="flex-1">
-                <ThemedText
-                  className="text-sm"
-                  style={{ color: colors.text, fontFamily: Fonts.title }}>
-                  Add to transactions
-                </ThemedText>
-                <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>
-                  {logTransaction
-                    ? `Adds ${formatMoney(amount)} on ${formatDueDateLabel(today)}. Turn off if you already logged it.`
-                    : 'Only the date moves on. Nothing is added to your transactions.'}
-                </ThemedText>
-              </View>
-            </Pressable>
+          <RowsCard>
+            <ToggleRow
+              title="Add to transactions"
+              caption={
+                logTransaction
+                  ? `Adds ${formatMoney(amount)} on ${formatDueDateLabel(today)}. Turn off if you already logged it.`
+                  : 'Only the date moves on. Nothing is added to your transactions.'
+              }
+              value={logTransaction}
+              onValueChange={setLogTransaction}
+            />
             {logTransaction ? (
               <PaymentAccountPicker
                 testID="mark-paid-account"
@@ -163,23 +138,20 @@ export function MarkPaidSheet({
                 onChange={setPayment}
                 onAddAccount={onAddAccount}
                 accountLabel="Paid from"
-                colors={colors}
-                muted={muted}
+                divider
               />
             ) : null}
-          </View>
+          </RowsCard>
 
           {error ? (
-            <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
-              <ThemedText className="text-xs font-bold" style={{ color: '#D32F2F' }}>
-                {error}
-              </ThemedText>
-            </View>
+            <ThemedText tone="negative" style={styles.error}>
+              {error}
+            </ThemedText>
           ) : null}
 
-          <Pressable
-            accessibilityRole="button"
-            disabled={submitting}
+          <PrimaryButton
+            label="Mark paid"
+            loading={submitting}
             onPress={() =>
               onConfirm({
                 logTransaction,
@@ -187,18 +159,54 @@ export function MarkPaidSheet({
                 accountId: payment.accountID,
               })
             }
-            className="h-12 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: colors.accent, opacity: submitting ? 0.6 : 1 }}>
-            {submitting ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                Mark paid
-              </ThemedText>
-            )}
-          </Pressable>
+            style={styles.button}
+          />
         </ScrollView>
       ) : null}
     </AnimatedBottomSheet>
   );
 }
+
+const styles = StyleSheet.create({
+  sheet: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  header: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    marginLeft: 4,
+    marginRight: -8,
+  },
+  title: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  lede: {
+    marginHorizontal: 4,
+    marginBottom: 12,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  error: {
+    marginTop: 10,
+    marginHorizontal: 4,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  button: {
+    marginTop: 16,
+  },
+});

@@ -1,11 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
 import type { ReactNode } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { DraftFieldCard } from '@/components/transactions/DraftFieldCard';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { PrimaryButton } from '@/components/ui/Button';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -88,20 +90,20 @@ export function MemberToggleChip({
         haptics.select();
         onPress();
       }}
-      className="flex-row items-center gap-2 rounded-2xl px-3 py-2"
+      className="min-h-9 flex-row items-center gap-2 rounded-full px-3"
       style={{
-        backgroundColor: selected ? theme.accent : theme.background,
-        borderColor: selected ? theme.accent : theme.border,
+        backgroundColor: selected ? theme.selectedFill : theme.card,
+        borderColor: selected ? theme.selectedBorder : theme.border,
         borderWidth: 1,
       }}>
       <MaterialCommunityIcons
-        name={selected ? 'check-circle' : 'plus-circle-outline'}
+        name={selected ? 'check' : 'plus'}
         size={16}
-        color={selected ? theme.onAccent : theme.accent}
+        color={theme.text}
       />
       <TText
-        className="text-xs"
-        style={{ color: selected ? theme.onAccent : theme.text, fontFamily: Fonts.title }}>
+        className="text-sm"
+        style={{ color: theme.text, fontWeight: selected ? '700' : '500' }}>
         {friend.name}
       </TText>
     </Pressable>
@@ -140,6 +142,11 @@ export function GroupChoiceChip({
   );
 }
 
+/**
+ * The frame every Splits form sheet shares (boards R6-CreateGroup,
+ * R6-AddFriend): a handle, the title with the round × beside it, the fields,
+ * and the one button pinned under them.
+ */
 export function SplitModal({
   visible,
   title,
@@ -157,7 +164,7 @@ export function SplitModal({
 }) {
   const theme = useThemeTokens().colors;
   return (
-    <AnimatedBottomSheet visible={visible} onClose={onClose} avoidKeyboard>
+    <AnimatedBottomSheet visible={visible} onClose={onClose} avoidKeyboard backdropOpacity={0.3}>
       {/*
         * `flexShrink` rather than a percentage max-height: a percentage
         * resolves against a parent that has no height of its own, which is what
@@ -166,39 +173,75 @@ export function SplitModal({
         * until the keyboard leaves it less room, and only then does the list
         * inside start to scroll.
         */}
-      <View
-        className="rounded-t-[28px] border px-5 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border, flexShrink: 1 }}>
-        <View className="mb-4 flex-row items-center justify-between">
-          <TText variant="sectionTitle">
+      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+        <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
+        <View style={styles.sheetHeader}>
+          <ThemedText accessibilityRole="header" style={[styles.sheetTitle, { color: theme.text }]}>
             {title}
-          </TText>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onClose}
-            className="h-10 w-10 items-center justify-center rounded-full"
-            style={{ backgroundColor: theme.secondary }}>
-            <MaterialCommunityIcons name="close" size={20} color={theme.text} />
-          </Pressable>
+          </ThemedText>
+          <SheetCloseButton onPress={onClose} />
         </View>
         {errorMessage ? (
-          <ErrorBanner message={errorMessage} style={{ marginBottom: 12 }} />
+          <ErrorBanner message={errorMessage} style={{ marginBottom: 12, marginHorizontal: 16 }} />
         ) : null}
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           bounces={false}
           style={{ flexGrow: 0, flexShrink: 1 }}
-          contentContainerStyle={{ gap: 12, paddingBottom: footer ? 12 : 0 }}>
+          contentContainerStyle={styles.sheetBody}>
           {children}
         </ScrollView>
-        {footer ? (
-          <View className="border-t pt-4" style={{ borderColor: theme.border }}>
-            {footer}
-          </View>
-        ) : null}
+        {footer ? <View style={styles.sheetFooter}>{footer}</View> : null}
       </View>
     </AnimatedBottomSheet>
+  );
+}
+
+/** A card of label-and-input rows (board R6-AddFriend). */
+export function FormRowsCard({ children }: { children: ReactNode }) {
+  const theme = useThemeTokens().colors;
+  return (
+    <View style={[styles.rowsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {children}
+    </View>
+  );
+}
+
+/** One row of a `FormRowsCard`: the label on the left, the input filling the rest. */
+export function FormRow({
+  label,
+  value,
+  onChangeText,
+  placeholder,
+  keyboardType,
+  autoCapitalize,
+  divider = false,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (value: string) => void;
+  placeholder?: string;
+  keyboardType?: 'default' | 'email-address' | 'phone-pad';
+  autoCapitalize?: 'none' | 'sentences' | 'words' | 'characters';
+  /** The rule above the row: every row but the first. */
+  divider?: boolean;
+}) {
+  const theme = useThemeTokens().colors;
+  return (
+    <View style={[styles.formRow, divider && { borderTopWidth: 1, borderTopColor: theme.border }]}>
+      <ThemedText style={[styles.formRowLabel, { color: theme.text }]}>{label}</ThemedText>
+      <TextInput
+        accessibilityLabel={label}
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor={theme.muted}
+        keyboardType={keyboardType}
+        autoCapitalize={autoCapitalize}
+        style={[styles.formRowInput, { color: theme.text, fontFamily: Fonts.body }]}
+      />
+    </View>
   );
 }
 
@@ -293,6 +336,7 @@ export function DirectionChip({
   );
 }
 
+/** A Splits form's one action, pinned under its fields. */
 export function PrimaryModalButton({
   label,
   loading,
@@ -302,30 +346,7 @@ export function PrimaryModalButton({
   loading: boolean;
   onPress: () => void;
 }) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={loading}
-      onPress={onPress}
-      className="mt-2 min-h-12 flex-row items-center justify-center gap-2"
-      style={[
-        { backgroundColor: theme.accent, borderRadius: 20, opacity: loading ? 0.75 : 1 },
-        themeTokens.shadows.soft,
-      ]}>
-      {loading ? (
-        <ActivityIndicator color={theme.onAccent} />
-      ) : (
-        <>
-          <TText className="text-sm" style={{ color: theme.onAccent, fontFamily: Fonts.title }}>
-            {label}
-          </TText>
-          <MaterialCommunityIcons name="check-circle-outline" size={20} color={theme.onAccent} />
-        </>
-      )}
-    </Pressable>
-  );
+  return <PrimaryButton label={label} loading={loading} onPress={onPress} />;
 }
 
 export function FloatingExpenseButton({ onPress }: { onPress: () => void }) {
@@ -351,3 +372,66 @@ export function FloatingExpenseButton({ onPress }: { onPress: () => void }) {
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  sheet: {
+    flexShrink: 1,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  sheetHeader: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 8,
+  },
+  sheetTitle: {
+    flex: 1,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+  sheetBody: {
+    gap: 12,
+    paddingTop: 4,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  sheetFooter: {
+    paddingTop: 8,
+    paddingHorizontal: 16,
+  },
+  rowsCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  formRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+  },
+  formRowLabel: {
+    width: 92,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  formRowInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 52,
+    fontSize: 16,
+  },
+});

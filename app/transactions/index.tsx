@@ -1,4 +1,4 @@
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -6,9 +6,9 @@ import {
   FlatList,
   Pressable,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
-  TouchableOpacity,
   type ListRenderItem,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +28,10 @@ import {
 import { Colors } from '@/constants/theme';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { Button } from '@/components/ui/Button';
+import { PickerSheet } from '@/components/ui/PickerSheet';
+import { PressableView } from '@/components/ui/PressableView';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { encodeFrame } from '@/hooks/use-shared-element';
 import { StateView } from '@/components/ui/StateView';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
@@ -501,10 +505,12 @@ export default function TransactionsScreen() {
       if (item.kind === 'day') {
         return <DayHeading title={item.title} total={item.total} first={item.first} />;
       }
-      const { transaction, position } = item;
+      const { transaction, position, groupFirst, groupLast } = item;
       return (
         <TransactionRow
           transaction={transaction}
+          groupFirst={groupFirst}
+          groupLast={groupLast}
           // A flat, amount-ranked list has no section heading to date it, so the
           // row has to carry its own.
           showDate={isRankedByAmount}
@@ -538,15 +544,11 @@ export default function TransactionsScreen() {
         <ErrorBanner
           message={error}
           onRetry={() => void refresh()}
-          style={{ marginHorizontal: 24, marginBottom: 16 }}
+          style={{ marginHorizontal: SCREEN_GUTTER, marginTop: 12 }}
         />
       )}
       {isRankedByAmount && transactions.length > 0 && (
-        <View className="mb-3 px-6">
-          <ThemedText tone="muted" className="text-xs font-bold uppercase tracking-widest">
-            {filters.sort === 'highest' ? 'Highest first' : 'Lowest first'}
-          </ThemedText>
-        </View>
+        <GroupHeader label={filters.sort === 'highest' ? 'Highest first' : 'Lowest first'} />
       )}
     </>
   );
@@ -581,30 +583,25 @@ export default function TransactionsScreen() {
   // calling them "everything" would contradict it.
   const listFooter =
     transactions.length === 0 || error ? null : loadMoreError ? (
-      <View className="items-center gap-3 py-8">
-        <ThemedText tone="muted" className="px-6 text-center text-xs">
+      <View style={styles.footer}>
+        <ThemedText tone="muted" style={[styles.caption, styles.centered]}>
           {loadMoreError}
         </ThemedText>
-        <TouchableOpacity
-          accessibilityRole="button"
+        <Button
+          label="Try again"
+          variant="outline"
+          height={36}
           onPress={() => void retryLoadMore()}
-          className="rounded-full px-4 py-2"
-          style={{ backgroundColor: theme.secondary }}>
-          <ThemedText className="text-xs font-bold" style={{ color: theme.accent }}>
-            Try again
-          </ThemedText>
-        </TouchableOpacity>
+        />
       </View>
     ) : hasMore || isLoadingMore ? (
-      <View className="items-center py-8">
-        <ActivityIndicator color={theme.accent} />
+      <View style={styles.footer}>
+        <ActivityIndicator color={theme.muted} />
       </View>
     ) : (
-      <View className="items-center py-8 gap-3 opacity-50">
-        <View className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-700 items-center justify-center">
-          <MaterialCommunityIcons name="history" size={20} color={theme.text} />
-        </View>
-        <ThemedText className="text-xs" style={{ color: theme.text }}>
+      <View style={styles.footer}>
+        <MaterialCommunityIcons name="history" size={20} color={theme.muted} />
+        <ThemedText tone="muted" style={styles.caption}>
           That’s everything for now.
         </ThemedText>
       </View>
@@ -615,22 +612,22 @@ export default function TransactionsScreen() {
       style={{ flex: 1, backgroundColor: theme.background }}
       edges={['top', 'left', 'right']}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-6 py-4">
-        {/* Centred on the screen, not between the buttons: there are two on the
-            right and one on the left. */}
-        <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
-          <ThemedText className="text-base font-bold" style={{ color: theme.text }}>
-            &nbsp; {reviewMode ? 'Needs review' : 'Transactions'}&nbsp;
-          </ThemedText>
-        </View>
+      {/* Header (board R3-List): back, the title, and the screen's two actions. */}
+      <View style={styles.header}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={() => router.back()}
-          className="h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-gray-800 shadow-sm">
+          style={styles.headerButton}>
           <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
         </Pressable>
-
-        <View className="flex-row items-center gap-2">
+        <ThemedText
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={[styles.title, { color: theme.text }]}>
+          {reviewMode ? 'Needs review' : 'Transactions'}
+        </ThemedText>
+        <View style={styles.headerActions}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Export transactions"
@@ -639,103 +636,99 @@ export default function TransactionsScreen() {
               setExportError(null);
               setIsExportOpen(true);
             }}
-            className="h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm dark:bg-gray-800">
-            <MaterialCommunityIcons name="tray-arrow-up" size={21} color={theme.text} />
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="tray-arrow-up" size={22} color={theme.text} />
           </Pressable>
           <Pressable
             testID="transactions-add"
             accessibilityRole="button"
             accessibilityLabel="Add transaction"
             onPress={openAdd}
-            className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-            style={{ backgroundColor: theme.accent }}>
-            <MaterialCommunityIcons name="plus" size={24} color="white" />
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="plus" size={26} color={theme.text} />
           </Pressable>
         </View>
       </View>
 
-      {/* Header and Search */}
-      <View className="px-5 mb-4">
-        <View className="flex-row items-center gap-3">
-          <View className="flex-1 flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm">
-            <Ionicons name="search" size={20} color="#9CA3AF" />
-            <TextInput
-              placeholder="Search transactions…"
-              placeholderTextColor="#9CA3AF"
-              className="flex-1 ml-3 text-sm text-gray-900 font-medium"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-          <TouchableOpacity
-            onPress={() => setIsFilterOpen(true)}
-            className="h-12 w-12 items-center justify-center rounded-2xl border shadow-sm"
-            style={{
-              backgroundColor: isFilterActive ? theme.secondary : theme.card,
-              borderColor: isFilterActive ? theme.accent : theme.border,
-            }}>
-            <View>
-              <Ionicons
-                name="options-outline"
-                size={22}
-                color={isFilterActive ? theme.accent : '#6B7280'}
-              />
-              {isFilterActive && (
-                <View
-                  className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
-                  style={{ backgroundColor: theme.accent }}
-                />
-              )}
-            </View>
-          </TouchableOpacity>
+      <View style={styles.searchRow}>
+        <View style={[styles.search, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <MaterialCommunityIcons name="magnify" size={20} color={theme.muted} />
+          <TextInput
+            accessibilityLabel="Search transactions"
+            placeholder="Search transactions"
+            placeholderTextColor={theme.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
         </View>
-
-        {/* Every applied filter, however it was set — by the sheet, by a preset,
-            or by a tap on an Insights chart — with its own ×. Filter state that
-            is real but invisible reads as a broken list. */}
-        {appliedChips.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            className="mt-3"
-            contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-            {appliedChips.map((chip) => (
-              <TouchableOpacity
-                key={chip.key}
-                testID={`applied-filter-${chip.key}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove filter ${chip.label}`}
-                onPress={() => {
-                  haptics.select();
-                  setFilters((prev) => clearFilterFields(prev, chip.clears));
-                  clearRouteParams();
-                }}
-                className="flex-row items-center gap-1.5 rounded-full border px-3 py-2"
-                style={{ backgroundColor: theme.secondary, borderColor: theme.accent }}>
-                <ThemedText className="text-xs font-black" style={{ color: theme.accent }}>
-                  {chip.label}
-                </ThemedText>
-                <Ionicons name="close" size={13} color={theme.accent} />
-              </TouchableOpacity>
-            ))}
-            {appliedChips.length > 1 && (
-              <TouchableOpacity
-                testID="applied-filter-clear-all"
-                accessibilityRole="button"
-                onPress={() => {
-                  haptics.select();
-                  clearFilters();
-                }}
-                className="flex-row items-center rounded-full px-3 py-2">
-                <ThemedText className="text-xs font-bold" style={{ color: '#9CA3AF' }}>
-                  Clear all
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isFilterActive ? 'Filters, some applied' : 'Filters'}
+          onPress={() => setIsFilterOpen(true)}
+          style={[
+            styles.filterButton,
+            {
+              backgroundColor: isFilterActive ? theme.selectedFill : theme.card,
+              borderColor: isFilterActive ? theme.selectedBorder : theme.border,
+            },
+          ]}>
+          <MaterialCommunityIcons name="tune-variant" size={20} color={theme.text} />
+          {isFilterActive && (
+            <View
+              style={[styles.filterDot, { backgroundColor: theme.accent, borderColor: theme.card }]}
+            />
+          )}
+        </Pressable>
       </View>
+
+      {/* Every applied filter, however it was set — by the sheet, by a preset,
+          or by a tap on an Insights chart — with its own ×. Filter state that
+          is real but invisible reads as a broken list. */}
+      {appliedChips.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chips}>
+          {appliedChips.map((chip) => (
+            <PressableView
+              key={chip.key}
+              testID={`applied-filter-${chip.key}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove filter ${chip.label}`}
+              onPress={() => {
+                haptics.select();
+                setFilters((prev) => clearFilterFields(prev, chip.clears));
+                clearRouteParams();
+              }}
+              style={[
+                styles.chip,
+                { backgroundColor: theme.selectedFill, borderColor: theme.selectedBorder },
+              ]}
+              pressedStyle={styles.pressed}>
+              <ThemedText style={[styles.chipLabel, { color: theme.text }]}>{chip.label}</ThemedText>
+              <MaterialCommunityIcons name="close" size={14} color={theme.text} />
+            </PressableView>
+          ))}
+          {appliedChips.length > 1 && (
+            <PressableView
+              testID="applied-filter-clear-all"
+              accessibilityRole="button"
+              onPress={() => {
+                haptics.select();
+                clearFilters();
+              }}
+              style={styles.clearAll}
+              pressedStyle={styles.pressed}>
+              <ThemedText tone="muted" style={styles.chipLabel}>
+                Clear all
+              </ThemedText>
+            </PressableView>
+          )}
+        </ScrollView>
+      )}
       <FlatList
         ref={listRef}
         data={listItems}
@@ -754,7 +747,7 @@ export default function TransactionsScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: 40 }}
         // Applying a filter leaves the previous rows on screen until the new
         // ones arrive — the full-screen loader only covers the empty case.
         // Without this the list spends a beat showing results that contradict
@@ -784,49 +777,46 @@ export default function TransactionsScreen() {
         />
       </AnimatedBottomSheet>
 
-      <AnimatedBottomSheet
-        visible={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        sheetStyle={{ backgroundColor: theme.card, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}>
-        <View className="p-6" style={{ gap: 12 }}>
-          <ThemedText className="text-lg font-black" style={{ color: theme.text }}>
-            Export
-          </ThemedText>
+      <PickerSheet visible={isExportOpen} title="Export" onClose={() => setIsExportOpen(false)}>
+        <View style={styles.exportBody}>
           {/* The count is the scope, stated before the choice rather than
               discovered in the file. */}
-          <ThemedText className="text-xs leading-5" style={{ color: `${theme.text}99` }}>
+          <ThemedText tone="muted" style={styles.exportScope}>
             {matchCount === 1
               ? '1 transaction matches what you are looking at.'
               : `${matchCount} transactions match what you are looking at.`}
             {isFilterActive || debouncedSearchQuery ? ' Your filters are included.' : ''}
           </ThemedText>
 
-          <ExportOption
-            icon="file-delimited-outline"
-            title="Spreadsheet (CSV)"
-            subtitle="Every column, for Excel or Sheets"
-            busy={exportingFormat === 'csv'}
-            disabled={exportingFormat !== null}
-            onPress={() => void runExport('csv')}
-            theme={theme}
-          />
-          <ExportOption
-            icon="file-document-outline"
-            title="Statement (PDF)"
-            subtitle="Totals and the transaction table, ready to print"
-            busy={exportingFormat === 'pdf'}
-            disabled={exportingFormat !== null}
-            onPress={() => void runExport('pdf')}
-            theme={theme}
-          />
+          <View style={[styles.exportCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ExportOption
+              icon="file-delimited-outline"
+              title="Spreadsheet (CSV)"
+              subtitle="Every column, for Excel or Sheets"
+              busy={exportingFormat === 'csv'}
+              disabled={exportingFormat !== null}
+              onPress={() => void runExport('csv')}
+              theme={theme}
+            />
+            <ExportOption
+              icon="file-document-outline"
+              title="Statement (PDF)"
+              subtitle="Totals and the transaction table, ready to print"
+              busy={exportingFormat === 'pdf'}
+              disabled={exportingFormat !== null}
+              onPress={() => void runExport('pdf')}
+              theme={theme}
+              divider
+            />
+          </View>
 
           {exportError && (
-            <ThemedText className="text-xs font-bold" style={{ color: '#D32F2F' }}>
+            <ThemedText tone="negative" style={styles.caption}>
               {exportError}
             </ThemedText>
           )}
         </View>
-      </AnimatedBottomSheet>
+      </PickerSheet>
 
       <TransactionFormModal
         visible={isAddOpen}
@@ -855,32 +845,20 @@ export default function TransactionsScreen() {
   );
 }
 
+/** A day over its card (board R3-List): the label, and the day's total when it is complete. */
 function DayHeading({
   title,
   total,
-  first,
 }: {
   title: string;
   total: number | null;
   first: boolean;
 }) {
   return (
-    <View
-      className="flex-row justify-between items-center px-6 mb-3"
-      style={{ marginTop: first ? 0 : 24 }}>
-      <ThemedText tone="muted" className="text-xs font-bold uppercase tracking-widest">
-        {title.toUpperCase()}
-      </ThemedText>
-      {total !== null && (
-        <View className="bg-white dark:bg-gray-800 px-2 py-1 rounded-lg">
-          <ThemedText
-            className="text-xs font-bold"
-            style={{ color: total >= 0 ? '#27AE60' : '#808080' }}>
-            {formatMoney(total, { sign: 'always' })}
-          </ThemedText>
-        </View>
-      )}
-    </View>
+    <GroupHeader
+      label={title}
+      total={total !== null ? formatMoney(total, { sign: total > 0 ? 'always' : 'auto' }) : undefined}
+    />
   );
 }
 
@@ -893,6 +871,8 @@ function DayHeading({
  */
 const TransactionRow = memo(function TransactionRow({
   transaction,
+  groupFirst,
+  groupLast,
   showDate,
   entranceIndex,
   swipeOpen,
@@ -904,6 +884,8 @@ const TransactionRow = memo(function TransactionRow({
   onDelete,
 }: {
   transaction: Transaction;
+  groupFirst: boolean;
+  groupLast: boolean;
   showDate: boolean;
   entranceIndex?: number;
   swipeOpen: boolean;
@@ -915,20 +897,35 @@ const TransactionRow = memo(function TransactionRow({
   onDelete: (item: Transaction) => void;
 }) {
   const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
+  const theme = useThemeTokens().colors;
 
+  // Each row draws its slice of the day's card, so the list stays one flat,
+  // virtualised list while it reads as a card per day.
   return (
-    <View className="px-6">
+    <View
+      style={[
+        styles.rowSlice,
+        { backgroundColor: theme.card, borderColor: theme.border },
+        groupFirst && styles.sliceFirst,
+        groupLast && styles.sliceLast,
+      ]}>
       <TransactionItem
         icon={transaction.icon as any}
         title={transaction.name}
         category={transaction.category}
         subtitle={transaction.accountName ?? transaction.mode ?? ''}
         amount={Math.abs(transaction.amount)}
-        date={showDate ? (transaction.section ?? transaction.dateLabel ?? '') : ''}
+        date={
+          showDate
+            ? (transaction.section ?? transaction.dateLabel ?? '')
+            : (transaction.timeLabel ?? '')
+        }
         color={transaction.color}
         bgColor={transaction.bgColor}
         isIncome={isIncome}
         unlinked={transaction.accountId == null}
+        variant="list"
+        showDivider={!groupLast}
         isNew={isNew}
         entranceIndex={entranceIndex}
         onEdit={() => onSwipeAction(transaction, 'edit')}
@@ -951,6 +948,7 @@ function ExportOption({
   disabled,
   onPress,
   theme,
+  divider = false,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
@@ -959,38 +957,200 @@ function ExportOption({
   disabled: boolean;
   onPress: () => void;
   theme: ReturnType<typeof useThemeTokens>['colors'];
+  divider?: boolean;
 }) {
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled, busy }}
       disabled={disabled}
       onPress={onPress}
-      className="min-h-16 flex-row items-center gap-3 rounded-2xl border p-4"
-      style={{
-        backgroundColor: theme.background,
-        borderColor: theme.border,
-        opacity: disabled && !busy ? 0.5 : 1,
-      }}>
-      <View
-        className="h-10 w-10 items-center justify-center rounded-xl"
-        style={{ backgroundColor: theme.secondary }}>
+      style={[
+        styles.exportOption,
+        divider && { borderTopWidth: 1, borderTopColor: theme.border },
+        { opacity: disabled && !busy ? 0.5 : 1 },
+      ]}
+      pressedStyle={styles.pressed}>
+      <View style={[styles.exportTile, { backgroundColor: theme.selectedFill }]}>
         {busy ? (
-          <ActivityIndicator color={theme.accent} />
+          <ActivityIndicator color={theme.text} />
         ) : (
-          <MaterialCommunityIcons name={icon} size={21} color={theme.accent} />
+          <MaterialCommunityIcons name={icon} size={20} color={theme.text} />
         )}
       </View>
-      <View className="flex-1">
-        <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-          {title}
-        </ThemedText>
-        <ThemedText className="mt-0.5 text-xs" style={{ color: `${theme.text}99` }}>
+      <View style={styles.exportText}>
+        <ThemedText style={[styles.exportTitle, { color: theme.text }]}>{title}</ThemedText>
+        <ThemedText tone="muted" style={styles.caption}>
           {subtitle}
         </ThemedText>
       </View>
-      <MaterialCommunityIcons name="chevron-right" size={20} color={`${theme.text}66`} />
-    </Pressable>
+      <MaterialCommunityIcons name="chevron-right" size={18} color={theme.muted} />
+    </PressableView>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActions: {
+    width: 88,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  // Centred between equal sides: the back button's 44 is padded to the
+  // actions' 88 so the title sits in the middle of the screen.
+  title: {
+    flex: 1,
+    marginLeft: 44,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  search: {
+    flex: 1,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    padding: 0,
+    fontSize: 15,
+  },
+  filterButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  filterDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1.5,
+  },
+  chipScroll: {
+    flexGrow: 0,
+    marginTop: 10,
+  },
+  chips: {
+    gap: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  chip: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  clearAll: {
+    height: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  rowSlice: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    overflow: 'hidden',
+  },
+  sliceFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sliceLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  footer: {
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 28,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  centered: {
+    textAlign: 'center',
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  exportBody: {
+    gap: 12,
+  },
+  exportScope: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  exportCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  exportOption: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  exportTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  exportTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

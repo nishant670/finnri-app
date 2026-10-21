@@ -267,7 +267,7 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
         onPress={PLANS_REACHABLE ? openPlans : onClose}
         className="mt-6 h-13 items-center justify-center rounded-2xl"
         style={{ backgroundColor: colors.accent, minHeight: 52 }}>
-        <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
+        <ThemedText className="text-sm font-black" style={{ color: colors.onAccent }}>
           {PLANS_REACHABLE ? 'See plans' : 'Got it'}
         </ThemedText>
       </Pressable>

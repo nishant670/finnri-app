@@ -1,10 +1,20 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  InsightCard,
+  MetricStrip,
+  insightText,
+  periodRangeLabel,
+} from '@/components/insights/insight-ui';
+import { SectionHeader } from '@/components/insights/SectionHeader';
+import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
+import { ListRow } from '@/components/ui/ListRow';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { useAuthStore } from '@/hooks/use-auth-store';
@@ -121,7 +131,7 @@ export default function InsightDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const accent = severity === 'warning' ? '#FF6680' : colors.accent;
+  const hue = severity === 'warning' ? colors.warning : colors.accent;
   const categoryMeta = resolveCategoryMetadata(category);
 
   const filters = useMemo(() => {
@@ -165,7 +175,7 @@ export default function InsightDetailScreen() {
   const primaryStat = formatPositiveMoney(amount);
   const confidencePercent = confidence ? Math.round(Number(confidence) * 100) : null;
   const isBudgetInsight = kind === 'budget_watch' || kind === 'budget_exceeded';
-  const sourceTitle = isBudgetInsight ? 'Budget Source Transactions' : 'Source Transactions';
+  const sourceTitle = isBudgetInsight ? 'Budget source transactions' : 'Source transactions';
   const emptySourceMessage = isBudgetInsight
     ? 'No matching expenses were found for this budget and period.'
     : 'This insight may come from an aggregate comparison rather than one direct transaction filter.';
@@ -193,106 +203,74 @@ export default function InsightDetailScreen() {
     router.push('/transactions');
   };
 
+  const metrics = [
+    limitAmount ? { label: 'Limit', value: formatPositiveMoney(limitAmount) ?? formatMoney(0) } : null,
+    remainingAmount
+      ? { label: 'Left', value: formatPositiveMoney(remainingAmount) ?? formatMoney(0) }
+      : null,
+    change ? { label: 'Change', value: formatChangeMetric(Number(change)) } : null,
+    percentage ? { label: 'Share', value: `${Math.round(Number(percentage))}%` } : null,
+    accountName ? { label: 'Account', value: accountName } : null,
+    confidencePercent != null ? { label: 'Match', value: `${confidencePercent}%` } : null,
+  ].filter((item): item is { label: string; value: string } => item != null);
+  const range = periodRangeLabel(start, end);
+
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }} edges={['top', 'left', 'right']}>
+    <SafeAreaView
+      style={{ flex: 1, backgroundColor: colors.background }}
+      edges={['top', 'left', 'right']}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="flex-row items-center justify-between px-5 py-4">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-          style={{ backgroundColor: colors.card }}>
-          <MaterialCommunityIcons name="chevron-left" size={30} color={colors.text} />
-        </TouchableOpacity>
-        <ThemedText className="text-base font-black">Insight Detail</ThemedText>
-        <TouchableOpacity
-          onPress={load}
-          className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-          style={{ backgroundColor: colors.card }}>
-          {loading ? (
-            <ActivityIndicator color={colors.accent} />
-          ) : (
-            <MaterialCommunityIcons name="refresh" size={19} color={colors.accent} />
-          )}
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title={title}
+        subtitle={range || label}
+        onBack={() => router.back()}
+        style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+        rightNode={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reload"
+            onPress={load}
+            style={styles.headerIcon}>
+            {loading ? (
+              <ActivityIndicator color={colors.muted} />
+            ) : (
+              <MaterialCommunityIcons name="refresh" size={24} color={colors.text} />
+            )}
+          </Pressable>
+        }
+      />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 120, gap: 18 }}>
-        <View className="rounded-[28px] border p-5 shadow-sm" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-          <View className="flex-row items-start gap-4">
-            <View className="h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: `${accent}1A` }}>
-              <MaterialCommunityIcons
-                name={severity === 'warning' ? 'alarm-light-outline' : categoryMeta.icon}
-                size={23}
-                color={accent}
-              />
-            </View>
-            <View className="flex-1">
-              <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
-                {label}
-              </ThemedText>
-              <ThemedText className="mt-2 text-2xl font-black">{title}</ThemedText>
-              <ThemedText tone="muted" className="mt-2 text-sm leading-6">{body}</ThemedText>
-            </View>
-          </View>
-
-          <View className="mt-5 flex-row gap-3">
-            {primaryStat && <Metric label="Amount" value={primaryStat} />}
-            {limitAmount && <Metric label="Limit" value={formatPositiveMoney(limitAmount) ?? formatMoney(0)} />}
-            {remainingAmount && <Metric label="Left" value={formatPositiveMoney(remainingAmount) ?? formatMoney(0)} />}
-            {change && <Metric label="Change" value={formatChangeMetric(Number(change))} />}
-            {percentage && <Metric label="Share" value={`${Math.round(Number(percentage))}%`} />}
-            {accountName && <Metric label="Account" value={accountName} />}
-            {confidencePercent != null && <Metric label="Match" value={`${confidencePercent}%`} />}
-          </View>
-        </View>
-
-        <View className="rounded-[24px] border p-4" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-          <ThemedText className="text-sm font-black">Why this appeared</ThemedText>
-          <ThemedText tone="muted" className="mt-2 text-xs leading-5">
-            {explanation ?? insightExplainer[kind] ?? 'This is calculated from confirmed transactions inside the selected date range.'}
-          </ThemedText>
-          {nextExpectedDate && (
-            <ThemedText className="mt-3 text-xs font-bold" style={{ color: colors.accent }}>
-              Next expected around {nextExpectedDate}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <InsightCard>
+          <View style={styles.heroHead}>
+            <MaterialCommunityIcons
+              name={severity === 'warning' ? 'alarm-light-outline' : categoryMeta.icon}
+              size={18}
+              color={hue}
+            />
+            <ThemedText style={[styles.heroLabel, { color: severity === 'warning' ? colors.warning : colors.text }]}>
+              {label}
             </ThemedText>
-          )}
-        </View>
-
-        <View className="gap-3">
-          <TouchableOpacity
-            onPress={openPrimaryAction}
-            className="h-12 flex-row items-center justify-center rounded-2xl"
-            style={{ backgroundColor: colors.accent }}>
-            <MaterialCommunityIcons name="arrow-right-circle-outline" size={20} color="white" />
-            <ThemedText tone="onAccent" className="ml-2 text-sm font-black">
-              {actionLabel ?? insightActionLabel[kind] ?? 'Review transactions'}
+          </View>
+          {primaryStat ? (
+            <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[insightText.figure, { color: colors.text }]}>
+              {primaryStat}
             </ThemedText>
-          </TouchableOpacity>
-          {(category || budgetId) && (
-            <TouchableOpacity
-              onPress={() =>
-                router.push({
-                  pathname: '/budgets',
-                  params: {
-                    source: 'insight',
-                    budgetId: budgetId ?? '',
-                    category: category ?? '',
-                    suggestedLimit: limitAmount ?? amount ?? '',
-                  },
-                })
-              }
-              className="h-12 flex-row items-center justify-center rounded-2xl border"
-              style={{ borderColor: colors.border, backgroundColor: colors.card }}>
-              <MaterialCommunityIcons name="chart-donut" size={20} color={colors.accent} />
-              <ThemedText className="ml-2 text-sm font-black" style={{ color: colors.accent }}>
-                {budgetId ? 'Adjust budget' : 'Set category budget'}
-              </ThemedText>
-            </TouchableOpacity>
-          )}
-        </View>
+          ) : null}
+          {body ? (
+            <ThemedText tone="muted" style={[insightText.body, styles.heroBody]}>
+              {body}
+            </ThemedText>
+          ) : null}
+          {metrics.length > 0 ? <MetricStrip items={metrics} /> : null}
+        </InsightCard>
 
-        <View>
-          <ThemedText className="mb-3 px-1 text-lg font-black">{sourceTitle}</ThemedText>
+        {/* Shown before the reasoning, as on the board: the expense itself is
+            the first thing anybody checks. */}
+        <SectionHeader title={sourceTitle}>
           {error ? (
             <StateView icon="wifi-off" title="Sources did not load" message={error} compact />
           ) : loading && transactions.length === 0 ? (
@@ -307,33 +285,65 @@ export default function InsightDetailScreen() {
               compact
             />
           ) : (
-            <View className="overflow-hidden rounded-[24px] border" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-              {transactions.map((transaction, index) => (
-                <TouchableOpacity
-                  key={transaction.id}
-                  onPress={() => openTransaction(transaction)}
-                  className={`flex-row items-center p-4 ${index < transactions.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}>
-                  <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl" style={{ backgroundColor: resolveCategoryMetadata(transaction.category).bgColor }}>
-                    <MaterialCommunityIcons
-                      name={resolveCategoryMetadata(transaction.category).icon}
-                      size={19}
-                      color={resolveCategoryMetadata(transaction.category).color}
-                    />
-                  </View>
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-bold" numberOfLines={1}>
-                      {transaction.name}
-                    </ThemedText>
-                    <ThemedText tone="muted" className="mt-1 text-[11px]" numberOfLines={1}>
-                      {transaction.category} · {transaction.dateLabel ?? transaction.section}
-                    </ThemedText>
-                  </View>
-                  <ThemedText className="text-sm font-black">
-                    {formatPositiveMoney(Math.abs(transaction.amount)) ?? formatMoney(0)}
-                  </ThemedText>
-                </TouchableOpacity>
-              ))}
-            </View>
+            <InsightCard flush>
+              {transactions.map((transaction, index) => {
+                const meta = resolveCategoryMetadata(transaction.category);
+                return (
+                  <ListRow
+                    key={transaction.id}
+                    icon={meta.icon}
+                    hue={meta.color}
+                    title={transaction.name}
+                    meta={transaction.category}
+                    amount={formatPositiveMoney(Math.abs(transaction.amount)) ?? formatMoney(0)}
+                    status={transaction.dateLabel ?? transaction.section}
+                    divider={index > 0}
+                    onPress={() => openTransaction(transaction)}
+                  />
+                );
+              })}
+            </InsightCard>
+          )}
+        </SectionHeader>
+
+        <View>
+          <ThemedText accessibilityRole="header" style={[styles.whyTitle, { color: colors.text }]}>
+            Why this appeared
+          </ThemedText>
+          <ThemedText tone="muted" style={insightText.body}>
+            {explanation ?? insightExplainer[kind] ?? 'This is calculated from confirmed transactions inside the selected date range.'}
+          </ThemedText>
+          {nextExpectedDate && (
+            <ThemedText style={[insightText.body, styles.bold, { color: colors.text, marginTop: 8 }]}>
+              Next expected around {nextExpectedDate}
+            </ThemedText>
+          )}
+        </View>
+
+        <View style={styles.actions}>
+          <Button
+            variant="outline"
+            icon={kind === 'unusual_spending' ? 'magnify' : 'arrow-right-circle-outline'}
+            label={actionLabel ?? insightActionLabel[kind] ?? 'Review transactions'}
+            onPress={openPrimaryAction}
+          />
+          {(category || budgetId) && (
+            <Button
+              variant="outline"
+              icon="chart-donut"
+              label={budgetId ? 'Adjust budget' : 'Set category budget'}
+              onPress={() =>
+                router.push({
+                  pathname: '/budgets',
+                  params: {
+                    source: 'insight',
+                    budgetId: budgetId ?? '',
+                    category: category ?? '',
+                    suggestedLimit: limitAmount ?? amount ?? '',
+                  },
+                })
+              }
+            />
           )}
         </View>
       </ScrollView>
@@ -341,15 +351,46 @@ export default function InsightDetailScreen() {
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  const theme = useThemeTokens();
-
-  return (
-    <View className="flex-1 rounded-2xl border px-3 py-3" style={{ backgroundColor: theme.colors.secondary, borderColor: theme.colors.border }}>
-      <ThemedText tone="muted" className="text-[10px] font-black uppercase">{label}</ThemedText>
-      <ThemedText className="mt-1 text-sm font-black" numberOfLines={1}>
-        {value}
-      </ThemedText>
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  content: {
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 48,
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    marginRight: -8,
+  },
+  heroHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  heroLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  heroBody: {
+    marginTop: 4,
+  },
+  whyTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  bold: {
+    fontWeight: '700',
+  },
+  actions: {
+    gap: 10,
+  },
+});

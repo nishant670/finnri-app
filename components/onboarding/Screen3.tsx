@@ -52,7 +52,7 @@ export default function Screen3() {
                         marginLeft: index === 0 ? 0 : -8,
                       },
                     ]}>
-                    <Text style={styles.avatarText}>{initial}</Text>
+                    <Text style={[styles.avatarText, { color: theme.onAccent }]}>{initial}</Text>
                   </View>
                 ))}
               </View>

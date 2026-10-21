@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, View, type ViewProps } from 'react-native';
 import { SafeAreaView, type SafeAreaViewProps } from 'react-native-safe-area-context';
@@ -32,9 +33,19 @@ export function Screen({ style, padded = false, children, ...props }: ScreenProp
 
 type CardProps = ViewProps & {
   compact?: boolean;
+  /**
+   * Holds the card 16 in from both screen edges, the redesign's one gutter.
+   * Off by default because most screens still pad their own content; a
+   * screen moves to it when it is rebuilt on the 16 grid.
+   */
+  inset?: boolean;
 };
 
-export function Card({ style, compact = false, children, ...props }: CardProps) {
+/** The redesign's card: flat, `card` fill, a 1dp `border`, radius 16. */
+export const CARD_RADIUS = 16;
+export const SCREEN_GUTTER = 16;
+
+export function Card({ style, compact = false, inset = false, children, ...props }: CardProps) {
   const theme = useThemeTokens();
   const card = compact ? theme.components.compactCard : theme.components.card;
 
@@ -42,17 +53,57 @@ export function Card({ style, compact = false, children, ...props }: CardProps) 
     <View
       style={[
         {
-          backgroundColor: theme.mode === 'dark' ? theme.colors.card : '#FFFFFF',
-          borderColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(45,45,45,0.04)',
-          borderRadius: card.radius,
-          borderWidth: StyleSheet.hairlineWidth,
+          backgroundColor: theme.colors.card,
+          borderColor: theme.colors.border,
+          borderRadius: CARD_RADIUS,
+          borderWidth: 1,
           padding: card.padding,
         },
-        theme.shadows.soft,
+        inset ? { marginHorizontal: SCREEN_GUTTER } : undefined,
         style,
       ]}
       {...props}>
       {children}
+    </View>
+  );
+}
+
+type GroupHeaderProps = {
+  /** "Today", "Yesterday", "October 2026". */
+  label: string;
+  /**
+   * The group's total, already formatted — `−₹9,672`. Omit it where a total
+   * would be wrong, such as a day that is only partly loaded.
+   */
+  total?: string;
+  /** `negative` for a group that is a warning in itself, such as "Overdue". */
+  tone?: 'muted' | 'negative';
+  /** A small control on the right, in place of a total — a filter, say. */
+  accessory?: ReactNode;
+};
+
+/**
+ * The label over a group of rows — a day, a month, a status — with its total
+ * on the right. Sits outside the card it heads (board R3-List).
+ */
+export function GroupHeader({ label, total, tone = 'muted', accessory }: GroupHeaderProps) {
+  const theme = useThemeTokens();
+
+  return (
+    <View style={styles.groupHeader}>
+      <ThemedText
+        accessibilityRole="header"
+        numberOfLines={1}
+        tone={tone}
+        style={styles.groupLabel}>
+        {label}
+      </ThemedText>
+      {total ? (
+        <ThemedText numberOfLines={1} style={[styles.groupTotal, { color: theme.colors.text }]}>
+          {total}
+        </ThemedText>
+      ) : null}
+      {accessory}
     </View>
   );
 }
@@ -72,10 +123,17 @@ export function SectionHeader({ title, actionLabel, onAction }: SectionHeaderPro
         {title}
       </ThemedText>
       {actionLabel && onAction ? (
-        <Pressable accessibilityRole="button" onPress={onAction} hitSlop={10}>
-          <ThemedText variant="captionStrong" style={{ color: theme.colors.accent }}>
+        // A link is ink, bolder, with a chevron — never accent text on a light
+        // surface (palette rule, 11 Oct).
+        <Pressable
+          accessibilityRole="button"
+          onPress={onAction}
+          hitSlop={10}
+          style={styles.sectionAction}>
+          <ThemedText style={[styles.sectionActionLabel, { color: theme.colors.text }]}>
             {actionLabel}
           </ThemedText>
+          <MaterialCommunityIcons name="chevron-right" size={16} color={theme.colors.text} />
         </Pressable>
       ) : null}
     </View>
@@ -105,7 +163,7 @@ export function TextAction({ label, expanded, style, children, ...props }: TextA
       ]}
       pressedStyle={{ opacity: 0.7 }}
       {...props}>
-      <ThemedText variant="captionStrong" style={{ color: theme.colors.accent }}>
+      <ThemedText variant="captionStrong" style={{ color: theme.colors.text }}>
         {label}
       </ThemedText>
       {children}
@@ -123,6 +181,38 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
     paddingHorizontal: 24,
+  },
+  sectionAction: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+    minHeight: 32,
+  },
+  sectionActionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  groupHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 18,
+    marginBottom: 8,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  groupLabel: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  groupTotal: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   textAction: {
     alignItems: 'center',

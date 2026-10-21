@@ -1,62 +1,87 @@
 import { Tabs } from 'expo-router';
-import React, { useEffect } from 'react';
-import { Platform, StyleSheet, View, type ColorValue } from 'react-native';
-import Animated, { useAnimatedStyle, useSharedValue } from 'react-native-reanimated';
+import React from 'react';
+import { Platform, StyleSheet, Text, View, type ColorValue } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { SplitInvitePrompt } from '@/components/split/SplitInvitePrompt';
 import {
-  MARKER_LANE,
   TabMarker,
   TabMarkerProvider,
   TabRouteFocus,
   useTabMarkerAnchor,
 } from '@/components/tab-marker';
 import { Fonts, type IconStyle } from '@/constants/theme';
-import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+type GlyphName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+/** One size for every tab, focused or not (board R3-Home). */
+const ICON_SIZE = 24;
+
 /**
- * The size the glyph is always rendered at, and what focus scales it to.
- *
- * The focused icon used to be *drawn* two points larger, which is a different
- * glyph rasterisation rather than a bigger one — there is no in-between to
- * animate, so it could only ever snap. One size, scaled, lands within a
- * quarter-pixel of where the old 26 did and can travel there on a spring.
+ * The bar's height above the system inset, and the part of it left empty at
+ * the bottom. React Navigation pads each item by 5 and centres the 24 glyph in
+ * a 28-tall box, so a 4 top padding puts the icon 11 down and the label 39
+ * down — the board's positions.
  */
-const ICON_SIZE = 23;
-const ICON_FOCUSED_SCALE = 1.12;
+const BAR_HEIGHT = 76;
+const BAR_PADDING_TOP = 4;
+const BAR_PADDING_BOTTOM = 12;
 
 type TabIconProps = {
-  activeName: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
-  inactiveName: React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+  /** The glyph's outline form, drawn on every tab. */
+  outlineName: GlyphName;
+  /**
+   * The solid form, laid under the outline at 25% on the focused tab — the
+   * board's "accent fill at a quarter, accent stroke". Omitted for a glyph that
+   * is only a line, which has nothing to fill.
+   */
+  filledName?: GlyphName;
   /** The screen's route name, which is how the marker keys this tab's frame. */
   route: string;
   focused: boolean;
   color: ColorValue;
+  accent: string;
   iconStyle: IconStyle;
 };
 
-function TabIcon({ activeName, inactiveName, route, focused, color, iconStyle }: TabIconProps) {
-  const motion = useMotion();
+function TabIcon({ outlineName, filledName, route, focused, color, accent, iconStyle }: TabIconProps) {
   const anchor = useTabMarkerAnchor(route);
-  const name = focused && iconStyle !== 'minimal' ? activeName : inactiveName;
-  const scale = useSharedValue(focused ? ICON_FOCUSED_SCALE : 1);
-
-  useEffect(() => {
-    scale.value = motion.springTo(focused ? ICON_FOCUSED_SCALE : 1);
-  }, [focused, motion, scale]);
-
-  const iconStyleAnimated = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  // The minimal mood is outline-only everywhere, so it keeps the stroke alone.
+  const fill = focused && filledName && iconStyle !== 'minimal' ? filledName : null;
 
   return (
-    <View ref={anchor.ref} onLayout={anchor.onLayout} style={styles.iconStack}>
-      <Animated.View style={[styles.iconFrame, iconStyleAnimated]}>
-        <MaterialCommunityIcons size={ICON_SIZE} name={name} color={color} />
-      </Animated.View>
+    <View ref={anchor.ref} onLayout={anchor.onLayout} style={styles.icon}>
+      {fill ? (
+        <MaterialCommunityIcons
+          name={fill}
+          size={ICON_SIZE}
+          color={accent}
+          style={[StyleSheet.absoluteFill, styles.fill]}
+        />
+      ) : null}
+      <MaterialCommunityIcons size={ICON_SIZE} name={outlineName} color={focused ? accent : color} />
     </View>
+  );
+}
+
+function TabLabel({
+  focused,
+  color,
+  children,
+}: {
+  focused: boolean;
+  color: ColorValue;
+  children: string;
+}) {
+  return (
+    <Text
+      numberOfLines={1}
+      style={[styles.label, { color, fontWeight: focused ? '700' : '500' }]}>
+      {children}
+    </Text>
   );
 }
 
@@ -76,7 +101,20 @@ export default function TabLayout() {
   const theme = useThemeTokens();
   const colors = theme.colors;
   const iconStyle = theme.mood.iconStyle;
-  const inactiveTint = theme.mode === 'dark' ? '#ABA5B0' : '#756D78';
+  const tabIcon = (route: string, outlineName: GlyphName, filledName?: GlyphName) =>
+    function TabBarIcon({ color, focused }: { color: ColorValue; focused: boolean }) {
+      return (
+        <TabIcon
+          outlineName={outlineName}
+          filledName={filledName}
+          route={route}
+          focused={focused}
+          color={color}
+          accent={colors.accent}
+          iconStyle={iconStyle}
+        />
+      );
+    };
 
   return (
     // The provider sits outside the navigator because the two halves that feed
@@ -110,125 +148,69 @@ export default function TabLayout() {
       backBehavior="initialRoute"
       initialRouteName="index"
       screenOptions={{
-        tabBarActiveTintColor: colors.tint,
+        // The focused tab is marked by the bar, the filled icon and bolder
+        // ink — not by accent text, which the palette keeps off light surfaces.
+        tabBarActiveTintColor: colors.text,
+        tabBarInactiveTintColor: colors.muted,
         // `TabRouteFocus` rides along here because this is the only place
-        // rendered *inside* the navigator: it is what lets the pill read the
+        // rendered *inside* the navigator: it is what lets the marker read the
         // same focused route the icons are handed, rather than the URL.
         tabBarBackground: () => (
           <>
             <TabRouteFocus />
-            <TabMarker color={colors.tint} />
+            <TabMarker color={colors.accent} />
           </>
         ),
-        tabBarInactiveTintColor: inactiveTint,
+        tabBarLabel: ({ focused, color, children }) => (
+          <TabLabel focused={focused} color={color}>
+            {children}
+          </TabLabel>
+        ),
         headerShown: false,
         animation: 'shift',
         tabBarButton: HapticTab,
-        tabBarLabelStyle: styles.tabBarLabel,
-        tabBarItemStyle: styles.tabBarItem,
-        tabBarStyle: Platform.select({
-          ios: {
-            borderTopWidth: StyleSheet.hairlineWidth,
-            elevation: 0,
-            height: 70 + insets.bottom,
-            paddingTop: 6,
-            paddingBottom: 10 + insets.bottom,
-            backgroundColor: colors.card,
-            borderTopColor: colors.border,
-            shadowColor: '#1D1420',
-            shadowOpacity: 0.08,
-            shadowRadius: 12,
-            shadowOffset: { width: 0, height: -4 },
-          },
-          default: {
-            backgroundColor: colors.card,
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: colors.border,
-            elevation: 8,
-            height: 64 + insets.bottom,
-            paddingTop: 5,
-            paddingBottom: 7 + insets.bottom,
-          },
-        }),
+        tabBarStyle: {
+          backgroundColor: colors.card,
+          borderTopWidth: 1,
+          borderTopColor: colors.border,
+          // Flat, as drawn: the border is the bar's only edge.
+          elevation: 0,
+          ...Platform.select({ ios: { shadowOpacity: 0 } }),
+          height: BAR_HEIGHT + insets.bottom,
+          paddingTop: BAR_PADDING_TOP,
+          paddingBottom: BAR_PADDING_BOTTOM + insets.bottom,
+        },
       }}>
       <Tabs.Screen
         name="insight"
-        options={{
-          title: 'Insights',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              activeName="chart-timeline-variant-shimmer"
-              route="insight"
-              inactiveName="chart-timeline-variant"
-              focused={focused}
-              color={color}
-              iconStyle={iconStyle}
-            />
-          ),
-        }}
+        options={{ title: 'Insights', tabBarIcon: tabIcon('insight', 'chart-timeline-variant') }}
       />
       <Tabs.Screen
         name="money"
         options={{
           title: 'Money',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              activeName="wallet-bifold"
-              route="money"
-              inactiveName="wallet-bifold-outline"
-              focused={focused}
-              color={color}
-              iconStyle={iconStyle}
-            />
-          ),
+          tabBarIcon: tabIcon('money', 'wallet-bifold-outline', 'wallet-bifold'),
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              activeName="home-variant"
-              route="index"
-              inactiveName="home-variant-outline"
-              focused={focused}
-              color={color}
-              iconStyle={iconStyle}
-            />
-          ),
+          tabBarIcon: tabIcon('index', 'home-variant-outline', 'home-variant'),
         }}
       />
       <Tabs.Screen
         name="split"
         options={{
           title: 'Splits',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              activeName="account-multiple"
-              route="split"
-              inactiveName="account-multiple-outline"
-              focused={focused}
-              color={color}
-              iconStyle={iconStyle}
-            />
-          ),
+          tabBarIcon: tabIcon('split', 'account-multiple-outline', 'account-multiple'),
         }}
       />
       <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
-          tabBarIcon: ({ color, focused }) => (
-            <TabIcon
-              activeName="account-circle"
-              route="profile"
-              inactiveName="account-circle-outline"
-              focused={focused}
-              color={color}
-              iconStyle={iconStyle}
-            />
-          ),
+          tabBarIcon: tabIcon('profile', 'account-circle-outline', 'account-circle'),
         }}
       />
       <Tabs.Screen
@@ -249,30 +231,20 @@ export default function TabLayout() {
 }
 
 const styles = StyleSheet.create({
-  tabBarItem: {
-    paddingTop: 1,
+  icon: {
+    width: ICON_SIZE,
+    height: ICON_SIZE,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  tabBarLabel: {
+  fill: {
+    opacity: 0.25,
+  },
+  label: {
     fontFamily: Fonts.title,
-    fontSize: 10.5,
-    fontWeight: '800',
-    letterSpacing: 0,
-    marginTop: -2,
-  },
-  iconStack: {
-    width: 44,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // The room the five static pills used to take up, kept behind now that the
-    // one travelling pill is drawn from the bar side. Without it every icon in
-    // the bar rises by half a lane.
-    paddingTop: MARKER_LANE,
-  },
-  iconFrame: {
-    width: 36,
-    height: 27,
-    alignItems: 'center',
-    justifyContent: 'center',
+    fontSize: 12,
+    lineHeight: 14,
+    marginTop: 2,
+    textAlign: 'center',
   },
 });

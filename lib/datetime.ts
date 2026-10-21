@@ -79,7 +79,7 @@ export const resetHourClockCache = () => {
  * timestamp, the parser's `HH:MM[:SS]`, or the legacy `10:09 PM` display
  * string that older manual entries wrote.
  */
-const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
+export const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime())
       ? null
@@ -134,6 +134,14 @@ export const formatTime = (value: Date | string | null | undefined): string | nu
   const hours = time.hours % 12 === 0 ? 12 : time.hours % 12;
   return `${hours}:${minutes} ${meridiem}`;
 };
+
+/**
+ * A time label as the redesign draws it on a row: "3:48 pm", not "3:48 PM".
+ * Display only — `formatTime` keeps its capitals because the transaction form
+ * stores what it returns. A 24-hour label passes through unchanged.
+ */
+export const rowTimeLabel = (label: string): string =>
+  label.replace(/\s(AM|PM)$/, (meridiem) => meridiem.toLowerCase());
 
 /**
  * The canonical `HH:MM` we put on the wire, matching the shape the AI parser

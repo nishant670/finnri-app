@@ -32,7 +32,6 @@ import { ParseErrorCard } from '@/components/home/ParseErrorCard';
 import { VoiceInputCard } from '@/components/home/VoiceInputCard';
 import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
-import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
@@ -1490,8 +1489,24 @@ export default function HomeScreen() {
             />
           ) : null}
 
-          {shouldShowLowCreditNotice ? (
-            <View style={{ marginHorizontal: 24, marginBottom: themeTokens.spacing.md }}>
+          {/* Credits sit directly under capture, the thing they pay for
+              (boards R1-Home-CreditsLow, -UsedUp). A refused capture says so
+              in full; the running low-balance line steps aside for it rather
+              than repeating the same news above it. */}
+          {creditAction ? (
+            <CreditActionCard
+              creditAction={creditAction}
+              footnote={
+                (billingStatus?.credits.total_credits_remaining ?? 0) > 0
+                  ? `${billingStatus?.credits.total_credits_remaining} total credits left`
+                  : null
+              }
+              onPress={() =>
+                router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
+              }
+            />
+          ) : shouldShowLowCreditNotice ? (
+            <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
               <CreditStatusCard
                 status={billingStatus}
                 loading={isBillingLoading}
@@ -1532,7 +1547,7 @@ export default function HomeScreen() {
               onUseExample={handleUseExample}
               onAddManually={handleAddManuallyAfterFailure}
               isRetrying={isSubmitting}
-              style={{ marginHorizontal: 24, marginBottom: 24 }}
+              style={{ marginHorizontal: 16, marginBottom: 12 }}
             />
           )}
 
@@ -1557,16 +1572,7 @@ export default function HomeScreen() {
           {errorMessage && (
             <ErrorBanner
               message={errorMessage}
-              style={{ marginHorizontal: 24, marginBottom: 24 }}
-            />
-          )}
-
-          {creditAction && (
-            <CreditActionCard
-              creditAction={creditAction}
-              onPress={() =>
-                router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
-              }
+              style={{ marginHorizontal: 16, marginBottom: 12 }}
             />
           )}
 
@@ -1602,12 +1608,6 @@ export default function HomeScreen() {
             isRecording={isRecording}
             locked={isCaptureLocked || !isCaptureCollapsible}
             onExpandedHeightChange={setCaptureExpandedHeight}>
-            <View className="px-6 pb-4">
-              <ThemedText tone="muted" className="text-xs font-medium text-center">
-                Talk the way you normally would. Finnri sorts it out.
-              </ThemedText>
-            </View>
-
             <VoiceInputCard
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}

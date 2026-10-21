@@ -1,15 +1,17 @@
 import { fireEvent, render } from '@testing-library/react-native';
 
-import { ChipPicker } from '@/components/money/subscriptions/ChipPicker';
 import { DateRow } from '@/components/money/subscriptions/DateRow';
 import { Field } from '@/components/money/subscriptions/Field';
+import { InputRow, ToggleRow } from '@/components/money/subscriptions/FormRows';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
 import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Subscription } from '@/lib/subscriptions';
 
-jest.mock('@/lib/haptics', () => ({ haptics: { select: jest.fn(), saved: jest.fn() } }));
+jest.mock('@/lib/haptics', () => ({
+  haptics: { select: jest.fn(), saved: jest.fn(), toggle: jest.fn() },
+}));
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
   router: { push: jest.fn() },
@@ -37,21 +39,35 @@ describe('Pill', () => {
   });
 });
 
-describe('ChipPicker', () => {
-  it('lists the options and selects one', async () => {
-    const onSelect = jest.fn();
+describe('InputRow', () => {
+  it('names the field in full for a screen reader and reports edits', async () => {
+    const onChangeText = jest.fn();
     const screen = await render(
-      <ChipPicker
-        label="Category"
-        options={['Food', 'Travel']}
-        active="Food"
-        onSelect={onSelect}
-        colors={colors}
+      <InputRow
+        label="EMIs paid"
+        accessibilityLabel="EMIs already paid"
+        value="3"
+        onChangeText={onChangeText}
+        suffix="of 36"
       />
     );
-    expect(screen.getByText('Category')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Travel'));
-    expect(onSelect).toHaveBeenCalledWith('Travel');
+    expect(screen.getByText('EMIs paid')).toBeTruthy();
+    expect(screen.getByText('of 36')).toBeTruthy();
+    await fireEvent.changeText(screen.getByLabelText('EMIs already paid'), '4');
+    expect(onChangeText).toHaveBeenCalledWith('4');
+  });
+});
+
+describe('ToggleRow', () => {
+  it('toggles from anywhere on the row', async () => {
+    const onValueChange = jest.fn();
+    const screen = await render(
+      <ToggleRow title="Autopay" caption="Adds each payment" value={false} onValueChange={onValueChange} />
+    );
+    const row = screen.getByRole('switch');
+    expect(row.props.accessibilityState).toEqual({ checked: false });
+    await fireEvent.press(screen.getByText('Adds each payment'));
+    expect(onValueChange).toHaveBeenCalledWith(true);
   });
 });
 
@@ -79,7 +95,7 @@ describe('SegmentedControl', () => {
 });
 
 describe('Field', () => {
-  it('shows its label and reports edits', async () => {
+  it('is named by its label and reports edits', async () => {
     const onChangeText = jest.fn();
     const screen = await render(
       <Field
@@ -91,8 +107,9 @@ describe('Field', () => {
         keyboardType="decimal-pad"
       />
     );
-    expect(screen.getByText('Amount')).toBeTruthy();
-    await fireEvent.changeText(screen.getByDisplayValue('199'), '249');
+    // The board draws the field with only its placeholder; the label is spoken.
+    expect(screen.queryByText('Amount')).toBeNull();
+    await fireEvent.changeText(screen.getByLabelText('Amount'), '249');
     expect(onChangeText).toHaveBeenCalledWith('249');
   });
 });
@@ -101,13 +118,13 @@ describe('DateRow', () => {
   it('formats the date, or prompts for one', async () => {
     const onPress = jest.fn();
     const withDate = await render(
-      <DateRow label="Next due" value="2026-09-05" onPress={onPress} colors={colors} muted="#999" />
+      <DateRow label="Next due" value="2026-09-05" onPress={onPress} />
     );
     expect(withDate.getByText(/^05 Sep(t)? 2026$/)).toBeTruthy();
     await fireEvent.press(withDate.getByLabelText('Next due'));
     expect(onPress).toHaveBeenCalledTimes(1);
     const empty = await render(
-      <DateRow label="Start" value="" onPress={jest.fn()} colors={colors} muted="#999" />
+      <DateRow label="Start" value="" onPress={jest.fn()} />
     );
     expect(empty.getByText('Pick a date')).toBeTruthy();
   });

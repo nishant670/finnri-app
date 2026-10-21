@@ -1,9 +1,9 @@
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { recurringVisuals } from '@/components/money/money-visuals';
 import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { CardEMIRow, RecurringOverviewCard } from '@/components/money/RecurringParts';
 import { RecurringCandidatesCard } from '@/components/money/RecurringCandidatesCard';
@@ -11,10 +11,16 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { PrimaryButton } from '@/components/ui/Button';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
+import { LabelRow } from '@/components/ui/LabelRow';
+import { ListRow } from '@/components/ui/ListRow';
+import { PickerOptionList, PickerSheet } from '@/components/ui/PickerSheet';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
-import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { fetchAccounts, normalizeAccountType, type Account } from '@/lib/accounts';
@@ -45,13 +51,13 @@ import {
 import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, looksLikeCardBill, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
-import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
 import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
 import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
 import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
 import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
+import { RECURRING_LABEL_WIDTH } from '@/components/money/subscriptions/FormRows';
 import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
 import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
@@ -83,6 +89,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
   const muted = `${colors.text}99`;
+  const [isIntervalPickerVisible, setIsIntervalPickerVisible] = useState(false);
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [cardEMIs, setCardEMIs] = useState<RecurringCardEMI[]>([]);
@@ -361,11 +368,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setShowForm(true);
   };
 
-  const openCreateForm = () => {
+  const openCreateForm = (startKind?: RecurringKind) => {
     resetForm();
     setFormSession((session) => session + 1);
     // A filtered list is a statement of intent: "+" on Loans adds a loan.
-    const kind = filter === 'all' ? 'subscription' : filter;
+    const kind = startKind ?? (filter === 'all' ? 'subscription' : filter);
     setFormKind(kind);
     setCategory(recurringKindMeta[kind].defaultCategory);
     setShowForm(true);
@@ -665,14 +672,18 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     .filter(Boolean)
     .join(' · ');
 
+  const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
+  const isEmptyAll =
+    !loading && !listError && filter === 'all' && visibleItems.length === 0 && visibleCardEMIs.length === 0;
+
   return (
-    <View className="flex-1" style={{ backgroundColor: colors.background }}>
+    <View style={{ flex: 1, backgroundColor: colors.background }}>
       {embedded ? (
         <PanelActionRow
           subtitle={summaryLine}
-          actionLabel={loading ? undefined : 'New'}
+          actionLabel={loading || isEmptyAll ? undefined : 'Add'}
           actionIcon="plus"
-          onAction={openCreateForm}
+          onAction={() => openCreateForm()}
           colors={colors}
         />
       ) : (
@@ -681,28 +692,25 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           subtitle={summaryLine}
           onBack={() => router.back()}
           rightIcon={loading ? undefined : 'plus'}
-          onRightPress={openCreateForm}
+          onRightPress={() => openCreateForm()}
         />
       )}
 
       <ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 24,
-          paddingTop: 8,
-          paddingBottom: embedded ? 120 : 32,
-          gap: 16,
-        }}>
+        contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
         {visibleCandidates.length > 0 && (
-          <RecurringCandidatesCard
-            candidates={visibleCandidates}
-            onTracked={(createdCount) => {
-              if (createdCount > 0) void load();
-              void loadCandidates();
-            }}
-            onDismissed={() => setCandidatesHidden(true)}
-          />
+          <View style={styles.gutter}>
+            <RecurringCandidatesCard
+              candidates={visibleCandidates}
+              onTracked={(createdCount) => {
+                if (createdCount > 0) void load();
+                void loadCandidates();
+              }}
+              onDismissed={() => setCandidatesHidden(true)}
+            />
+          </View>
         )}
 
         {!loading && overview && overview.active_count > 0 ? (
@@ -721,26 +729,29 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         )}
 
         {loading ? (
-          <SkeletonFrame label="Loading subscriptions" testID="subscriptions-skeleton">
-            <SkeletonCards count={3} lines={2} radius={28} />
-          </SkeletonFrame>
+          <View style={styles.gutter}>
+            <SkeletonFrame label="Loading subscriptions" testID="subscriptions-skeleton">
+              <SkeletonCards count={3} lines={2} radius={16} />
+            </SkeletonFrame>
+          </View>
         ) : visibleItems.length > 0 || visibleCardEMIs.length > 0 ? (
-          <View className="gap-3">
-            {visibleCardEMIs.map((emi) => (
+          <View style={cardStyle}>
+            {visibleCardEMIs.map((emi, index) => (
               <CardEMIRow
                 key={`card-emi-${emi.plan_id}`}
                 emi={emi}
+                divider={index > 0}
                 onPress={() =>
                   router.push({ pathname: '/emi-plans/[id]', params: { id: String(emi.plan_id) } })
                 }
               />
             ))}
-            {visibleItems.map((subscription) => (
+            {visibleItems.map((subscription, index) => (
               <SubscriptionCard
                 key={subscription.id}
                 subscription={subscription}
                 colors={colors}
-                muted={muted}
+                divider={visibleCardEMIs.length + index > 0}
                 onPress={() => editSubscription(subscription)}
                 onMarkPaid={() => openMarkPaid(subscription)}
                 onCancelNow={() => void cancelNow(subscription)}
@@ -748,32 +759,52 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               />
             ))}
           </View>
+        ) : isEmptyAll ? (
+          // Board R5-Recurring: one card that says what belongs here, with a
+          // way in for each kind.
+          <View style={cardStyle}>
+            <View style={styles.emptyHead}>
+              <ThemedText style={[styles.emptyTitle, { color: colors.text }]}>
+                Track your first recurring payment
+              </ThemedText>
+              <ThemedText tone="muted" style={styles.body}>
+                Anything that leaves your account on a schedule. It shows in Upcoming before it is
+                due.
+              </ThemedText>
+            </View>
+            {recurringKinds.map((kind) => (
+              <ListRow
+                key={kind}
+                testID={`recurring-start-${kind}`}
+                icon={recurringVisuals[kind].icon}
+                hue={recurringVisuals[kind].hue}
+                title={kind === 'loan' ? 'Loan or EMI' : recurringKindMeta[kind].label}
+                meta={recurringKindMeta[kind].namePlaceholder}
+                chevron
+                divider
+                onPress={() => openCreateForm(kind)}
+              />
+            ))}
+          </View>
         ) : !listError ? (
           <StateView
             icon="calendar-sync-outline"
-            title={
-              filter === 'all'
-                ? 'Track your first recurring payment'
-                : `No ${recurringKindMeta[filter].plural.toLowerCase()} yet`
-            }
+            title={`No ${recurringKindMeta[filter as RecurringKind].plural.toLowerCase()} yet`}
             message="Loans and EMIs, subscriptions, SIPs and bills — add anything that leaves your account on a schedule. It shows in Upcoming before it is due."
-            actionLabel={
-              filter === 'all'
-                ? 'Add recurring payment'
-                : `Add ${recurringKindMeta[filter].label.toLowerCase()}`
-            }
-            onAction={openCreateForm}
+            actionLabel={`Add ${recurringKindMeta[filter as RecurringKind].label.toLowerCase()}`}
+            onAction={() => openCreateForm()}
             compact
           />
         ) : null}
       </ScrollView>
 
+      {/* Board R5-NewLoan: one sheet for all four kinds. */}
       <AnimatedBottomSheet
         visible={showForm}
         onClose={closeForm}
         avoidKeyboard
         sheetStyle={{
-          backgroundColor: colors.card,
+          backgroundColor: colors.background,
           borderTopLeftRadius: 28,
           borderTopRightRadius: 28,
           maxHeight: '92%',
@@ -781,21 +812,20 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 20, paddingBottom: 28 }}>
-          <View className="mb-5 flex-row items-center justify-between gap-3">
-            <ThemedText className="text-lg font-black" style={{ fontFamily: Fonts.title }}>
-              {formTitle}
-            </ThemedText>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-              onPress={closeForm}
-              hitSlop={10}>
-              <MaterialCommunityIcons name="close" size={22} color={muted} />
-            </Pressable>
+          contentContainerStyle={styles.sheet}>
+          <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+          <View style={styles.sheetHeader}>
+            <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>{formTitle}</ThemedText>
+            <SheetCloseButton onPress={closeForm} />
           </View>
 
-          <View testID="recurring-kind-picker" className="mb-4 flex-row flex-wrap gap-2">
+          {/* One line, as on the board; it scrolls on a phone too narrow for all four. */}
+          <ScrollView
+            testID="recurring-kind-picker"
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.kindsScroll}
+            contentContainerStyle={styles.kindsRow}>
             {recurringKinds.map((kind) => (
               <Pill
                 key={kind}
@@ -805,15 +835,14 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 colors={colors}
               />
             ))}
-          </View>
+          </ScrollView>
 
           {formKind === 'investment' ? (
             <InvestmentTypePicker
               key={formSession}
               value={merchant}
               onChange={setMerchant}
-              colors={colors}
-              muted={muted}
+              style={styles.block}
             />
           ) : (
             <Field
@@ -827,9 +856,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           )}
           {formKind !== 'investment' && looksLikeCardBill(`${merchant} ${name}`) ? (
             <CardBillNote
-              cards={accounts.filter(
-                (account) => normalizeAccountType(account.type) === 'credit_card'
-              )}
+              cards={accounts.filter((account) => normalizeAccountType(account.type) === 'credit_card')}
               colors={colors}
               onOpen={(cardId) => {
                 closeForm();
@@ -843,7 +870,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           ) : null}
           {/* Past merchants — Swiggy, Netflix — are no help naming an SIP. */}
           {formKind !== 'investment' && merchantSuggestions.length > 0 && (
-            <View className="mb-3 flex-row flex-wrap gap-2">
+            <View style={styles.kinds}>
               {merchantSuggestions.slice(0, 6).map((suggestion) => (
                 <Pill
                   key={suggestion.merchant}
@@ -856,62 +883,48 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             </View>
           )}
 
-          <Field
-            label={
-              formKind === 'loan'
-                ? 'EMI amount'
-                : formKind === 'investment'
-                  ? 'Instalment amount'
-                  : 'Amount'
-            }
-            value={amount}
-            onChangeText={(value) => setAmount(sanitizeAmount(value))}
-            keyboardType="decimal-pad"
-            colors={colors}
-            placeholder={
-              formKind === 'loan' ? '9,965' : formKind === 'investment' ? '5,000' : '199'
-            }
-          />
+          <View style={[styles.amountRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <ThemedText tone="muted" style={styles.amountLabel}>
+              {formKind === 'loan' ? 'EMI amount' : formKind === 'investment' ? 'Instalment' : 'Amount'}
+            </ThemedText>
+            <ThemedText style={[styles.rupee, { color: colors.text }]}>{CURRENCY_SYMBOL}</ThemedText>
+            <TextInput
+              accessibilityLabel={
+                formKind === 'loan'
+                  ? 'EMI amount'
+                  : formKind === 'investment'
+                    ? 'Instalment amount'
+                    : 'Amount'
+              }
+              value={amount}
+              onChangeText={(value) => setAmount(sanitizeAmount(value))}
+              keyboardType="decimal-pad"
+              placeholder={formKind === 'loan' ? '9,965' : formKind === 'investment' ? '5,000' : '199'}
+              placeholderTextColor={colors.muted}
+              style={[styles.amountInput, { color: colors.text }]}
+            />
+          </View>
 
-          <Pressable
-            accessibilityRole="button"
-            onPress={openDueDatePicker}
-            className="mb-4 flex-row items-center justify-between rounded-2xl border p-4"
-            style={{ backgroundColor: colors.background, borderColor: colors.border }}>
-            <View className="flex-row items-center gap-3">
-              <View
-                className="h-10 w-10 items-center justify-center rounded-xl"
-                style={{ backgroundColor: colors.secondary }}>
-                <MaterialCommunityIcons
-                  name="calendar-check-outline"
-                  size={22}
-                  color={colors.accent}
-                />
-              </View>
-              <View>
-                <ThemedText className="text-[11px] font-black uppercase" style={{ color: muted }}>
-                  {formKind === 'loan'
-                    ? 'Next EMI on'
-                    : formKind === 'subscription'
-                      ? 'Renews on'
-                      : 'Next payment on'}
-                </ThemedText>
-                <ThemedText className="mt-1 text-sm font-black" style={{ color: colors.text }}>
-                  {formatDueDateLabel(nextDueDate)}
-                </ThemedText>
-              </View>
-            </View>
-            <MaterialCommunityIcons name="chevron-down" size={22} color={muted} />
-          </Pressable>
-
-          <SegmentedControl
-            label="Repeats"
-            values={intervalOptions}
-            active={interval}
-            onSelect={chooseInterval}
-            colors={colors}
-            columns={3}
-          />
+          <View style={[styles.rows, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <LabelRow
+              label={
+                formKind === 'loan' ? 'Next EMI' : formKind === 'subscription' ? 'Renews on' : 'Next payment'
+              }
+              value={formatDueDateLabel(nextDueDate)}
+              icon="calendar-blank-outline"
+              iconColor={colors.text}
+              labelWidth={RECURRING_LABEL_WIDTH}
+              onPress={openDueDatePicker}
+            />
+            <LabelRow
+              testID="recurring-interval"
+              label="Repeats"
+              value={intervalOptions.find((option) => option.value === interval)?.label ?? interval}
+              divider
+              labelWidth={RECURRING_LABEL_WIDTH}
+              onPress={() => setIsIntervalPickerVisible(true)}
+            />
+          </View>
 
           {!editing ? (
             <LogCurrentPaymentCard
@@ -929,8 +942,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 setAccountID(next.accountID);
               }}
               onAddAccount={() => router.push('/accounts/manage')}
-              colors={colors}
-              muted={muted}
+              style={styles.block}
             />
           ) : null}
 
@@ -939,23 +951,20 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
               they fold, and the fold reads back whatever is filled in. A loan
               used to open with all fourteen inputs on screen. */}
           {formKind === 'loan' ? (
-            <View className="mb-3">
+            <View style={styles.fold}>
               <FormDisclosure
                 testID="recurring-loan-details"
                 label="Loan details"
-                icon="bank-outline"
                 summary={kindDetailsSummary}
                 expanded={showKindDetails}
                 onToggle={() => setShowKindDetails((open) => !open)}>
                 <SubscriptionLoanFields
                   amount={amount}
-                  colors={colors}
                   emisPaid={emisPaid}
                   foreclosurePct={foreclosurePct}
                   lender={lender}
                   loanSuggestion={loanSuggestion}
                   loanType={loanType}
-                  muted={muted}
                   name={name}
                   openStartDatePicker={openStartDatePicker}
                   principal={principal}
@@ -978,17 +987,14 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           ) : null}
 
           {formKind === 'investment' ? (
-            <View className="mb-3">
+            <View style={styles.fold}>
               <FormDisclosure
                 testID="recurring-investment-details"
                 label="Investment details"
-                icon="chart-line"
                 summary={kindDetailsSummary}
                 expanded={showKindDetails}
                 onToggle={() => setShowKindDetails((open) => !open)}>
                 <SubscriptionInvestmentFields
-                  colors={colors}
-                  muted={muted}
                   openStartDatePicker={openStartDatePicker}
                   platform={platform}
                   setPlatform={setPlatform}
@@ -1000,7 +1006,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             </View>
           ) : null}
 
-          <View className="mb-4">
+          <View style={styles.fold}>
             <FormDisclosure
               testID="recurring-more-options"
               label="More options"
@@ -1014,12 +1020,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
                 cancelBeforeDue={cancelBeforeDue}
                 cancelOnDate={cancelOnDate}
                 category={category}
-                colors={colors}
                 formKind={formKind}
                 interval={interval}
                 isEditing={Boolean(editing)}
                 merchant={merchant}
-                muted={muted}
                 name={name}
                 notes={notes}
                 onAddAccount={() => router.push('/accounts/manage')}
@@ -1041,31 +1045,37 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           </View>
 
           {error && (
-            <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
-              <ThemedText className="text-xs font-bold" style={{ color: '#D32F2F' }}>
-                {error}
-              </ThemedText>
-            </View>
+            <ThemedText tone="negative" style={[styles.caption, styles.error]}>
+              {error}
+            </ThemedText>
           )}
 
-          <Pressable
-            accessibilityRole="button"
+          {/* The kind's key is its plain noun. Lower-casing the label
+              printed "Add loan / emi". */}
+          <PrimaryButton
+            label={editing ? 'Save changes' : `Add ${formKind}`}
+            loading={saving}
             onPress={saveSubscription}
-            disabled={saving}
-            className="h-12 items-center justify-center rounded-2xl"
-            style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
-            {saving ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                {/* The kind's key is its plain noun. Lower-casing the label
-                    printed "Add loan / emi". */}
-                {editing ? 'Save changes' : `Add ${formKind}`}
-              </ThemedText>
-            )}
-          </Pressable>
+            style={styles.save}
+          />
         </ScrollView>
       </AnimatedBottomSheet>
+
+      <PickerSheet
+        visible={isIntervalPickerVisible}
+        title="Repeats"
+        onClose={() => setIsIntervalPickerVisible(false)}>
+        <PickerOptionList
+          accessibilityLabel="Repeats"
+          options={intervalOptions.map((option) => ({ key: option.value, label: option.label }))}
+          selectedKey={interval}
+          onSelect={(key) => {
+            haptics.select();
+            chooseInterval(key as BillingInterval);
+            setIsIntervalPickerVisible(false);
+          }}
+        />
+      </PickerSheet>
 
       <MarkPaidSheet
         key={payingFor?.id ?? 'none'}
@@ -1118,21 +1128,157 @@ function CardBillNote({
   return (
     <View
       testID="recurring-card-bill-note"
-      className="mb-3 rounded-2xl p-3"
-      style={{ backgroundColor: colors.secondary }}>
-      <ThemedText className="text-xs leading-5" style={{ color: colors.text }}>
+      style={[styles.note, { backgroundColor: colors.warningSurface, borderColor: colors.warningBorder }]}>
+      <ThemedText style={[styles.body, { color: colors.text }]}>
         Credit card bills belong on the card’s own page. Your card spends are already logged one
         by one, so a bill here would count them twice.
       </ThemedText>
       <Pressable
         accessibilityRole="button"
         onPress={() => onOpen(only?.id ?? null)}
-        className="mt-2 self-start"
+        style={styles.noteLink}
         hitSlop={8}>
-        <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
+        <ThemedText style={[styles.noteLinkLabel, { color: colors.text }]}>
           {only ? `Open ${only.name}` : 'Go to your accounts'}
         </ThemedText>
       </Pressable>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    gap: 12,
+    paddingTop: 14,
+  },
+  gutter: {
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  card: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  emptyHead: {
+    gap: 4,
+    padding: 14,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  body: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  sheet: {
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  sheetHeader: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginLeft: 4,
+    marginRight: -8,
+  },
+  sheetTitle: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  kinds: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 4,
+    marginBottom: 12,
+  },
+  kindsScroll: {
+    marginTop: 4,
+    marginBottom: 12,
+    marginHorizontal: -16,
+    flexGrow: 0,
+  },
+  kindsRow: {
+    gap: 6,
+    paddingHorizontal: 16,
+  },
+  amountRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  amountLabel: {
+    width: RECURRING_LABEL_WIDTH,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  rupee: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '600',
+  },
+  amountInput: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 10,
+    fontSize: 24,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  rows: {
+    marginBottom: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  fold: {
+    marginBottom: 10,
+  },
+  block: {
+    marginBottom: 12,
+  },
+  error: {
+    marginTop: 4,
+  },
+  save: {
+    marginTop: 12,
+  },
+  note: {
+    gap: 6,
+    marginBottom: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  noteLink: {
+    alignSelf: 'flex-start',
+  },
+  noteLinkLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+});

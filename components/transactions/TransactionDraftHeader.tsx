@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -9,15 +9,16 @@ type TransactionDraftSourceProps = {
   sourceText: string;
 };
 
-/** What the AI heard, quoted above its draft so a misheard word is easy to spot. */
+/**
+ * What the AI heard, quoted above its draft so a misheard word is easy to spot
+ * (board R2-Draft: a 32dp tile, "You said", then the words).
+ */
 export function TransactionDraftSource({ inputSource, sourceText }: TransactionDraftSourceProps) {
-  const theme = useThemeTokens().colors;
+  const { colors } = useThemeTokens();
 
   return (
-    <View
-      className="mb-3 rounded-[20px] border px-4 py-3"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-center gap-1.5">
+    <View style={[styles.source, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={[styles.sourceTile, { backgroundColor: colors.selectedFill }]}>
         <MaterialCommunityIcons
           name={
             inputSource === 'receipt'
@@ -26,91 +27,148 @@ export function TransactionDraftSource({ inputSource, sourceText }: TransactionD
                 ? 'keyboard-outline'
                 : 'microphone-outline'
           }
-          size={13}
-          color="#9CA3AF"
+          size={18}
+          color={colors.text}
         />
-        <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+      </View>
+      <View style={styles.sourceText}>
+        <ThemedText tone="muted" style={styles.caption}>
           {inputSource === 'receipt'
             ? 'Read from your receipt'
             : inputSource === 'text'
               ? 'You typed'
               : 'You said'}
         </ThemedText>
+        <ThemedText testID="draft-source-text" style={[styles.quote, { color: colors.text }]}>
+          “{sourceText}”
+        </ThemedText>
       </View>
-      <ThemedText
-        testID="draft-source-text"
-        className="mt-1.5 text-sm font-bold italic"
-        style={{ color: theme.text }}>
-        “{sourceText}”
-      </ThemedText>
     </View>
   );
 }
 
-type TransactionDraftBannerProps = {
+type TransactionDraftStatusProps = {
   isParsing: boolean;
   /** How many fields are still waiting for a look. */
   fieldsToCheck: number;
   /** Whether the parser sent any confidence data at all. */
   hasReviewMetadata: boolean;
-  /** Names of the fields to check, listed under the chip. Empty hides the line. */
-  checkList: string[];
-  /** Questions the parser asked, shown under the chip. */
+  /** Questions the parser asked, shown under the count. */
   clarifications?: string[];
 };
 
-/** The amber "AI draft" banner that tops a parsed entry. */
-export function TransactionDraftBanner({
+/**
+ * The line under a draft's amount (board R2-Draft): how many fields want a
+ * look, in warning ink, with the parser's own questions beneath it. Each of
+ * those fields carries its own "Check" tag in the form below.
+ */
+export function TransactionDraftStatus({
   isParsing,
   fieldsToCheck,
   hasReviewMetadata,
-  checkList,
   clarifications,
-}: TransactionDraftBannerProps) {
-  return (
-    <View className="mb-4 rounded-3xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/50 dark:bg-amber-900/20">
-      <View className="flex-row items-center justify-between">
-        <View className="flex-row items-center">
-          <MaterialCommunityIcons name="creation-outline" size={18} color="#D97706" />
-          <ThemedText
-            tone="warning"
-            className="ml-2 text-[11px] font-black uppercase tracking-widest">
-            AI draft
-          </ThemedText>
-        </View>
-        <View className="rounded-full border border-amber-200 bg-white px-2 py-1 dark:border-amber-800 dark:bg-gray-800">
-          <ThemedText tone="warning" className="text-[9px] font-black uppercase">
-            {/* Mid-parse the chip has no fields to count, and
-                the fallback "Review all fields" is a claim about
-                a draft that does not exist yet. */}
-            {isParsing
-              ? 'Reading'
-              : fieldsToCheck > 0
-                ? `${fieldsToCheck} field${fieldsToCheck === 1 ? '' : 's'} to check`
-                : hasReviewMetadata
-                  ? 'No issues flagged'
-                  : 'Review all fields'}
-          </ThemedText>
-        </View>
-      </View>
-      {checkList.length > 0 && (
-        <ThemedText tone="warning" className="mt-3 text-sm font-bold">
-          Check: {checkList.join(', ')}
-        </ThemedText>
-      )}
-      {clarifications?.map((clarification) => (
-        <View key={clarification} className="mt-2 flex-row items-start">
-          <MaterialCommunityIcons name="help-circle-outline" size={16} color="#D97706" />
-          <ThemedText tone="warning" className="ml-2 flex-1 text-sm">
-            {clarification}
-          </ThemedText>
-        </View>
-      ))}
-      <ThemedText tone="warning" className="mt-3 text-xs">
-        {isParsing
-          ? 'Picking out the amount, category and account. You can review everything before it is saved.'
-          : 'AI suggestions are never saved until you confirm.'}
+}: TransactionDraftStatusProps) {
+  const { colors } = useThemeTokens();
+
+  const line = isParsing ? (
+    <>
+      <ActivityIndicator size="small" color={colors.muted} />
+      <ThemedText tone="muted" style={styles.status}>
+        Reading your entry…
       </ThemedText>
+    </>
+  ) : fieldsToCheck > 0 ? (
+    <>
+      <MaterialCommunityIcons name="alert-circle-outline" size={18} color={colors.warning} />
+      <ThemedText tone="warning" style={styles.status}>
+        {`${fieldsToCheck} field${fieldsToCheck === 1 ? '' : 's'} to check`}
+      </ThemedText>
+    </>
+  ) : hasReviewMetadata ? (
+    <>
+      <MaterialCommunityIcons name="check-circle-outline" size={18} color={colors.positive} />
+      <ThemedText tone="positive" style={styles.status}>
+        No issues flagged
+      </ThemedText>
+    </>
+  ) : (
+    // Mid-parse or without confidence data there is nothing to count, and
+    // "No issues" would be a claim the parser never made.
+    <ThemedText tone="muted" style={styles.status}>
+      Review all fields
+    </ThemedText>
+  );
+
+  return (
+    <View accessibilityRole="summary" style={styles.statusBlock}>
+      <View style={styles.statusLine}>{line}</View>
+      {!isParsing &&
+        clarifications?.map((clarification) => (
+          <View key={clarification} style={styles.question}>
+            <MaterialCommunityIcons name="help-circle-outline" size={16} color={colors.warning} />
+            <ThemedText style={[styles.questionText, { color: colors.text }]}>
+              {clarification}
+            </ThemedText>
+          </View>
+        ))}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  source: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  sourceTile: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sourceText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  quote: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  statusBlock: {
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 2,
+  },
+  statusLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  status: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  question: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  questionText: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});

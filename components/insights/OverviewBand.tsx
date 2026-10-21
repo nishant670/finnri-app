@@ -1,13 +1,13 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { LayoutChangeEvent, Pressable, View } from 'react-native';
 import Svg, { Rect } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
+import { mixHex } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { DashboardOverview, DashboardOverviewMonth } from '@/lib/insights';
 import { formatMoney, formatMoneyCompact } from '@/lib/money';
+import { Eyebrow, InsightCard, insightText } from './insight-ui';
 
 /**
  * The standing band at the top of Insights: what is true whatever period is
@@ -79,52 +79,29 @@ export function OverviewBand({
 
   const categoryMonths = overview.top_category_months ?? 0;
 
-  return (
-    <View
-      className="rounded-3xl border p-5"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-center gap-2">
-        <MaterialCommunityIcons name="chart-timeline-variant" size={16} color={theme.accent} />
-        <ThemedText
-          className="text-xs uppercase"
-          style={{ color: theme.mutedStrong, fontFamily: Fonts.title, letterSpacing: 0.6 }}>
-          Your money so far
-        </ThemedText>
-      </View>
+  const caption = canClaimTypical
+    ? `last ${baselineMonths} months · ${formatMoneyCompact(
+        overview.lifetime_spent
+      )} over ${overview.months_tracked} month${overview.months_tracked === 1 ? '' : 's'}`
+    : `${overview.lifetime_transaction_count} transaction${
+        overview.lifetime_transaction_count === 1 ? '' : 's'
+      } in ${overview.months_tracked} month${overview.months_tracked === 1 ? '' : 's'}`;
 
-      <View className="mt-3 flex-row items-end justify-between gap-4">
-        <View className="min-w-0 flex-1">
-          <ThemedText
-            className="text-2xl"
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            style={{ color: theme.text, fontFamily: Fonts.title }}>
-            {formatMoney(canClaimTypical ? typical : overview.lifetime_spent)}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: theme.muted }}>
-            {canClaimTypical
-              ? `in a typical month · last ${baselineMonths} months`
-              : 'tracked so far'}
-          </ThemedText>
-        </View>
-        <View className="items-end">
-          <ThemedText className="text-base" style={{ color: theme.text, fontFamily: Fonts.title }}>
-            {canClaimTypical
-              ? formatMoneyCompact(overview.lifetime_spent)
-              : String(overview.lifetime_transaction_count)}
-          </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: theme.muted }}>
-            {canClaimTypical
-              ? `over ${overview.months_tracked} month${overview.months_tracked === 1 ? '' : 's'}`
-              : `transaction${overview.lifetime_transaction_count === 1 ? '' : 's'} in ${
-                  overview.months_tracked
-                } month${overview.months_tracked === 1 ? '' : 's'}`}
-          </ThemedText>
-        </View>
-      </View>
+  return (
+    <InsightCard>
+      <Eyebrow>{canClaimTypical ? 'A typical month' : 'Tracked so far'}</Eyebrow>
+      <ThemedText
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={[insightText.figure, { color: theme.text }]}>
+        {formatMoney(canClaimTypical ? typical : overview.lifetime_spent)}
+      </ThemedText>
+      <ThemedText tone="muted" style={insightText.body}>
+        {caption}
+      </ThemedText>
 
       <View
-        className="mt-4"
+        style={{ marginTop: 16 }}
         onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}>
         {barWidth > 0 ? (
           <>
@@ -150,8 +127,8 @@ export function OverviewBand({
                       selected
                         ? theme.accent
                         : month.spent > 0
-                          ? theme.secondary
-                          : theme.border
+                          ? mixHex(theme.card, theme.accent, 0.35)
+                          : theme.track
                     }
                   />
                 );
@@ -178,20 +155,22 @@ export function OverviewBand({
           <View style={{ height: CHART_HEIGHT }} />
         )}
 
-        <View className="mt-2 flex-row" style={{ gap: BAR_GAP }}>
+        <View style={{ marginTop: 8, flexDirection: 'row', gap: BAR_GAP }}>
           {months.map((month) => (
             <ThemedText
               key={month.month}
               numberOfLines={1}
-              className="text-center"
               // fontSize lives in `style`, not in an arbitrary `text-[9px]`
               // class. Those do not survive a release build — they fall back to
               // ThemedText's 14px preset — and twelve month labels at 14px do
               // not fit the strip's width. Style-driven sizes are unaffected.
               style={{
                 width: barWidth,
-                fontSize: 9,
-                color: month.month === selectedMonth ? theme.accent : theme.muted,
+                textAlign: 'center',
+                fontSize: 12,
+                lineHeight: 16,
+                fontWeight: month.month === selectedMonth ? '700' : '400',
+                color: month.month === selectedMonth ? theme.text : theme.muted,
               }}>
               {month.label.slice(0, 1)}
             </ThemedText>
@@ -200,7 +179,7 @@ export function OverviewBand({
       </View>
 
       {overview.top_category ? (
-        <ThemedText className="mt-3 text-xs leading-5" style={{ color: theme.muted }}>
+        <ThemedText tone="muted" style={[insightText.body, { marginTop: 14 }]}>
           {/* The window asks for six months; an account three months old has
               three, and "over six months" would describe a period half of which
               it was not being used for. */}
@@ -210,6 +189,6 @@ export function OverviewBand({
           what you spent.
         </ThemedText>
       ) : null}
-    </View>
+    </InsightCard>
   );
 }

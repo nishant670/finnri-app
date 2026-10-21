@@ -139,7 +139,7 @@ export default function SplitInviteScreen() {
             className="mt-7 min-h-14 w-full items-center justify-center rounded-2xl px-5"
             style={{ backgroundColor: theme.accent, opacity: loading || accepting ? 0.65 : 1 }}>
             {accepting ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={theme.onAccent} />
             ) : (
               <ThemedText tone="onAccent" className="text-base" style={{ fontFamily: Fonts.title }}>
                 {user ? 'Join group' : 'Sign in to join'}

@@ -1,57 +1,58 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PrimaryButton } from '@/components/ui/Button';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { InsightCard, ProgressBar, insightText } from './insight-ui';
 
+/** The new account's card (board R7-Insights): how far to the first insights, and Add. */
 export function InsightsUnlockProgressCard({ count }: { count: number }) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
   const progress = Math.min(3, Math.max(0, count));
   return (
-    <View
-      className="rounded-[28px] border p-6"
-      style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-      <View
-        className="h-12 w-12 items-center justify-center rounded-2xl"
-        style={{ backgroundColor: theme.colors.secondary }}>
-        <MaterialCommunityIcons
-          name="chart-box-plus-outline"
-          size={24}
-          color={theme.colors.accent}
-        />
+    <InsightCard>
+      <View style={styles.head}>
+        <ThemedText style={[insightText.title, styles.title, { color: colors.text }]}>
+          Add 3 transactions to unlock insights
+        </ThemedText>
+        <ThemedText style={[styles.count, { color: colors.text }]}>{progress} of 3</ThemedText>
       </View>
-      <ThemedText className="mt-4 text-lg font-black">
-        Add 3 transactions to unlock insights
-      </ThemedText>
-      <ThemedText tone="muted" className="mt-2 text-xs leading-5">
+      <ProgressBar fraction={progress / 3} color={colors.accent} style={styles.bar} />
+      <ThemedText tone="muted" style={[insightText.body, styles.body]}>
         A few real entries are enough for Finnri to start showing useful patterns.
       </ThemedText>
-      <View
-        className="mt-5 h-2 overflow-hidden rounded-full"
-        style={{ backgroundColor: theme.colors.secondary }}>
-        <View
-          className="h-full rounded-full"
-          style={{ backgroundColor: theme.colors.accent, width: `${(progress / 3) * 100}%` }}
-        />
-      </View>
-      <View className="mt-2 flex-row items-center justify-between">
-        <ThemedText tone="muted" className="text-[11px] font-bold">
-          {progress}/3 added
-        </ThemedText>
-        <ThemedText className="text-[11px] font-black" style={{ color: theme.colors.accent }}>
-          {Math.max(0, 3 - progress)} to go
-        </ThemedText>
-      </View>
-      <Pressable
-        accessibilityRole="button"
+      <PrimaryButton
+        label="Add transaction"
         onPress={() => router.push('/(tabs)')}
-        className="mt-5 items-center rounded-full py-3"
-        style={{ backgroundColor: theme.colors.accent }}>
-        <ThemedText tone="onAccent" className="text-sm font-black">
-          Add transaction
-        </ThemedText>
-      </Pressable>
-    </View>
+        style={styles.button}
+      />
+    </InsightCard>
   );
 }
+
+const styles = StyleSheet.create({
+  head: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  title: {
+    flex: 1,
+  },
+  count: {
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  bar: {
+    marginTop: 12,
+  },
+  body: {
+    marginTop: 12,
+  },
+  button: {
+    marginTop: 16,
+  },
+});

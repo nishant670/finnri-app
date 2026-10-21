@@ -55,7 +55,7 @@ export const creditGateFor = (
   if (dailyCapReached && !balanceGone) {
     return {
       title: "Today's AI credits are used up",
-      message: `You have used all ${dailyLimit} AI credits for today. Type or add the expense manually, or come back tomorrow.`,
+      message: `You have used all ${dailyLimit} AI credits for today. Add the expense manually, or come back tomorrow.`,
       actionLabel: options.isGuest ? 'Sign in for more credits' : 'View plans',
       action: options.isGuest ? 'login' : 'upgrade',
       reason: 'daily_limit',

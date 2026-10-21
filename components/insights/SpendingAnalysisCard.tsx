@@ -1,14 +1,13 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { TouchableOpacity, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { CategoryDonut } from '@/components/insights/CategoryDonut';
 import { SpendTrendChart } from '@/components/insights/SpendTrendChart';
-import { ThemedText } from '@/components/themed-text';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { ListRow } from '@/components/ui/ListRow';
 import { formatMoney } from '@/lib/money';
 import { DashboardResponse } from '@/lib/insights';
 import { openFilteredTransactions } from '@/lib/transaction-links';
+import { Eyebrow, InsightCard, MonogramTile } from './insight-ui';
 import { SectionHeader } from './SectionHeader';
 
 /**
@@ -30,7 +29,6 @@ export function SpendingAnalysisCard({
   dashboard: DashboardResponse;
   onDetails: () => void;
 }) {
-  const theme = useThemeTokens();
   const merchants = dashboard.top_merchants.slice(0, 2);
 
   return (
@@ -64,49 +62,52 @@ export function SpendingAnalysisCard({
         )}
 
         {merchants.length > 0 && (
-          <View
-            className="rounded-[24px] border p-5 shadow-sm"
-            style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-            <ThemedText
-              tone="muted"
-              className="mb-2 text-[10px] font-black uppercase tracking-widest">
-              Top merchants
-            </ThemedText>
-            {merchants.map((merchant) => (
-              <MerchantRow key={merchant.merchant} merchant={merchant} />
+          <InsightCard flush>
+            <View style={styles.merchantsHead}>
+              <Eyebrow>Top merchants</Eyebrow>
+            </View>
+            {merchants.map((merchant, index) => (
+              <MerchantRow key={merchant.merchant} merchant={merchant} divider={index > 0} />
             ))}
-          </View>
+          </InsightCard>
         )}
       </View>
     </SectionHeader>
   );
 }
-function MerchantRow({ merchant }: { merchant: DashboardResponse['top_merchants'][number] }) {
-  const theme = useThemeTokens();
-
+function MerchantRow({
+  merchant,
+  divider,
+}: {
+  merchant: DashboardResponse['top_merchants'][number];
+  divider: boolean;
+}) {
   return (
-    <TouchableOpacity
-      className="flex-row items-center justify-between py-2"
+    <ListRow
+      icon="storefront-outline"
+      hue={MERCHANT_HUE}
+      leading={<MonogramTile name={merchant.merchant} />}
+      title={merchant.merchant}
+      meta={`${merchant.transaction_count} transaction${merchant.transaction_count === 1 ? '' : 's'}`}
+      amount={formatMoney(merchant.amount)}
+      divider={divider}
       onPress={() =>
         router.push({
           pathname: '/merchant-history',
           params: { merchant: merchant.merchant },
         })
-      }>
-      <View className="flex-row items-center">
-        <View
-          className="mr-3 h-8 w-8 items-center justify-center rounded-xl"
-          style={{ backgroundColor: theme.colors.secondary }}>
-          <MaterialCommunityIcons name="storefront-outline" size={16} color={theme.colors.accent} />
-        </View>
-        <View>
-          <ThemedText className="text-xs font-bold">{merchant.merchant}</ThemedText>
-          <ThemedText tone="muted" className="text-[10px]">
-            {merchant.transaction_count} transactions
-          </ThemedText>
-        </View>
-      </View>
-      <ThemedText className="text-xs font-black">{formatMoney(merchant.amount)}</ThemedText>
-    </TouchableOpacity>
+      }
+    />
   );
 }
+
+/** Unused under a monogram, but ListRow wants a hue for its fallback tile. */
+const MERCHANT_HUE = '#64748B';
+
+const styles = StyleSheet.create({
+  merchantsHead: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 4,
+  },
+});

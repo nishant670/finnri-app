@@ -127,7 +127,7 @@ export function FriendDetailModal({
               top: 54,
               width: 220,
               height: 152,
-              backgroundColor: `${theme.onAccent}61`,
+              backgroundColor: `${theme.background}61`,
               transform: [{ rotate: '-32deg' }],
             }}
           />
@@ -138,7 +138,7 @@ export function FriendDetailModal({
               bottom: 10,
               width: 260,
               height: 152,
-              backgroundColor: `${theme.onAccent}6B`,
+              backgroundColor: `${theme.background}6B`,
               transform: [{ rotate: '32deg' }],
             }}
           />
@@ -171,7 +171,7 @@ export function FriendDetailModal({
         </View>
 
         <View className="-mt-16 px-8">
-          <AvatarCircle label={friend.name} size={112} borderColor={theme.onAccent} />
+          <AvatarCircle label={friend.name} size={112} borderColor={theme.background} />
           <TText variant="screenTitle" className="mt-4" style={{ color: theme.text }}>
             {friend.name}
           </TText>

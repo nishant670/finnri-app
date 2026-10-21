@@ -1,33 +1,16 @@
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
-import { StateView } from '@/components/ui/StateView';
-import { TText } from '@/components/split/primitives/themed-interop';
-import { Fonts } from '@/constants/theme';
+import { SplitEmptyCard } from '@/components/split/primitives/SplitChrome';
+import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /*
  * The Activity section's parts. The rows themselves are the Splits screen's
- * list items, so the section is a heading above them, an empty state in
- * place of them and a footer below them, rather than one view that mapped
- * every row at once.
+ * list items, each drawing its slice of its day's card (board R6-Activity),
+ * so the section is an empty state in place of them and a footer below them,
+ * rather than one view that mapped every row at once.
  */
-
-/** The heading, at the foot of the list's header. Ends where the first row starts. */
-export function SplitActivityHeading() {
-  const theme = useThemeTokens().colors;
-  return (
-    <View className="mb-6 mt-9">
-      <TText variant="sectionTitle" style={{ color: theme.text }}>
-        Recent activity
-      </TText>
-    </View>
-  );
-}
-
-/** Between two rows. */
-export function SplitActivitySeparator() {
-  return <View style={{ height: 16 }} />;
-}
 
 export function SplitActivityEmpty({
   loading,
@@ -45,34 +28,36 @@ export function SplitActivityEmpty({
   const theme = useThemeTokens().colors;
   if (loading) {
     return (
-      <View className="items-center py-10">
-        <ActivityIndicator color={theme.accent} />
+      <View style={styles.spinner}>
+        <ActivityIndicator color={theme.muted} />
       </View>
     );
   }
   if (error) {
     return (
-      <StateView
-        compact
-        icon="wifi-off"
-        title="Activity did not load"
-        message={error}
-        actionLabel="Try again"
-        onAction={onRetry}
-      />
+      <View style={styles.empty}>
+        <SplitEmptyCard
+          icon="wifi-off"
+          title="Activity did not load"
+          message={error}
+          actionLabel="Try again"
+          onAction={onRetry}
+        />
+      </View>
     );
   }
   return (
-    <StateView
-      compact
-      icon="history"
-      title={normalizedSearch ? 'No matching activity' : 'No activity yet'}
-      message={
-        normalizedSearch
-          ? 'Try another search.'
-          : 'Group, friend, bill, and settlement activity will appear here.'
-      }
-    />
+    <View style={styles.empty}>
+      <SplitEmptyCard
+        icon="history"
+        title={normalizedSearch ? 'No matching activity' : 'No activity yet'}
+        message={
+          normalizedSearch
+            ? 'Try another search.'
+            : 'Group, friend, bill, and settlement activity will appear here.'
+        }
+      />
+    </View>
   );
 }
 
@@ -94,28 +79,44 @@ export function SplitActivityFooter({
   const theme = useThemeTokens().colors;
   if (error) {
     return (
-      <View className="items-center gap-3 py-8">
-        <TText className="text-center text-xs" style={{ color: theme.muted }}>
+      <View style={styles.footer}>
+        <ThemedText tone="muted" style={styles.caption}>
           {error}
-        </TText>
-        <Pressable
-          accessibilityRole="button"
-          onPress={onRetry}
-          className="rounded-full px-4 py-2"
-          style={{ backgroundColor: theme.secondary }}>
-          <TText className="text-xs" style={{ color: theme.accent, fontFamily: Fonts.title }}>
-            Try again
-          </TText>
-        </Pressable>
+        </ThemedText>
+        <Button variant="outline" label="Try again" onPress={onRetry} style={styles.retry} />
       </View>
     );
   }
   if (hasMore || loadingMore) {
     return (
-      <View className="items-center py-8">
-        <ActivityIndicator color={theme.accent} />
+      <View style={styles.footer}>
+        <ActivityIndicator color={theme.muted} />
       </View>
     );
   }
   return null;
 }
+
+const styles = StyleSheet.create({
+  spinner: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  empty: {
+    marginTop: 16,
+  },
+  footer: {
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
+  retry: {
+    paddingHorizontal: 18,
+  },
+});

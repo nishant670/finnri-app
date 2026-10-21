@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { mixHex, withAlpha, type ThemeMode } from '@/constants/theme';
+
 /**
  * Canonical transaction categories — the single source of truth for the app.
  *
@@ -68,10 +70,15 @@ export const INCOME_VISUAL: CategoryVisual = {
   bgColor: '#F3E5F5',
 };
 
+/**
+ * A category the app does not recognise — an older row, or one typed before
+ * the list settled. A plain tag, in slate: it used to be ⇄, which read as a
+ * transfer and sent people looking for the other half of one.
+ */
 export const UNKNOWN_VISUAL: CategoryVisual = {
-  icon: 'swap-horizontal',
-  color: '#90A4AE',
-  bgColor: '#F5F5F5',
+  icon: 'tag-outline',
+  color: '#64748B',
+  bgColor: '#F1F5F9',
 };
 
 /**
@@ -193,3 +200,19 @@ export const categoryVisual = (
   }
   return UNKNOWN_VISUAL;
 };
+
+/**
+ * The icon tile's fill and glyph colour for a category, in either mode.
+ *
+ * The category palette is a set of light pastels, which glare on a dark card.
+ * In dark mode the tile is the category's own colour at 18%, and the glyph is
+ * that colour lifted 40% toward white — the pair the dark boards draw (pink
+ * #EC407A becomes a #F48FB1 glyph on a faint pink tile).
+ */
+export const categoryTile = (
+  visual: Pick<CategoryVisual, 'color' | 'bgColor'>,
+  mode: ThemeMode
+): { background: string; foreground: string } =>
+  mode === 'dark'
+    ? { background: withAlpha(visual.color, 0.18), foreground: mixHex(visual.color, '#FFFFFF', 0.4) }
+    : { background: visual.bgColor, foreground: visual.color };

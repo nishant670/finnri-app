@@ -1,12 +1,24 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, ScrollView, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  BarRow,
+  Eyebrow,
+  InsightCard,
+  MonogramTile,
+  NavRow,
+  insightText,
+  periodRangeLabel,
+} from '@/components/insights/insight-ui';
+import { SectionHeader } from '@/components/insights/SectionHeader';
 import { SpendTrendChart } from '@/components/insights/SpendTrendChart';
+import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { ListRow } from '@/components/ui/ListRow';
 import {
   SkeletonCard,
   SkeletonCards,
@@ -14,13 +26,16 @@ import {
   SkeletonStat,
 } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
-import { Colors } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
-import { DashboardResponse, InsightCard, fetchDashboard } from '@/lib/insights';
+import {
+  DashboardResponse,
+  InsightCard as InsightCardData,
+  fetchDashboard,
+} from '@/lib/insights';
+import { insightDetailParams } from '@/lib/insight-summary';
 import { subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { openFilteredTransactions } from '@/lib/transaction-links';
 import { resolveCategoryMetadata } from '@/lib/transactions';
@@ -38,8 +53,7 @@ const monthLabelFromPeriod = (dashboard: DashboardResponse | null, fallback?: st
 
 export default function SpendingAnalysisScreen() {
   const params = useLocalSearchParams();
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const theme = useThemeTokens().colors;
   const { token } = useAuthStore();
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -83,12 +97,12 @@ export default function SpendingAnalysisScreen() {
 
   if (loading && !dashboard) {
     return (
-      <View className="flex-1" style={{ backgroundColor: theme.background }}>
+      <View style={{ flex: 1, backgroundColor: theme.background }}>
         <SkeletonFrame
           label="Loading detailed analysis"
           testID="spending-analysis-skeleton"
-          style={{ paddingHorizontal: 20, paddingTop: 24, gap: 20 }}>
-          <SkeletonCard radius={26} padding={20}>
+          style={{ paddingHorizontal: 16, paddingTop: 24, gap: 16 }}>
+          <SkeletonCard radius={16} padding={16}>
             <View style={{ flexDirection: 'row', gap: 20 }}>
               <SkeletonStat index={0} />
               <SkeletonStat index={1} />
@@ -102,7 +116,7 @@ export default function SpendingAnalysisScreen() {
 
   if (!dashboard) {
     return (
-      <View className="flex-1 justify-center" style={{ backgroundColor: theme.background }}>
+      <View style={{ flex: 1, justifyContent: 'center', backgroundColor: theme.background }}>
         <StateView
           icon={error ? 'wifi-off' : 'chart-line'}
           title={error ? 'Analysis did not load' : 'No analysis yet'}
@@ -114,63 +128,43 @@ export default function SpendingAnalysisScreen() {
     );
   }
 
+  const range = periodRangeLabel(dashboard.period.start, dashboard.period.end);
+
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
       edges={['top', 'left', 'right']}>
       <Stack.Screen options={{ headerShown: false }} />
-      <View className="flex-row items-center justify-between px-5 py-4">
-        <TouchableOpacity
-          onPress={() => router.back()}
-          className="h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm dark:bg-gray-800">
-          <MaterialCommunityIcons name="chevron-left" size={30} color={theme.text} />
-        </TouchableOpacity>
-        <ThemedText className="text-base font-black" style={{ color: theme.text }}>
-          Detailed Analysis
-        </ThemedText>
-        <TouchableOpacity className="h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm dark:bg-gray-800">
-          <MaterialCommunityIcons name="share-variant-outline" size={20} color="#6F6965" />
-        </TouchableOpacity>
-      </View>
+      <AppHeader
+        title="Detailed analysis"
+        subtitle={range && range !== periodLabel ? `${periodLabel} · ${range}` : periodLabel}
+        onBack={() => router.back()}
+        style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+        rightNode={
+          loading ? <ActivityIndicator color={theme.muted} style={{ marginLeft: 12 }} /> : <View />
+        }
+      />
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 110 }}>
-        {error && (
-          <ErrorBanner
-            message={error}
-            onRetry={() => void loadData()}
-            style={{ marginHorizontal: 20, marginBottom: 16 }}
-          />
-        )}
-
-        <View className="mt-3 items-center">
-          <View
-            className="mb-3 flex-row items-center rounded-full px-4 py-2"
-            style={{ backgroundColor: theme.secondary }}>
-            <ThemedText className="text-xs font-bold" style={{ color: theme.accent }}>
-              {periodLabel}
-            </ThemedText>
-            {loading && <ActivityIndicator className="ml-2" size="small" color={theme.accent} />}
-          </View>
-          <ThemedText tone="muted" className="mb-1 text-[11px] font-black uppercase tracking-widest">
-            Total Spending
-          </ThemedText>
-          <ThemedText
-            className="text-4xl font-black"
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            style={{ color: theme.text }}>
-            {formatMoney(dashboard.summary.total_spent)}
-          </ThemedText>
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {error && <ErrorBanner message={error} onRetry={() => void loadData()} />}
 
         {/* Same chart as the Insights tab, not a second one. This screen used
             to draw its own bars with no reference line and a "Start / Mid /
             End" axis, so the same data told two stories depending on which
             screen you were on. */}
-        <View className="mx-5 mt-8">
+        <InsightCard>
+          <Eyebrow>Total spending</Eyebrow>
+          <ThemedText
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={[insightText.figure, { color: theme.text }]}>
+            {formatMoney(dashboard.summary.total_spent)}
+          </ThemedText>
+          <ThemedText tone="muted" style={insightText.body}>
+            {formatMoney(dashboard.summary.daily_average)} a day on average
+          </ThemedText>
           <SpendTrendChart
+            bare
             dashboard={dashboard}
             onOpenRange={(bucket) =>
               openFilteredTransactions({
@@ -180,14 +174,15 @@ export default function SpendingAnalysisScreen() {
               })
             }
           />
-        </View>
+        </InsightCard>
         <CategoryBreakdown dashboard={dashboard} periodLabel={periodLabel} />
         <TopMerchants dashboard={dashboard} periodLabel={periodLabel} />
-        <BehavioralInsights cards={dashboard.insights} />
-      </ScrollView>
+        <BehavioralInsights dashboard={dashboard} periodLabel={periodLabel} />
 
-      <View className="absolute bottom-8 left-5 right-5">
-        <TouchableOpacity
+        <Button
+          variant="outline"
+          icon="file-chart-outline"
+          label="Generate weekly report"
           onPress={() =>
             router.push({
               pathname: '/weekly-review',
@@ -198,12 +193,8 @@ export default function SpendingAnalysisScreen() {
               },
             })
           }
-          className="flex-row items-center justify-center rounded-2xl py-4 shadow-lg"
-          style={{ backgroundColor: theme.accent }}>
-          <MaterialCommunityIcons name="file-chart" size={20} color="white" />
-          <ThemedText tone="onAccent" className="ml-2 font-black">Generate Weekly Report</ThemedText>
-        </TouchableOpacity>
-      </View>
+        />
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -218,15 +209,20 @@ function CategoryBreakdown({
   if (dashboard.top_categories.length === 0) return null;
 
   return (
-    <View className="mx-5 mt-8">
-      <ThemedText className="mb-4 text-lg font-black">By Category</ThemedText>
-      <View className="overflow-hidden rounded-[28px] border border-gray-100 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <SectionHeader title="By category">
+      <InsightCard flush>
         {dashboard.top_categories.map((category, index) => {
           const meta = resolveCategoryMetadata(category.category);
           return (
-            <TouchableOpacity
+            <BarRow
               key={category.category}
-              className={`flex-row items-center p-5 ${index < dashboard.top_categories.length - 1 ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}
+              icon={meta.icon}
+              hue={meta.color}
+              title={category.category}
+              amount={formatMoney(category.amount)}
+              fraction={category.percentage / 100}
+              caption={`${shareLabel(category.percentage)} of total`}
+              divider={index > 0}
               onPress={() =>
                 router.push({
                   pathname: '/category-detail',
@@ -237,40 +233,18 @@ function CategoryBreakdown({
                     label: periodLabel,
                   },
                 })
-              }>
-              <View
-                className="mr-4 h-12 w-12 items-center justify-center rounded-2xl"
-                style={{ backgroundColor: meta.bgColor }}>
-                <MaterialCommunityIcons name={meta.icon} size={23} color={meta.color} />
-              </View>
-              <View className="flex-1">
-                <ThemedText className="text-sm font-black">{category.category}</ThemedText>
-                <ThemedText tone="muted" className="mt-1 text-[11px]">
-                  {Math.round(category.percentage)}% of total
-                </ThemedText>
-              </View>
-              <View className="items-end">
-                <ThemedText className="text-sm font-black">
-                  {formatMoney(category.amount)}
-                </ThemedText>
-                <View className="mt-2 h-1.5 w-14 overflow-hidden rounded-full bg-gray-100">
-                  <View
-                    className="h-full rounded-full"
-                    style={{
-                      width: `${Math.min(category.percentage, 100)}%`,
-                      backgroundColor: meta.color,
-                    }}
-                  />
-                </View>
-              </View>
-              <MaterialCommunityIcons name="chevron-right" size={20} color="#CFCAC6" />
-            </TouchableOpacity>
+              }
+            />
           );
         })}
-      </View>
-    </View>
+      </InsightCard>
+    </SectionHeader>
   );
 }
+
+/** `48%`, or `under 1%` for a share that would round to nothing. */
+const shareLabel = (percentage: number) =>
+  percentage > 0 && percentage < 1 ? 'under 1%' : `${Math.round(percentage)}%`;
 
 function TopMerchants({
   dashboard,
@@ -282,13 +256,18 @@ function TopMerchants({
   if (dashboard.top_merchants.length === 0) return null;
 
   return (
-    <View className="mx-5 mt-8">
-      <ThemedText className="mb-4 text-lg font-black">Top Merchants</ThemedText>
-      <View className="overflow-hidden rounded-[28px] border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+    <SectionHeader title="Top merchants">
+      <InsightCard flush>
         {dashboard.top_merchants.map((merchant, index) => (
-          <TouchableOpacity
+          <ListRow
             key={merchant.merchant}
-            className={`flex-row items-center ${index < dashboard.top_merchants.length - 1 ? 'mb-4' : ''}`}
+            icon="storefront-outline"
+            hue={MERCHANT_HUE}
+            leading={<MonogramTile name={merchant.merchant} />}
+            title={merchant.merchant}
+            meta={`${merchant.transaction_count} transaction${merchant.transaction_count === 1 ? '' : 's'}`}
+            amount={formatMoney(merchant.amount)}
+            divider={index > 0}
             onPress={() =>
               router.push({
                 pathname: '/merchant-history',
@@ -299,70 +278,60 @@ function TopMerchants({
                   label: periodLabel,
                 },
               })
-            }>
-            <View className="mr-4 h-11 w-11 items-center justify-center rounded-full bg-gray-100">
-              <ThemedText tone="muted" className="text-[10px] font-black">
-                {merchant.merchant.slice(0, 3).toUpperCase()}
-              </ThemedText>
-            </View>
-            <View className="flex-1">
-              <ThemedText className="text-sm font-bold">{merchant.merchant}</ThemedText>
-              <ThemedText tone="muted" className="text-[11px]">
-                {merchant.transaction_count} transactions
-              </ThemedText>
-            </View>
-            <View className="items-end">
-              <ThemedText className="text-sm font-black">{formatMoney(merchant.amount)}</ThemedText>
-              <ThemedText className="mt-1 text-[10px] font-bold" style={{ color: '#9B9692' }}>
-                Details
-              </ThemedText>
-            </View>
-            <MaterialCommunityIcons name="chevron-right" size={20} color="#CFCAC6" />
-          </TouchableOpacity>
+            }
+          />
         ))}
-      </View>
-    </View>
+      </InsightCard>
+    </SectionHeader>
   );
 }
 
-function BehavioralInsights({ cards }: { cards: InsightCard[] }) {
-  const theme = useThemeTokens();
+/** Unused under a monogram, but ListRow wants a hue for its fallback tile. */
+const MERCHANT_HUE = '#64748B';
+
+function BehavioralInsights({
+  dashboard,
+  periodLabel,
+}: {
+  dashboard: DashboardResponse;
+  periodLabel: string;
+}) {
+  const theme = useThemeTokens().colors;
+  const cards = dashboard.insights;
   if (cards.length === 0) return null;
 
   return (
-    <View className="mx-5 mt-8">
-      <ThemedText className="mb-4 text-lg font-black">Behavioral Insights</ThemedText>
-      <View className="gap-4">
-        {cards.slice(0, 4).map((card) => {
+    <SectionHeader title="What stands out">
+      <InsightCard flush>
+        {cards.slice(0, 4).map((card: InsightCardData, index) => {
           const warning = card.severity === 'warning';
-          const color = warning ? '#FF6680' : theme.colors.accent;
           return (
-            <View
+            <NavRow
               key={card.kind}
-              className="flex-row rounded-[24px] border p-5"
-              style={{
-                backgroundColor: warning ? '#FFF3F5' : theme.colors.secondary,
-                borderColor: warning ? '#FFD3DB' : theme.colors.border,
-              }}>
-              <View className="mr-4 h-11 w-11 items-center justify-center rounded-full bg-white">
-                <MaterialCommunityIcons
-                  name={warning ? 'alarm-light-outline' : 'sofa-outline'}
-                  size={22}
-                  color={color}
-                />
-              </View>
-              <View className="flex-1">
-                <ThemedText className="text-sm font-black" style={{ color }}>
-                  {card.title}
-                </ThemedText>
-                <ThemedText tone="mutedStrong" className="mt-1 text-xs leading-5">
-                  {card.body}
-                </ThemedText>
-              </View>
-            </View>
+              icon={warning ? 'alarm-light-outline' : 'chart-line-variant'}
+              hue={warning ? theme.warning : theme.accent}
+              title={card.title}
+              body={card.body}
+              divider={index > 0}
+              onPress={() =>
+                router.push({
+                  pathname: '/insight-detail',
+                  params: insightDetailParams(card, dashboard, periodLabel),
+                })
+              }
+            />
           );
         })}
-      </View>
-    </View>
+      </InsightCard>
+    </SectionHeader>
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 48,
+  },
+});

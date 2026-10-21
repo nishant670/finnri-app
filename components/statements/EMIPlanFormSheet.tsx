@@ -139,7 +139,7 @@ export function EMIPlanFormSheet({
                   className="text-xs"
                   style={{
                     fontFamily: Fonts.title,
-                    color: tenure === months ? '#FFFFFF' : theme.text,
+                    color: tenure === months ? theme.onAccent : theme.text,
                   }}>
                   {months} mo
                 </TText>
@@ -225,11 +225,11 @@ export function EMIPlanFormSheet({
           className="mt-6 h-14 items-center justify-center rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <TText
               className="text-base"
-              style={{ fontFamily: Fonts.title, color: canSubmit ? '#FFFFFF' : '#94A3B8' }}>
+              style={{ fontFamily: Fonts.title, color: canSubmit ? theme.onAccent : '#94A3B8' }}>
               Create plan
             </TText>
           )}

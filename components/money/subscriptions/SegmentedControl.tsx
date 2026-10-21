@@ -1,4 +1,4 @@
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { haptics } from '@/lib/haptics';
@@ -14,6 +14,11 @@ type SegmentedControlProps<T extends string> = {
   columns?: number;
 };
 
+/**
+ * A labelled choice of a few values, drawn like the redesign's segmented
+ * control: the groove in the track colour, the chosen part lifted onto the
+ * card in bold ink.
+ */
 export function SegmentedControl<T extends string>({
   label,
   values,
@@ -23,15 +28,9 @@ export function SegmentedControl<T extends string>({
   columns,
 }: SegmentedControlProps<T>) {
   return (
-    <View className="mb-3">
-      <ThemedText
-        className="mb-1 text-[11px] font-black uppercase"
-        style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
-      <View
-        className={`flex-row rounded-2xl p-1 ${columns ? 'flex-wrap' : ''}`}
-        style={{ backgroundColor: colors.background }}>
+    <View style={styles.wrap}>
+      <ThemedText style={[styles.label, { color: colors.text }]}>{label}</ThemedText>
+      <View style={[styles.track, columns ? styles.wrapRow : null, { backgroundColor: colors.track }]}>
         {values.map((option) => {
           const selected = option.value === active;
           return (
@@ -43,14 +42,17 @@ export function SegmentedControl<T extends string>({
                 haptics.select();
                 onSelect(option.value);
               }}
-              className={`min-h-11 items-center justify-center rounded-xl py-2 ${columns ? '' : 'flex-1'}`}
-              style={{
-                backgroundColor: selected ? colors.secondary : 'transparent',
-                ...(columns ? { width: `${100 / columns}%` as const } : null),
-              }}>
+              style={[
+                styles.part,
+                columns ? { width: `${100 / columns}%` as const } : styles.flex,
+                selected && { backgroundColor: colors.trackSelected },
+              ]}>
               <ThemedText
-                className="text-[11px] font-black uppercase"
-                style={{ color: selected ? colors.accent : `${colors.text}99` }}>
+                numberOfLines={1}
+                style={[
+                  styles.partLabel,
+                  { color: selected ? colors.text : colors.muted, fontWeight: selected ? '700' : '500' },
+                ]}>
                 {option.label}
               </ThemedText>
             </Pressable>
@@ -60,3 +62,37 @@ export function SegmentedControl<T extends string>({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  wrap: {
+    marginBottom: 12,
+  },
+  label: {
+    marginBottom: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  track: {
+    flexDirection: 'row',
+    padding: 3,
+    borderRadius: 18,
+  },
+  wrapRow: {
+    flexWrap: 'wrap',
+  },
+  flex: {
+    flex: 1,
+  },
+  part: {
+    minHeight: 34,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    borderRadius: 15,
+  },
+  partLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});

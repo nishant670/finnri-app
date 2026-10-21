@@ -1,6 +1,7 @@
 import {
   buildGroupRoster,
   formatBalance,
+  formatMonthYear,
   groupMatchesSearch,
 } from '@/components/split/split-utils';
 import { type FriendDetailSummary, type SplitGroupSummary } from '@/components/split/split-types';
@@ -335,4 +336,140 @@ export const filterVisibleActivity = (
   return recentActivity.filter((item) =>
     [item.title, item.caption].join(' ').toLowerCase().includes(normalizedSearch)
   );
+};
+
+export type ActivityRowModel = ReturnType<typeof buildRecentActivity>[number];
+
+export type ActivityListItem =
+  | {
+      kind: 'day';
+      key: string;
+      /** "Today", "Yesterday", "Sat, 10 Oct". */
+      title: string;
+      /** What the day's expenses came to; null where it would be wrong. */
+      total: number | null;
+      first: boolean;
+    }
+  | {
+      kind: 'row';
+      key: string;
+      row: ActivityRowModel;
+      position: number;
+      /** Where the row falls in its day's card: top edge, bottom edge. */
+      groupFirst: boolean;
+      groupLast: boolean;
+    };
+
+/** The local day a feed item belongs to, as `YYYY-MM-DD`. */
+const activityDayKey = (item: SplitActivityItem) => {
+  const stamp = item.activity_at || item.created_at;
+  const at = stamp ? new Date(stamp) : null;
+  if (at && !Number.isNaN(at.getTime())) return localDay(at);
+  return /^\d{4}-\d{2}-\d{2}/.test(item.date) ? item.date.slice(0, 10) : item.date;
+};
+
+/** `Today`, `Yesterday`, `Sat, 10 Oct`, or `Sat, 10 Oct 2025` from another year. */
+export const activityDayTitle = (dayKey: string, now: Date = new Date()) => {
+  const match = dayKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return dayKey;
+  const day = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.round((today.getTime() - day.getTime()) / 86400000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Yesterday';
+  const weekday = day.toLocaleString('en-US', { weekday: 'short' });
+  return `${weekday}, ${shortDate(dayKey, now)}`;
+};
+
+/**
+ * The Activity feed as one flat list: each day's heading, then its rows, so
+ * each day reads as one card (board R6-Activity) while the list stays
+ * virtualised. Days follow the feed's own order; nothing is re-sorted.
+ *
+ * - The total is the day's expenses only. A settlement moves money that was
+ *   already counted, and a new friend or group moves none.
+ * - `hasMore`: the last day on screen may continue on the next page, so its
+ *   total is left off rather than shown short.
+ */
+export const buildActivityListItems = (
+  rows: ActivityRowModel[],
+  { hasMore, now = new Date() }: { hasMore: boolean; now?: Date }
+): ActivityListItem[] => {
+  const days: { key: string; rows: ActivityRowModel[] }[] = [];
+  rows.forEach((row) => {
+    const key = activityDayKey(row.item);
+    const last = days[days.length - 1];
+    if (last && last.key === key) last.rows.push(row);
+    else days.push({ key, rows: [row] });
+  });
+
+  const items: ActivityListItem[] = [];
+  let position = 0;
+  days.forEach((day, index) => {
+    const bills = day.rows.filter((row) => row.item.type === 'bill' && row.amount != null);
+    const mayContinue = hasMore && index === days.length - 1;
+    items.push({
+      kind: 'day',
+      // A day can appear twice when the feed is out of order; the index keeps keys unique.
+      key: `day:${day.key}:${index}`,
+      title: activityDayTitle(day.key, now),
+      total:
+        mayContinue || bills.length === 0
+          ? null
+          : bills.reduce((sum, row) => sum + Math.abs(row.amount ?? 0), 0),
+      first: index === 0,
+    });
+    day.rows.forEach((row, rowIndex) => {
+      items.push({
+        kind: 'row',
+        key: `row:${row.id}`,
+        row,
+        position,
+        groupFirst: rowIndex === 0,
+        groupLast: rowIndex === day.rows.length - 1,
+      });
+      position += 1;
+    });
+  });
+  return items;
+};
+
+export type BillMonthGroup = {
+  key: string;
+  /** "October 2026"; null for the one ungrouped run an amount sort gives. */
+  title: string | null;
+  bills: SplitBill[];
+  /** The viewer's side of the month, summed: positive is lent, negative borrowed. */
+  net: number;
+};
+
+/**
+ * A group's expenses by month (board R6-Group), in the order they arrive —
+ * each month a card, headed by what the viewer lent or borrowed in it.
+ *
+ * Only a date sort has months to show. Ranked by amount or by last edit, the
+ * dates jump about, so the list stays one card with no headings.
+ */
+export const groupBillsByMonth = (
+  bills: SplitBill[],
+  netOf: (bill: SplitBill) => number,
+  byMonth: boolean
+): BillMonthGroup[] => {
+  if (!byMonth) {
+    return bills.length === 0
+      ? []
+      : [{ key: 'all', title: null, bills, net: bills.reduce((sum, bill) => sum + netOf(bill), 0) }];
+  }
+  const groups: BillMonthGroup[] = [];
+  bills.forEach((bill) => {
+    const key = bill.date.slice(0, 7);
+    const last = groups[groups.length - 1];
+    if (last && last.key === key) {
+      last.bills.push(bill);
+      last.net += netOf(bill);
+    } else {
+      groups.push({ key, title: formatMonthYear(bill.date), bills: [bill], net: netOf(bill) });
+    }
+  });
+  return groups.map((group, index) => ({ ...group, key: `${group.key}:${index}` }));
 };

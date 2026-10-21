@@ -1,5 +1,6 @@
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
-import { normalizeAccountType, type Account, type AccountType } from '@/lib/accounts';
+import { getAccountSetupItems } from '@/lib/account-display';
+import type { Account, AccountType } from '@/lib/accounts';
 
 export type AccountTypeOption = {
   key: AccountType;
@@ -191,27 +192,6 @@ export const ACCOUNT_DETAIL_COPY: Record<
   },
 };
 
-export const getMissingSetupCount = (account: Account) => {
-  const accountType = normalizeAccountType(account.type);
-  const hasProvider = Boolean(account.provider?.trim());
-  const hasIdentifier = Boolean(
-    account.last4?.trim() ||
-    account.upi_handle?.trim() ||
-    account.wallet_nickname?.trim() ||
-    account.identifier?.trim()
-  );
-  const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
-  const hasCreditLimit = Boolean(account.credit_limit && account.credit_limit > 0);
-  const hasDueDay = Boolean(account.due_day && account.due_day >= 1 && account.due_day <= 31);
-
-  if (accountType === 'credit_card') {
-    return [hasProvider, hasIdentifier, hasCreditLimit, hasDueDay].filter((complete) => !complete)
-      .length;
-  }
-
-  if (accountType === 'cash') {
-    return hasBalance ? 0 : 1;
-  }
-
-  return [hasProvider, hasIdentifier, hasBalance].filter((complete) => !complete).length;
-};
+/** How many of the account's setup details are still missing (see `getAccountSetupItems`). */
+export const getMissingSetupCount = (account: Account) =>
+  getAccountSetupItems(account).filter((item) => !item.complete).length;

@@ -2,6 +2,7 @@ import {
   formatAmountEntry,
   formatMoney,
   formatMoneyCompact,
+  MINUS_SIGN,
   roundToPaise,
   toAmount,
   toAmountInputValue,
@@ -36,11 +37,23 @@ describe('formatMoney', () => {
     expect(formatMoney(99.995)).toBe('₹100');
   });
 
+  it('draws a real minus sign, not a hyphen', () => {
+    // U+2212 is digit-width and sits on the figures' centre line; a hyphen is
+    // narrower and lower, so `-₹2,781` reads as a dash run into the symbol.
+    expect(formatMoney(-2781)).toBe(`${MINUS_SIGN}₹2,781`);
+    expect(MINUS_SIGN).toBe('\u2212');
+    expect(formatMoney(-2781)).not.toContain('-');
+  });
+
+  it('keeps machine-read amounts on ASCII', () => {
+    expect(toAmountString(-2781)).toBe('-2781.00');
+  });
+
   it('honours the requested sign convention', () => {
-    expect(formatMoney(-1500)).toBe('-₹1,500');
+    expect(formatMoney(-1500)).toBe('\u2212₹1,500');
     expect(formatMoney(-1500, { sign: 'never' })).toBe('₹1,500');
     expect(formatMoney(1500, { sign: 'always' })).toBe('+₹1,500');
-    expect(formatMoney(-1500, { sign: 'always' })).toBe('-₹1,500');
+    expect(formatMoney(-1500, { sign: 'always' })).toBe('\u2212₹1,500');
     expect(formatMoney(0, { sign: 'always' })).toBe('+₹0');
   });
 
@@ -72,7 +85,7 @@ describe('formatMoneyCompact', () => {
   });
 
   it('keeps the sign on the outside of the symbol', () => {
-    expect(formatMoneyCompact(-2800)).toBe('-₹2.8k');
+    expect(formatMoneyCompact(-2800)).toBe('\u2212₹2.8k');
   });
 });
 

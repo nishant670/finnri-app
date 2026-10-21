@@ -23,8 +23,9 @@ export type ThemedTextProps = TextProps & {
    * - `default` — primary ink.
    * - `muted` — the caption band: eyebrows, hints, the line under a title.
    * - `mutedStrong` — secondary, but still read as prose.
-   * - `onAccent` — a label *on* the accent fill, white in both modes because
-   *   the surface under it is the accent in both.
+   * - `onAccent` — a label *on* the accent fill: the mood's on-accent ink
+   *   (dark on Finnri and Mint, white on Sky and Plum), the same in both modes
+   *   because the surface under it is the accent in both.
    * - `positive` / `negative` / `warning` — outcome, error, caution.
    *
    * Each is a token, so it follows the mood and the mode; a literal colour

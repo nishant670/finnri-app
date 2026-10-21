@@ -68,7 +68,7 @@ export function StateView({
           accessibilityRole="button"
           onPress={onAction}
           style={[styles.primaryButton, { backgroundColor: theme.accent }]}>
-          <ThemedText style={styles.primaryButtonText}>{actionLabel}</ThemedText>
+          <ThemedText style={[styles.primaryButtonText, { color: theme.onAccent }]}>{actionLabel}</ThemedText>
         </Pressable>
       ) : null}
       {secondaryActionLabel && onSecondaryAction ? (

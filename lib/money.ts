@@ -32,11 +32,23 @@ const withPaise = new Intl.NumberFormat('en-IN', {
 
 export type MoneyValue = number | string | null | undefined;
 
+/**
+ * The minus sign every displayed amount carries: U+2212, not the hyphen.
+ *
+ * A hyphen is narrower than a digit and sits low, so `-₹2,781` looks like a
+ * dash run into the rupee sign; the real minus is digit-width and centred on
+ * the figures. Display only — anything a machine reads back (CSV, route
+ * params, the API) keeps ASCII, which is why `toAmountString` never uses it.
+ */
+export const MINUS_SIGN = '\u2212';
+
 export type FormatMoneyOptions = {
   /**
    * `auto` — negatives get a leading minus (default).
    * `never` — format the magnitude only; the caller draws its own sign.
-   * `always` — every value carries a `+` or `-`.
+   * `always` — every value carries a `+` or a minus.
+   *
+   * The minus is {@link MINUS_SIGN}, not a hyphen.
    */
   sign?: 'auto' | 'never' | 'always';
 };
@@ -56,7 +68,7 @@ export const roundToPaise = (value: MoneyValue): number =>
   Math.round(toAmount(value) * 100) / 100;
 
 /**
- * Currency for display. `₹1,24,500`, `₹2,184`, `₹42.50`, `-₹99`.
+ * Currency for display. `₹1,24,500`, `₹2,184`, `₹42.50`, `−₹99`.
  *
  * Paise appear only below ₹100, and only when there are paise to show — a flat
  * ₹42 stays `₹42`.
@@ -70,7 +82,7 @@ export const formatMoney = (value: MoneyValue, options: FormatMoneyOptions = {})
 
   let prefix = '';
   if (sign !== 'never') {
-    if (numeric < 0) prefix = '-';
+    if (numeric < 0) prefix = MINUS_SIGN;
     else if (sign === 'always') prefix = '+';
   }
 
@@ -89,7 +101,7 @@ const trimTrailingZero = (value: number) => value.toFixed(1).replace(/\.0$/, '')
 export const formatMoneyCompact = (value: MoneyValue): string => {
   const numeric = toAmount(value);
   const magnitude = Math.abs(numeric);
-  const prefix = `${numeric < 0 ? '-' : ''}${CURRENCY_SYMBOL}`;
+  const prefix = `${numeric < 0 ? MINUS_SIGN : ''}${CURRENCY_SYMBOL}`;
 
   if (magnitude >= 10000000) return `${prefix}${trimTrailingZero(magnitude / 10000000)}Cr`;
   if (magnitude >= 100000) return `${prefix}${trimTrailingZero(magnitude / 100000)}L`;

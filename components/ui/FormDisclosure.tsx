@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
-import { Pressable, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
@@ -24,7 +26,6 @@ type FormDisclosureProps = {
   summary?: string;
   expanded: boolean;
   onToggle: () => void;
-  icon?: keyof typeof MaterialCommunityIcons.glyphMap;
   testID?: string;
   children: ReactNode;
 };
@@ -40,13 +41,16 @@ type FormDisclosureProps = {
  * validates, and a form that refuses to save over a field nobody can see is
  * the worst version of this pattern; every form that uses it opens the fold
  * itself when a message points inside it.
+ *
+ * Drawn as the boards draw it (R5-NewLoan): an outlined 52-tall row on the
+ * sheet's own background, the label over the summary, a small chevron. No
+ * icon tile — the summary already says what is inside.
  */
 export function FormDisclosure({
   label,
   summary,
   expanded,
   onToggle,
-  icon = 'tune-variant',
   testID,
   children,
 }: FormDisclosureProps) {
@@ -55,7 +59,7 @@ export function FormDisclosure({
 
   return (
     <View>
-      <Pressable
+      <PressableView
         testID={testID}
         accessibilityRole="button"
         accessibilityState={{ expanded }}
@@ -64,32 +68,25 @@ export function FormDisclosure({
           haptics.toggle(!expanded);
           onToggle();
         }}
-        className="min-h-[56px] flex-row items-center gap-3 rounded-2xl border px-3.5 py-3 active:opacity-70"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <View
-          className="h-9 w-9 items-center justify-center rounded-xl"
-          style={{ backgroundColor: theme.secondary }}>
-          <MaterialCommunityIcons name={icon} size={18} color={theme.accent} />
-        </View>
-        <View className="flex-1">
-          <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-            {label}
-          </ThemedText>
+        style={[styles.row, { borderColor: theme.border }]}
+        pressedStyle={{ opacity: 0.7 }}>
+        <View style={styles.text}>
+          <ThemedText style={[styles.label, { color: theme.text }]}>{label}</ThemedText>
           {summary ? (
             <ThemedText
               tone="muted"
               numberOfLines={expanded ? undefined : 1}
-              className="mt-0.5 text-xs">
+              style={styles.summary}>
               {summary}
             </ThemedText>
           ) : null}
         </View>
         <MaterialCommunityIcons
           name={expanded ? 'chevron-up' : 'chevron-down'}
-          size={22}
-          color={theme.muted}
+          size={16}
+          color={withAlpha(theme.text, 0.6)}
         />
-      </Pressable>
+      </PressableView>
       {expanded ? (
         <Animated.View entering={motion.revealEntering()} className="mt-3">
           {children}
@@ -98,3 +95,30 @@ export function FormDisclosure({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  row: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 14,
+    paddingRight: 10,
+    paddingVertical: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  text: {
+    flex: 1,
+    minWidth: 0,
+  },
+  label: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  summary: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+});
