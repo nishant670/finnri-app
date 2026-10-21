@@ -264,11 +264,24 @@ describe('AccountFormSuccess', () => {
 
   it('offers to make it the default, and says so once it is', async () => {
     const { screen, handleSetCreatedDefault } = await setup();
-    await fireEvent.press(screen.getByText('Set as default'));
+    const toggle = screen.getByLabelText('Make it my default account');
+    expect(toggle.props.value).toBe(false);
+    await fireEvent(toggle, 'valueChange', true);
     expect(handleSetCreatedDefault).toHaveBeenCalledTimes(1);
     const done = await setup({ createdAccount: created({ is_default: true }) });
-    expect(done.screen.getByText('Default account')).toBeTruthy();
-    expect(done.screen.queryByText('Set as default')).toBeNull();
+    const on = done.screen.getByLabelText('Make it my default account');
+    expect(on.props.value).toBe(true);
+    expect(on.props.disabled).toBe(true);
+  });
+
+  it('lists the details still worth adding', async () => {
+    const { screen } = await setup();
+    expect(screen.getByText(/details? left$/)).toBeTruthy();
+    await fireEvent.press(screen.getAllByText('Add')[0]);
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/accounts/manage',
+      params: { id: '7', focus: 'details' },
+    });
   });
 
   it('adds another account and finishes', async () => {

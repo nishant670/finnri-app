@@ -1,11 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { cssInterop } from 'nativewind';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountDetailSkeleton } from '@/components/accounts/AccountSkeletons';
+import { SetupChecklist } from '@/components/accounts/SetupChecklist';
+import { TransactionItem } from '@/components/home/TransactionItem';
+import { ScreenHeader } from '@/components/navigation/ScreenHeader';
+import { SettingsRow } from '@/components/profile/SettingsRow';
 import { CardLimitRing } from '@/components/accounts/CardLimitRing';
 import { CreditUsageBar } from '@/components/accounts/CreditUsageBar';
 import { AnnualFeeCard } from '@/components/accounts/AnnualFeeCard';
@@ -18,15 +21,20 @@ import { StatementFormSheet } from '@/components/statements/StatementFormSheet';
 import { StatementSummaryCard } from '@/components/statements/StatementSummaryCard';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { Button, PrimaryButton } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { PressableView } from '@/components/ui/PressableView';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { Fonts } from '@/constants/theme';
+import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
+  accountTypeLabels,
   accountVisuals,
   formatAccountIdentifier,
+  getAccountSetupItems,
   getAccountHeadline,
   getAccountVisual,
   getCardLimit,
@@ -66,115 +74,82 @@ import {
 } from '@/lib/statements';
 import { loadTransactions } from '@/lib/transactions';
 import { calendarDay } from '@/lib/statement-dates';
+import { formatRelativeDay } from '@/lib/datetime';
 import { Transaction } from '@/types/transaction';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
-
 /**
- * Back, the screen's name, and the actions menu.
- *
- * Shared with the loading frame, where `onActions` is omitted: the menu acts on
- * an account that has not arrived, and a button that does nothing is worse than
- * a gap. The gap is still 44pt wide so the title stays where it will be.
+ * The line under the account's name: what tells it apart, and when it was
+ * last used (boards R5-AcctCard, R5-AcctBank).
  */
-function DetailHeader({
-  onBack,
-  onActions,
-  pending = false,
-}: {
-  onBack: () => void;
-  onActions?: () => void;
-  pending?: boolean;
-}) {
-  const theme = useThemeTokens().colors;
-
-  return (
-    <View className="flex-row items-center justify-between px-6 pb-4 pt-3">
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Go back"
-        onPress={onBack}
-        className="h-11 w-11 items-center justify-center rounded-full"
-        style={{ backgroundColor: theme.card }}>
-        <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
-      </Pressable>
-      <TText
-        className="text-sm uppercase"
-        style={{ fontFamily: Fonts.title, color: theme.text, letterSpacing: 1.2 }}>
-        Account details
-      </TText>
-      {onActions ? (
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Account actions"
-          onPress={onActions}
-          className="h-11 w-11 items-center justify-center rounded-full">
-          {pending ? (
-            <ActivityIndicator size="small" color={theme.accent} />
-          ) : (
-            <MaterialCommunityIcons name="dots-horizontal" size={24} color="#8EA0B8" />
-          )}
-        </Pressable>
-      ) : (
-        <View className="h-11 w-11" />
-      )}
-    </View>
-  );
-}
-
-const formatActivityAmount = (transaction: Transaction) => {
-  const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
-  return `${isIncome ? '+ ' : '- '}${formatMoney(Math.abs(transaction.amount))}`;
-};
-
-type SetupItem = {
-  label: string;
-  complete: boolean;
+const describeLastUse = (lastActivity: string | null) => {
+  if (!lastActivity) return 'no transactions yet';
+  // "Today", "Yesterday" and "3 days ago" sit mid-sentence; "9 Oct" keeps its capital.
+  const relative = /^(Today|Yesterday|\d+ days ago)$/.test(lastActivity);
+  return `last used ${relative ? lastActivity.toLowerCase() : lastActivity}`;
 };
 
 /**
- * The prompt on a card that has never had a bill entered.
+ * The bill on a card that has never had one entered (board R5-AcctCard):
+ * what entering it gets you, the one orange action on the page, and — when
+ * the ledger shows money owed — "Mark card paid off" under a rule.
  *
  * Says what the user gets rather than what Finnri wants: without a statement
  * the card's outstanding is only as complete as what they remembered to log,
  * and the whole point of entering the bill is that the number stops being an
  * estimate.
  */
-function NoStatementCard({ onAdd }: { onAdd: () => void }) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-
+function BillCard({
+  tint,
+  hue,
+  onAdd,
+  onMarkPaidOff,
+}: {
+  tint: string;
+  hue: string;
+  onAdd: () => void;
+  onMarkPaidOff?: () => void;
+}) {
+  const { colors } = useThemeTokens();
   return (
-    <View
-      className="mt-7 rounded-[26px] border px-5 py-5"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-start gap-3">
-        <View
-          className="h-10 w-10 items-center justify-center rounded-full"
-          style={{ backgroundColor: themeTokens.mode === 'light' ? '#EFF6FF' : '#12233A' }}>
-          <MaterialCommunityIcons name="file-document-outline" size={20} color="#3B82F6" />
+    <View style={[styles.card, styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <View style={styles.billBody}>
+        <View style={styles.billHead}>
+          <View style={[styles.tile, { backgroundColor: tint }]}>
+            <MaterialCommunityIcons name="file-document-outline" size={18} color={hue} />
+          </View>
+          <View style={styles.flexText}>
+            <ThemedText style={[styles.rowTitle, styles.strong, { color: colors.text }]}>Track your bill</ThemedText>
+            <ThemedText tone="muted" style={styles.body}>
+              Add the total from your statement to see what is due and what you have paid.
+            </ThemedText>
+          </View>
         </View>
-        <View className="min-w-0 flex-1">
-          <TText className="text-base" style={{ fontFamily: Fonts.title, color: theme.text }}>
-            Track your bill
-          </TText>
-          <TText className="mt-1 text-sm" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-            Add the total from your statement and Finnri will track what&apos;s due, what
-            you&apos;ve paid, and how much of your limit is free.
-          </TText>
-        </View>
+        <PrimaryButton label="Add statement" icon="plus" height={44} onPress={onAdd} style={styles.billButton} />
       </View>
+      {onMarkPaidOff ? (
+        <PressableView
+          accessibilityRole="button"
+          onPress={onMarkPaidOff}
+          style={[styles.linkRow, { borderTopColor: colors.border }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="check-circle-outline" size={20} color={colors.text} />
+          <ThemedText style={[styles.linkLabel, { color: colors.text }]}>Mark card paid off</ThemedText>
+          <MaterialCommunityIcons name="chevron-right" size={16} color={colors.muted} />
+        </PressableView>
+      ) : null}
+    </View>
+  );
+}
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={onAdd}
-        className="mt-4 h-12 flex-row items-center justify-center gap-2 rounded-full"
-        style={{ backgroundColor: theme.accent }}>
-        <MaterialCommunityIcons name="plus" size={16} color={theme.onAccent} />
-        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
-          Add statement
-        </TText>
-      </Pressable>
+/** A section's 15/700 title, with an action on the right. */
+function SectionTitle({ title, action }: { title: string; action?: ReactNode }) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={styles.sectionHead}>
+      <ThemedText accessibilityRole="header" style={[styles.sectionTitle, { color: colors.text }]}>
+        {title}
+      </ThemedText>
+      {action}
     </View>
   );
 }
@@ -184,7 +159,6 @@ export default function AccountDetailsScreen() {
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const colorScheme = themeTokens.mode;
   const { token } = useAuthStore();
 
   const [account, setAccount] = useState<Account | null>(null);
@@ -312,56 +286,11 @@ export default function AccountDetailsScreen() {
   );
   const runningBalance = account ? getRunningBalance(account) : null;
   const lastActivity = account ? getLastActivityLabel(account) : null;
-  const setupItems = useMemo<SetupItem[]>(() => {
-    if (!account) return [];
-    const hasProvider = Boolean(account.provider?.trim());
-    const hasIdentifier = Boolean(
-      account.last4?.trim() ||
-      account.upi_handle?.trim() ||
-      account.wallet_nickname?.trim() ||
-      account.identifier?.trim()
-    );
-    const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
-    const hasCreditLimit = Boolean(account.credit_limit && account.credit_limit > 0);
-    const hasDueDay = Boolean(account.due_day && account.due_day >= 1 && account.due_day <= 31);
-
-    if (isCreditCard) {
-      return [
-        { label: 'Card issuer added', complete: hasProvider },
-        { label: 'Last 4 digits added', complete: hasIdentifier },
-        { label: 'Credit limit added', complete: hasCreditLimit },
-        { label: 'Due date added', complete: hasDueDay },
-      ];
-    }
-
-    if (accountType === 'cash') {
-      return [{ label: 'Opening cash balance added', complete: hasBalance }];
-    }
-
-    // "Manual balance" described a number that sat there; "opening balance" is
-    // what it actually is now that the ledger runs a balance forward from it.
-
-    const providerLabel =
-      accountType === 'upi'
-        ? 'UPI app added'
-        : accountType === 'wallet'
-          ? 'Wallet added'
-          : 'Provider added';
-    const identifierLabel =
-      accountType === 'upi'
-        ? 'UPI handle or nickname added'
-        : accountType === 'wallet'
-          ? 'Wallet nickname added'
-          : 'Last 4 digits added';
-
-    return [
-      { label: providerLabel, complete: hasProvider },
-      { label: identifierLabel, complete: hasIdentifier },
-      { label: 'Opening balance added', complete: hasBalance },
-    ];
-  }, [account, accountType, isCreditCard]);
-  const incompleteSetupItems = setupItems.filter((item) => !item.complete);
-  const setupComplete = incompleteSetupItems.length === 0;
+  const setupItems = useMemo(() => (account ? getAccountSetupItems(account) : []), [account]);
+  const setupComplete = setupItems.every((item) => item.complete);
+  // Delete is refused while any transaction uses the account, so the sheet
+  // says so up front instead of offering it and failing.
+  const entriesUsingAccount = account?.summary?.entries_total ?? 0;
 
   const handleEdit = (focus?: 'details') => {
     if (!account) return;
@@ -519,76 +448,24 @@ export default function AccountDetailsScreen() {
     router.push({ pathname: '/transactions', params: { accountId: String(account.id) } });
   };
 
-  const renderActivityItem = (transaction: Transaction) => {
-    const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
-
-    return (
-      <Pressable
-        key={transaction.id}
-        accessibilityRole="button"
-        onPress={() =>
-          router.push({
-            pathname: '/entry/[id]',
-            params: {
-              id: transaction.id,
-              name: transaction.name,
-              category: transaction.category,
-              amount: String(Math.abs(transaction.amount)),
-              entryType: transaction.entryType ?? 'expense',
-              section: transaction.section,
-              mode: transaction.mode ?? '',
-              notes: transaction.notes ?? '',
-              merchant: transaction.merchant ?? '',
-              dateLabel: transaction.dateLabel ?? '',
-              rawDate: transaction.rawDate ?? '',
-              tag: transaction.tag ?? '',
-            },
-          })
-        }
-        className="min-h-[88px] flex-row items-center rounded-[24px] px-4 py-4"
-        style={{
-          backgroundColor: theme.card,
-          shadowColor: '#000000',
-          shadowOpacity: colorScheme === 'light' ? 0.04 : 0,
-          shadowRadius: 14,
-          shadowOffset: { width: 0, height: 8 },
-          elevation: 1,
-        }}>
-        <View
-          className="mr-4 h-12 w-12 items-center justify-center rounded-full"
-          style={{ backgroundColor: transaction.bgColor ?? '#F1F5F9' }}>
-          <MaterialCommunityIcons
-            name={transaction.icon}
-            size={22}
-            color={transaction.color ?? '#64748B'}
-          />
-        </View>
-        <View className="min-w-0 flex-1 pr-3">
-          <TText
-            className="text-base"
-            numberOfLines={1}
-            style={{ fontFamily: Fonts.title, color: theme.text }}>
-            {transaction.name}
-          </TText>
-          <TText
-            className="mt-1 text-xs"
-            numberOfLines={1}
-            style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-            {transaction.category} • {transaction.section}
-          </TText>
-        </View>
-        <TText
-          className="text-sm"
-          numberOfLines={1}
-          style={{
-            fontFamily: Fonts.title,
-            color: isIncome ? '#16A34A' : theme.text,
-          }}>
-          {formatActivityAmount(transaction)}
-        </TText>
-      </Pressable>
-    );
-  };
+  const openActivityItem = (transaction: Transaction) =>
+    router.push({
+      pathname: '/entry/[id]',
+      params: {
+        id: transaction.id,
+        name: transaction.name,
+        category: transaction.category,
+        amount: String(Math.abs(transaction.amount)),
+        entryType: transaction.entryType ?? 'expense',
+        section: transaction.section,
+        mode: transaction.mode ?? '',
+        notes: transaction.notes ?? '',
+        merchant: transaction.merchant ?? '',
+        dateLabel: transaction.dateLabel ?? '',
+        rawDate: transaction.rawDate ?? '',
+        tag: transaction.tag ?? '',
+      },
+    });
 
   // Back and the title are known before the account is, so they are drawn for
   // real. Only the parts that depend on which account this turns out to be are
@@ -598,7 +475,7 @@ export default function AccountDetailsScreen() {
       <SafeAreaView
         style={{ flex: 1, backgroundColor: theme.background }}
         edges={['top', 'left', 'right']}>
-        <DetailHeader onBack={() => router.back()} />
+        <ScreenHeader title="Account" onBack={() => router.back()} />
         <AccountDetailSkeleton />
       </SafeAreaView>
     );
@@ -622,409 +499,341 @@ export default function AccountDetailsScreen() {
 
   if (!account) return null;
 
+  // Nothing spent reads as a quiet ₹0 (board R5-AcctBank); the line under the
+  // name already says there are no transactions yet.
+  const isZeroHeadline = Boolean(headline?.placeholder) || (headline?.amount ?? 0) === 0;
+  const extraFigures = account.summary ? accountFigureRows(account, runningBalance) : [];
+  const usedNoun = isCreditCard ? 'card' : 'account';
+
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']}>
-      <View className="flex-1" style={{ backgroundColor: theme.background }}>
-        <DetailHeader onBack={() => router.back()} onActions={openSettings} pending={isPending} />
+    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+      <ScreenHeader
+        title={accountTypeLabels[accountType]}
+        onBack={() => router.back()}
+        rightIcon="dots-horizontal"
+        rightAccessibilityLabel="Account actions"
+        onRightPress={openSettings}
+      />
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 30, paddingBottom: 110 }}>
-          {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        {error && <ErrorBanner message={error} style={{ marginBottom: 12 }} />}
 
-          {/* Standard card surface. The one-off lavender was the only place in
-              the app using that colour, and it made a screen full of derived
-              figures look like a promotional panel. */}
-          <View
-            className="items-center rounded-[34px] border px-5 py-9"
-            style={{
-              backgroundColor: theme.card,
-              borderColor: theme.border,
-              shadowColor: '#000000',
-              shadowOpacity: colorScheme === 'light' ? 0.06 : 0,
-              shadowRadius: 24,
-              shadowOffset: { width: 0, height: 16 },
-            }}>
-            <View
-              className="h-[68px] w-[68px] items-center justify-center rounded-full"
-              style={{ backgroundColor: visual.bg }}>
-              <MaterialCommunityIcons name={visual.icon} size={30} color={visual.color} />
-            </View>
-
-            <TText
-              className="mt-5 text-2xl"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.title, color: theme.text }}>
-              {account.name}
-            </TText>
-            <TText
-              className="mt-2 text-sm"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-              {formatAccountIdentifier(account)}
-            </TText>
-
-            {/* A card leads with what it has left to spend — the number people
-                open a card screen to find. Everything else keeps the
-                spent-this-month headline it already had. */}
-            {cardLimit ? (
-              <CardLimitRing limit={cardLimit} />
-            ) : (
-              <>
-                <TText
-                  className="mt-6 text-xs uppercase"
-                  style={{ fontFamily: Fonts.title, color: '#8EA0B8', letterSpacing: 1.4 }}>
-                  {headline?.label}
-                </TText>
-                <TText
-                  className="mt-2 text-[38px]"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  style={{ fontFamily: Fonts.title, color: theme.text }}>
-                  {headline?.placeholder ?? formatMoney(headline?.amount ?? 0)}
-                </TText>
-              </>
-            )}
-
-            <TText
-              className="mt-2 text-xs"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.body, color: '#8EA0B8' }}>
-              {lastActivity ? `Last activity ${lastActivity}` : 'No transactions yet'}
-            </TText>
-
-            {/* The ring already carries utilisation, so the bar would be the
-                same fact twice. Non-card accounts never had one. */}
-            {creditUsage && !cardLimit && (
-              <View className="w-full px-2">
-                <CreditUsageBar usage={creditUsage} trackColor={theme.secondary} />
-              </View>
-            )}
-
-            {/* Superseded by the statement card once a real bill exists, which
-                knows the actual due date rather than inferring it from the
-                card's due day. */}
-            {isCreditCard && dueLabel && !currentStatement && (
-              <View className="mt-6 flex-row items-center gap-2 rounded-full border border-red-200 bg-red-50 px-5 py-3">
-                <MaterialCommunityIcons name="clock-outline" size={16} color="#F43F5E" />
-                <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#F43F5E' }}>
-                  {dueLabel}
-                </TText>
-              </View>
-            )}
+        {/* Board R5-AcctCard / R5-AcctBank: no card around the hero, the
+            figure the account is opened for under its name. */}
+        <View accessibilityLabel={account.name} style={styles.hero}>
+          <View style={[styles.heroTile, { backgroundColor: visual.bg }]}>
+            <MaterialCommunityIcons name={visual.icon} size={26} color={visual.color} />
           </View>
+          <ThemedText numberOfLines={1} style={[styles.heroName, { color: theme.text }]}>
+            {account.name}
+          </ThemedText>
+          <ThemedText tone="muted" numberOfLines={1} style={styles.body}>
+            {`${formatAccountIdentifier(account)} · ${describeLastUse(lastActivity)}`}
+          </ThemedText>
 
-          {isCreditCard &&
-            (currentStatement ? (
-              <>
-                <StatementSummaryCard
-                  statement={currentStatement}
-                  onRecordPayment={() => {
-                    setStatementError(null);
-                    setIsPaymentSheetVisible(true);
-                  }}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/statements/[id]',
-                      params: { id: String(currentStatement.id) },
-                    })
-                  }
-                />
-                {statement?.reconciliation && (
-                  <ItemizationBanner
-                    reconciliation={statement.reconciliation}
-                    onReview={openCycleTransactions}
-                  />
-                )}
-                <View className="mt-3 flex-row items-center justify-between">
-                  <Pressable accessibilityRole="button" onPress={openStatementHistory}>
-                    <TText
-                      className="text-sm"
-                      style={{ fontFamily: Fonts.title, color: theme.accent }}>
-                      All statements
-                    </TText>
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    onPress={() => {
-                      setStatementError(null);
-                      setIsStatementSheetVisible(true);
-                    }}>
-                    <TText
-                      className="text-sm"
-                      style={{ fontFamily: Fonts.title, color: theme.accent }}>
-                      Add a statement
-                    </TText>
-                  </Pressable>
-                </View>
-              </>
-            ) : (
-              <NoStatementCard
-                onAdd={() => {
+          {/* A card with a limit leads with what it has left to spend — the
+              number people open a card screen to find. */}
+          {cardLimit ? (
+            <CardLimitRing limit={cardLimit} />
+          ) : (
+            <>
+              <ThemedText
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                style={[styles.heroAmount, { color: isZeroHeadline ? theme.muted : theme.text }]}>
+                {formatMoney(headline?.amount ?? 0)}
+              </ThemedText>
+              <ThemedText tone="muted" style={styles.body}>
+                {headline?.label}
+              </ThemedText>
+            </>
+          )}
+
+          {/* The ring already carries utilisation, so the bar would be the
+              same fact twice. */}
+          {creditUsage && !cardLimit && (
+            <View style={styles.usage}>
+              <CreditUsageBar usage={creditUsage} trackColor={theme.track} />
+            </View>
+          )}
+
+          {/* Superseded by the statement card once a real bill exists, which
+              knows the actual due date rather than inferring it. */}
+          {isCreditCard && dueLabel && !currentStatement && (
+            <View style={[styles.duePill, { backgroundColor: theme.warningSurface }]}>
+              <MaterialCommunityIcons name="clock-outline" size={14} color={theme.warning} />
+              <ThemedText tone="warning" style={styles.duePillLabel}>
+                {dueLabel}
+              </ThemedText>
+            </View>
+          )}
+        </View>
+
+        {!setupComplete ? (
+          <SetupChecklist
+            title="Finish setting up"
+            items={setupItems}
+            onAdd={() => handleEdit('details')}
+            style={styles.setup}
+          />
+        ) : null}
+
+        {isCreditCard &&
+          (currentStatement ? (
+            <>
+              <StatementSummaryCard
+                statement={currentStatement}
+                onRecordPayment={() => {
                   setStatementError(null);
-                  setIsStatementSheetVisible(true);
+                  setIsPaymentSheetVisible(true);
                 }}
+                onPress={() =>
+                  router.push({
+                    pathname: '/statements/[id]',
+                    params: { id: String(currentStatement.id) },
+                  })
+                }
               />
-            ))}
-
-          {isCreditCard && reminderLabel && (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`${reminderLabel}. Edit reminder settings`}
-              onPress={() => handleEdit('details')}
-              className="mt-3 flex-row items-center rounded-[22px] border px-4 py-4"
-              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-              <MaterialCommunityIcons
-                name={account.reminder_enabled === false ? 'bell-off-outline' : 'bell-ring-outline'}
-                size={22}
-                color={theme.accent}
-              />
-              <View className="ml-3 flex-1">
-                <TText
-                  className="text-xs uppercase"
-                  style={{ fontFamily: Fonts.title, color: '#8EA0B8' }}>
-                  Reminder
-                </TText>
-                <TText
-                  className="mt-1 text-sm"
-                  style={{ fontFamily: Fonts.title, color: theme.text }}>
-                  {reminderLabel}
-                </TText>
+              {statement?.reconciliation && (
+                <ItemizationBanner reconciliation={statement.reconciliation} onReview={openCycleTransactions} />
+              )}
+              <View style={styles.statementLinks}>
+                <PressableView accessibilityRole="button" onPress={openStatementHistory} style={styles.textLink} pressedStyle={styles.pressed}>
+                  <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>All statements</ThemedText>
+                </PressableView>
+                <PressableView
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setStatementError(null);
+                    setIsStatementSheetVisible(true);
+                  }}
+                  style={styles.textLink}
+                  pressedStyle={styles.pressed}>
+                  <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>Add a statement</ThemedText>
+                </PressableView>
               </View>
-              <MaterialCommunityIcons name="chevron-right" size={22} color="#8EA0B8" />
-            </Pressable>
-          )}
-
-          {isCreditCard && account.summary?.annual_fee && (
-            <AnnualFeeCard
-              status={account.summary.annual_fee}
-              onEdit={() => handleEdit('details')}
-            />
-          )}
-
-          {canMarkPaidOff && (
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setPaidOffError(null);
-                setIsPaidOffDialogVisible(true);
-              }}
-              className="mt-3 flex-row items-center justify-center gap-2 rounded-full border py-3"
-              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-              <MaterialCommunityIcons name="check-circle-outline" size={18} color={theme.accent} />
-              <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.accent }}>
-                Mark card paid off
-              </TText>
-            </Pressable>
-          )}
-
-          {isCreditCard && (
-            <EMIPlansSection
-              plans={emiPlans}
-              blockedPrincipal={cardLimit?.emi_blocked_principal ?? 0}
+            </>
+          ) : (
+            <BillCard
+              tint={visual.bg}
+              hue={visual.color}
               onAdd={() => {
                 setStatementError(null);
-                setIsEmiSheetVisible(true);
+                setIsStatementSheetVisible(true);
               }}
-              onOpenPlan={(plan) =>
-                router.push({ pathname: '/emi-plans/[id]', params: { id: String(plan.id) } })
+              onMarkPaidOff={
+                canMarkPaidOff
+                  ? () => {
+                      setPaidOffError(null);
+                      setIsPaidOffDialogVisible(true);
+                    }
+                  : undefined
               }
             />
-          )}
+          ))}
 
-          {account.summary && <AccountFigures account={account} runningBalance={runningBalance} />}
-
-          <View className="mt-7 flex-row gap-3">
-            <DetailActionButton
-              icon="pencil-outline"
-              label="Edit"
-              active
-              onPress={() => handleEdit()}
-              textColor={theme.onAccent}
-              backgroundColor={theme.accent}
-            />
-            <DetailActionButton
-              icon="delete-outline"
-              label="Delete"
-              onPress={() => setIsDeleteDialogVisible(true)}
-              textColor="#EF4444"
-              backgroundColor={theme.card}
-              borderColor="#FCA5A5"
+        {/* Without a due date there is nothing to remind about, and the
+            checklist above already asks for one. */}
+        {isCreditCard && reminderLabel && account.due_day ? (
+          <View style={[styles.card, styles.section, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <SettingsRow
+              icon={account.reminder_enabled === false ? 'bell-off-outline' : 'bell-ring-outline'}
+              title="Reminder"
+              subtitle={reminderLabel}
+              accessibilityLabel={`${reminderLabel}. Edit reminder settings`}
+              onPress={() => handleEdit('details')}
             />
           </View>
+        ) : null}
 
-          <View
-            className="mt-7 rounded-[26px] border px-5 py-5"
-            style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-            <View className="flex-row items-start justify-between gap-4">
-              <View className="min-w-0 flex-1">
-                <TText className="text-base" style={{ fontFamily: Fonts.title, color: theme.text }}>
-                  {setupComplete ? 'Setup complete' : 'Complete setup'}
-                </TText>
-                <TText
-                  className="mt-1 text-sm"
-                  style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-                  {setupComplete
-                    ? 'This account has the key details Finnri needs for cleaner tracking.'
-                    : `${incompleteSetupItems.length} detail${incompleteSetupItems.length > 1 ? 's' : ''} missing for better tracking.`}
-                </TText>
-              </View>
-              {!setupComplete && (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={() => handleEdit('details')}
-                  className="rounded-full px-4 py-2"
-                  style={{ backgroundColor: theme.accent }}>
-                  <TText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
-                    Update
-                  </TText>
-                </Pressable>
-              )}
-            </View>
+        {isCreditCard && account.summary?.annual_fee && (
+          <AnnualFeeCard status={account.summary.annual_fee} onEdit={() => handleEdit('details')} />
+        )}
 
-            <View className="mt-4 gap-3">
-              {setupItems.map((item) => (
-                <View key={item.label} className="flex-row items-center gap-3">
-                  <View
-                    className="h-7 w-7 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: item.complete
-                        ? colorScheme === 'light'
-                          ? '#DCFCE7'
-                          : '#17351F'
-                        : colorScheme === 'light'
-                          ? '#F1F5F9'
-                          : '#243142',
-                    }}>
-                    <MaterialCommunityIcons
-                      name={item.complete ? 'check' : 'minus'}
-                      size={16}
-                      color={item.complete ? '#15803D' : '#64748B'}
-                    />
-                  </View>
-                  <TText
-                    className="flex-1 text-sm"
-                    style={{
-                      fontFamily: Fonts.body,
-                      color: item.complete ? theme.text : '#64748B',
-                    }}>
-                    {item.label}
-                  </TText>
+        {isCreditCard && (
+          <EMIPlansSection
+            plans={emiPlans}
+            blockedPrincipal={cardLimit?.emi_blocked_principal ?? 0}
+            onAdd={() => {
+              setStatementError(null);
+              setIsEmiSheetVisible(true);
+            }}
+            onOpenPlan={(plan) => router.push({ pathname: '/emi-plans/[id]', params: { id: String(plan.id) } })}
+          />
+        )}
+
+        {account.summary && account.summary.entries_total > 0 ? (
+          <>
+            <SectionTitle title="This month" />
+            <View style={[styles.card, styles.strip, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {[
+                { label: 'Spent', value: formatMoney(account.summary.spent_this_month) },
+                { label: 'Transactions', value: String(account.summary.entries_this_month) },
+                { label: 'All time', value: formatMoney(account.summary.lifetime_spent) },
+              ].map((figure, index) => (
+                <View
+                  key={figure.label}
+                  style={[styles.figure, index > 0 && { borderLeftWidth: 1, borderLeftColor: theme.border }]}>
+                  <ThemedText tone="muted" numberOfLines={1} style={styles.figureLabel}>
+                    {figure.label}
+                  </ThemedText>
+                  <ThemedText numberOfLines={1} adjustsFontSizeToFit style={[styles.figureValue, { color: theme.text }]}>
+                    {figure.value}
+                  </ThemedText>
                 </View>
               ))}
             </View>
-          </View>
-
-          <View className="mt-9 flex-row items-center justify-between">
-            <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
-              Recent activity
-            </TText>
-            <Pressable accessibilityRole="button" onPress={openAllTransactions}>
-              <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.accent }}>
-                See All
-              </TText>
-            </Pressable>
-          </View>
-
-          <View className="mt-5 gap-3">
-            {activity.length > 0 ? (
-              activity.map(renderActivityItem)
-            ) : (
-              <View className="rounded-[24px] bg-white px-5 py-8 dark:bg-neutral-900">
-                <StateView
-                  icon="receipt-text-plus-outline"
-                  title="No recent activity"
-                  message="Transactions linked to this account will show here."
-                  compact
-                />
+          </>
+        ) : null}
+        {/* The figures behind the hero, so the headline can be checked rather
+            than believed — and the opening balance the user typed, labelled as
+            the starting point it is. */}
+        {extraFigures.length > 0 ? (
+          <View
+            style={[
+              styles.card,
+              account.summary && account.summary.entries_total > 0 ? styles.cardGap : styles.section,
+              { backgroundColor: theme.card, borderColor: theme.border },
+            ]}>
+            {extraFigures.map((row, index) => (
+              <View
+                key={row.label}
+                style={[styles.figureRow, index > 0 && { borderTopWidth: 1, borderTopColor: theme.border }]}>
+                <ThemedText tone="muted" style={styles.figureRowLabel}>
+                  {row.label}
+                </ThemedText>
+                <ThemedText numberOfLines={1} style={[styles.figureRowValue, { color: theme.text }]}>
+                  {row.value}
+                </ThemedText>
               </View>
-            )}
+            ))}
           </View>
-        </ScrollView>
+        ) : null}
 
-        <AnimatedBottomSheet
-          visible={isActionsSheetVisible}
-          onClose={() => setIsActionsSheetVisible(false)}
-          sheetStyle={{
-            backgroundColor: theme.card,
-            borderTopLeftRadius: 28,
-            borderTopRightRadius: 28,
-            paddingHorizontal: 22,
-            paddingTop: 18,
-            paddingBottom: 34,
-          }}>
-          <View className="gap-4">
-            <View className="flex-row items-center justify-between">
-              <View className="min-w-0 flex-1 pr-3">
-                <TText className="text-lg" style={{ fontFamily: Fonts.title, color: theme.text }}>
-                  {account.name}
-                </TText>
-                <TText
-                  className="mt-1 text-xs"
-                  style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-                  Account actions
-                </TText>
-              </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close account actions"
-                onPress={() => setIsActionsSheetVisible(false)}
-                className="h-9 w-9 items-center justify-center rounded-full"
-                style={{ backgroundColor: theme.secondary }}>
-                <MaterialCommunityIcons name="close" size={20} color={theme.text} />
-              </Pressable>
-            </View>
-
-            <View className="gap-2">
-              {!account.is_default && (
-                <AccountActionRow
-                  icon="star-outline"
-                  label="Set as default"
-                  description="Use this account first for matching transactions."
-                  color={theme.accent}
-                  backgroundColor={theme.secondary}
-                  textColor={theme.text}
-                  mutedColor="#7C8EA8"
-                  onPress={() => {
-                    setIsActionsSheetVisible(false);
-                    void handleSetDefault();
-                  }}
+        <SectionTitle
+          title="Recent activity"
+          action={
+            activity.length > 0 ? (
+              <PressableView accessibilityRole="button" onPress={openAllTransactions} style={styles.seeAll} pressedStyle={styles.pressed}>
+                <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>See all</ThemedText>
+                <MaterialCommunityIcons name="chevron-right" size={16} color={theme.text} />
+              </PressableView>
+            ) : null
+          }
+        />
+        {activity.length > 0 ? (
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {activity.map((transaction, index) => {
+              const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
+              return (
+                <TransactionItem
+                  key={transaction.id}
+                  variant="list"
+                  icon={transaction.icon as string}
+                  title={transaction.name}
+                  category={transaction.category}
+                  amount={Math.abs(transaction.amount)}
+                  date={formatRelativeDay(transaction.rawDate) ?? transaction.section ?? ''}
+                  color={transaction.color}
+                  bgColor={transaction.bgColor}
+                  isIncome={isIncome}
+                  showDivider={index < activity.length - 1}
+                  onPress={() => openActivityItem(transaction)}
                 />
-              )}
-              <AccountActionRow
-                icon="pencil-outline"
-                label="Edit account"
-                description="Update type, name, balance, or reminders."
-                color={theme.accent}
-                backgroundColor={theme.secondary}
-                textColor={theme.text}
-                mutedColor="#7C8EA8"
-                onPress={() => {
-                  setIsActionsSheetVisible(false);
-                  handleEdit();
-                }}
-              />
-              <AccountActionRow
-                icon="delete-outline"
-                label="Delete account"
-                description="Allowed only when no transactions use this account."
-                color="#EF4444"
-                backgroundColor={colorScheme === 'light' ? '#FEF2F2' : '#3A2020'}
-                textColor={theme.text}
-                mutedColor="#7C8EA8"
-                onPress={() => {
-                  setIsActionsSheetVisible(false);
-                  setIsDeleteDialogVisible(true);
-                }}
-              />
-            </View>
+              );
+            })}
           </View>
-        </AnimatedBottomSheet>
+        ) : (
+          <View style={[styles.card, styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ThemedText style={[styles.rowTitle, { color: theme.text }]}>No transactions yet</ThemedText>
+            <ThemedText tone="muted" style={styles.body}>
+              Anything you pay from this account shows here.
+            </ThemedText>
+          </View>
+        )}
+
+        <Button
+          variant="outline"
+          label="Edit account"
+          icon="pencil-outline"
+          height={48}
+          onPress={() => handleEdit()}
+          style={styles.editButton}
+        />
+      </ScrollView>
+
+      {/* Board R5-AcctActions. */}
+      <AnimatedBottomSheet
+        visible={isActionsSheetVisible}
+        onClose={() => setIsActionsSheetVisible(false)}
+        sheetStyle={[styles.sheet, { backgroundColor: theme.card }]}>
+        <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
+        <View style={styles.sheetHead}>
+          <View style={styles.flexText}>
+            <ThemedText numberOfLines={1} style={[styles.sheetTitle, { color: theme.text }]}>
+              {account.name}
+            </ThemedText>
+            <ThemedText tone="muted" numberOfLines={1} style={styles.caption}>
+              {formatAccountIdentifier(account)}
+            </ThemedText>
+          </View>
+          <SheetCloseButton accessibilityLabel="Close account actions" onPress={() => setIsActionsSheetVisible(false)} />
+        </View>
+        {!account.is_default && (
+          <SettingsRow
+            icon="star-outline"
+            title="Set as default"
+            subtitle="Use it first when a payment matches"
+            onPress={() => {
+              setIsActionsSheetVisible(false);
+              void handleSetDefault();
+            }}
+          />
+        )}
+        <SettingsRow
+          icon="pencil-outline"
+          title="Edit account"
+          subtitle="Name, type, limit, due date and reminders"
+          divider={!account.is_default}
+          onPress={() => {
+            setIsActionsSheetVisible(false);
+            handleEdit();
+          }}
+        />
+        <PressableView
+          accessibilityRole="button"
+          accessibilityState={{ disabled: entriesUsingAccount > 0 }}
+          disabled={entriesUsingAccount > 0}
+          onPress={() => {
+            setIsActionsSheetVisible(false);
+            setIsDeleteDialogVisible(true);
+          }}
+          style={[
+            styles.deleteRow,
+            { borderTopColor: theme.border },
+            entriesUsingAccount > 0 && styles.disabled,
+          ]}
+          pressedStyle={styles.pressed}>
+          <View style={[styles.tile, { backgroundColor: withAlpha(theme.negative, 0.12) }]}>
+            <MaterialCommunityIcons name="delete-outline" size={18} color={theme.negative} />
+          </View>
+          <View style={styles.flexText}>
+            <ThemedText tone="negative" style={styles.rowTitle}>
+              Delete account
+            </ThemedText>
+            <ThemedText tone="muted" style={styles.caption}>
+              {entriesUsingAccount > 0
+                ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
+                : 'Removes it from Finnri for good'}
+            </ThemedText>
+          </View>
+        </PressableView>
+      </AnimatedBottomSheet>
 
         <ThemedDeleteDialog
           visible={isDeleteDialogVisible}
           title={`Delete ${account.name}?`}
-          message="This is allowed only when no transactions use this account."
+          message="No transactions use it. This cannot be undone."
           confirmLabel="Delete"
           loading={isPending}
           onCancel={() => setIsDeleteDialogVisible(false)}
@@ -1101,177 +910,271 @@ export default function AccountDetailsScreen() {
             />
           </>
         )}
-      </View>
     </SafeAreaView>
   );
 }
 
 /**
- * The figures behind the hero, so the headline can be checked rather than
- * believed — and so the opening balance the user typed is still visible, now
- * labelled as the starting point it actually is.
+ * The figures beyond the three in "This month": money in, the opening balance
+ * the user typed, and the balance run forward from it.
  */
-function AccountFigures({
-  account,
-  runningBalance,
-}: {
-  account: Account;
-  runningBalance: number | null;
-}) {
-  const theme = useThemeTokens().colors;
+function accountFigureRows(account: Account, runningBalance: number | null) {
   const summary = account.summary;
-  if (!summary) return null;
-
+  if (!summary) return [];
   const isCreditCard = normalizeAccountType(account.type) === 'credit_card';
   const opening = account.balance ?? 0;
-
-  const rows: { label: string; value: string; muted?: boolean }[] = [
-    {
-      label: 'Spent this month',
-      value: formatMoney(summary.spent_this_month),
-    },
-  ];
-
+  const rows: { label: string; value: string }[] = [];
   if (summary.received_this_month > 0) {
     rows.push({
       label: isCreditCard ? 'Paid off this month' : 'Money in this month',
       value: formatMoney(summary.received_this_month),
     });
   }
-
-  rows.push({
-    label: 'Transactions this month',
-    value: String(summary.entries_this_month),
-    muted: true,
-  });
-
   if (opening !== 0) {
-    rows.push({
-      label: isCreditCard ? 'Owed before tracking' : 'Opening balance',
-      value: formatMoney(opening),
-      muted: true,
-    });
+    rows.push({ label: isCreditCard ? 'Owed before tracking' : 'Opening balance', value: formatMoney(opening) });
   }
-
-  if (runningBalance !== null) {
-    rows.push({ label: 'Running balance', value: formatMoney(runningBalance) });
-  }
-
-  rows.push({
-    label: 'Spent all time',
-    value: formatMoney(summary.lifetime_spent),
-    muted: true,
-  });
-
-  return (
-    <View
-      className="mt-7 rounded-[26px] border px-5 py-5"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      {rows.map((row, index) => (
-        <View
-          key={row.label}
-          className="flex-row items-center justify-between gap-4"
-          style={{ marginTop: index === 0 ? 0 : 12 }}>
-          <TText
-            className="min-w-0 flex-1 text-sm"
-            style={{ fontFamily: Fonts.body, color: row.muted ? '#7C8EA8' : theme.text }}>
-            {row.label}
-          </TText>
-          <TText
-            className="text-sm"
-            numberOfLines={1}
-            style={{ fontFamily: Fonts.title, color: row.muted ? '#7C8EA8' : theme.text }}>
-            {row.value}
-          </TText>
-        </View>
-      ))}
-    </View>
-  );
+  if (runningBalance !== null) rows.push({ label: 'Running balance', value: formatMoney(runningBalance) });
+  return rows;
 }
 
-type AccountActionRowProps = {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  description: string;
-  color: string;
-  backgroundColor: string;
-  textColor: string;
-  mutedColor: string;
-  onPress: () => void;
-};
-
-function AccountActionRow({
-  icon,
-  label,
-  description,
-  color,
-  backgroundColor,
-  textColor,
-  mutedColor,
-  onPress,
-}: AccountActionRowProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      className="min-h-[72px] flex-row items-center rounded-[22px] px-4 py-4"
-      style={{ backgroundColor }}>
-      <View className="mr-4 h-10 w-10 items-center justify-center rounded-full bg-white/80">
-        <MaterialCommunityIcons name={icon} size={21} color={color} />
-      </View>
-      <View className="min-w-0 flex-1">
-        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: textColor }}>
-          {label}
-        </TText>
-        <TText className="mt-1 text-xs" style={{ fontFamily: Fonts.body, color: mutedColor }}>
-          {description}
-        </TText>
-      </View>
-      <MaterialCommunityIcons name="chevron-right" size={20} color={mutedColor} />
-    </Pressable>
-  );
-}
-
-type DetailActionButtonProps = {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  onPress: () => void;
-  textColor: string;
-  backgroundColor: string;
-  borderColor?: string;
-  active?: boolean;
-};
-
-function DetailActionButton({
-  icon,
-  label,
-  onPress,
-  textColor,
-  backgroundColor,
-  borderColor,
-  active = false,
-}: DetailActionButtonProps) {
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      className="h-[80px] flex-1 items-center justify-center rounded-[22px] border"
-      style={{
-        backgroundColor,
-        borderColor: borderColor ?? backgroundColor,
-        shadowColor: '#000000',
-        shadowOpacity: active ? 0.18 : 0,
-        shadowRadius: 14,
-        shadowOffset: { width: 0, height: 8 },
-        elevation: active ? 3 : 0,
-      }}>
-      <MaterialCommunityIcons name={icon} size={24} color={textColor} />
-      <TText
-        className="mt-2 text-sm"
-        numberOfLines={1}
-        style={{ fontFamily: Fonts.title, color: textColor }}>
-        {label}
-      </TText>
-    </Pressable>
-  );
-}
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
+  },
+  hero: {
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  heroTile: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroName: {
+    marginTop: 12,
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+  },
+  heroAmount: {
+    marginTop: 14,
+    fontSize: 36,
+    lineHeight: 42,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  usage: {
+    alignSelf: 'stretch',
+    paddingHorizontal: 8,
+  },
+  duePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 14,
+  },
+  duePillLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  setup: {
+    marginTop: 20,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  section: {
+    marginTop: 12,
+  },
+  cardGap: {
+    marginTop: 8,
+  },
+  billBody: {
+    padding: 14,
+  },
+  billHead: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  billButton: {
+    marginTop: 12,
+  },
+  tile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  strong: {
+    fontWeight: '600',
+  },
+  body: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  linkRow: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingLeft: 14,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  linkLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  statementLinks: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  textLink: {
+    minHeight: 40,
+    justifyContent: 'center',
+  },
+  textLinkLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  seeAll: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  sectionHead: {
+    minHeight: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  strip: {
+    flexDirection: 'row',
+    paddingVertical: 14,
+    paddingHorizontal: 2,
+  },
+  figure: {
+    flex: 1,
+    gap: 2,
+    paddingHorizontal: 12,
+  },
+  figureLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  figureValue: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  figureRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 14,
+  },
+  figureRowLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  figureRowValue: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  emptyCard: {
+    padding: 16,
+    gap: 2,
+  },
+  editButton: {
+    marginTop: 24,
+  },
+  sheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 28,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  sheetHead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingTop: 4,
+    paddingBottom: 8,
+  },
+  sheetTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  deleteRow: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    paddingLeft: 14,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  disabled: {
+    opacity: 0.6,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

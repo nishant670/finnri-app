@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
@@ -41,10 +41,17 @@ import { openAnswerEntry, openAnswerTransactions } from '@/lib/transaction-links
 type AnswerCardProps = {
   answer: LedgerAnswer;
   /** What the user actually said, shown back so a misheard word is visible. */
-  sourceText: string;
-  onDismiss: () => void;
+  sourceText?: string;
+  onDismiss?: () => void;
   /** Re-asks one of the suggested questions through the same channel. */
   onAskSuggestion: (question: string) => void;
+  /**
+   * `card` stands alone on Home, under the capture field, so it repeats the
+   * question and can be closed. `thread` is Finnri's reply in Ask Finnri
+   * (board R12-AskAnswer): the question is the bubble right above it, and a
+   * reply in a conversation has nothing to close.
+   */
+  variant?: 'card' | 'thread';
 };
 
 const metricLabels: Record<string, string> = {
@@ -85,7 +92,33 @@ export const describeAnswerCount = (answer: LedgerAnswer) => {
 export const answerHasSoleEntry = (answer: LedgerAnswer) =>
   Boolean(answer.largest_entry) && answer.transaction_count === 1;
 
-export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: AnswerCardProps) {
+/**
+ * The thread variant's two lines around the number: the measure and its
+ * window above ("Spent this month"), what was counted below ("Food & Drinks ·
+ * from 4 transactions").
+ */
+export const describeThreadAnswer = (answer: LedgerAnswer) => {
+  const label = [metricLabels[answer.metric] ?? 'Answer', answer.period.label]
+    .filter(Boolean)
+    .join(' ');
+  const subject =
+    answer.subject ||
+    (answer.metric === 'income_total'
+      ? 'across all income'
+      : answer.metric === 'net'
+        ? 'income minus spending'
+        : '');
+  const detail = [subject, describeAnswerCount(answer)].filter(Boolean).join(' · ');
+  return { label, detail };
+};
+
+export function AnswerCard({
+  answer,
+  sourceText = '',
+  onDismiss,
+  onAskSuggestion,
+  variant = 'card',
+}: AnswerCardProps) {
   const themeTokens = useThemeTokens();
   const colors = themeTokens.colors;
   const motion = useMotion();
@@ -118,6 +151,111 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
 
   const visual = entry ? categoryVisual(entry.category, answer.entry_type) : null;
 
+  if (variant === 'thread') {
+    const { label, detail } = describeThreadAnswer(answer);
+    return (
+      <Animated.View
+        entering={enter}
+        exiting={exit}
+        accessibilityLabel="Answer"
+        style={[threadStyles.bubble, { backgroundColor: colors.card, borderColor: colors.border }]}>
+        <View style={threadStyles.body}>
+          <FinnriByline />
+          {answer.status === 'unsupported' || answer.status === 'no_data' ? (
+            <ThemedText style={[threadStyles.message, { color: colors.text }]}>
+              {answer.status === 'unsupported'
+                ? (answer.message ?? 'Finnri cannot answer that one yet.')
+                : `Nothing recorded${scope ? ` for ${scope}` : ''}.`}
+            </ThemedText>
+          ) : (
+            <>
+              <ThemedText tone="muted" style={threadStyles.label}>
+                {label}
+              </ThemedText>
+              <ThemedText numberOfLines={1} adjustsFontSizeToFit style={[threadStyles.amount, { color: colors.text }]}>
+                {answer.metric === 'count'
+                  ? String(answer.transaction_count)
+                  : formatMoney(answer.amount ?? 0)}
+              </ThemedText>
+              {detail ? (
+                <ThemedText tone="muted" style={threadStyles.label}>
+                  {detail}
+                </ThemedText>
+              ) : null}
+              {answer.breakdown.length > 0 ? (
+                <View style={threadStyles.breakdown}>
+                  {answer.breakdown.map((slice) => (
+                    <View key={slice.label} style={threadStyles.slice}>
+                      <ThemedText numberOfLines={1} style={[threadStyles.sliceLabel, { color: colors.text }]}>
+                        {slice.label}
+                      </ThemedText>
+                      <ThemedText style={[threadStyles.sliceAmount, { color: colors.text }]}>
+                        {formatMoney(slice.amount)}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+            </>
+          )}
+          {!answered && answer.suggestions.length > 0 ? (
+            <View style={threadStyles.suggestions}>
+              {answer.suggestions.slice(0, 3).map((suggestion) => (
+                <Pressable
+                  key={suggestion}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    haptics.select();
+                    onAskSuggestion(suggestion);
+                  }}
+                  style={[threadStyles.suggestion, { borderColor: colors.borderStrong }]}>
+                  <ThemedText style={[threadStyles.suggestionLabel, { color: colors.text }]}>
+                    {suggestion}
+                  </ThemedText>
+                </Pressable>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        {answered && entry && visual ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${entry.title || entry.merchant || 'this transaction'}`}
+            onPress={openEntry}
+            style={[threadStyles.entry, { borderTopColor: colors.border }]}>
+            <View style={[threadStyles.entryTile, { backgroundColor: visual.bgColor }]}>
+              <MaterialCommunityIcons name={visual.icon} size={18} color={visual.color} />
+            </View>
+            <View style={threadStyles.entryText}>
+              <ThemedText numberOfLines={1} style={[threadStyles.entryTitle, { color: colors.text }]}>
+                {entry.title || entry.merchant || 'Transaction'}
+              </ThemedText>
+              <ThemedText tone="muted" numberOfLines={1} style={threadStyles.entryMeta}>
+                {[entry.category, formatRelativeDay(entry.date)].filter(Boolean).join(' · ')}
+              </ThemedText>
+            </View>
+            <ThemedText style={[threadStyles.entryAmount, { color: colors.text }]}>
+              {formatMoney(entry.amount)}
+            </ThemedText>
+          </Pressable>
+        ) : null}
+        {canOpenList ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`See the ${answer.transaction_count} transactions behind this`}
+            onPress={openList}
+            style={[threadStyles.link, { borderTopColor: colors.border }]}>
+            <ThemedText style={[threadStyles.linkLabel, { color: colors.text }]}>
+              {`See the ${answer.transaction_count} transactions`}
+            </ThemedText>
+            <MaterialCommunityIcons name="chevron-right" size={16} color={colors.muted} />
+          </Pressable>
+        ) : null}
+      </Animated.View>
+    );
+  }
+
   return (
     <Animated.View
       entering={enter}
@@ -149,7 +287,7 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
           hitSlop={12}
           onPress={() => {
             haptics.select();
-            onDismiss();
+            onDismiss?.();
           }}>
           <MaterialCommunityIcons name="close" size={18} color={muted} />
         </Pressable>
@@ -283,3 +421,158 @@ export function AnswerCard({ answer, sourceText, onDismiss, onAskSuggestion }: A
     </Animated.View>
   );
 }
+
+/** Who is speaking, at the top of each of Finnri's replies: the mark and the name. */
+export function FinnriByline({ label = 'Finnri' }: { label?: string }) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={threadStyles.byline}>
+      <View style={[threadStyles.mark, { backgroundColor: colors.selectedFill }]}>
+        <MaterialCommunityIcons name="creation" size={14} color={colors.accent} />
+      </View>
+      <ThemedText tone="muted" style={threadStyles.bylineLabel}>
+        {label}
+      </ThemedText>
+    </View>
+  );
+}
+
+/** Finnri's side of the Ask thread: a bubble squared at its top left (board R12-AskAnswer). */
+export const threadStyles = StyleSheet.create({
+  bubble: {
+    marginLeft: 16,
+    marginRight: 64,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 18,
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18,
+    overflow: 'hidden',
+  },
+  body: {
+    paddingTop: 14,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+  },
+  byline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  mark: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bylineLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  label: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  amount: {
+    marginTop: 2,
+    marginBottom: 2,
+    fontSize: 34,
+    lineHeight: 40,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  message: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '600',
+  },
+  breakdown: {
+    marginTop: 12,
+    gap: 8,
+  },
+  slice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  sliceLabel: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sliceAmount: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  suggestions: {
+    marginTop: 12,
+    gap: 8,
+  },
+  suggestion: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  suggestionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  entry: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+  },
+  entryTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  entryText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  entryTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  entryMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  entryAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  link: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 16,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  linkLabel: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+});

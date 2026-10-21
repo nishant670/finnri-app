@@ -10,6 +10,8 @@ interface ScreenHeaderProps {
   rightIcon?: keyof typeof MaterialCommunityIcons.glyphMap;
   rightText?: string;
   onRightPress?: () => void;
+  /** What the right icon does, for a screen reader: "Account actions". */
+  rightAccessibilityLabel?: string;
 }
 
 /**
@@ -23,6 +25,7 @@ export function ScreenHeader({
   rightIcon,
   rightText,
   onRightPress,
+  rightAccessibilityLabel,
 }: ScreenHeaderProps) {
   const { colors } = useThemeTokens();
 
@@ -55,6 +58,7 @@ export function ScreenHeader({
       {rightIcon || rightText ? (
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel={rightAccessibilityLabel ?? rightText}
           onPress={onRightPress}
           style={[styles.button, rightText ? styles.textButton : null]}>
           {rightIcon ? (
