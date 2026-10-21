@@ -13,14 +13,8 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatTime } from '@/lib/datetime';
+import { aiUsageLabel, isAskFinnriUsage } from '@/lib/ai-usage';
 import { fetchAIUsage, type AIUsageEvent } from '@/lib/billing';
-
-const actionLabels: Record<string, string> = {
-  transaction_parse_text: 'Text capture',
-  transaction_parse_voice_short: 'Short voice capture',
-  transaction_parse_voice_medium: 'Voice capture',
-  transaction_parse_voice_long: 'Long voice capture',
-};
 
 const statusLabels: Record<string, string> = {
   succeeded: 'Charged',
@@ -128,7 +122,7 @@ export default function AIUsageScreen() {
                 No AI usage yet
               </ThemedText>
               <ThemedText style={{ textAlign: 'center', color: `${colors.text}99` }}>
-                Text or voice capture will appear here after Finnri AI processes it.
+                Captures and Ask Finnri questions will appear here after Finnri AI processes them.
               </ThemedText>
             </Card>
           ) : (
@@ -145,7 +139,13 @@ export default function AIUsageScreen() {
                       backgroundColor: colors.secondary,
                     }}>
                     <MaterialCommunityIcons
-                      name={event.input_kind === 'voice' ? 'microphone' : 'text-box-edit-outline'}
+                      name={
+                        isAskFinnriUsage(event)
+                          ? 'chat-question-outline'
+                          : event.input_kind === 'voice'
+                            ? 'microphone'
+                            : 'text-box-edit-outline'
+                      }
                       size={19}
                       color={colors.accent}
                     />
@@ -154,7 +154,7 @@ export default function AIUsageScreen() {
                     <ThemedText
                       numberOfLines={1}
                       style={{ fontFamily: Fonts.title, fontWeight: '800', color: colors.text }}>
-                      {actionLabels[event.action_code] ?? event.action_code.replaceAll('_', ' ')}
+                      {aiUsageLabel(event)}
                     </ThemedText>
                     <ThemedText
                       numberOfLines={1}

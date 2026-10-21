@@ -135,6 +135,8 @@ export type AIUsageEvent = {
   model?: string;
   secondary_model?: string;
   error_code?: string;
+  /** 'question' when the parse was answered as an Ask Finnri question. */
+  intent?: string;
   started_at: string;
   finished_at?: string | null;
 };
