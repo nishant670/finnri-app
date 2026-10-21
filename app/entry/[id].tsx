@@ -3,18 +3,25 @@ import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Pressable, ScrollView, View, TouchableOpacity } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { Colors } from '@/constants/theme';
+import { Button, PrimaryButton } from '@/components/ui/Button';
+import { LabelRow } from '@/components/ui/LabelRow';
+import { PressableView } from '@/components/ui/PressableView';
+import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import { categoryTile } from '@/lib/categories';
+import { paymentModeVisual } from '@/lib/payment-modes';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
@@ -22,9 +29,17 @@ import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSk
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
+import { fetchCardEMIPlans } from '@/lib/emi-plans';
+import { fetchSubscriptions } from '@/lib/subscriptions';
 import { fetchEntry, updateEntry } from '@/lib/entries';
-import { buildTransactionPayload } from '@/lib/transaction-composer';
+import {
+  buildTransactionPayload,
+  createRecurringFromForm,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
+import { buildRepeatForm } from '@/lib/repeat-entry';
 import { isPdfAttachment, resolveAttachmentForDisplay } from '@/lib/uploads';
 import {
   fetchNewUnreadBudgetNotification,
@@ -42,10 +57,11 @@ import { notifyTransactionsChanged } from '@/lib/transaction-events';
 import {
   normalizeDateLabel,
   formatDateLabel,
+  parseDateLabel,
   toTitleCase,
   resolveCategoryMetadata,
 } from '@/lib/transactions';
-import { formatTime } from '@/lib/datetime';
+import { formatTime, rowTimeLabel } from '@/lib/datetime';
 import { formatMoney, toAmountInputValue } from '@/lib/money';
 import { updateRefundStatus } from '@/lib/refundables';
 
@@ -65,6 +81,7 @@ export default function TransactionDetailsScreen() {
     dateLabel?: string;
     tag?: string;
     edit?: string;
+    repeat?: string;
     originIcon?: string;
     originAmount?: string;
     reviewFocus?: 'category' | 'account' | '';
@@ -79,11 +96,19 @@ export default function TransactionDetailsScreen() {
   const [isDeleteConfirmVisible, setIsDeleteConfirmVisible] = useState(false);
   const { requestDelete } = useTransactionDelete();
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
+  const [isRepeatModalVisible, setIsRepeatModalVisible] = useState(false);
+  const [repeatForm, setRepeatForm] = useState<EntryForm | null>(null);
+  const repeatIdempotencyKey = useRef<string | null>(null);
+  const repeatSaveProgress = useRef<TransactionSaveProgress>({});
+  const repeatRequested = useRef(false);
+  // What an EMI-tagged entry is already tied to: a card's EMI plan, or a bank EMI
+  // that repeats as an auto-debit. Shown in the edit sheet.
+  const [emiLink, setEmiLink] = useState<EMILink | null>(null);
   const [splitBill, setSplitBill] = useState<SplitBill | null>(null);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
 
-  const [isExpanded, setIsExpanded] = useState(true);
 
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -238,7 +263,8 @@ export default function TransactionDetailsScreen() {
     if (token) {
       fetchAccounts(token)
         .then(setAccounts)
-        .catch(() => setAccounts([]));
+        .catch(() => setAccounts([]))
+        .finally(() => setAccountsLoaded(true));
       void fetchSplitDetails();
     }
   }, [fetchSplitDetails, fetchTransactionDetails, token]);
@@ -264,6 +290,7 @@ export default function TransactionDetailsScreen() {
   }, [params.categorySuggestions]);
 
   const meta = resolveCategoryMetadata(displayData.category, displayData.type);
+  const isIncomeEntry = String(displayData.type ?? '').toLowerCase() === 'income';
   const icon = meta.icon;
   const iconColor = meta.color;
   const bgColor = meta.bgColor;
@@ -303,12 +330,76 @@ export default function TransactionDetailsScreen() {
     }
   };
 
+  const loadEmiLink = useCallback(async () => {
+    if (!token || !transaction || transaction.tag !== 'EMI') {
+      setEmiLink(null);
+      return;
+    }
+    try {
+      const account = accounts.find((item) => item.id === transaction.account_id);
+      if (account && normalizeAccountType(account.type) === 'credit_card') {
+        const plans = await fetchCardEMIPlans(token, account.id);
+        const plan = plans.find(
+          (item) =>
+            item.source_entry_id === entryID ||
+            item.installments?.some((installment) => installment.entry_id === entryID)
+        );
+        setEmiLink(
+          plan ? { kind: 'plan', plan, onOpen: () => router.push(`/emi-plans/${plan.id}`) } : null
+        );
+        return;
+      }
+      // A bank EMI has no foreign key to its recurring payment, so it is found
+      // by what identifies one: an EMI-tagged recurring payment on the same
+      // account for the same amount, under this entry's title or merchant.
+      const subscriptions = await fetchSubscriptions(token, 'all');
+      const names = [transaction.title, transaction.merchant]
+        .map((value) => String(value ?? '').trim().toLowerCase())
+        .filter(Boolean);
+      const match = subscriptions.find(
+        (item) =>
+          item.transaction_tag === 'EMI' &&
+          item.account_id === transaction.account_id &&
+          Number(item.amount) === Number(transaction.amount) &&
+          names.includes(item.name.trim().toLowerCase())
+      );
+      setEmiLink(match ? { kind: 'recurring', subscription: match } : null);
+    } catch {
+      // The sheet still works without it; it just offers the repeat again.
+      setEmiLink(null);
+    }
+  }, [accounts, entryID, router, token, transaction]);
+
+  useEffect(() => {
+    void loadEmiLink();
+  }, [loadEmiLink]);
+
   const handleEdit = () => {
     setIsEditModalVisible(true);
   };
 
   const handleDelete = () => {
     setIsDeleteConfirmVisible(true);
+  };
+
+  /** After a save that may have crossed a budget: offer to go and look. */
+  const offerBudgetAlert = async (budgetNotificationIds: Set<number>) => {
+    if (!token) return;
+    const notification = await fetchNewUnreadBudgetNotification(token, budgetNotificationIds).catch(
+      () => null
+    );
+    if (
+      notification &&
+      (await dialog.confirm({
+        title: notification.title,
+        message: notification.body,
+        confirmLabel: 'View Budgets',
+        cancelLabel: 'Later',
+        iconName: 'wallet-outline',
+      }))
+    ) {
+      router.push('/budgets');
+    }
   };
 
   const closeDeleteConfirm = () => {
@@ -326,19 +417,26 @@ export default function TransactionDetailsScreen() {
 
   const handleSaveUpdate = async (formData: EntryForm) => {
     try {
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
 
       const payload = await buildTransactionPayload(token, formData, {
         refundStatus: displayData.refund_status ?? 'pending',
       });
       if (!formData.splitEnabled && splitBill) payload.split = null;
 
-      if (!token) throw new Error('Missing session.');
+      if (!token) throw new Error('Please sign in again.');
       const budgetNotificationIds =
         formData.type === 'Expense'
           ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
           : new Set<number>();
       await updateEntry(token, params.id, payload);
+
+      // An EMI that was not repeating can start to, from here: the same record a
+      // new transaction creates. Skipped when one is already tied to this entry.
+      if (formData.subscriptionEnabled && formData.subscriptionBillingInterval && !emiLink) {
+        const account = accounts.find((item) => item.id === formData.accountId) ?? null;
+        await createRecurringFromForm(token, formData, account);
+      }
 
       // Refresh logic
       await fetchTransactionDetails();
@@ -350,31 +448,51 @@ export default function TransactionDetailsScreen() {
         return;
       }
       if (formData.type === 'Expense') {
-        const notification = await fetchNewUnreadBudgetNotification(
-          token,
-          budgetNotificationIds
-        ).catch(() => null);
-        if (notification) {
-          if (
-            await dialog.confirm({
-              title: notification.title,
-              message: notification.body,
-              confirmLabel: 'View Budgets',
-              cancelLabel: 'Later',
-              iconName: 'wallet-outline',
-            })
-          ) {
-            router.push('/budgets');
-          }
-        }
+        await offerBudgetAlert(budgetNotificationIds);
       }
     } catch (error) {
       console.error(error);
-      throw error instanceof Error ? error : new Error('Failed to update transaction');
+      throw error instanceof Error ? error : new Error("Couldn't update this transaction.");
     }
   };
 
-  const hasMerchant = displayData.merchant && displayData.merchant !== 'Unknown Location';
+  /**
+   * A new transaction, not an update: the same save Home does, so a repeat
+   * gets the same idempotency, EMI and budget handling as any other entry.
+   */
+  const handleSaveRepeat = async (formData: EntryForm) => {
+    if (!token) throw new Error('Please sign in again before saving this transaction.');
+    if (!repeatIdempotencyKey.current) {
+      repeatIdempotencyKey.current = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    }
+    const budgetNotificationIds =
+      formData.type === 'Expense'
+        ? await fetchUnreadBudgetNotificationIds(token).catch(() => new Set<number>())
+        : new Set<number>();
+    const { convertedToEMI } = await saveNewTransaction({
+      token,
+      form: formData,
+      account: accounts.find((account) => account.id === formData.accountId) ?? null,
+      idempotencyKey: repeatIdempotencyKey.current,
+      progress: repeatSaveProgress.current,
+    });
+    repeatIdempotencyKey.current = null;
+    repeatSaveProgress.current = {};
+    notifyTransactionsChanged();
+    setIsRepeatModalVisible(false);
+    // This entry has done its job. Back on the list, the copy is the first row
+    // under Today — which is the confirmation, without a toast to say so.
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace('/transactions');
+    }
+    if (formData.type === 'Expense' && !convertedToEMI) {
+      void offerBudgetAlert(budgetNotificationIds);
+    }
+  };
+
+  const hasMerchant = Boolean(displayData.merchant) && displayData.merchant !== 'Unknown Location';
   const splitParticipants = splitBill?.participants ?? [];
   const splitExpectedBack = splitParticipants
     .filter((participant) => participant.direction === 'friend_owes_user')
@@ -467,6 +585,42 @@ export default function TransactionDetailsScreen() {
   };
 
   /**
+   * Repeat waits for the saved entry and the accounts. The row's params carry
+   * no account or time, and the sheet drops an account it cannot find in its
+   * list — so opening any earlier would repeat the spend into the wrong place.
+   */
+  const repeatReady = Boolean(transaction) && accountsLoaded;
+
+  const openRepeat = () => {
+    if (!repeatReady) return;
+    repeatIdempotencyKey.current = null;
+    repeatSaveProgress.current = {};
+    setRepeatForm(
+      buildRepeatForm(
+        { ...editInitialData, category: displayData.category || 'Food' },
+        {
+          accountType:
+            displayData.account?.type ??
+            accounts.find((account) => account.id === displayData.account_id)?.type,
+        }
+      )
+    );
+    setIsRepeatModalVisible(true);
+  };
+
+  // `repeat=1` comes from the row's swipe action, and waits for the push to
+  // land for the same reason `edit=1` does. Once only: the refetch after a save
+  // must not open it again.
+  useEffect(() => {
+    if (params.repeat === '1' && !repeatRequested.current && repeatReady && pushSettled) {
+      repeatRequested.current = true;
+      openRepeat();
+    }
+    // `openRepeat` is rebuilt every render; the ref is what keeps this to once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.repeat, pushSettled, repeatReady]);
+
+  /**
    * The skeleton is for arriving with *nothing*, which on this screen is rarer
    * than it looks.
    *
@@ -484,6 +638,26 @@ export default function TransactionDetailsScreen() {
    */
   const hasPreview = Boolean(params.name || params.amount);
 
+  const tile = categoryTile({ color: iconColor, bgColor }, colorScheme);
+  const accountName =
+    displayData.account?.name ||
+    accounts.find((account) => account.id === displayData.account_id)?.name ||
+    '';
+  /** "Expense · Sun, 11 Oct 2026, 8:53 pm" (board R4-Detail). */
+  const heroCaption = (() => {
+    const day = parseDateLabel(displayData.date);
+    const date = day
+      ? day.toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })
+      : displayData.date || 'No date';
+    const time = displayData.time ? rowTimeLabel(displayData.time) : '';
+    return [isIncomeEntry ? 'Income' : 'Expense', [date, time].filter(Boolean).join(', ')].join(' · ');
+  })();
+
   if (isLoading && !transaction && !hasPreview) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -497,38 +671,30 @@ export default function TransactionDetailsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Custom Header */}
-      <View className="flex-row items-center px-6 py-4">
+      {/* Header (board R4-Detail): back, and the title centred. */}
+      <View style={styles.header}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={dismiss}
-          className="h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-gray-800">
+          style={styles.headerButton}>
           <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
         </Pressable>
-        <ThemedText
-          className="text-base font-bold ml-4 flex-1 text-center pr-10"
-          style={{ color: theme.text }}>
+        <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
           Transaction
         </ThemedText>
+        <View style={styles.headerButton} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
-        {/* HERO SECTION */}
-        <View className="items-center mb-10">
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* HERO: icon, amount, title, one caption. */}
+        <View style={styles.hero}>
           <Animated.View
             ref={heroIconRef}
             collapsable={false}
             onLayout={iconTravel.onLayout}
-            className="h-28 w-28 rounded-[32px] items-center justify-center shadow-lg mb-6"
-            style={[
-              {
-                shadowColor: theme.accent,
-                shadowOpacity: 0.1,
-                shadowRadius: 15,
-                backgroundColor: bgColor || 'white',
-              },
-              iconTravel.style,
-            ]}>
-            <MaterialCommunityIcons name={icon as any} size={52} color={iconColor} />
+            style={[styles.heroIcon, { backgroundColor: tile.background }, iconTravel.style]}>
+            <MaterialCommunityIcons name={icon as any} size={24} color={tile.foreground} />
           </Animated.View>
 
           <Animated.View
@@ -537,367 +703,208 @@ export default function TransactionDetailsScreen() {
             onLayout={amountTravel.onLayout}
             style={amountTravel.style}>
             <ThemedText
-              className="text-4xl font-black mb-2 tracking-tight"
               numberOfLines={1}
               adjustsFontSizeToFit
-              style={{ color: theme.text }}>
-              {formatMoney(amountValue, { sign: 'never' })}
+              style={[styles.amount, { color: isIncomeEntry ? theme.positive : theme.text }]}>
+              {formatMoney(isIncomeEntry ? amountValue : -amountValue, { sign: 'always' })}
             </ThemedText>
           </Animated.View>
 
-          <ThemedText className="text-lg font-black mb-3" style={{ color: theme.text }}>
-            {displayData.title || 'Untitled Transaction'}
+          <ThemedText style={[styles.heroTitle, { color: theme.text }]}>
+            {displayData.title || 'Untitled transaction'}
           </ThemedText>
-
-          {hasMerchant && (
-            <View
-              className="flex-row items-center rounded-full px-4 py-1.5 shadow-sm border"
-              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-              <ThemedText tone="mutedStrong" className="text-sm font-bold mr-2">
-                {displayData.merchant}
-              </ThemedText>
-              <MaterialCommunityIcons name="check-circle" size={16} color="#10B981" />
-            </View>
-          )}
+          <ThemedText tone="muted" style={styles.heroCaption}>
+            {heroCaption}
+          </ThemedText>
         </View>
 
-        {/* DETAILS CARD */}
-        <View className="bg-white dark:bg-gray-800 rounded-[40px] p-8 shadow-sm mb-8">
-          {/* Date */}
-          <View className="flex-row gap-5 mb-8">
-            <View
-              className="h-12 w-12 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.secondary }}>
-              <MaterialCommunityIcons name="calendar-blank" size={24} color={theme.accent} />
-            </View>
-            <View>
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                DATE &amp; TIME
-              </ThemedText>
-              <ThemedText className="text-base font-black">
-                {displayData.date || 'No date'}
-              </ThemedText>
-              {displayData.time ? (
-                <ThemedText tone="muted" className="text-xs font-bold">
-                  At {displayData.time}
-                </ThemedText>
-              ) : null}
-            </View>
-          </View>
-
-          {/* Category */}
-          <View className="flex-row gap-5 mb-8">
-            <View
-              className="h-12 w-12 rounded-full items-center justify-center"
-              style={{ backgroundColor: bgColor || theme.accent }}>
-              <MaterialCommunityIcons name={icon as any} size={24} color={iconColor} />
-            </View>
-            <View>
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                CATEGORY
-              </ThemedText>
-              <ThemedText className="text-base font-black">
-                {displayData.category || 'Uncategorised'}
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Separator */}
-          <View className="h-[1px] bg-gray-50 mb-8 border-b border-dashed border-gray-100" />
-
-          {/* More Details Header - Collapsible */}
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => setIsExpanded(!isExpanded)}
-            className="flex-row items-center justify-between mb-6">
-            <ThemedText
-              className="text-[10px] uppercase font-black tracking-widest"
-              style={{ color: theme.accent }}>
-              MORE DETAILS
-            </ThemedText>
-            <MaterialCommunityIcons
-              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.accent}
+        {/* DETAILS: read-only rows; an empty field has no row. */}
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <LabelRow
+            label="Category"
+            value={displayData.category || 'Uncategorised'}
+            icon={icon as any}
+            iconColor={tile.foreground}
+          />
+          <LabelRow
+            label={isIncomeEntry ? 'Received via' : 'Paid with'}
+            value={displayData.mode || 'Not set'}
+            icon={paymentModeVisual(displayData.mode).icon}
+            iconColor={theme.text}
+            detail={`· ${accountName || 'no account linked'}`}
+            divider
+          />
+          {hasMerchant ? (
+            <LabelRow
+              label="Merchant"
+              value={displayData.merchant}
+              icon="storefront-outline"
+              iconColor={theme.text}
+              divider
             />
-          </TouchableOpacity>
-
-          {isExpanded && (
-            <View>
-              <View className="flex-row mb-8">
-                {/* Payment Method */}
-                <View className="flex-1 flex-row items-center gap-3">
-                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                    <MaterialCommunityIcons name="wallet-outline" size={20} color="#64748B" />
-                  </View>
-                  <View>
-                    <ThemedText tone="muted" className="text-[9px] uppercase font-black">
-                      PAID VIA
-                    </ThemedText>
-                    <ThemedText className="text-sm font-black">
-                      {displayData.mode || 'Not set'}
-                    </ThemedText>
-                  </View>
-                </View>
-
-                {/* Account */}
-                <View className="flex-1 flex-row items-center gap-3">
-                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                    <MaterialCommunityIcons name="bank-outline" size={20} color="#64748B" />
-                  </View>
-                  <View>
-                    <ThemedText tone="muted" className="text-[9px] uppercase font-black">
-                      ACCOUNT
-                    </ThemedText>
-                    <ThemedText className="text-sm font-black">
-                      {displayData.account?.name || 'Not linked'}
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
-
-              {/* Tags */}
-              <View className="flex-row items-start gap-3 mb-8">
-                <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                  <MaterialCommunityIcons name="tag-outline" size={20} color="#64748B" />
-                </View>
-                <View className="flex-1">
-                  <ThemedText tone="muted" className="text-[9px] uppercase font-black mb-2">
-                    TAG
-                  </ThemedText>
-                  {/* An untagged entry showed a "Personal" chip that looked like a
-                      real tag but was never stored and was not in the tag picker. */}
-                  <View className="flex-row gap-2">
-                    {displayData.tag ? (
-                      <View
-                        className="rounded-full border px-3 py-1"
-                        style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                        <ThemedText
-                          className="text-[10px] font-black"
-                          style={{ color: theme.accent }}>
-                          {displayData.tag}
-                        </ThemedText>
-                      </View>
-                    ) : (
-                      <ThemedText className="text-[11px]" style={{ color: `${theme.text}66` }}>
-                        No tag
-                      </ThemedText>
-                    )}
-                  </View>
-                </View>
-              </View>
-            </View>
-          )}
-
-          {/* Separator */}
-          <View className="h-[1px] bg-gray-50 mb-8 border-b border-dashed border-gray-100" />
-
-          {/* Notes Inside Card */}
-          <View className="flex-row gap-5">
-            <View
-              className="h-12 w-12 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.secondary }}>
-              <MaterialCommunityIcons name="comment-text-outline" size={24} color={theme.accent} />
-            </View>
-            <View className="flex-1">
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                NOTES
-              </ThemedText>
-              {/* The quotation marks belong to the user's own words. Wrapping
-                  the empty state in them too put "No notes added." on the
-                  screen as though somebody had written it. */}
-              {displayData.notes ? (
-                <ThemedText tone="muted" className="text-sm font-bold italic leading-relaxed">
-                  {`"${displayData.notes}"`}
-                </ThemedText>
-              ) : (
-                <ThemedText tone="muted" className="text-sm font-bold leading-relaxed">
-                  No notes
-                </ThemedText>
-              )}
-            </View>
-          </View>
+          ) : null}
+          {/* Not on income: every tag but General is about money going out. */}
+          {!isIncomeEntry && displayData.tag ? (
+            <LabelRow label="Tag" value={displayData.tag} divider />
+          ) : null}
+          {displayData.notes ? (
+            <LabelRow label="Note" divider>
+              <ThemedText style={[styles.note, { color: theme.text }]}>{displayData.notes}</ThemedText>
+            </LabelRow>
+          ) : null}
         </View>
 
         {splitBill && (
-          <View className="bg-white dark:bg-gray-800 rounded-[32px] p-6 shadow-sm mb-8">
-            <View className="mb-5 flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3">
-                <View
-                  className="h-11 w-11 items-center justify-center rounded-2xl"
-                  style={{ backgroundColor: theme.secondary }}>
-                  <MaterialCommunityIcons
-                    name="account-multiple-outline"
-                    size={22}
-                    color={theme.accent}
-                  />
-                </View>
-                <View>
-                  <ThemedText
-                    tone="muted"
-                    className="text-[10px] uppercase font-black tracking-widest">
-                    SPLIT WITH
-                  </ThemedText>
-                  <ThemedText className="text-base font-black">
-                    {splitBill.group?.name || 'Friends'}
-                  </ThemedText>
-                </View>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.splitHeader}>
+              <View style={[styles.splitTile, { backgroundColor: theme.selectedFill }]}>
+                <MaterialCommunityIcons name="account-multiple-outline" size={20} color={theme.text} />
               </View>
-              <ThemedText className="text-sm font-black" style={{ color: theme.accent }}>
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Split with
+                </ThemedText>
+                <ThemedText style={[styles.rowTitle, { color: theme.text }]}>
+                  {splitBill.group?.name || 'Friends'}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.rowAmount, { color: theme.text }]}>
                 {formatMoney(splitBill.total_amount || amountValue, { sign: 'never' })}
               </ThemedText>
             </View>
-
-            <View className="gap-3">
-              {splitParticipants.map((participant) => (
-                <View
-                  key={`${participant.friend_id}-${participant.direction}`}
-                  className="flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-900">
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-black">
-                      {participant.friend?.name || 'Friend'}
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs font-bold">
-                      {participant.direction === 'friend_owes_user' ? 'Owes you' : 'You owe'}
-                    </ThemedText>
-                  </View>
-                  <ThemedText className="text-sm font-black">
-                    {formatMoney(participant.share_amount, { sign: 'never' })}
-                  </ThemedText>
-                </View>
-              ))}
-            </View>
-
-            <View className="mt-5 flex-row gap-3">
-              <View className="flex-1 rounded-2xl bg-emerald-50 p-4">
-                <ThemedText tone="positive" className="text-[10px] uppercase font-black">
-                  OWED TO YOU
+            {splitParticipants.map((participant) => (
+              <LabelRow
+                key={`${participant.friend_id}-${participant.direction}`}
+                label={participant.direction === 'friend_owes_user' ? 'Owes you' : 'You owe'}
+                divider>
+                <ThemedText numberOfLines={1} style={[styles.flex, styles.rowValue, { color: theme.text }]}>
+                  {participant.friend?.name || 'Friend'}
                 </ThemedText>
-                <ThemedText tone="positive" className="mt-1 text-base font-black">
+                <ThemedText style={[styles.rowValue, { color: theme.text }]}>
+                  {formatMoney(participant.share_amount, { sign: 'never' })}
+                </ThemedText>
+              </LabelRow>
+            ))}
+            <View style={[styles.splitTotals, { borderTopColor: theme.border }]}>
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Owed to you
+                </ThemedText>
+                <ThemedText tone="positive" style={styles.rowAmount}>
                   {formatMoney(splitExpectedBack, { sign: 'never' })}
                 </ThemedText>
               </View>
-              <View className="flex-1 rounded-2xl bg-rose-50 p-4">
-                <ThemedText tone="negative" className="text-[10px] uppercase font-black">
-                  YOU OWE
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  You owe
                 </ThemedText>
-                <ThemedText tone="negative" className="mt-1 text-base font-black">
+                <ThemedText tone="negative" style={styles.rowAmount}>
                   {formatMoney(splitYouOwe, { sign: 'never' })}
                 </ThemedText>
               </View>
             </View>
           </View>
         )}
+
         {/* PAPER TRAIL */}
         {receiptUrl ? (
-          <View className="mb-8">
-            <ThemedText
-              tone="muted"
-              className="text-[10px] font-black uppercase tracking-[2px] mb-4 ml-6">
-              THE PAPER TRAIL
-            </ThemedText>
-            {isPdfAttachment(receiptUrl) ? (
-              <Pressable
-                onPress={handleOpenReceipt}
-                accessibilityRole="button"
-                accessibilityLabel="Open receipt PDF"
-                className="rounded-[32px] p-6 flex-row items-center justify-between border"
-                style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                <View className="flex-row items-center gap-4">
-                  <View className="h-14 w-14 rounded-full items-center justify-center bg-rose-50">
-                    <MaterialCommunityIcons name="file-pdf-box" size={28} color="#E11D48" />
-                  </View>
-                  <View>
-                    <ThemedText className="text-base font-black" style={{ color: theme.text }}>
-                      Receipt PDF
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs font-bold">
-                      Tap to open
-                    </ThemedText>
-                  </View>
-                </View>
-                <MaterialCommunityIcons name="open-in-new" size={22} color={theme.accent} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={handleOpenReceipt}
-                accessibilityRole="imagebutton"
-                accessibilityLabel="Open receipt image"
-                className="rounded-[32px] overflow-hidden border"
-                style={{ borderColor: theme.border }}>
-                <Image
-                  source={{ uri: displayReceiptUrl ?? undefined }}
-                  style={{ width: '100%', height: 220 }}
-                  contentFit="cover"
-                  transition={150}
-                />
-              </Pressable>
-            )}
-          </View>
+          isPdfAttachment(receiptUrl) ? (
+            <PressableView
+              onPress={handleOpenReceipt}
+              accessibilityRole="button"
+              accessibilityLabel="Open receipt PDF"
+              style={[styles.card, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+              pressedStyle={styles.pressed}>
+              <MaterialCommunityIcons name="file-pdf-box" size={24} color={theme.text} />
+              <View style={styles.flex}>
+                <ThemedText style={[styles.rowTitle, { color: theme.text }]}>Receipt PDF</ThemedText>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Tap to open
+                </ThemedText>
+              </View>
+              <MaterialCommunityIcons name="open-in-new" size={18} color={theme.muted} />
+            </PressableView>
+          ) : (
+            <Pressable
+              onPress={handleOpenReceipt}
+              accessibilityRole="imagebutton"
+              accessibilityLabel="Open receipt image"
+              style={[styles.card, { borderColor: theme.border }]}>
+              <Image
+                source={{ uri: displayReceiptUrl ?? undefined }}
+                style={{ width: '100%', height: 220 }}
+                contentFit="cover"
+                transition={150}
+              />
+            </Pressable>
+          )
         ) : null}
 
-        {/* ACTIONS */}
         {displayData.refundable_amount && displayData.refund_status === 'pending' ? (
-          <View
-            className="mb-6 rounded-[28px] border p-5"
-            style={{ backgroundColor: theme.card, borderColor: theme.accent }}>
-            <ThemedText className="text-base font-black" style={{ color: theme.text }}>
+          <View style={[styles.card, styles.refund, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ThemedText style={[styles.rowTitle, { color: theme.text }]}>
               {formatMoney(Number(displayData.refundable_amount))} expected back
             </ThemedText>
-            <ThemedText tone="muted" className="mt-1 text-xs">
+            <ThemedText tone="muted" style={styles.caption}>
               Expected{' '}
               {displayData.refund_expected_on
                 ? normalizeDateLabel(displayData.refund_expected_on)
                 : 'date not set'}
             </ThemedText>
-            <View className="mt-4 flex-row gap-3">
-              <Pressable
-                accessibilityRole="button"
+            <View style={styles.refundActions}>
+              <Button
+                label="Mark received"
+                variant="outline"
+                height={40}
+                style={styles.flex}
                 onPress={() => void handleRefundStatus('received')}
-                className="flex-1 items-center rounded-full py-3"
-                style={{ backgroundColor: theme.accent }}>
-                <ThemedText tone="onAccent" className="text-xs font-black">
-                  Mark received
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
+              />
+              <Button
+                label="Write off"
+                variant="outline"
+                height={40}
+                style={styles.flex}
                 onPress={() => void handleRefundStatus('written_off')}
-                className="flex-1 items-center rounded-full border py-3"
-                style={{ borderColor: theme.border }}>
-                <ThemedText className="text-xs font-black" style={{ color: theme.text }}>
-                  Write off
-                </ThemedText>
-              </Pressable>
+              />
             </View>
           </View>
         ) : null}
 
-        <Pressable
-          onPress={handleEdit}
-          className="w-full py-5 rounded-full items-center justify-center shadow-xl mb-6 active:opacity-90"
-          style={{ backgroundColor: theme.accent }}>
-          <View className="flex-row items-center gap-3">
-            <MaterialCommunityIcons name="pencil-outline" size={24} color="#FFF" />
-            <ThemedText tone="onAccent" className="font-black text-lg">
-              Edit
-            </ThemedText>
-          </View>
-        </Pressable>
-
-        <Pressable onPress={handleDelete} className="items-center py-2 mb-10 active:opacity-50">
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FF6B6B" />
-            <ThemedText className="font-bold text-[#FF6B6B]">Delete</ThemedText>
-          </View>
-        </Pressable>
+        {/* Delete stays out of the bottom bar, on a card of its own. */}
+        <PressableView
+          accessibilityRole="button"
+          onPress={handleDelete}
+          style={[styles.card, styles.deleteRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="trash-can-outline" size={20} color={theme.negative} />
+          <ThemedText tone="negative" style={styles.deleteLabel}>
+            Delete transaction
+          </ThemedText>
+        </PressableView>
       </ScrollView>
+
+      {/* The bar: an outlined secondary beside the screen's one orange action. */}
+      <View
+        style={[styles.bar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+        <Button
+          testID="entry-repeat-button"
+          label="Repeat for today"
+          variant="outline"
+          icon="repeat"
+          height={48}
+          accessibilityHint="Opens a copy of this transaction dated today"
+          disabled={!repeatReady}
+          onPress={openRepeat}
+          style={styles.flex}
+        />
+        <PrimaryButton
+          label="Edit"
+          icon="pencil-outline"
+          height={48}
+          onPress={handleEdit}
+          style={styles.flex}
+        />
+      </View>
 
       <TransactionFormModal
         visible={isEditModalVisible}
@@ -905,6 +912,7 @@ export default function TransactionDetailsScreen() {
         initialData={editInitialData}
         onSave={handleSaveUpdate}
         isEdit={true}
+        emiLink={emiLink}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
@@ -921,6 +929,19 @@ export default function TransactionDetailsScreen() {
               }
             : undefined
         }
+      />
+
+      <TransactionFormModal
+        visible={isRepeatModalVisible}
+        onClose={() => setIsRepeatModalVisible(false)}
+        initialData={repeatForm ?? undefined}
+        onSave={handleSaveRepeat}
+        heading="Repeat transaction"
+        accounts={accounts}
+        splitFriends={splitFriends}
+        splitGroups={splitGroups}
+        authToken={token}
+        onManageAccounts={() => router.push('/money?segment=accounts')}
       />
 
       <AnimatedBottomSheet
@@ -978,10 +999,10 @@ export default function TransactionDetailsScreen() {
               accessibilityRole="button"
               onPress={confirmDelete}
               className="h-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: '#FF6B6B' }}>
+              style={{ backgroundColor: theme.negative }}>
               <View className="flex-row items-center gap-2">
-                <MaterialCommunityIcons name="trash-can-outline" size={19} color="#FFFFFF" />
-                <ThemedText tone="onAccent" className="text-base font-black">
+                <MaterialCommunityIcons name="trash-can-outline" size={19} color={theme.onNegative} />
+                <ThemedText className="text-base font-black" style={{ color: theme.onNegative }}>
                   Delete
                 </ThemedText>
               </View>
@@ -1004,3 +1025,159 @@ export default function TransactionDetailsScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  scroll: {
+    paddingBottom: 32,
+  },
+  hero: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  heroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amount: {
+    marginTop: 12,
+    fontSize: 36,
+    lineHeight: 44,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+  heroTitle: {
+    marginTop: 2,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  heroCaption: {
+    marginTop: 4,
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  card: {
+    marginTop: 12,
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  note: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  flex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  rowTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  rowValue: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  rowAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  splitHeader: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+  },
+  splitTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitTotals: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  receiptRow: {
+    minHeight: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+  },
+  refund: {
+    gap: 4,
+    padding: 14,
+  },
+  refundActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  deleteRow: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  deleteLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  bar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    paddingHorizontal: SCREEN_GUTTER,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

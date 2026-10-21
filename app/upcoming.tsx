@@ -74,9 +74,9 @@ export default function UpcomingScreen() {
           onPress={() => router.push('/feedback')}
           className="mt-8 h-14 flex-row items-center justify-center rounded-[22px]"
           style={{ backgroundColor: colors.accent }}>
-          <MaterialCommunityIcons name="message-draw" size={18} color="white" />
+          <MaterialCommunityIcons name="message-draw" size={18} color={colors.onAccent} />
           <ThemedText tone="onAccent" className="ml-2 text-sm font-black" style={{ fontFamily: Fonts.title }}>
-            Suggest What Comes Next
+            Suggest what comes next
           </ThemedText>
         </Pressable>
       </ScrollView>

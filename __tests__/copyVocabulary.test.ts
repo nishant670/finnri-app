@@ -79,7 +79,8 @@ describe('the vocabulary for destructive and structural actions', () => {
     // this proves the screen the report came from says the right ones.
     const detail = readFileSync(join(process.cwd(), 'app', 'entry', '[id].tsx'), 'utf8');
 
-    expect(detail).toMatch(/>\s*Edit\s*<\/ThemedText>/);
+    // Edit is a Button label since the redesign's bottom bar; either form counts.
+    expect(detail).toMatch(/>\s*Edit\s*<\/ThemedText>|label="Edit"/);
     expect(detail).toMatch(/>\s*Delete\s*<\/ThemedText>/);
     expect(detail).toContain('Delete this transaction?');
     // Deletion is now delayed globally, so the confirmation must describe the

@@ -27,7 +27,23 @@ export type DashboardSummary = {
      * that describes a near-empty base.
      */
     spend_change_comparable?: boolean;
+    /**
+     * Investments in the window (SIPs, anything tagged Investment). Not part of
+     * `total_spent`: they are not consumption. Absent from an older API, whose
+     * `total_spent` still includes them.
+     */
+    total_invested?: number;
+    /** Everything that left the account: spent plus invested. */
+    money_out?: number;
 };
+
+/**
+ * What left the account in the window. Investments are not spending, but the
+ * money is gone today, so surplus and "over income" are measured against this.
+ * An older API folded investments into `total_spent`, which then is the answer.
+ */
+export const moneyOutOf = (summary: DashboardSummary) =>
+  summary.money_out ?? summary.total_spent;
 
 export type DashboardCategory = {
     category: string;

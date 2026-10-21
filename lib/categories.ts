@@ -1,5 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 
+import { mixHex, withAlpha, type ThemeMode } from '@/constants/theme';
+
 /**
  * Canonical transaction categories — the single source of truth for the app.
  *
@@ -68,10 +70,15 @@ export const INCOME_VISUAL: CategoryVisual = {
   bgColor: '#F3E5F5',
 };
 
+/**
+ * A category the app does not recognise — an older row, or one typed before
+ * the list settled. A plain tag, in slate: it used to be ⇄, which read as a
+ * transfer and sent people looking for the other half of one.
+ */
 export const UNKNOWN_VISUAL: CategoryVisual = {
-  icon: 'swap-horizontal',
-  color: '#90A4AE',
-  bgColor: '#F5F5F5',
+  icon: 'tag-outline',
+  color: '#64748B',
+  bgColor: '#F1F5F9',
 };
 
 /**
@@ -156,17 +163,27 @@ export const defaultCategoryForType = (type?: string | null): Category =>
   type?.toLowerCase() === 'income' ? DEFAULT_INCOME_CATEGORY : DEFAULT_CATEGORY;
 
 /**
- * The picker list. An unrecognised category from an older row is appended so
- * editing that entry never silently rewrites it.
+ * The picker list: the built-in categories, then the ones this user named
+ * themselves (`custom`, from `useUserCategories`). An unrecognised category on
+ * the entry being edited is appended too, so editing it never silently
+ * rewrites it — even one the user has since removed from their list.
  */
-export const categoryOptionsFor = (current?: string | null, type?: string | null): string[] => {
+export const categoryOptionsFor = (
+  current?: string | null,
+  type?: string | null,
+  custom: readonly string[] = []
+): string[] => {
   const income = type?.toLowerCase() === 'income';
-  const options = income ? INCOME_CATEGORIES : CATEGORIES;
-  const resolved = resolveCategory(current, type);
-  if (resolved || !current?.trim()) {
-    return [...options];
-  }
-  return [...options, current.trim()];
+  const options: string[] = [...(income ? INCOME_CATEGORIES : CATEGORIES)];
+  const append = (value?: string | null) => {
+    const name = value?.trim();
+    if (!name || resolveCategory(name, type)) return;
+    if (options.some((option) => option.toLowerCase() === name.toLowerCase())) return;
+    options.push(name);
+  };
+  custom.forEach(append);
+  append(current);
+  return options;
 };
 
 /** Icon and colour for a category, falling back to income or unknown. */
@@ -183,3 +200,19 @@ export const categoryVisual = (
   }
   return UNKNOWN_VISUAL;
 };
+
+/**
+ * The icon tile's fill and glyph colour for a category, in either mode.
+ *
+ * The category palette is a set of light pastels, which glare on a dark card.
+ * In dark mode the tile is the category's own colour at 18%, and the glyph is
+ * that colour lifted 40% toward white — the pair the dark boards draw (pink
+ * #EC407A becomes a #F48FB1 glyph on a faint pink tile).
+ */
+export const categoryTile = (
+  visual: Pick<CategoryVisual, 'color' | 'bgColor'>,
+  mode: ThemeMode
+): { background: string; foreground: string } =>
+  mode === 'dark'
+    ? { background: withAlpha(visual.color, 0.18), foreground: mixHex(visual.color, '#FFFFFF', 0.4) }
+    : { background: visual.bgColor, foreground: visual.color };

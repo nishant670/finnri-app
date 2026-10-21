@@ -5,10 +5,11 @@ import * as Haptics from 'expo-haptics';
 
 import {
   TransactionFormModal,
+  type EMILink,
   type EntryForm,
   type AiReviewMetadata,
 } from '@/components/transactions/TransactionFormModal';
-import type { Account } from '@/lib/accounts';
+import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
 import type { Transaction } from '@/types/transaction';
 
@@ -65,7 +66,15 @@ const renderModal = async ({
   recentEntries,
   onSave = jest.fn().mockResolvedValue(undefined),
   onClose = jest.fn(),
+  emiLink,
+  accountMatches,
+  newAccountSuggestion,
+  onSetupSuggestedAccount,
 }: {
+  emiLink?: EMILink | null;
+  accountMatches?: Account[];
+  newAccountSuggestion?: AccountSuggestion | null;
+  onSetupSuggestedAccount?: jest.Mock;
   initialData?: Partial<EntryForm>;
   accounts?: Account[];
   aiReview?: AiReviewMetadata;
@@ -86,6 +95,10 @@ const renderModal = async ({
       aiReview={aiReview}
       accounts={accounts}
       recentEntries={recentEntries}
+      emiLink={emiLink}
+      accountMatches={accountMatches}
+      newAccountSuggestion={newAccountSuggestion}
+      onSetupSuggestedAccount={onSetupSuggestedAccount}
     />
   );
 
@@ -131,12 +144,10 @@ describe('TransactionFormModal', () => {
       },
     });
 
-    expect(await findByText('AI draft')).toBeTruthy();
-    // The flagged fields are named by their own cards now, so the banner
-    // carries the count and the trust line and nothing else.
+    // Each flagged field carries its own Check tag, so the line under the
+    // amount carries the count and the parser's questions.
     expect(await findByText('3 fields to check')).toBeTruthy();
     expect(await findByText('Which account paid for this?')).toBeTruthy();
-    expect(await findByText('AI suggestions are never saved until you confirm.')).toBeTruthy();
   });
 
   it('preselects the compatible account for the payment mode', async () => {
@@ -189,7 +200,74 @@ describe('TransactionFormModal', () => {
       />
     );
 
-    expect(await findByText('New Quick Prompt')).toBeTruthy();
+    expect(await findByText('New quick prompt')).toBeTruthy();
+  });
+
+  describe('editing a quick prompt', () => {
+    const paytm: Account = {
+      id: 7,
+      type: 'wallet',
+      name: 'Paytm Wallet',
+      color: '#00BAF2',
+      is_default: true,
+    };
+    const amazon: Account = { id: 8, type: 'wallet', name: 'Amazon Pay', color: '#FF9900' };
+    const metroPrompt: Partial<EntryForm> = {
+      title: 'Metro Recharge',
+      amount: '300',
+      type: 'Expense',
+      mode: 'Wallets',
+      category: 'Travel',
+      accountId: null,
+      account: '',
+      date: '11 July 2026',
+    };
+
+    it('offers the account picker, but no date and no receipt', async () => {
+      // The report: switching a prompt to Wallets gave no way to say which one.
+      const { findByTestId, queryByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByTestId('entry-account-picker')).toBeTruthy();
+      // A template is used on whatever day it is used; it has no date of its own.
+      expect(queryByText('Date & Time')).toBeNull();
+    });
+
+    it('defaults to the wallet marked default, and saves the one picked instead', async () => {
+      const { findByTestId, findByText, findAllByText, onSave } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: metroPrompt,
+      });
+
+      expect(await findByText('Paytm Wallet')).toBeTruthy();
+
+      await fireEvent.press(await findByTestId('entry-account-picker'));
+      const amazonRows = await findAllByText('Amazon Pay');
+      await fireEvent.press(amazonRows[amazonRows.length - 1]);
+      await fireEvent.press(await findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+      expect(onSave.mock.calls[0][0]).toEqual(
+        expect.objectContaining({ mode: 'Wallets', accountId: 8, account: 'Amazon Pay' })
+      );
+    });
+
+    it('keeps the wallet a prompt was saved with', async () => {
+      const { findByText } = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        accounts: [cashAccount, paytm, amazon],
+        initialData: { ...metroPrompt, accountId: 8, account: 'Amazon Pay' },
+      });
+
+      expect(await findByText('Amazon Pay')).toBeTruthy();
+    });
   });
 
   it('validates required fields before saving', async () => {
@@ -203,7 +281,7 @@ describe('TransactionFormModal', () => {
 
     await fireEvent.press(await findByTestId('entry-save-button'));
 
-    expect(await findByText('Please provide Transaction Title.')).toBeTruthy();
+    expect(await findByText('Add a title so you can spot this later.')).toBeTruthy();
     expect(onSave).not.toHaveBeenCalled();
   });
 
@@ -249,6 +327,52 @@ describe('TransactionFormModal', () => {
       resolveSave();
       await firstPress;
     });
+  });
+
+  it('opens the subscription options when a folded setting refuses the save', async () => {
+    const { findByTestId, findByText, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: 'Netflix',
+        subscriptionAmount: '649',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '45',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    expect(await findByText('Reminders can be 0 to 30 days before.')).toBeTruthy();
+    // The message names a setting under More options, so the fold opens.
+    expect(await findByText('Remind me before')).toBeTruthy();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('names a subscription after the payment when the name was left to default', async () => {
+    const { findByTestId, onSave } = await renderModal({
+      mode: 'audio',
+      initialData: {
+        ...completeInitialData,
+        tag: 'Subscription',
+        subscriptionEnabled: true,
+        subscriptionName: '',
+        subscriptionAmount: '',
+        subscriptionBillingInterval: 'monthly',
+        subscriptionNextDueDate: '2026-08-11',
+        subscriptionReminderDays: '3',
+      },
+    });
+
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ subscriptionName: 'Cafe' })
+    );
   });
 
   it('uses Autopay instead of a reminder for daily subscriptions', async () => {
@@ -386,16 +510,26 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     );
   });
 
-  it('swaps the keypad for the full form under More details', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({ initialData: blankEntry });
+  it('adds a note under More details without leaving the capture screen', async () => {
+    const { findByTestId, queryByTestId, onSave } = await renderModal({ initialData: blankEntry });
 
-    await fireEvent.press(await findByTestId('entry-more-details-toggle'));
+    expect(queryByTestId('entry-notes-input')).toBeNull();
+    await fireEvent.press(await findByTestId('entry-more-details'));
 
-    // Two keyboards cannot share the same space, so the pad stands down.
-    expect(queryByTestId('amount-key-1')).toBeNull();
-    expect(await findByTestId('entry-title-input')).toBeTruthy();
-    expect(await findByTestId('entry-amount-input')).toBeTruthy();
-    expect(await findByTestId('entry-category-picker')).toBeTruthy();
+    // The note arrives in place; the keypad stays, and no second amount field
+    // comes with it.
+    expect(await findByTestId('entry-notes-input')).toBeTruthy();
+    expect(queryByTestId('entry-amount-input')).toBeNull();
+    expect(await findByTestId('amount-key-1')).toBeTruthy();
+
+    await fireEvent.changeText(await findByTestId('entry-notes-input'), 'Office lunch');
+    await typeAmount(findByTestId, '180');
+    await fireEvent.press(await findByTestId('entry-save-button'));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).toEqual(
+      expect.objectContaining({ amount: '180', notes: 'Office lunch' })
+    );
   });
 
   it('keeps title and amount visible while switching between the title keyboard and keypad', async () => {
@@ -410,14 +544,59 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ title: 'Dinner', amount: '250' }));
   });
 
-  it('shows only one category label in the expanded form and retains the title', async () => {
+  it('folds the optional details under one row until they are asked for', async () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
-    expect(ui.getAllByText('Category')).toHaveLength(1);
+
+    expect(await ui.findByText('Merchant, note, tag, receipt, split')).toBeTruthy();
+    expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
+    expect(ui.queryByText('Split this expense')).toBeNull();
+
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
+    expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
+    expect(await ui.findByTestId('entry-tag-picker')).toBeTruthy();
+    expect(await ui.findByLabelText('Attach a receipt')).toBeTruthy();
+    expect(await ui.findByText('Split this expense')).toBeTruthy();
     expect(ui.getAllByTestId('entry-title-input')).toHaveLength(1);
-    await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
     expect(await ui.findByTestId('entry-title-input')).toHaveDisplayValue('Dinner');
+  });
+
+  it('turns the split on from its switch under More details', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+    expect(ui.getByRole('switch')).not.toBeChecked();
+    await fireEvent.press(ui.getByRole('switch'));
+
+    expect(ui.getByRole('switch')).toBeChecked();
+    expect(await ui.findByText('Add a friend')).toBeTruthy();
+  });
+
+  it('does not offer a split or a tag on income', async () => {
+    const ui = await renderModal({ initialData: blankEntry });
+
+    await fireEvent.press(await ui.findByTestId('entry-type-income'));
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+
+    expect(ui.queryByText('Split this expense')).toBeNull();
+    expect(ui.queryByTestId('entry-tag-picker')).toBeNull();
+    expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
+  });
+
+  it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
+    const ui = await renderModal({
+      initialData: blankEntry,
+      recentEntries: [
+        recentEntry({ id: '9', title: 'DMart groceries', merchant: 'DMart', category: 'Shopping' }),
+      ],
+    });
+
+    await fireEvent.press(await ui.findByTestId('quick-fill-merchant:dmart'));
+
+    expect(await ui.findByTestId('entry-merchant-input')).toHaveDisplayValue('DMart');
+    expect(ui.queryByTestId('entry-add-merchant')).toBeNull();
   });
 });
 
@@ -447,7 +626,7 @@ describe('TransactionFormModal — title category suggestions', () => {
   it.each(['Shopping', 'Misc'])('preserves an explicit %s selection across title edits and same-type taps', async (category) => {
     const ui = await renderModal({ initialData: unclassified });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
-    await fireEvent.press(await ui.findByTestId('entry-category-chip'));
+    await fireEvent.press(await ui.findByTestId('entry-category-picker'));
     await fireEvent.press(await ui.findByText(category));
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Metro');
     await fireEvent.press(await ui.findByTestId('entry-type-expense'));
@@ -494,41 +673,34 @@ describe('TransactionFormModal — AI draft review', () => {
     );
   });
 
-  it('puts uncertain fields above the fold and folds the rest into one line', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({
+  it('tags the fields the AI was unsure of and shows the rest as they are', async () => {
+    const { findByTestId, findAllByText } = await renderModal({
       mode: 'audio',
       aiReview: { missingFields: ['account_hint'], confidence: { category: 0.3 } },
     });
 
-    // What the AI guessed at gets its own card...
-    expect(await findByTestId('entry-account-picker')).toBeTruthy();
+    // One sheet for drafts too: every field is on it, and the two the parser
+    // guessed at carry a Check tag.
     expect(await findByTestId('entry-category-picker')).toBeTruthy();
-    // ...and what it was sure about is one line until the user asks for it.
-    // Mode, then date, then who took the money — the flagged category is
-    // absent because it is already a card in full above.
-    expect(await findByTestId('draft-summary-line')).toHaveTextContent(
-      'Cash · 11 July 2026 · Cafe · Lunch'
-    );
-    expect(queryByTestId('entry-title-input')).toBeNull();
-
-    await fireEvent.press(await findByTestId('draft-summary-toggle'));
-
-    expect(await findByTestId('entry-title-input')).toBeTruthy();
-    expect(await findByTestId('entry-merchant-input')).toBeTruthy();
+    expect(await findByTestId('entry-account-picker')).toBeTruthy();
+    expect(await findAllByText('Check')).toHaveLength(2);
+    expect(await findByTestId('entry-title-input')).toHaveDisplayValue('Lunch');
+    // A field the AI filled always shows, so the merchant opens More details.
+    expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
   });
 
-  it('answers the Check this chip once the field has been opened', async () => {
-    const { findByText, findByTestId } = await renderModal({
+  it('answers the Check tag once the field has been opened', async () => {
+    const { findByText, findByTestId, queryByText } = await renderModal({
       mode: 'audio',
       aiReview: { confidence: { category: 0.3 } },
     });
 
     expect(await findByText('1 field to check')).toBeTruthy();
-    expect(await findByText('Check this')).toBeTruthy();
+    expect(await findByText('Check')).toBeTruthy();
 
     await fireEvent.press(await findByTestId('entry-category-picker'));
 
-    expect(await findByText('Checked')).toBeTruthy();
+    expect(queryByText('Check')).toBeNull();
     expect(await findByText('No issues flagged')).toBeTruthy();
   });
 
@@ -557,11 +729,13 @@ describe('TransactionFormModal — AI draft review', () => {
     expect(onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ amount: '325.50' }));
   });
 
-  it('leaves the manual and edit sheets on the stacked form', async () => {
-    const { findByTestId, queryByTestId } = await renderModal({ isEdit: true });
+  it('opens an edit with its saved details showing and no draft status', async () => {
+    const { findByTestId, queryByText } = await renderModal({ isEdit: true });
 
-    expect(await findByTestId('entry-more-details-toggle')).toBeTruthy();
-    expect(queryByTestId('draft-summary-toggle')).toBeNull();
+    expect(await findByTestId('entry-category-picker')).toBeTruthy();
+    expect(queryByText(/to check/)).toBeNull();
+    // The saved merchant is on screen, not folded away.
+    expect(await findByTestId('entry-merchant-input')).toHaveDisplayValue('Cafe');
   });
 });
 
@@ -661,5 +835,140 @@ describe('TransactionFormModal — parse choreography', () => {
     await renderModal({ isEdit: true });
 
     expect(Haptics.notificationAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransactionFormModal — EMI on an existing entry', () => {
+  const bankAccount: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5' };
+  const emiEdit: Partial<EntryForm> = {
+    ...completeInitialData,
+    title: 'Car loan EMI',
+    amount: '13776',
+    mode: 'Bank Account',
+    tag: 'EMI',
+    accountId: 3,
+    account: 'SBI Bank',
+    date: '05 October 2026',
+  };
+
+  it('offers the monthly auto-debit on a bank EMI that is not repeating yet', async () => {
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+    });
+    expect(await findByText('Repeats monthly (auto-debit)')).toBeTruthy();
+  });
+
+  it('shows the auto-debit it already has instead of offering a second one', async () => {
+    const { findByText, queryByText } = await renderModal({
+      isEdit: true,
+      accounts: [bankAccount],
+      initialData: emiEdit,
+      emiLink: {
+        kind: 'recurring',
+        subscription: {
+          amount: 13776,
+          total_instalments: 60,
+          instalments_paid: 12,
+          status: 'active',
+          next_due_date: '2026-11-05T00:00:00Z',
+        } as never,
+      },
+    });
+    expect(await findByText(/12 of 60 paid · 48 left/)).toBeTruthy();
+    expect(queryByText('Repeats monthly (auto-debit)')).toBeNull();
+  });
+
+  it('links a card EMI to its schedule', async () => {
+    const onOpen = jest.fn();
+    const card: Account = { id: 4, type: 'credit_card', name: 'One Card', color: '#000' };
+    const { findByText } = await renderModal({
+      isEdit: true,
+      accounts: [card],
+      initialData: { ...emiEdit, mode: 'Credit Card', accountId: 4, account: 'One Card' },
+      emiLink: {
+        kind: 'plan',
+        onOpen,
+        plan: {
+          monthly_amount: 5000,
+          tenure_months: 12,
+          annual_rate_pct: 0,
+          progress: { installments_total: 12, installments_paid: 2 },
+        } as never,
+      },
+    });
+    await fireEvent.press(await findByText('View full schedule'));
+    expect(onOpen).toHaveBeenCalled();
+  });
+});
+
+describe('TransactionFormModal — which account did you mean', () => {
+  it('gives "add a new account" a button of its own', async () => {
+    const onSetup = jest.fn();
+    const suggestion: AccountSuggestion = {
+      type: 'credit_card',
+      name: 'SBI Credit Card',
+      color: '#000',
+      provider: 'SBI',
+      identifier: '',
+      reason: '',
+    };
+    const a: Account = { id: 5, type: 'credit_card', name: 'SBI BPCL', color: '#000' };
+    const b: Account = { id: 6, type: 'credit_card', name: 'SBI simply save', color: '#000' };
+    const { findByTestId } = await renderModal({
+      mode: 'audio',
+      accounts: [a, b],
+      accountMatches: [a, b],
+      newAccountSuggestion: suggestion,
+      onSetupSuggestedAccount: onSetup,
+      initialData: { ...completeInitialData, mode: 'Credit Card', accountId: 5, account: 'SBI BPCL' },
+    });
+    await fireEvent.press(await findByTestId('account-match-new'));
+    expect(onSetup).toHaveBeenCalledWith(suggestion);
+  });
+});
+
+
+// Reported from a device: "Axis Bank Account created and selected", from one
+// bill scan, sat on the next scan's review over a credit card draft.
+describe('TransactionFormModal — created-account confirmation', () => {
+  const axisSuggestion: AccountSuggestion = {
+    type: 'bank',
+    name: 'Axis Bank Account',
+    color: '#000',
+    provider: 'Axis',
+    identifier: '',
+    reason: '',
+  };
+  const axis: Account = { id: 9, type: 'bank', name: 'Axis Bank Account', color: '#000' };
+  const card: Account = { id: 10, type: 'credit_card', name: 'HDFC Regalia', color: '#000' };
+  const bankDraft = { ...completeInitialData, mode: 'Bank Account', accountId: null, account: '' };
+  const cardDraft = { ...completeInitialData, mode: 'Credit Card', accountId: 10, account: 'HDFC Regalia' };
+
+  const sheet = (visible: boolean, initialData: Partial<EntryForm>, accounts: Account[]) => (
+    <TransactionFormModal
+      visible={visible}
+      mode="audio"
+      initialData={initialData}
+      accounts={accounts}
+      accountSuggestion={axisSuggestion}
+      onAutoCreateSuggestedAccount={jest.fn().mockResolvedValue(axis)}
+      onSetupSuggestedAccount={jest.fn()}
+      onSave={jest.fn().mockResolvedValue(undefined)}
+      onClose={jest.fn()}
+    />
+  );
+
+  it('confirms the account it made, and forgets it on the next draft', async () => {
+    const { findByText, queryByText, rerender } = await render(sheet(true, bankDraft, [card]));
+    await fireEvent.press(await findByText('Create one for me'));
+    await findByText('Axis Bank Account created and selected');
+
+    await rerender(sheet(false, bankDraft, [card, axis]));
+    await rerender(sheet(true, cardDraft, [card, axis]));
+    await waitFor(() =>
+      expect(queryByText('Axis Bank Account created and selected')).toBeNull()
+    );
   });
 });

@@ -108,7 +108,7 @@ export const AuthScreen1 = ({
               <View style={styles.glowCircle} />
               <View style={[styles.mainCircle, { borderColor: theme.border }]}>
                 <View style={[styles.iconBox, { backgroundColor: theme.accent }]}>
-                  <MaterialCommunityIcons name="wallet" size={30} color="white" />
+                  <MaterialCommunityIcons name="wallet" size={30} color={theme.onAccent} />
                 </View>
                 <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#E1BEE7' }]}>
                   <MaterialCommunityIcons name="star" size={12} color="#9C27B0" />
@@ -148,16 +148,16 @@ export const AuthScreen1 = ({
           onPress={onGuest}
         >
           {isGuestLoading ? (
-            <ActivityIndicator color="white" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <>
-              <Text style={styles.primaryButtonText}>
+              <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>
                 {mode === 'link' ? 'Keep using guest' : "Start tracking — it's free"}
               </Text>
               <MaterialCommunityIcons
                 name="arrow-right"
                 size={20}
-                color="white"
+                color={theme.onAccent}
                 style={{ marginLeft: 8 }}
               />
             </>

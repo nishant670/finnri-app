@@ -1,27 +1,30 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { cssInterop } from 'nativewind';
 import React from 'react';
-import { ActivityIndicator, Modal, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as LocalAuthentication from 'expo-local-authentication';
 
-import { AppHeader } from '@/components/navigation/AppHeader';
+import { ScreenHeader } from '@/components/navigation/ScreenHeader';
+import { SettingsRow } from '@/components/profile/SettingsRow';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { Button } from '@/components/ui/Button';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
-import { Colors, Fonts } from '@/constants/theme';
+import { PressableView } from '@/components/ui/PressableView';
+import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { deleteUserAccount, getFriendlyAuthErrorMessage, revokeAllSessions } from '@/lib/auth';
 import { deleteLocalSecurityPin, hasLocalSecurityPin } from '@/lib/security';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
+/** What this phone's biometric unlock is called, for the row that turns it on. */
+const biometric: { name: string; icon: 'face-recognition' | 'fingerprint' } =
+  Platform.OS === 'ios' ? { name: 'Face ID', icon: 'face-recognition' } : { name: 'fingerprint', icon: 'fingerprint' };
 
 export default function SecurityScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const { colors } = useThemeTokens();
   const router = useRouter();
   const { user, token, updateUser, clearAuth } = useAuthStore();
   const dialog = useAppDialog();
@@ -31,10 +34,6 @@ export default function SecurityScreen() {
   const [deleteConfirmation, setDeleteConfirmation] = React.useState('');
   const [isDeletingAccount, setIsDeletingAccount] = React.useState(false);
   const [isRevokingSessions, setIsRevokingSessions] = React.useState(false);
-
-  const backgroundColor = colorScheme === 'light' ? '#FDFBFF' : theme.background;
-  const cardColor = colorScheme === 'light' ? '#FFFFFF' : '#1E1E1E';
-  const mutedTextColor = colorScheme === 'light' ? '#6B7280' : 'rgba(255,255,255,0.58)';
 
   const showSecurityAlert = (message: string) => {
     void dialog.alert({ title: 'Security settings', message, tone: 'danger' });
@@ -81,7 +80,11 @@ export default function SecurityScreen() {
 
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (!isEnrolled) {
-        showSecurityAlert('Set up Face ID, Touch ID, or device biometrics before enabling this.');
+        showSecurityAlert(
+          Platform.OS === 'ios'
+            ? 'Set up Face ID or Touch ID before turning this on.'
+            : 'Add a fingerprint in your phone’s settings before turning this on.'
+        );
         return;
       }
 
@@ -160,307 +163,103 @@ export default function SecurityScreen() {
   };
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor }}>
-      <AppHeader title="Keep it Safe" onBack={() => router.back()} />
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <ScreenHeader title="Security & privacy" onBack={() => router.back()} />
 
-      <KeyboardAvoidingScreen
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}>
-        <View className="px-6 items-center mt-6">
-          {/* Shield Illustration */}
-          <View
-            className="w-28 h-28 rounded-full items-center justify-center mb-6"
-            style={{ backgroundColor: '#E0F2F1' }}>
-            <View
-              className="w-10 h-10 rounded-xl items-center justify-center"
-              style={{ backgroundColor: '#26A69A' }}>
-              <MaterialCommunityIcons name="shield-check" size={24} color="white" />
-            </View>
-          </View>
+      <KeyboardAvoidingScreen showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+        <ThemedText tone="muted" style={styles.intro}>
+          Control who can open Finnri on this phone and what shows on screen.
+        </ThemedText>
 
-          <TText
-            className="text-2xl font-black mb-2"
-            style={{ fontFamily: Fonts.title, color: theme.text }}>
-            Security & Privacy
-          </TText>
-          <TText
-            className="text-sm opacity-50 font-medium"
-            style={{ fontFamily: Fonts.body, color: theme.text }}>
-            {"You're in control of your data adventure!"}
-          </TText>
-        </View>
-
-        <View className="px-6 mt-10 gap-8">
-          {/* APP ACCESS Section */}
-          <View>
-            <TText
-              className="text-xs font-black tracking-widest opacity-40 mb-4 px-2"
-              style={{ fontFamily: Fonts.body, color: theme.text }}>
-              APP ACCESS
-            </TText>
-            <View
-              className="rounded-[32px] overflow-hidden"
-              style={{
-                backgroundColor: cardColor,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.03,
-                shadowRadius: 10,
-                elevation: 2,
-              }}>
-              <View
-                className="flex-row items-center p-5 justify-between border-b"
-                style={{ borderColor: 'rgba(0,0,0,0.03)' }}>
-                <View className="flex-row items-center flex-1">
-                  <View
-                    className="w-12 h-12 rounded-2xl items-center justify-center mr-4"
-                    style={{ backgroundColor: theme.secondary }}>
-                    <MaterialCommunityIcons name="lock-outline" size={22} color={theme.accent} />
-                  </View>
-                  <View>
-                    <TText
-                      className="text-base font-black"
-                      style={{ fontFamily: Fonts.title, color: theme.text }}>
-                      Enable Lock
-                    </TText>
-                    <TText
-                      className="text-xs opacity-50 font-medium"
-                      style={{ fontFamily: Fonts.body, color: theme.text }}>
-                      Require PIN to open Finnri
-                    </TText>
-                  </View>
-                </View>
+        <GroupTitle>App lock</GroupTitle>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow
+            icon="lock-outline"
+            title="App lock"
+            subtitle="Ask for your PIN when Finnri opens"
+            accessory={
+              isCheckingLock ? (
+                <ActivityIndicator color={colors.muted} />
+              ) : (
                 <HapticSwitch
+                  accessibilityLabel="App lock"
                   value={!!user?.has_pin}
                   onValueChange={(enabled) => void toggleLock(enabled)}
                   disabled={isCheckingLock}
-                  trackColor={{ false: '#E0E0E0', true: theme.accent }}
-                  thumbColor="white"
                 />
-                {isCheckingLock && (
-                  <ActivityIndicator
-                    size="small"
-                    color={theme.accent}
-                    style={{ position: 'absolute', right: 22 }}
-                  />
-                )}
-              </View>
-
-              <Pressable
-                onPress={() => router.push('/change-pin')}
-                className="flex-row items-center p-5 justify-between">
-                <View className="flex-row items-center flex-1">
-                  <View
-                    className="w-12 h-12 rounded-2xl items-center justify-center mr-4"
-                    style={{ backgroundColor: '#F3E5F5' }}>
-                    <MaterialCommunityIcons name="dots-horizontal" size={22} color="#7B1FA2" />
-                  </View>
-                  <View>
-                    <TText
-                      className="text-base font-black"
-                      style={{ fontFamily: Fonts.title, color: theme.text }}>
-                      Change PIN
-                    </TText>
-                    <TText
-                      className="text-xs opacity-50 font-medium"
-                      style={{ fontFamily: Fonts.body, color: theme.text }}>
-                      Update your 4-digit code
-                    </TText>
-                  </View>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
-              </Pressable>
-            </View>
-          </View>
-
-          {/* BIOMETRICS Section */}
-          <View>
-            <TText
-              className="text-xs font-black tracking-widest opacity-40 mb-4 px-2"
-              style={{ fontFamily: Fonts.body, color: theme.text }}>
-              BIOMETRICS
-            </TText>
-            <View
-              className="rounded-[32px] flex-row items-center p-5 justify-between"
-              style={{
-                backgroundColor: cardColor,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.03,
-                shadowRadius: 10,
-                elevation: 2,
-              }}>
-              <View className="flex-row items-center flex-1">
-                <View
-                  className="w-12 h-12 rounded-full items-center justify-center mr-4"
-                  style={{ backgroundColor: '#E1F5FE' }}>
-                  <MaterialCommunityIcons name="face-recognition" size={22} color="#0288D1" />
-                </View>
-                <View>
-                  <TText
-                    className="text-base font-black"
-                    style={{ fontFamily: Fonts.title, color: theme.text }}>
-                    Unlock with Face ID
-                  </TText>
-                  <TText
-                    className="text-xs opacity-50 font-medium"
-                    style={{ fontFamily: Fonts.body, color: theme.text }}>
-                    Quick and secure access
-                  </TText>
-                </View>
-              </View>
-              <HapticSwitch
-                value={!!user?.biometrics_enabled}
-                onValueChange={(enabled) => void toggleBiometrics(enabled)}
-                disabled={isCheckingBiometrics}
-                trackColor={{ false: '#E0E0E0', true: theme.accent }}
-                thumbColor="white"
-              />
-              {isCheckingBiometrics && (
-                <ActivityIndicator
-                  size="small"
-                  color={theme.accent}
-                  style={{ position: 'absolute', right: 22 }}
+              )
+            }
+          />
+          {/* Android phones unlock with a fingerprint; this said Face ID on
+              every phone (a fix on board R8-Security). */}
+          <SettingsRow
+            icon={biometric.icon}
+            title={`Unlock with ${biometric.name}`}
+            subtitle={`Use your ${biometric.name} instead of the PIN`}
+            divider
+            accessory={
+              isCheckingBiometrics ? (
+                <ActivityIndicator color={colors.muted} />
+              ) : (
+                <HapticSwitch
+                  accessibilityLabel={`Unlock with ${biometric.name}`}
+                  value={!!user?.biometrics_enabled}
+                  onValueChange={(enabled) => void toggleBiometrics(enabled)}
+                  disabled={isCheckingBiometrics}
                 />
-              )}
-            </View>
-          </View>
-
-          {/* PRIVACY Section */}
-          <View>
-            <TText
-              className="text-xs font-black tracking-widest opacity-40 mb-4 px-2"
-              style={{ fontFamily: Fonts.body, color: theme.text }}>
-              PRIVACY
-            </TText>
-            <View
-              className="rounded-[32px] flex-row items-center p-5 justify-between"
-              style={{
-                backgroundColor: cardColor,
-                shadowColor: '#000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.03,
-                shadowRadius: 10,
-                elevation: 2,
-              }}>
-              <View className="flex-row items-center flex-1">
-                <View
-                  className="w-12 h-12 rounded-full items-center justify-center mr-4"
-                  style={{ backgroundColor: '#FFF9C4' }}>
-                  <MaterialCommunityIcons name="eye-off-outline" size={22} color="#FBC02D" />
-                </View>
-                <View>
-                  <TText
-                    className="text-base font-black"
-                    style={{ fontFamily: Fonts.title, color: theme.text }}>
-                    Stealth Mode
-                  </TText>
-                  <TText
-                    className="text-xs opacity-50 font-medium"
-                    style={{ fontFamily: Fonts.body, color: theme.text }}>
-                    Hide balances on home screen
-                  </TText>
-                </View>
-              </View>
-              <HapticSwitch
-                value={!!user?.stealth_mode}
-                onValueChange={toggleStealthMode}
-                trackColor={{ false: '#E0E0E0', true: theme.accent }}
-                thumbColor="white"
-              />
-            </View>
-          </View>
-
-          {/* ACCOUNT DELETION Section */}
-          <View>
-            <TText
-              className="text-xs font-black tracking-widest opacity-40 mb-4 px-2"
-              style={{ fontFamily: Fonts.body, color: theme.text }}>
-              ACCOUNT
-            </TText>
-            <View className="rounded-[32px] overflow-hidden" style={{ backgroundColor: cardColor }}>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Sign out of all devices"
-                accessibilityHint="Revokes every Finnri login session, including this device"
-                disabled={isRevokingSessions}
-                onPress={() => void handleRevokeAllSessions()}
-                className="flex-row items-center p-5 justify-between border-b"
-                style={{ borderColor: 'rgba(0,0,0,0.05)' }}>
-                <View className="flex-row items-center flex-1">
-                  <View
-                    className="w-12 h-12 rounded-full items-center justify-center mr-4"
-                    style={{ backgroundColor: theme.secondary }}>
-                    {isRevokingSessions ? (
-                      <ActivityIndicator color={theme.accent} />
-                    ) : (
-                      <MaterialCommunityIcons
-                        name="logout-variant"
-                        size={22}
-                        color={theme.accent}
-                      />
-                    )}
-                  </View>
-                  <View className="flex-1">
-                    <TText
-                      className="text-base font-black"
-                      style={{ fontFamily: Fonts.title, color: theme.text }}>
-                      Sign out all devices
-                    </TText>
-                    <TText
-                      className="text-xs opacity-60 font-medium"
-                      style={{ fontFamily: Fonts.body, color: theme.text }}>
-                      Use this if a phone or browser is lost
-                    </TText>
-                  </View>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Delete Finnri account"
-                accessibilityHint="Permanently deletes your Finnri account and data after confirmation"
-                onPress={() => setShowDeleteAccount(true)}
-                className="flex-row items-center p-5 justify-between"
-                style={{
-                  backgroundColor: cardColor,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.03,
-                  shadowRadius: 10,
-                  elevation: 2,
-                }}>
-                <View className="flex-row items-center flex-1">
-                  <View
-                    className="w-12 h-12 rounded-full items-center justify-center mr-4"
-                    style={{ backgroundColor: colorScheme === 'light' ? '#FFF0EC' : '#3A2424' }}>
-                    <MaterialCommunityIcons name="delete-outline" size={22} color="#D32F2F" />
-                  </View>
-                  <View className="flex-1">
-                    <TText
-                      className="text-base font-black"
-                      style={{ fontFamily: Fonts.title, color: '#D32F2F' }}>
-                      Delete Finnri account
-                    </TText>
-                    <TText
-                      className="text-xs opacity-60 font-medium"
-                      style={{ fontFamily: Fonts.body, color: theme.text }}>
-                      Permanently remove your profile and data
-                    </TText>
-                  </View>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={24} color="#D1D5DB" />
-              </Pressable>
-            </View>
-          </View>
+              )
+            }
+          />
+          <SettingsRow
+            icon="dialpad"
+            title="Change PIN"
+            subtitle="Update your 4-digit code"
+            onPress={() => router.push('/change-pin')}
+            divider
+          />
         </View>
 
-        {/* Footer */}
-        <TText
-          className="text-center text-[10px] font-black tracking-widest opacity-20 mt-16 uppercase px-10"
-          style={{ fontFamily: Fonts.body, color: theme.text }}>
-          YOUR PRIVACY IS OUR PRIORITY
-        </TText>
+        <GroupTitle>Privacy</GroupTitle>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow
+            icon="eye-off-outline"
+            title="Stealth mode"
+            subtitle="Hide amounts on Home"
+            accessory={
+              <HapticSwitch accessibilityLabel="Stealth mode" value={!!user?.stealth_mode} onValueChange={toggleStealthMode} />
+            }
+          />
+        </View>
+
+        <GroupTitle>Account</GroupTitle>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <SettingsRow
+            icon="logout-variant"
+            title="Sign out of all devices"
+            subtitle="Use this if a phone or browser is lost"
+            accessibilityLabel="Sign out of all devices"
+            onPress={isRevokingSessions ? undefined : () => void handleRevokeAllSessions()}
+            accessory={isRevokingSessions ? <ActivityIndicator color={colors.muted} /> : undefined}
+          />
+          <PressableView
+            accessibilityRole="button"
+            accessibilityLabel="Delete Finnri account"
+            accessibilityHint="Permanently deletes your Finnri account and data after confirmation"
+            onPress={() => setShowDeleteAccount(true)}
+            style={[styles.deleteRow, { borderTopColor: colors.border }]}
+            pressedStyle={styles.pressed}>
+            <View style={[styles.dangerTile, { backgroundColor: withAlpha(colors.negative, 0.12) }]}>
+              <MaterialCommunityIcons name="delete-outline" size={18} color={colors.negative} />
+            </View>
+            <View style={styles.flexText}>
+              <ThemedText style={[styles.rowTitle, { color: colors.negative }]}>Delete Finnri account</ThemedText>
+              <ThemedText tone="muted" style={styles.small}>
+                Permanently removes your profile and data
+              </ThemedText>
+            </View>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={colors.muted} />
+          </PressableView>
+        </View>
       </KeyboardAvoidingScreen>
 
       <Modal
@@ -469,49 +268,24 @@ export default function SecurityScreen() {
         visible={showDeleteAccount}
         statusBarTranslucent
         onRequestClose={closeDeleteAccount}>
-        <View className="flex-1 items-center justify-center px-6">
+        <View style={styles.modalWrap}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Cancel account deletion"
             disabled={isDeletingAccount}
             onPress={closeDeleteAccount}
-            style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              left: 0,
-              backgroundColor: 'rgba(0,0,0,0.62)',
-            }}
+            style={styles.scrim}
           />
-          <View
-            className="w-full max-w-[384px] rounded-[32px] p-6"
-            style={{
-              backgroundColor: cardColor,
-              borderColor: colorScheme === 'light' ? '#F3D7D1' : 'rgba(255,255,255,0.12)',
-              borderWidth: 1,
-            }}>
-            <View
-              className="w-14 h-14 rounded-full items-center justify-center self-center mb-4"
-              style={{ backgroundColor: colorScheme === 'light' ? '#FFF0EC' : '#3A2424' }}>
-              <MaterialCommunityIcons name="delete-alert-outline" size={28} color="#D32F2F" />
+          <View style={[styles.dialog, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View style={[styles.dialogIcon, { backgroundColor: withAlpha(colors.negative, 0.12) }]}>
+              <MaterialCommunityIcons name="delete-alert-outline" size={26} color={colors.negative} />
             </View>
-            <TText
-              className="text-xl font-black text-center"
-              style={{ fontFamily: Fonts.title, color: theme.text }}>
-              Delete your account?
-            </TText>
-            <TText
-              className="text-sm text-center mt-3 leading-5"
-              style={{ fontFamily: Fonts.body, color: mutedTextColor }}>
-              This permanently removes your profile, transactions, accounts, AI credit history, and
-              billing records from Finnri.
-            </TText>
-            <TText
-              className="text-xs font-black tracking-widest mt-6 mb-2"
-              style={{ fontFamily: Fonts.body, color: '#D32F2F' }}>
-              TYPE DELETE TO CONFIRM
-            </TText>
+            <ThemedText style={[styles.dialogTitle, { color: colors.text }]}>Delete your account?</ThemedText>
+            <ThemedText tone="muted" style={styles.dialogBody}>
+              This permanently removes your profile, transactions, accounts, AI credit history, and billing
+              records from Finnri.
+            </ThemedText>
+            <ThemedText style={[styles.confirmLabel, { color: colors.text }]}>Type DELETE to confirm</ThemedText>
             <TextInput
               accessibilityLabel="Type DELETE to confirm account deletion"
               autoCapitalize="characters"
@@ -520,53 +294,41 @@ export default function SecurityScreen() {
               value={deleteConfirmation}
               onChangeText={setDeleteConfirmation}
               placeholder="DELETE"
-              placeholderTextColor={colorScheme === 'light' ? '#C9A8A1' : 'rgba(255,255,255,0.32)'}
-              className="h-14 rounded-2xl px-4 text-base font-black"
-              style={{
-                backgroundColor: colorScheme === 'light' ? '#FFF8F6' : 'rgba(255,255,255,0.06)',
-                borderColor:
-                  deleteConfirmation && deleteConfirmation !== 'DELETE' ? '#D32F2F' : '#F3D7D1',
-                borderWidth: 1,
-                color: colorScheme === 'light' ? '#1A1A1A' : '#FFFFFF',
-                fontFamily: Fonts.body,
-              }}
+              placeholderTextColor={colors.muted}
+              style={[
+                styles.confirmInput,
+                {
+                  backgroundColor: colors.background,
+                  borderColor:
+                    deleteConfirmation && deleteConfirmation !== 'DELETE' ? colors.negative : colors.border,
+                  color: colors.text,
+                },
+              ]}
             />
-            <View className="flex-row gap-3 mt-6">
-              <Pressable
-                accessibilityRole="button"
+            <View style={styles.dialogActions}>
+              <Button
+                variant="outline"
+                height={48}
+                label="Cancel"
                 disabled={isDeletingAccount}
                 onPress={closeDeleteAccount}
-                className="flex-1 rounded-2xl items-center justify-center"
-                style={{
-                  backgroundColor: colorScheme === 'light' ? '#FFFFFF' : 'rgba(255,255,255,0.08)',
-                  borderColor: colorScheme === 'light' ? '#EEE7E4' : 'rgba(255,255,255,0.12)',
-                  borderWidth: 1,
-                  minHeight: 52,
-                }}>
-                <TText className="font-black" style={{ fontFamily: Fonts.title, color: theme.text }}>
-                  Cancel
-                </TText>
-              </Pressable>
-              <Pressable
+                style={styles.flexButton}
+              />
+              <PressableView
                 accessibilityRole="button"
                 disabled={deleteConfirmation !== 'DELETE' || isDeletingAccount}
                 onPress={() => void handleDeleteAccount()}
-                className="flex-1 rounded-2xl items-center justify-center"
-                style={{
-                  backgroundColor: '#D32F2F',
-                  minHeight: 52,
-                  opacity: deleteConfirmation === 'DELETE' && !isDeletingAccount ? 1 : 0.45,
-                }}>
+                style={[
+                  styles.deleteButton,
+                  { backgroundColor: colors.negative, opacity: deleteConfirmation === 'DELETE' && !isDeletingAccount ? 1 : 0.45 },
+                ]}
+                pressedStyle={styles.pressed}>
                 {isDeletingAccount ? (
-                  <ActivityIndicator color="white" />
+                  <ActivityIndicator color={colors.background} />
                 ) : (
-                  <TText
-                    className="font-black"
-                    style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
-                    Delete
-                  </TText>
+                  <ThemedText style={[styles.deleteLabel, { color: colors.background }]}>Delete</ThemedText>
                 )}
-              </Pressable>
+              </PressableView>
             </View>
           </View>
         </View>
@@ -574,3 +336,149 @@ export default function SecurityScreen() {
     </SafeAreaView>
   );
 }
+
+function GroupTitle({ children }: { children: string }) {
+  return (
+    <ThemedText tone="muted" accessibilityRole="header" style={styles.groupTitle}>
+      {children}
+    </ThemedText>
+  );
+}
+
+const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+  content: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 40,
+  },
+  intro: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  groupTitle: {
+    marginTop: 20,
+    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  deleteRow: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 8,
+    paddingLeft: 14,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  dangerTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  small: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  modalWrap: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  scrim: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+  },
+  dialog: {
+    width: '100%',
+    maxWidth: 384,
+    padding: 20,
+    borderWidth: 1,
+    borderRadius: 24,
+  },
+  dialogIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    marginBottom: 12,
+  },
+  dialogTitle: {
+    textAlign: 'center',
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+  dialogBody: {
+    marginTop: 8,
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  confirmLabel: {
+    marginTop: 20,
+    marginBottom: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  confirmInput: {
+    height: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  dialogActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+  },
+  flexButton: {
+    flex: 1,
+  },
+  deleteButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

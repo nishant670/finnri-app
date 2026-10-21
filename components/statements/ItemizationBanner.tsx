@@ -117,7 +117,7 @@ export function ItemizationBanner({
         onPress={onReview}
         className="mt-3 self-start rounded-full px-4 py-2"
         style={{ backgroundColor: theme.accent }}>
-        <TText className="text-xs" style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+        <TText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
           Add a missing transaction
         </TText>
       </Pressable>

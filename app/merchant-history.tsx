@@ -380,7 +380,7 @@ export default function MerchantHistoryScreen() {
         <TouchableOpacity
           className="flex-1 flex-row items-center justify-center rounded-[24px] py-5 shadow-lg"
           style={{ backgroundColor: theme.accent }}>
-          <MaterialCommunityIcons name="chart-timeline-variant-shimmer" size={22} color="white" />
+          <MaterialCommunityIcons name="chart-timeline-variant-shimmer" size={22} color={theme.onAccent} />
           <ThemedText tone="onAccent" className="ml-3 text-lg font-black">Merchant Insights</ThemedText>
         </TouchableOpacity>
         <TouchableOpacity className="h-[64px] w-[64px] items-center justify-center rounded-[24px] bg-white shadow-sm">

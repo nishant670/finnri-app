@@ -115,8 +115,7 @@ export const fetchNewUnreadBudgetNotification = async (
   const payload = await fetchNotifications(token, 'unread');
   return (
     payload.notifications.find(
-      (notification) =>
-        notification.type.startsWith('budget.') && !previousIds.has(notification.id)
+      (notification) => notification.type.startsWith('budget.') && !previousIds.has(notification.id)
     ) ?? null
   );
 };
@@ -147,3 +146,18 @@ export const markAllNotificationsRead = async (token: string, typePrefix?: strin
     throw new Error('Unable to mark notifications as read.');
   }
 };
+
+/**
+ * The account a notification opens, from `/accounts/<id>`. A query string is
+ * allowed: the annual-fee reminder carries its renewal year
+ * (`?fee_year=2027`), which is how the server sends it once a year.
+ */
+export const accountIdFromActionURL = (actionURL?: string | null): string | null =>
+  actionURL?.match(/^\/accounts\/(\d+)(?:\?.*)?$/)?.[1] ?? null;
+
+/**
+ * A finished recurring schedule ("Loan paid off") links to `/recurring/<id>`,
+ * which opens the Recurring tab.
+ */
+export const isRecurringActionURL = (actionURL?: string | null): boolean =>
+  /^\/recurring(\/\d+)?$/.test(actionURL ?? '');

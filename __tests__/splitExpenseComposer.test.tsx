@@ -90,17 +90,18 @@ it('infers new split expense categories from the collapsed title field', async (
 it('offers Home payment/account and optional fields in Split and saves their edits', async () => {
   const onSave = jest.fn().mockResolvedValue(undefined);
   const ui = await render(<Composer onSave={onSave} />);
-  expect(ui.queryByText('INCOME')).toBeNull();
+  expect(ui.queryByText('Income')).toBeNull();
   expect(await ui.findByTestId('entry-account-picker')).toBeTruthy();
   await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Birthday dinner');
-  await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
-  await fireEvent.changeText(
-    await ui.findByPlaceholderText('Merchant or store name'),
-    'Restaurant'
-  );
-  await fireEvent.changeText(await ui.findByPlaceholderText('Add a note...'), 'With friends');
+  // The draft already has a merchant and a note, so More details is open on
+  // them, with the tag and receipt beside them.
+  await fireEvent.changeText(await ui.findByPlaceholderText('Shop or service'), 'Restaurant');
+  await fireEvent.changeText(await ui.findByPlaceholderText('Add a note'), 'With friends');
+  await fireEvent.press(await ui.findByTestId('entry-tag-picker'));
   await fireEvent.press(await ui.findByText('Lending'));
-  expect(await ui.findByText('Attach a photo or PDF')).toBeTruthy();
+  expect(await ui.findByLabelText('Attach a receipt')).toBeTruthy();
+  // A split composer owns its own allocation, so the sheet's split is not offered.
+  expect(ui.queryByText('Split this expense')).toBeNull();
   await fireEvent.press(await ui.findByTestId('entry-save-button'));
   await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
   expect(onSave.mock.calls[0][0]).toMatchObject({
@@ -132,14 +133,17 @@ it('keeps friend-paid expenses out of personal accounts and validates shared fie
   const onSave = jest.fn().mockResolvedValue(undefined);
   const ui = await render(<Composer onSave={onSave} personalPayment={false} />);
   expect(ui.queryByTestId('entry-account-picker')).toBeNull();
-  await fireEvent.press(await ui.findByTestId('entry-more-details-toggle'));
+  if (!ui.queryByTestId('entry-tag-picker')) {
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+  }
+  await fireEvent.press(await ui.findByTestId('entry-tag-picker'));
   expect(await ui.findByText('Refundable')).toBeTruthy();
   await fireEvent.press(await ui.findByText('Refundable'));
-  expect(await ui.findByPlaceholderText('Merchant or store name')).toBeTruthy();
+  expect(await ui.findByPlaceholderText('Shop or service')).toBeTruthy();
   await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '-1');
   await fireEvent.press(await ui.findByTestId('entry-save-button'));
   expect(onSave).not.toHaveBeenCalled();
-  expect(await ui.findByText('Please enter a valid amount.')).toBeTruthy();
+  expect(await ui.findByText('Enter an amount above zero.')).toBeTruthy();
   await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '1000');
   await fireEvent.press(await ui.findByTestId('entry-save-button'));
   await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));

@@ -11,11 +11,12 @@ describe('money segments', () => {
   it('offers every segment the tab holds, spelled out', async () => {
     const screen = await render(<MoneySegments active="upcoming" onChange={jest.fn()} />);
 
-    // "Subscriptions" is the reason this row scrolls instead of dividing the
-    // width four ways — the label has to survive whole.
+    // The row scrolls instead of dividing the width four ways, so every label
+    // survives whole. The subscriptions segment now reads "Recurring": it
+    // holds loans, investments and bills too.
     expect(screen.getByText('Upcoming')).toBeTruthy();
     expect(screen.getByText('Budgets')).toBeTruthy();
-    expect(screen.getByText('Subscriptions')).toBeTruthy();
+    expect(screen.getByText('Recurring')).toBeTruthy();
     expect(screen.getByText('Accounts')).toBeTruthy();
   });
 

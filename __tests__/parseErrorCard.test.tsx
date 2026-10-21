@@ -29,7 +29,7 @@ describe('the failed-capture card', () => {
     const screen = await render(<ParseErrorCard failure={schemaFailure()} {...cardProps} />);
 
     expect(screen.getByText(/advance payment to landlord/)).toBeTruthy();
-    expect(screen.getByText('WHAT I HEARD')).toBeTruthy();
+    expect(screen.getByText('WHAT FINNRI HEARD')).toBeTruthy();
   });
 
   it('retries the same capture and offers the manual way through', async () => {
@@ -87,7 +87,7 @@ describe('the capture card after a failure', () => {
   it('offers to process a fresh recording', async () => {
     const screen = await render(<VoiceInputCard {...captureProps} />);
 
-    expect(screen.getByText('Process')).toBeTruthy();
+    expect(screen.getByText('Use this')).toBeTruthy();
     expect(screen.getByText('Recording ready')).toBeTruthy();
   });
 
@@ -99,7 +99,7 @@ describe('the capture card after a failure', () => {
       <VoiceInputCard {...captureProps} onProcess={onProcess} hasFailed />
     );
 
-    expect(screen.queryByText('Process')).toBeNull();
+    expect(screen.queryByText('Use this')).toBeNull();
     await fireEvent.press(screen.getByText('Try again'));
     expect(onProcess).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Cancel')).toBeTruthy();

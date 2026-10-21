@@ -1,5 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
-import { TextAction } from '@/components/ui/theme-primitives';
+import { Button } from '@/components/ui/Button';
+import { PressableView } from '@/components/ui/PressableView';
+import { mixHex, withAlpha } from '@/constants/theme';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -64,6 +66,14 @@ const LOUD_OPACITY = 0.42;
 /** The button holds this while recording, per the spec. */
 const RECORDING_BUTTON_SCALE = 1.04;
 
+/** The mic, and the 6dp tinted halo drawn around it (board R1-Home-Empty). */
+const MIC_SIZE = 64;
+const MIC_HALO = 6;
+const MIC_FRAME = MIC_SIZE + MIC_HALO * 2;
+
+/** How far the halo sits from the card toward the accent. */
+const HALO_TINT = 0.18;
+
 /** How long a sample prompt stays up before the next one fades in. */
 const PROMPT_ROTATE_MS = 2600;
 
@@ -109,6 +119,12 @@ type VoiceInputCardProps = {
   hasFailed?: boolean;
   isTextInputVisible?: boolean;
   onToggleTextInput?: () => void;
+  /**
+   * The third way in, beside speaking and typing: a photo of the bill. It sat
+   * in the corner of the add sheet, where it was easy to miss and could crowd
+   * the title on a narrow phone.
+   */
+  onScanBill?: () => void;
 };
 
 export function VoiceInputCard({
@@ -126,10 +142,10 @@ export function VoiceInputCard({
   hasFailed = false,
   isTextInputVisible = false,
   onToggleTextInput,
+  onScanBill,
 }: VoiceInputCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const isDark = theme.mode === 'dark';
   const trimmedInput = inputText.trim();
   const canSubmitText = trimmedInput.length > 0 && !isRecording && !isProcessing;
   const shouldShowTextInput = isTextInputVisible || trimmedInput.length > 0;
@@ -139,7 +155,6 @@ export function VoiceInputCard({
   const clock = useSharedValue(0);
   const buttonScale = useSharedValue(1);
   const textEntryAnim = useSharedValue(shouldShowTextInput ? 1 : 0);
-  const micSizeAnim = useSharedValue(shouldShowTextInput ? 0 : 1);
   const promptFade = useSharedValue(1);
   const samplePrompts = useMemo(
     () => [
@@ -189,7 +204,6 @@ export function VoiceInputCard({
 
   useEffect(() => {
     textEntryAnim.value = withTiming(shouldShowTextInput ? 1 : 0, motion.enter('base'));
-    micSizeAnim.value = withTiming(shouldShowTextInput ? 0 : 1, motion.enter('base'));
 
     if (shouldShowTextInput) {
       const focusTimeout = setTimeout(() => textInputRef.current?.focus(), 160);
@@ -197,7 +211,7 @@ export function VoiceInputCard({
     }
 
     return undefined;
-  }, [micSizeAnim, motion, shouldShowTextInput, textEntryAnim]);
+  }, [motion, shouldShowTextInput, textEntryAnim]);
 
   useEffect(() => {
     if (isRecording) return undefined;
@@ -262,326 +276,133 @@ export function VoiceInputCard({
     transform: [{ scale: buttonScale.value }],
   }));
 
-  const micFrameStyle = useAnimatedStyle(() => ({
-    height: interpolate(micSizeAnim.value, [0, 1], [78, 124]),
-    width: interpolate(micSizeAnim.value, [0, 1], [78, 124]),
-    borderRadius: interpolate(micSizeAnim.value, [0, 1], [39, 62]),
-  }));
-
-  const micSurfaceStyle = useAnimatedStyle(() => ({
-    borderWidth: interpolate(micSizeAnim.value, [0, 1], [6, 9]),
-  }));
-
-  const micIconStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: interpolate(micSizeAnim.value, [0, 1], [0.8, 1.16]) }],
-  }));
-
   const promptStyle = useAnimatedStyle(() => ({ opacity: promptFade.value }));
 
   const textEntryStyle = useAnimatedStyle(() => ({
     opacity: textEntryAnim.value,
     transform: [{ translateY: interpolate(textEntryAnim.value, [0, 1], [-8, 0]) }],
   }));
-  const cardGap = shouldShowTextInput || isRecording ? theme.spacing.md : theme.spacing.lg;
+  const halo = mixHex(colors.card, colors.accent, HALO_TINT);
+  const busy = isProcessing || isRecording;
 
-  // Success State UI
+  const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
+
+  // A finished clip, waiting to be used or dropped.
   if (hasRecording && !isRecording) {
     return (
-      <View
-        style={{
-          marginHorizontal: 24,
-          borderRadius: theme.radius.xxl,
-          paddingHorizontal: theme.spacing.lg,
-          paddingTop: theme.spacing.xxl,
-          paddingBottom: theme.spacing.xl,
-          minHeight: 282,
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: theme.spacing.xl,
-          backgroundColor: isDark ? colors.card : colors.secondary,
-        }}>
-        <View style={{ alignItems: 'center', gap: theme.spacing.xs }}>
-          <View
-            style={{
-              height: 64,
-              width: 64,
-              borderRadius: 32,
-              backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#FFFFFF',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-            <MaterialCommunityIcons
-              name={hasFailed ? 'microphone-message' : 'waveform'}
-              size={30}
-              color={hasFailed ? (isDark ? '#FCA5A5' : '#DC2626') : colors.accent}
-            />
+      <View style={cardStyle}>
+        <View style={styles.hero}>
+          <View style={[styles.micFrame, { backgroundColor: halo }]}>
+            <View style={[styles.mic, { backgroundColor: colors.card }]}>
+              <MaterialCommunityIcons
+                name={hasFailed ? 'microphone-message' : 'waveform'}
+                size={28}
+                color={hasFailed ? colors.negative : colors.text}
+              />
+            </View>
           </View>
-          <ThemedText variant="cardTitle" style={{ color: colors.text }}>
-            {hasFailed ? 'Recording kept' : 'Recording ready'}
-          </ThemedText>
+          <View style={styles.heroText}>
+            <ThemedText style={[styles.title, { color: colors.text }]}>
+              {hasFailed ? 'Recording kept' : 'Recording ready'}
+            </ThemedText>
+          </View>
         </View>
 
-        <View
-          style={{
-            alignSelf: 'stretch',
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            columnGap: theme.spacing.sm,
-            rowGap: theme.spacing.sm,
-            flex: 1,
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}>
-          <Pressable
+        <View style={[styles.footerActions, { borderTopColor: colors.border }]}>
+          <Button
+            label={hasFailed ? 'Try again' : 'Use this'}
+            icon={hasFailed ? 'refresh' : 'flash'}
+            height={44}
+            loading={isProcessing}
             onPress={onProcess}
+            style={styles.footerButton}
+          />
+          <Button
+            label="Cancel"
+            variant="outline"
+            icon="close"
+            height={44}
             disabled={isProcessing}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              flexShrink: 1,
-              flexBasis: 132,
-              minWidth: 0,
-              opacity: pressed ? 0.9 : isProcessing ? 0.7 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
-            <View
-              style={{
-                height: 38,
-                width: '100%',
-                borderRadius: 19,
-                paddingHorizontal: 6,
-                backgroundColor: colors.accent,
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 3,
-              }}>
-              {isProcessing ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <>
-                  <MaterialCommunityIcons
-                    name={hasFailed ? 'refresh' : 'flash'}
-                    size={14}
-                    color="#FFFFFF"
-                  />
-                  <ThemedText
-                    numberOfLines={1}
-                    style={{
-                      color: '#FFFFFF',
-                      fontSize: 12,
-                      lineHeight: 14,
-                      fontFamily: theme.typography.button.fontFamily,
-                      fontWeight: theme.typography.button.fontWeight,
-                    }}>
-                    {hasFailed ? 'Try again' : 'Process'}
-                  </ThemedText>
-                </>
-              )}
-            </View>
-          </Pressable>
-
-          <Pressable
             onPress={onClear}
-            disabled={isProcessing}
-            style={({ pressed }) => ({
-              flexGrow: 1,
-              flexShrink: 1,
-              flexBasis: 132,
-              minWidth: 0,
-              opacity: pressed ? 0.8 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            })}>
-            <View
-              style={{
-                height: 38,
-                width: '100%',
-                borderRadius: 19,
-                paddingHorizontal: 6,
-                backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#F3F4F6',
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 3,
-              }}>
-              <MaterialCommunityIcons
-                name="close"
-                size={14}
-                color={isDark ? 'rgba(255,255,255,0.72)' : '#5E6C84'}
-              />
-              <ThemedText
-                numberOfLines={1}
-                style={{
-                  color: isDark ? 'rgba(255,255,255,0.72)' : '#5E6C84',
-                  fontSize: 12,
-                  lineHeight: 14,
-                  fontFamily: theme.typography.button.fontFamily,
-                  fontWeight: theme.typography.button.fontWeight,
-                }}>
-                Cancel
-              </ThemedText>
-            </View>
-          </Pressable>
+            style={styles.footerButton}
+          />
         </View>
       </View>
     );
   }
 
-  // Initial / Recording State UI
   return (
-    <View
-      style={{
-        marginHorizontal: 24,
-        borderRadius: theme.radius.xxl,
-        paddingHorizontal: theme.spacing.xxl,
-        paddingTop: theme.spacing.xxl,
-        paddingBottom: theme.spacing.xl,
-        minHeight: 286,
-        alignItems: 'center',
-        gap: cardGap,
-        backgroundColor: isDark ? colors.card : colors.secondary,
-      }}>
-      <View style={{ gap: theme.spacing.xs, alignItems: 'center' }}>
-        <ThemedText
-          numberOfLines={1}
-          variant="cardTitle"
-          style={{
-            textAlign: 'center',
-            color: colors.text,
-          }}>
-          Tap and speak
-        </ThemedText>
-        <Animated.Text
-          style={[
-            {
-              color: isDark ? 'rgba(255,255,255,0.58)' : 'rgba(45,45,45,0.56)',
-              ...theme.typography.caption,
-            },
-            promptStyle,
-          ]}>
-          {samplePrompts[promptIndex]}
-        </Animated.Text>
+    <View style={cardStyle}>
+      <View style={styles.hero}>
+        {/* Mic Button */}
+        <Animated.View style={[styles.micFrame, buttonScaleStyle]}>
+          <View pointerEvents="none" style={[styles.micHalo, { backgroundColor: halo }]} />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.pulseRing, { backgroundColor: colors.accent }, outerRingStyle]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.pulseRing, { backgroundColor: colors.accent }, innerRingStyle]}
+          />
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={isRecording ? 'Stop recording' : 'Record an expense'}
+            accessibilityState={{ busy: isRecording }}
+            onPressIn={() => {
+              micLongPressHandled.current = false;
+            }}
+            onLongPress={() => {
+              if (!onMicLongPress || isRecording) return;
+              micLongPressHandled.current = true;
+              onMicLongPress();
+            }}
+            delayLongPress={450}
+            onPress={() => {
+              if (micLongPressHandled.current) {
+                micLongPressHandled.current = false;
+                return;
+              }
+              onMicPress();
+            }}
+            style={[styles.mic, { backgroundColor: colors.accent }]}>
+            <MaterialCommunityIcons
+              name={isRecording ? 'stop' : 'microphone'}
+              size={28}
+              color={colors.onAccent}
+            />
+          </Pressable>
+        </Animated.View>
+
+        <View style={styles.heroText}>
+          <ThemedText
+            numberOfLines={1}
+            accessibilityLiveRegion="polite"
+            style={[styles.title, { color: colors.text }]}>
+            {isRecording ? 'Listening…' : 'Tap and speak'}
+          </ThemedText>
+          <ThemedText tone="muted" style={styles.body}>
+            Talk the way you normally would. Finnri sorts it out.
+          </ThemedText>
+          <Animated.Text
+            numberOfLines={1}
+            style={[styles.body, styles.sample, { color: colors.text }, promptStyle]}>
+            {`“${samplePrompts[promptIndex]}”`}
+          </Animated.Text>
+        </View>
       </View>
 
-      {/* Mic Button */}
-      <Animated.View
-        style={[
-          {
-            alignItems: 'center',
-            justifyContent: 'center',
-          },
-          micFrameStyle,
-          buttonScaleStyle,
-          theme.shadows.accent,
-        ]}>
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.pulseRing, { backgroundColor: colors.accent }, outerRingStyle]}
-        />
-        <Animated.View
-          pointerEvents="none"
-          style={[styles.pulseRing, { backgroundColor: colors.accent }, innerRingStyle]}
-        />
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={isRecording ? 'Stop recording' : 'Record an expense'}
-          accessibilityState={{ busy: isRecording }}
-          onPressIn={() => {
-            micLongPressHandled.current = false;
-          }}
-          onLongPress={() => {
-            if (!onMicLongPress || isRecording) return;
-            micLongPressHandled.current = true;
-            onMicLongPress();
-          }}
-          delayLongPress={450}
-          onPress={() => {
-            if (micLongPressHandled.current) {
-              micLongPressHandled.current = false;
-              return;
-            }
-            onMicPress();
-          }}
-          style={{
-            height: '100%',
-            width: '100%',
-            borderRadius: 999,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}>
-          <Animated.View
-            style={[
-              {
-                alignSelf: 'stretch',
-                flex: 1,
-                borderRadius: 999,
-                alignItems: 'center',
-                justifyContent: 'center',
-                backgroundColor: colors.accent,
-                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)',
-              },
-              micSurfaceStyle,
-            ]}>
-            <Animated.View style={micIconStyle}>
-              <MaterialCommunityIcons
-                name={isRecording ? 'stop' : 'microphone'}
-                size={38}
-                color="#FFFFFF"
-              />
-            </Animated.View>
-          </Animated.View>
-        </Pressable>
-      </Animated.View>
-
-      {isRecording ? (
-        <ThemedText
-          variant="micro"
-          style={{
-            textAlign: 'center',
-            textTransform: 'uppercase',
-            letterSpacing: 1.2,
-            color: colors.accent,
-          }}>
-          Listening...
-        </ThemedText>
-      ) : null}
-
-      <TextAction
-        label="I Prefer To Write"
-        onPress={onToggleTextInput}
-        disabled={isProcessing || isRecording}
-        style={styles.writeToggle}
-      />
-
       {shouldShowTextInput ? (
-        <Animated.View style={[{ width: '100%' }, textEntryStyle]}>
-          <View
-            style={{
-              width: '100%',
-              flexDirection: 'row',
-              alignItems: 'flex-end',
-              backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : '#FFFFFF',
-              borderRadius: theme.radius.lg,
-              paddingLeft: 14,
-              paddingRight: 8,
-              paddingVertical: 7,
-              shadowColor: '#000',
-              shadowOpacity: 0.04,
-              shadowRadius: 8,
-              elevation: 1,
-            }}>
-            <MaterialCommunityIcons
-              name="pencil"
-              size={18}
-              color={trimmedInput ? colors.accent : '#A0A0A0'}
-              style={styles.inputIcon}
-            />
+        <Animated.View style={[styles.typeArea, { borderTopColor: colors.border }, textEntryStyle]}>
+          <View style={[styles.field, { borderColor: colors.text, backgroundColor: colors.card }]}>
             <TextInput
               ref={textInputRef}
+              accessibilityLabel="Type what you spent or earned"
               placeholder="spent 250 on food via UPI"
-              placeholderTextColor="#A0A0A0"
+              placeholderTextColor={colors.muted}
               value={inputText}
               onChangeText={onChangeText}
-              editable={!isProcessing && !isRecording}
+              editable={!busy}
               multiline
               returnKeyType="send"
               onSubmitEditing={() => {
@@ -589,25 +410,23 @@ export function VoiceInputCard({
                   onProcess();
                 }
               }}
-              style={{
-                flex: 1,
-                minHeight: 38,
-                maxHeight: 82,
-                fontSize: 14,
-                fontFamily: theme.typography.body.fontFamily,
-                color: colors.text,
-                paddingTop: 9,
-                paddingBottom: 9,
-              }}
+              style={[styles.input, { color: colors.text }]}
             />
-            {trimmedInput ? (
+            {/* With words in it the × clears them; empty, it folds the field
+                away again — the same toggle "Type instead" opened it with. */}
+            {trimmedInput || onToggleTextInput ? (
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Clear typed expense"
-                onPress={onClear}
+                accessibilityLabel={trimmedInput ? 'Clear typed expense' : 'Close typing'}
+                onPress={trimmedInput ? onClear : onToggleTextInput}
                 disabled={isProcessing}
+                hitSlop={4}
                 style={styles.iconButton}>
-                <MaterialCommunityIcons name="close-circle" size={20} color="#A0A0A0" />
+                <MaterialCommunityIcons
+                  name={trimmedInput ? 'close-circle' : 'close'}
+                  size={20}
+                  color={colors.muted}
+                />
               </Pressable>
             ) : null}
             <Pressable
@@ -618,17 +437,17 @@ export function VoiceInputCard({
               style={[
                 styles.sendButton,
                 {
-                  backgroundColor: canSubmitText ? colors.accent : '#E5E7EB',
+                  backgroundColor: canSubmitText ? colors.accent : colors.track,
                   opacity: isProcessing ? 0.7 : 1,
                 },
               ]}>
               {isProcessing && trimmedInput ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={colors.onAccent} size="small" />
               ) : (
                 <MaterialCommunityIcons
-                  name="send"
-                  size={17}
-                  color={canSubmitText ? '#FFFFFF' : '#A0A0A0'}
+                  name="send-outline"
+                  size={18}
+                  color={canSubmitText ? colors.onAccent : withAlpha(colors.text, 0.45)}
                 />
               )}
             </Pressable>
@@ -643,23 +462,97 @@ export function VoiceInputCard({
               accessibilityRole="button"
               accessibilityLabel={`Ask ${EXAMPLE_QUESTION}`}
               onPress={() => (onAskPress ? onAskPress() : onChangeText(EXAMPLE_QUESTION))}
-              disabled={isProcessing || isRecording}
+              disabled={busy}
               hitSlop={6}
-              style={{ marginTop: 8, alignSelf: 'flex-start' }}>
-              <ThemedText variant="caption" style={{ color: `${colors.text}99` }}>
-                Or ask — <ThemedText variant="caption" style={{ color: colors.accent }}>
+              style={styles.askLine}>
+              <ThemedText tone="muted" style={styles.caption}>
+                Or ask —{' '}
+                <ThemedText
+                  style={[
+                    styles.caption,
+                    styles.askLink,
+                    { color: colors.text, textDecorationColor: withAlpha(colors.text, 0.3) },
+                  ]}>
                   “{EXAMPLE_QUESTION}”
                 </ThemedText>
               </ThemedText>
             </Pressable>
           ) : null}
         </Animated.View>
-      ) : null}
+      ) : (
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <PressableView
+            accessibilityRole="button"
+            onPress={onToggleTextInput}
+            disabled={busy}
+            style={[styles.footerAction, styles.footerActionFirst, busy && styles.inactive]}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="pencil-outline" size={20} color={colors.text} />
+            <ThemedText style={[styles.footerLabel, { color: colors.text }]}>Type instead</ThemedText>
+          </PressableView>
+          {onScanBill ? (
+            <>
+              <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+              <PressableView
+                testID="scan-bill-home"
+                accessibilityRole="button"
+                accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in the entry."
+                onPress={onScanBill}
+                disabled={busy}
+                style={[styles.footerAction, busy && styles.inactive]}
+                pressedStyle={styles.pressed}>
+                <MaterialCommunityIcons name="camera-outline" size={20} color={colors.text} />
+                <ThemedText style={[styles.footerLabel, { color: colors.text }]}>
+                  Scan a bill
+                </ThemedText>
+              </PressableView>
+            </>
+          ) : null}
+        </View>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Not clipped: on a loud sentence the mic's rings travel past the card's
+  // left edge, and cutting them off there reads as a rendering fault.
+  card: {
+    marginHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  hero: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+    paddingLeft: 16,
+    paddingRight: 16,
+  },
+  micFrame: {
+    width: MIC_FRAME,
+    height: MIC_FRAME,
+    borderRadius: MIC_FRAME / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  micHalo: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    borderRadius: MIC_FRAME / 2,
+  },
+  mic: {
+    width: MIC_SIZE,
+    height: MIC_SIZE,
+    borderRadius: MIC_SIZE / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   pulseRing: {
     position: 'absolute',
     top: 0,
@@ -668,30 +561,113 @@ const styles = StyleSheet.create({
     left: 0,
     borderRadius: 999,
   },
-  writeToggle: {
-    minHeight: 24,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  heroText: {
+    flex: 1,
+    minWidth: 0,
     gap: 3,
   },
-  inputIcon: {
-    marginRight: 9,
-    marginBottom: 10,
+  title: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  body: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sample: {
+    fontWeight: '500',
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  footer: {
+    height: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderTopWidth: 1,
+  },
+  footerAction: {
+    height: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  footerActionFirst: {
+    flex: 1,
+    paddingLeft: 22,
+  },
+  footerDivider: {
+    width: 1,
+    height: 24,
+  },
+  footerLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  footerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderTopWidth: 1,
+  },
+  footerButton: {
+    flex: 1,
+  },
+  typeArea: {
+    gap: 8,
+    padding: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    borderTopWidth: 1,
+  },
+  field: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: 14,
+    paddingRight: 6,
+    borderWidth: 1.5,
+    borderRadius: 14,
+  },
+  input: {
+    flex: 1,
+    minWidth: 0,
+    maxHeight: 82,
+    paddingTop: 12,
+    paddingBottom: 12,
+    fontSize: 15,
   },
   iconButton: {
-    height: 38,
+    height: 36,
     width: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   sendButton: {
-    height: 38,
-    width: 38,
-    borderRadius: 19,
+    height: 36,
+    width: 36,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  askLine: {
+    alignSelf: 'flex-start',
+    paddingLeft: 4,
+  },
+  askLink: {
+    fontWeight: '500',
+    textDecorationLine: 'underline',
+  },
+  inactive: {
+    opacity: 0.45,
+  },
+  pressed: {
+    opacity: 0.7,
   },
 });

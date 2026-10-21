@@ -1,16 +1,16 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
-import { cssInterop } from 'nativewind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
-import { CreditUsageBar } from '@/components/accounts/CreditUsageBar';
+import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { AccountListSkeleton } from '@/components/accounts/AccountSkeletons';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { ListRow } from '@/components/ui/ListRow';
+import { PressableView } from '@/components/ui/PressableView';
 import { StateView } from '@/components/ui/StateView';
-import { Fonts } from '@/constants/theme';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
@@ -19,7 +19,6 @@ import {
   getAccountVisual,
   getAccountHeadline,
   getCreditDueLabel,
-  getCreditUsage,
   getLastActivityLabel,
   getRunningBalance,
   hasLedgerActivity,
@@ -28,9 +27,6 @@ import {
 import { formatMoney } from '@/lib/money';
 import { Account, type AccountType, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
-
-const TView = cssInterop(ThemedView, { className: 'style' });
-const TText = cssInterop(ThemedText, { className: 'style' });
 
 type AccountFilter = 'all' | string;
 
@@ -43,9 +39,9 @@ type AccountFilter = 'all' | string;
  * Same class of drift as the four category vocabularies in S3, one screen down.
  */
 const accountGroups: { key: string; label: string; chipLabel: string; types: AccountType[] }[] = [
-  { key: 'credit_cards', label: 'Credit Cards', chipLabel: 'Cards', types: ['credit_card'] },
-  { key: 'bank_accounts', label: 'Bank Accounts', chipLabel: 'Bank', types: ['bank'] },
-  { key: 'debit_cards', label: 'Debit Cards', chipLabel: 'Debit', types: ['debit_card'] },
+  { key: 'credit_cards', label: 'Credit cards', chipLabel: 'Cards', types: ['credit_card'] },
+  { key: 'bank_accounts', label: 'Bank accounts', chipLabel: 'Bank', types: ['bank'] },
+  { key: 'debit_cards', label: 'Debit cards', chipLabel: 'Debit', types: ['debit_card'] },
   {
     key: 'wallets_upi',
     label: 'Wallets & UPI',
@@ -94,13 +90,6 @@ const quickAccountOptions: {
   },
 ];
 
-type AccountBadge = {
-  label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  textColor: string;
-  bgColor: string;
-};
-
 /**
  * The accounts list, now a segment of the Money tab rather than a tab of its
  * own.
@@ -121,17 +110,13 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const colorScheme = themeTokens.mode;
+  const theme = useThemeTokens().colors;
   const { token } = useAuthStore();
 
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [activeFilter, setActiveFilter] = useState<AccountFilter>('all');
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const surfaceColor = useMemo(() => theme.card, [theme.card]);
-  const borderColor = useMemo(() => theme.border, [theme.border]);
 
   const loadAccounts = useCallback(async () => {
     if (!token) {
@@ -256,203 +241,93 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
 
   if (error && accounts.length === 0) {
     return (
-      <View style={{ flex: 1, backgroundColor: theme.background }}>
-        <View className="flex-1 justify-center">
-          <StateView
-            icon="wifi-off"
-            title="Accounts did not load"
-            message={error}
-            actionLabel="Try again"
-            onAction={() => void loadAccounts()}
-          />
-        </View>
+      <View style={{ flex: 1, backgroundColor: theme.background, justifyContent: 'center' }}>
+        <StateView
+          icon="wifi-off"
+          title="Accounts did not load"
+          message={error}
+          actionLabel="Try again"
+          onAction={() => void loadAccounts()}
+        />
       </View>
     );
   }
 
-  const renderAccountRow = (account: Account) => {
+  const cardStyle = [styles.card, { backgroundColor: theme.card, borderColor: theme.border }];
+
+  /**
+   * One account as a 60dp row (board R5-Accounts): its digits or handle and
+   * when it was last used under the name; on the right what it owes or spent,
+   * and under that the due date — amber "Add due date" when a card has none —
+   * or the running balance.
+   */
+  const renderAccountRow = (account: Account, index: number) => {
     const accountType = normalizeAccountType(account.type);
     const visual = getAccountVisual(account);
     const isCreditCard = accountType === 'credit_card';
     const dueLabel = isCreditCard ? getCreditDueLabel(account.due_day) : null;
     const headline = getAccountHeadline(account);
-    const creditUsage = getCreditUsage(account);
     const runningBalance = getRunningBalance(account);
     const lastActivity = getLastActivityLabel(account);
-    const setupBadges: AccountBadge[] = [];
-
-    if (account.is_default) {
-      setupBadges.push({
-        label: 'Default',
-        icon: 'star',
-        textColor: colorScheme === 'light' ? '#7C3AED' : '#DDD6FE',
-        bgColor: colorScheme === 'light' ? '#F3E8FF' : '#3B2A52',
-      });
-    }
-
-    if (isCreditCard && !dueLabel) {
-      setupBadges.push({
-        label: 'Add due date',
-        icon: 'calendar-alert-outline',
-        textColor: '#EA580C',
-        bgColor: colorScheme === 'light' ? '#FFF7ED' : '#3A2614',
-      });
-    } else if (dueLabel) {
-      setupBadges.push({
-        label: dueLabel,
-        icon: 'clock-outline',
-        textColor: '#64748B',
-        bgColor: colorScheme === 'light' ? '#F1F5F9' : '#243142',
-      });
-    }
-
-    // An account with transactions is not missing a balance — it has one the
-    // ledger derived. This chip now only appears where it is actually true:
-    // an account nothing has ever touched and no opening balance to start from.
-    if (!isCreditCard && !hasLedgerActivity(account) && !hasOpeningBalance(account)) {
-      setupBadges.push({
-        label: 'Not used yet',
-        icon: 'scale-balance',
-        textColor: '#64748B',
-        bgColor: colorScheme === 'light' ? '#F1F5F9' : '#243142',
-      });
-    }
-
-    if (setupBadges.length === 0) {
-      setupBadges.push({
-        label: 'Ready',
-        icon: 'check-circle-outline',
-        textColor: '#15803D',
-        bgColor: colorScheme === 'light' ? '#DCFCE7' : '#17351F',
-      });
-    }
+    const usedLabel = lastActivity
+      ? `used ${/^(Today|Yesterday)$/.test(lastActivity) ? lastActivity.toLowerCase() : lastActivity}`
+      : null;
+    const meta = [formatAccountIdentifier(account), usedLabel, account.is_default ? 'Default' : null]
+      .filter(Boolean)
+      .join(' · ');
+    const status = isCreditCard
+      ? (dueLabel ?? 'Add due date')
+      : runningBalance !== null
+        ? `${formatMoney(runningBalance)} balance`
+        : !hasLedgerActivity(account) && !hasOpeningBalance(account)
+          ? 'Not used yet'
+          : undefined;
 
     return (
-      <Pressable
+      <ListRow
         key={String(account.id)}
-        accessibilityRole="button"
+        icon={visual.icon}
+        hue={visual.color}
+        title={account.name}
+        meta={meta}
+        amount={headline.placeholder ?? formatMoney(headline.amount)}
+        amountTone={headline.placeholder ? 'muted' : 'default'}
+        status={status}
+        statusTone={isCreditCard && !dueLabel ? 'warning' : 'muted'}
+        divider={index > 0}
         accessibilityLabel={`View ${account.name}`}
         onPress={() => handleEditAccount(account)}
-        className="min-h-[76px] rounded-[26px] px-4 py-4"
-        style={{
-          backgroundColor: surfaceColor,
-          shadowColor: '#000000',
-          shadowOpacity: colorScheme === 'light' ? 0.06 : 0,
-          shadowRadius: 16,
-          shadowOffset: { width: 0, height: 8 },
-          elevation: 2,
-        }}>
-        <View className="flex-row items-center">
-          <View
-            className="mr-4 h-12 w-12 items-center justify-center rounded-full"
-            style={{ backgroundColor: visual.bg }}>
-            <MaterialCommunityIcons name={visual.icon} size={23} color={visual.color} />
-          </View>
-
-          <View className="min-w-0 flex-1 pr-3">
-            <TText
-              className="text-base"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.title, color: theme.text }}>
-              {account.name}
-            </TText>
-            <TText
-              className="mt-1 text-xs"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.body }}
-              lightColor="rgba(26,26,26,0.52)"
-              darkColor="rgba(250,250,250,0.62)">
-              {formatAccountIdentifier(account)}
-            </TText>
-            {lastActivity && (
-              <TText
-                className="mt-0.5 text-xs"
-                numberOfLines={1}
-                style={{ fontFamily: Fonts.body, color: '#64748B' }}>
-                Last activity {lastActivity}
-              </TText>
-            )}
-            <View className="mt-2 flex-row flex-wrap gap-2">
-              {setupBadges.slice(0, 2).map((badge) => (
-                <View
-                  key={badge.label}
-                  className="flex-row items-center rounded-full px-2 py-1"
-                  style={{ backgroundColor: badge.bgColor }}>
-                  <MaterialCommunityIcons name={badge.icon} size={12} color={badge.textColor} />
-                  <TText
-                    className="ml-1 text-[10px]"
-                    numberOfLines={1}
-                    style={{ fontFamily: Fonts.title, color: badge.textColor }}>
-                    {badge.label}
-                  </TText>
-                </View>
-              ))}
-            </View>
-          </View>
-
-          <View className="max-w-[38%] items-end">
-            <TText
-              className="text-[10px] uppercase"
-              numberOfLines={1}
-              style={{ fontFamily: Fonts.title, color: '#64748B', letterSpacing: 0.5 }}>
-              {headline.label}
-            </TText>
-            <TText
-              className="mt-1 text-base"
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={{ fontFamily: Fonts.title, color: theme.text }}>
-              {headline.placeholder ?? formatMoney(headline.amount)}
-            </TText>
-            {runningBalance !== null && (
-              <TText
-                className="mt-1 text-[11px]"
-                numberOfLines={1}
-                style={{ fontFamily: Fonts.body, color: '#64748B' }}>
-                {formatMoney(runningBalance)} balance
-              </TText>
-            )}
-          </View>
-        </View>
-
-        {creditUsage && <CreditUsageBar usage={creditUsage} trackColor={theme.secondary} />}
-      </Pressable>
+      />
     );
   };
 
   return (
-    <TView className="flex-1" style={{ backgroundColor: theme.background }}>
-      <View className="flex-row items-center justify-between gap-4 px-[22px] pb-1">
-        <TText
-          className="min-w-0 flex-1 text-sm text-black/60 dark:text-white/60"
-          style={{ fontFamily: Fonts.body }}>
-          Payment sources, so every transaction knows where it came from.
-        </TText>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Add account"
-          onPress={() => handleAddAccount()}
-          className="h-11 w-11 items-center justify-center rounded-full"
-          style={{ backgroundColor: theme.accent }}>
-          <MaterialCommunityIcons name="plus" size={22} color="#FFFFFF" />
-        </Pressable>
-      </View>
+    <View style={{ flex: 1, backgroundColor: theme.background }}>
+      <PanelActionRow
+        subtitle="Payment sources, so every transaction knows where it came from."
+        actionLabel="Add"
+        onAction={() => handleAddAccount()}
+        colors={theme}
+      />
 
       <ScrollView
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 22,
-          paddingTop: 16,
-          paddingBottom: 110,
-          gap: 22,
-        }}>
-        {error && <ErrorBanner message={error} onRetry={() => void loadAccounts()} />}
+        contentContainerStyle={styles.content}>
+        {error && (
+          <ErrorBanner
+            message={error}
+            onRetry={() => void loadAccounts()}
+            style={{ marginHorizontal: SCREEN_GUTTER, marginBottom: 10 }}
+          />
+        )}
 
         {isLoading && accounts.length === 0 ? (
-          <AccountListSkeleton />
+          <View style={styles.gutter}>
+            <AccountListSkeleton />
+          </View>
         ) : accounts.length === 0 ? (
-          <View className="gap-5">
+          <View>
             <StateView
               icon="wallet-outline"
               title="Choose your first payment source"
@@ -460,175 +335,116 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
               actionLabel="Set up an account"
               onAction={() => handleAddAccount()}
             />
-
-            <View className="gap-3">
-              <TText
-                className="text-xs uppercase"
-                style={{ fontFamily: Fonts.title, color: '#64748B', letterSpacing: 0.8 }}>
-                Quick start
-              </TText>
-              <View className="gap-3">
-                {quickAccountOptions.map((option) => {
-                  const visual = accountVisuals[option.key];
-                  return (
-                    <Pressable
-                      key={option.key}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Add ${option.label}`}
-                      onPress={() => handleAddAccount(option.key)}
-                      className="min-h-[74px] flex-row items-center rounded-[24px] border px-4 py-4"
-                      style={{ backgroundColor: surfaceColor, borderColor }}>
-                      <View
-                        className="mr-4 h-11 w-11 items-center justify-center rounded-full"
-                        style={{ backgroundColor: visual.bg }}>
-                        <MaterialCommunityIcons name={option.icon} size={22} color={visual.color} />
-                      </View>
-                      <View className="min-w-0 flex-1">
-                        <TText
-                          className="text-sm"
-                          numberOfLines={1}
-                          style={{ fontFamily: Fonts.title, color: theme.text }}>
-                          {option.label}
-                        </TText>
-                        <TText
-                          className="mt-1 text-xs"
-                          numberOfLines={1}
-                          style={{ fontFamily: Fonts.body, color: '#64748B' }}>
-                          {option.description}
-                        </TText>
-                      </View>
-                      <MaterialCommunityIcons name="chevron-right" size={22} color="#94A3B8" />
-                    </Pressable>
-                  );
-                })}
-              </View>
+            <GroupHeader label="Quick start" />
+            <View style={cardStyle}>
+              {quickAccountOptions.map((option, index) => (
+                <ListRow
+                  key={option.key}
+                  icon={option.icon}
+                  hue={accountVisuals[option.key].color}
+                  title={option.label}
+                  meta={option.description}
+                  chevron
+                  divider={index > 0}
+                  accessibilityLabel={`Add ${option.label}`}
+                  onPress={() => handleAddAccount(option.key)}
+                />
+              ))}
             </View>
           </View>
         ) : (
           <>
-            <View className="flex-row gap-3">
-              <View
-                className="min-h-[96px] flex-1 rounded-[24px] border px-4 py-4"
-                style={{ backgroundColor: surfaceColor, borderColor }}>
-                <MaterialCommunityIcons name="trending-down" size={20} color={theme.accent} />
-                <TText
-                  className="mt-3 text-[11px] uppercase"
-                  style={{ fontFamily: Fonts.title, color: '#64748B', letterSpacing: 0.6 }}>
+            <View style={styles.tiles}>
+              <View style={[styles.tile, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <ThemedText tone="muted" style={styles.tileLabel}>
                   Spent this month
-                </TText>
-                <TText
-                  className="mt-1 text-lg"
+                </ThemedText>
+                <ThemedText
                   numberOfLines={1}
                   adjustsFontSizeToFit
-                  style={{ fontFamily: Fonts.title, color: theme.text }}>
+                  style={[styles.tileValue, { color: theme.text }]}>
                   {formatMoney(accountSummary.spentThisMonth)}
-                </TText>
+                </ThemedText>
               </View>
               {accountSummary.creditCards > 0 && (
-                <View
-                  className="min-h-[96px] flex-1 rounded-[24px] border px-4 py-4"
-                  style={{ backgroundColor: surfaceColor, borderColor }}>
-                  <MaterialCommunityIcons
-                    name="credit-card-clock-outline"
-                    size={20}
-                    color="#A855F7"
-                  />
-                  <TText
-                    className="mt-3 text-[11px] uppercase"
-                    style={{ fontFamily: Fonts.title, color: '#64748B', letterSpacing: 0.6 }}>
+                <View style={[styles.tile, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <ThemedText tone="muted" style={styles.tileLabel}>
                     Card outstanding
-                  </TText>
-                  <TText
-                    className="mt-1 text-lg"
+                  </ThemedText>
+                  <ThemedText
                     numberOfLines={1}
                     adjustsFontSizeToFit
-                    style={{ fontFamily: Fonts.title, color: theme.text }}>
+                    style={[styles.tileValue, { color: theme.text }]}>
                     {formatMoney(accountSummary.outstanding)}
-                  </TText>
+                  </ThemedText>
                   {accountSummary.creditLimit > 0 && (
-                    <TText
-                      className="mt-1 text-[11px]"
-                      numberOfLines={1}
-                      style={{ fontFamily: Fonts.body, color: '#64748B' }}>
+                    <ThemedText tone="muted" numberOfLines={1} style={styles.tileCaption}>
                       of {formatMoney(accountSummary.creditLimit)} limit
-                    </TText>
+                    </ThemedText>
                   )}
                 </View>
               )}
             </View>
 
             {accountSummary.cardsMissingDueDate > 0 && (
-              <Pressable
+              <PressableView
                 accessibilityRole="button"
                 onPress={() => setActiveFilter('credit_cards')}
-                className="flex-row items-center rounded-[22px] border px-4 py-3"
-                style={{
-                  backgroundColor: colorScheme === 'light' ? '#FFF7ED' : '#2A2118',
-                  borderColor: '#FDBA74',
-                }}>
-                <MaterialCommunityIcons name="calendar-alert-outline" size={20} color="#F97316" />
-                <TText
-                  className="ml-3 flex-1 text-sm"
-                  style={{
-                    fontFamily: Fonts.body,
-                    color: colorScheme === 'light' ? '#9A3412' : '#FDBA74',
-                  }}>
+                style={[
+                  styles.notice,
+                  { backgroundColor: theme.warningSurface, borderColor: theme.warningBorder },
+                ]}
+                pressedStyle={styles.pressed}>
+                <MaterialCommunityIcons name="calendar-alert-outline" size={20} color={theme.warning} />
+                <ThemedText style={[styles.noticeText, { color: theme.text }]}>
                   Add due dates to {accountSummary.cardsMissingDueDate} credit card
                   {accountSummary.cardsMissingDueDate > 1 ? 's' : ''} for better reminders.
-                </TText>
-                <MaterialCommunityIcons name="chevron-right" size={20} color="#F97316" />
-              </Pressable>
+                </ThemedText>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={theme.text} />
+              </PressableView>
             )}
 
             {showFilterChips && (
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ gap: 8, paddingRight: 22 }}
-                style={{ marginHorizontal: -22, paddingHorizontal: 22 }}>
+                style={styles.chipScroll}
+                contentContainerStyle={styles.chips}>
                 <FilterChip
                   label="All"
                   count={accounts.length}
                   active={activeFilter === 'all'}
                   onPress={() => setActiveFilter('all')}
                 />
-                {populatedGroups.map((group) => {
-                  const visual = accountVisuals[group.types[0]];
-                  return (
-                    <FilterChip
-                      key={group.key}
-                      label={group.chipLabel}
-                      count={group.accounts.length}
-                      icon={visual.icon}
-                      iconColor={visual.color}
-                      active={activeFilter === group.key}
-                      onPress={() =>
-                        setActiveFilter(activeFilter === group.key ? 'all' : group.key)
-                      }
-                    />
-                  );
-                })}
+                {populatedGroups.map((group) => (
+                  <FilterChip
+                    key={group.key}
+                    label={group.chipLabel}
+                    count={group.accounts.length}
+                    active={activeFilter === group.key}
+                    onPress={() => setActiveFilter(activeFilter === group.key ? 'all' : group.key)}
+                  />
+                ))}
               </ScrollView>
             )}
 
             {groupedAccounts.map((group) => (
-              <View key={group.key} className="gap-3">
-                <TText
-                  className="text-xs uppercase"
-                  style={{
-                    fontFamily: Fonts.title,
-                    color: '#64748B',
-                    letterSpacing: 0.8,
-                  }}>
-                  {group.label}
-                </TText>
-                <View className="gap-3">{group.accounts.map(renderAccountRow)}</View>
+              <View key={group.key}>
+                <GroupHeader
+                  label={`${group.label} · ${group.accounts.length}`}
+                  total={
+                    group.key === 'credit_cards' && accountSummary.outstanding > 0
+                      ? `${formatMoney(accountSummary.outstanding)} owed`
+                      : undefined
+                  }
+                />
+                <View style={cardStyle}>{group.accounts.map(renderAccountRow)}</View>
               </View>
             ))}
           </>
         )}
       </ScrollView>
-    </TView>
+    </View>
   );
 }
 
@@ -637,8 +453,6 @@ type FilterChipProps = {
   count: number;
   active: boolean;
   onPress: () => void;
-  icon?: keyof typeof MaterialCommunityIcons.glyphMap;
-  iconColor?: string;
 };
 
 /**
@@ -649,14 +463,11 @@ type FilterChipProps = {
  * account with four accounts, because the sheet listed every type the app
  * supports rather than the ones the user has. The sheet was taller than the
  * list it filtered, and the list beneath it was already grouped by exactly
- * these headings.
- *
- * Each chip carries its account type's own icon and colour, so a chip and the
- * rows it filters to are visibly the same thing.
+ * these headings. Drawn as the redesign's chip (board R5-Accounts): tinted
+ * and bold when chosen, the count beside the name.
  */
-function FilterChip({ label, count, active, onPress, icon, iconColor }: FilterChipProps) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
+function FilterChip({ label, count, active, onPress }: FilterChipProps) {
+  const theme = useThemeTokens().colors;
 
   return (
     <Pressable
@@ -664,25 +475,102 @@ function FilterChip({ label, count, active, onPress, icon, iconColor }: FilterCh
       accessibilityState={{ selected: active }}
       accessibilityLabel={`${label}, ${count} account${count === 1 ? '' : 's'}`}
       onPress={onPress}
-      className="h-11 flex-row items-center gap-2 rounded-full border px-4"
-      style={{
-        borderColor: active ? theme.accent : theme.border,
-        backgroundColor: active ? theme.secondary : theme.card,
-      }}>
-      {icon && (
-        <MaterialCommunityIcons name={icon} size={15} color={active ? theme.accent : iconColor} />
-      )}
-      <TText
-        className="text-sm"
+      style={[
+        styles.chip,
+        {
+          backgroundColor: active ? theme.selectedFill : theme.card,
+          borderColor: active ? theme.selectedBorder : theme.border,
+        },
+      ]}>
+      <ThemedText
         numberOfLines={1}
-        style={{ fontFamily: Fonts.title, color: active ? theme.accent : theme.text }}>
-        {label}
-      </TText>
-      <TText
-        className="text-xs"
-        style={{ fontFamily: Fonts.body, color: active ? theme.accent : '#64748B' }}>
-        {count}
-      </TText>
+        style={[styles.chipLabel, { color: theme.text, fontWeight: active ? '700' : '500' }]}>
+        {`${label} ${count}`}
+      </ThemedText>
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    paddingTop: 10,
+    paddingBottom: 40,
+  },
+  gutter: {
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  card: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  tiles: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  tile: {
+    flex: 1,
+    gap: 2,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  tileLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  tileValue: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  tileCaption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  notice: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 10,
+    marginHorizontal: SCREEN_GUTTER,
+    paddingVertical: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  noticeText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  chipScroll: {
+    flexGrow: 0,
+    marginTop: 12,
+  },
+  chips: {
+    gap: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  chip: {
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

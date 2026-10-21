@@ -1,19 +1,17 @@
-import { Fonts } from '@/constants/theme';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import {
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-  Dimensions,
-} from 'react-native';
+import { Dimensions, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+
+import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { PrimaryButton } from '@/components/ui/Button';
+import { PickerOptionList } from '@/components/ui/PickerSheet';
+import { PressableView } from '@/components/ui/PressableView';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
 
-const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 export type PeriodPreset =
   | 'this_month'
@@ -38,23 +36,22 @@ interface PeriodPickerProps {
 }
 
 const PRESETS: { key: PeriodPreset; label: string }[] = [
-  { key: 'this_month', label: 'This Month' },
-  { key: 'last_month', label: 'Last Month' },
-  { key: 'last_7_days', label: 'Last 7 Days' },
-  { key: 'last_30_days', label: 'Last 30 Days' },
-  { key: 'last_3_months', label: 'Last 3 Months' },
+  { key: 'this_month', label: 'This month' },
+  { key: 'last_month', label: 'Last month' },
+  { key: 'last_7_days', label: 'Last 7 days' },
+  { key: 'last_30_days', label: 'Last 30 days' },
+  { key: 'last_3_months', label: 'Last 3 months' },
 ];
 
 export function PeriodPicker({ visible, onClose, onSelect, currentRange }: PeriodPickerProps) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const accentSurface = themeTokens.mode === 'dark' ? theme.secondary : theme.secondary;
   const [view, setView] = useState<'presets' | 'custom'>('presets');
   const [selectedPreset, setSelectedPreset] = useState<PeriodPreset | undefined>(
     currentRange.preset
   );
 
-  // Custom Range Local State
+  // Custom range Local State
   const [customStart, setCustomStart] = useState<Date | null>(currentRange.start);
   const [customEnd, setCustomEnd] = useState<Date | null>(currentRange.end);
 
@@ -79,15 +76,15 @@ export function PeriodPicker({ visible, onClose, onSelect, currentRange }: Perio
         break;
       case 'last_7_days':
         start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        label = 'Last 7 Days';
+        label = 'Last 7 days';
         break;
       case 'last_30_days':
         start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        label = 'Last 30 Days';
+        label = 'Last 30 days';
         break;
       case 'last_3_months':
         start = new Date(now.getFullYear(), now.getMonth() - 3, 1);
-        label = 'Last 3 Months';
+        label = 'Last 3 months';
         break;
     }
 
@@ -104,33 +101,34 @@ export function PeriodPicker({ visible, onClose, onSelect, currentRange }: Perio
   };
 
   return (
-    <AnimatedBottomSheet visible={visible} onClose={onClose}>
-        <View style={[styles.sheet, { backgroundColor: theme.background }]}>
-          <View style={styles.handle} />
+    <AnimatedBottomSheet visible={visible} onClose={onClose} backdropOpacity={0.3}>
+      <View
+        style={[
+          styles.sheet,
+          view === 'custom' && styles.sheetTall,
+          { backgroundColor: theme.background },
+        ]}>
+        <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
 
-          {view === 'presets' ? (
-            <PresetsView
-              selectedPreset={selectedPreset}
-              onSelectPreset={setSelectedPreset}
-              onGoToCustom={() => setView('custom')}
-              onApply={handleApplyPreset}
-              onClose={onClose}
-              theme={theme}
-              accentSurface={accentSurface}
-            />
-          ) : (
-            <CustomRangeView
-              start={customStart}
-              end={customEnd}
-              onSelectStart={setCustomStart}
-              onSelectEnd={setCustomEnd}
-              onBack={() => setView('presets')}
-              onConfirm={handleConfirmCustomRange}
-              theme={theme}
-              accentSurface={accentSurface}
-            />
-          )}
-        </View>
+        {view === 'presets' ? (
+          <PresetsView
+            selectedPreset={selectedPreset}
+            onSelectPreset={setSelectedPreset}
+            onGoToCustom={() => setView('custom')}
+            onApply={handleApplyPreset}
+            onClose={onClose}
+          />
+        ) : (
+          <CustomRangeView
+            start={customStart}
+            end={customEnd}
+            onSelectStart={setCustomStart}
+            onSelectEnd={setCustomEnd}
+            onBack={() => setView('presets')}
+            onConfirm={handleConfirmCustomRange}
+          />
+        )}
+      </View>
     </AnimatedBottomSheet>
   );
 }
@@ -141,85 +139,63 @@ function PresetsView({
   onGoToCustom,
   onApply,
   onClose,
-  theme,
-  accentSurface,
-}: any) {
+}: {
+  selectedPreset: PeriodPreset | undefined;
+  onSelectPreset: (preset: PeriodPreset) => void;
+  onGoToCustom: () => void;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const { colors } = useThemeTokens();
   return (
-    <View style={styles.viewContainer}>
+    <View style={styles.body}>
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.title, { color: theme.text }]}>Select Period</Text>
-          <Text style={styles.subtitle}>QUICK PRESETS</Text>
-        </View>
-        <TouchableOpacity
-          onPress={onClose}
-          style={[styles.closeBtn, { backgroundColor: accentSurface }]}>
-          <MaterialCommunityIcons name="close" size={20} color={theme.text} />
-        </TouchableOpacity>
+        <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+          Choose a period
+        </ThemedText>
+        <SheetCloseButton onPress={onClose} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.presetsList} showsVerticalScrollIndicator={false}>
-        {PRESETS.map((p) => {
-          const isSelected = selectedPreset === p.key;
-          return (
-            <TouchableOpacity
-              key={p.key}
-              style={[
-                styles.presetItem,
-                !isSelected && { backgroundColor: accentSurface, borderColor: theme.border },
-                isSelected && { borderColor: theme.accent, backgroundColor: accentSurface },
-              ]}
-              onPress={() => {
-                haptics.select();
-                onSelectPreset(p.key);
-              }}>
-              <Text
-                style={[
-                  styles.presetText,
-                  { color: theme.text },
-                  isSelected && { color: theme.text },
-                ]}>
-                {p.label}
-              </Text>
-              {isSelected && (
-                <View style={[styles.checkCircle, { backgroundColor: theme.accent }]}>
-                  <MaterialCommunityIcons name="check" size={12} color="white" />
-                </View>
-              )}
-            </TouchableOpacity>
-          );
-        })}
+      <PickerOptionList
+        accessibilityLabel="Period"
+        options={PRESETS}
+        selectedKey={selectedPreset === 'custom' ? null : selectedPreset}
+        onSelect={(key) => {
+          haptics.select();
+          onSelectPreset(key as PeriodPreset);
+        }}
+      />
 
-        <TouchableOpacity
+      <PressableView
+        accessibilityRole="button"
+        onPress={onGoToCustom}
+        style={[
+          styles.customRow,
+          selectedPreset === 'custom'
+            ? { backgroundColor: colors.selectedFill, borderColor: colors.selectedBorder }
+            : { backgroundColor: colors.card, borderColor: colors.border },
+        ]}
+        pressedStyle={styles.pressed}>
+        <MaterialCommunityIcons name="calendar-range" size={20} color={colors.text} />
+        <ThemedText
           style={[
-            styles.customRangeItem,
-            { backgroundColor: accentSurface, borderColor: theme.border, borderWidth: 1 },
-          ]}
-          onPress={onGoToCustom}>
-          <View style={styles.customRangeMain}>
-            <MaterialCommunityIcons
-              name="calendar-range"
-              size={20}
-              color={theme.mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#90A4AE'}
-            />
-            <Text style={[styles.customRangeText, { color: theme.text }]}>Custom Range</Text>
-          </View>
-          <MaterialCommunityIcons
-            name="chevron-right"
-            size={20}
-            color={theme.mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#90A4AE'}
-          />
-        </TouchableOpacity>
-      </ScrollView>
+            styles.customLabel,
+            { color: colors.text, fontWeight: selectedPreset === 'custom' ? '700' : '500' },
+          ]}>
+          Custom range
+        </ThemedText>
+        <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
+      </PressableView>
 
-      <TouchableOpacity
-        style={[styles.applyBtn, { backgroundColor: theme.accent }]}
-        onPress={onApply}>
-        <Text style={styles.applyBtnText}>Apply Selection</Text>
-      </TouchableOpacity>
+      <PrimaryButton label="Apply" onPress={onApply} disabled={!selectedPreset} style={styles.apply} />
     </View>
   );
 }
+
+const formatPickedDate = (date: Date | null) =>
+  date
+    ? date.toLocaleDateString('default', { month: 'short', day: '2-digit', year: 'numeric' })
+    : 'Choose a date';
 
 function CustomRangeView({
   start,
@@ -228,9 +204,15 @@ function CustomRangeView({
   onSelectEnd,
   onBack,
   onConfirm,
-  theme,
-  accentSurface,
-}: any) {
+}: {
+  start: Date | null;
+  end: Date | null;
+  onSelectStart: (date: Date | null) => void;
+  onSelectEnd: (date: Date | null) => void;
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
+  const { colors } = useThemeTokens();
   const months = useMemo(() => {
     const now = new Date();
     const m1 = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -251,94 +233,84 @@ function CustomRangeView({
     }
   };
 
+  // The box being filled next is the one ringed: the start until it is set,
+  // then the end.
+  const choosingEnd = Boolean(start && !end);
+
   return (
-    <View style={styles.viewContainer}>
+    <View style={[styles.body, styles.bodyTall]}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-          <MaterialCommunityIcons name="chevron-left" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.title, { color: theme.text, flex: 1, textAlign: 'center' }]}>
-          Select Custom Range
-        </Text>
-        <View style={{ width: 40 }} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to periods"
+          onPress={onBack}
+          style={styles.back}>
+          <MaterialCommunityIcons name="chevron-left" size={26} color={colors.text} />
+        </Pressable>
+        <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+          Choose dates
+        </ThemedText>
       </View>
 
       <View style={styles.dateDisplays}>
-        <View
-          style={[
-            styles.dateBox,
-            { backgroundColor: accentSurface, borderColor: theme.border },
-            start && !end && { borderColor: theme.accent, borderWidth: 1 },
-          ]}>
-          <Text style={[styles.dateLabel, { color: theme.mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#90A4AE' }]}>START DATE</Text>
-          <Text style={[styles.dateValue, { color: theme.text }]}>
-            {start
-              ? start.toLocaleDateString('default', {
-                  month: 'short',
-                  day: '2-digit',
-                  year: 'numeric',
-                })
-              : 'Select Date'}
-          </Text>
-        </View>
-        <View
-          style={[
-            styles.dateBox,
-            { backgroundColor: accentSurface, borderColor: theme.border },
-            end && { borderColor: theme.accent, borderWidth: 1 },
-          ]}>
-          <Text
+        {[
+          { label: 'Start date', value: start, active: !choosingEnd },
+          { label: 'End date', value: end, active: choosingEnd },
+        ].map((box) => (
+          <View
+            key={box.label}
             style={[
-              styles.dateLabel,
-              { color: theme.mode === 'dark' ? 'rgba(255,255,255,0.6)' : '#90A4AE' },
-              end && { color: theme.accent },
+              styles.dateBox,
+              {
+                backgroundColor: colors.card,
+                borderColor: box.active ? colors.selectedBorder : colors.border,
+              },
             ]}>
-            END DATE
-          </Text>
-          <Text style={[styles.dateValue, { color: theme.text }]}>
-            {end
-              ? end.toLocaleDateString('default', {
-                  month: 'short',
-                  day: '2-digit',
-                  year: 'numeric',
-                })
-              : 'Select Date'}
-          </Text>
-        </View>
+            <ThemedText tone="muted" style={styles.dateLabel}>
+              {box.label}
+            </ThemedText>
+            <ThemedText style={[styles.dateValue, { color: colors.text }]}>
+              {formatPickedDate(box.value)}
+            </ThemedText>
+          </View>
+        ))}
       </View>
 
       <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
         {months.map((m, idx) => (
-          <CalendarMonth
-            key={idx}
-            monthDate={m}
-            start={start}
-            end={end}
-            onPress={handleDatePress}
-            theme={theme}
-            accentSurface={accentSurface}
-          />
+          <CalendarMonth key={idx} monthDate={m} start={start} end={end} onPress={handleDatePress} />
         ))}
       </ScrollView>
 
-      <TouchableOpacity
-        style={[styles.applyBtn, { backgroundColor: theme.accent }]}
+      <PrimaryButton
+        label="Confirm"
         onPress={onConfirm}
-        disabled={!start || !end}>
-        <Text style={styles.applyBtnText}>Confirm Range</Text>
-      </TouchableOpacity>
+        disabled={!start || !end}
+        style={styles.apply}
+      />
     </View>
   );
 }
 
-function CalendarMonth({ monthDate, start, end, onPress, theme, accentSurface }: any) {
+function CalendarMonth({
+  monthDate,
+  start,
+  end,
+  onPress,
+}: {
+  monthDate: Date;
+  start: Date | null;
+  end: Date | null;
+  onPress: (date: Date) => void;
+}) {
+  const { colors } = useThemeTokens();
   const days = useMemo(() => {
     const year = monthDate.getFullYear();
     const month = monthDate.getMonth();
     const firstDay = new Date(year, month, 1).getDay();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-    const arr = [];
+    const arr: (Date | null)[] = [];
     for (let i = 0; i < firstDay; i++) arr.push(null);
     for (let i = 1; i <= daysInMonth; i++) arr.push(new Date(year, month, i));
     return arr;
@@ -348,41 +320,46 @@ function CalendarMonth({ monthDate, start, end, onPress, theme, accentSurface }:
 
   return (
     <View style={styles.monthContainer}>
-      <Text style={[styles.monthName, { color: theme.text }]}>{monthName}</Text>
+      <ThemedText style={[styles.monthName, { color: colors.text }]}>{monthName}</ThemedText>
       <View style={styles.weekLabels}>
-        {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((d) => (
-          <Text key={d} style={styles.weekLabel}>
+        {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, index) => (
+          <ThemedText key={`${d}-${index}`} tone="muted" style={styles.weekLabel}>
             {d}
-          </Text>
+          </ThemedText>
         ))}
       </View>
       <View style={styles.daysGrid}>
-        {days.map((d: Date | null, idx) => {
+        {days.map((d, idx) => {
           if (!d) return <View key={idx} style={styles.dayCell} />;
 
-          const isStart = start && d.toDateString() === start.toDateString();
-          const isEnd = end && d.toDateString() === end.toDateString();
-          const isInRange = start && end && d > start && d < end;
+          const isStart = Boolean(start && d.toDateString() === start.toDateString());
+          const isEnd = Boolean(end && d.toDateString() === end.toDateString());
+          const isInRange = Boolean(start && end && d > start && d < end);
 
           return (
-            <TouchableOpacity
+            <Pressable
               key={idx}
-              style={[
-                styles.dayCell,
-                isStart && [styles.selectedDay, { backgroundColor: theme.accent }],
-                isEnd && [styles.selectedDay, { backgroundColor: theme.accent }],
-                isInRange && { backgroundColor: accentSurface },
-              ]}
+              accessibilityRole="button"
+              accessibilityState={{ selected: isStart || isEnd }}
+              accessibilityLabel={d.toDateString()}
+              style={styles.dayCell}
               onPress={() => onPress(d)}>
-              <Text
+              <View
                 style={[
-                  styles.dayText,
-                  { color: theme.text },
-                  (isStart || isEnd) && { color: 'white', fontWeight: 'bold' },
+                  styles.dayDot,
+                  (isStart || isEnd) && { backgroundColor: colors.accent },
+                  isInRange && { backgroundColor: colors.selectedFill },
                 ]}>
-                {d.getDate()}
-              </Text>
-            </TouchableOpacity>
+                <ThemedText
+                  style={[
+                    styles.dayText,
+                    { color: isStart || isEnd ? colors.onAccent : colors.text },
+                    (isStart || isEnd) && { fontWeight: '700' },
+                  ]}>
+                  {d.getDate()}
+                </ThemedText>
+              </View>
+            </Pressable>
           );
         })}
       </View>
@@ -392,153 +369,104 @@ function CalendarMonth({ monthDate, start, end, onPress, theme, accentSurface }:
 
 const styles = StyleSheet.create({
   sheet: {
-    borderTopLeftRadius: 40,
-    borderTopRightRadius: 40,
-    paddingTop: 8,
-    paddingBottom: 40,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+  },
+  sheetTall: {
     height: SCREEN_HEIGHT * 0.85,
   },
   handle: {
-    width: 40,
+    width: 36,
     height: 4,
-    backgroundColor: '#E0E0E0',
     borderRadius: 2,
     alignSelf: 'center',
-    marginBottom: 20,
+    marginVertical: 8,
   },
-  viewContainer: {
+  body: {
+    paddingHorizontal: 16,
+  },
+  bodyTall: {
     flex: 1,
-    paddingHorizontal: 24,
   },
   header: {
+    height: 52,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    marginLeft: 4,
+    marginRight: -8,
+    marginBottom: 4,
   },
   title: {
+    flex: 1,
     fontSize: 20,
-    fontWeight: '900',
-    fontFamily: Fonts.title,
+    lineHeight: 26,
+    fontWeight: '700',
   },
-  subtitle: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#90A4AE',
-    letterSpacing: 1,
-    marginTop: 4,
-  },
-  closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#F5F5F5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  backBtn: {
+  back: {
     width: 40,
-    height: 40,
-    alignItems: 'center',
+    height: 44,
+    alignItems: 'flex-start',
     justifyContent: 'center',
+    marginLeft: -8,
   },
-  presetsList: {
-    gap: 12,
-  },
-  presetItem: {
-    padding: 20,
-    borderRadius: 24,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 2,
-    borderColor: 'transparent',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  presetText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  checkCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  customRangeItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
-    borderRadius: 24,
-    backgroundColor: '#F5F5F5',
-    marginTop: 8,
-  },
-  customRangeMain: {
+  customRow: {
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    marginTop: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 16,
   },
-  customRangeText: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#455A64',
+  customLabel: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
   },
-  applyBtn: {
-    height: 64,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 24,
-  },
-  applyBtnText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '900',
+  apply: {
+    marginTop: 16,
   },
   dateDisplays: {
     flexDirection: 'row',
-    gap: 16,
-    marginBottom: 32,
+    gap: 12,
+    marginBottom: 16,
   },
   dateBox: {
     flex: 1,
-    backgroundColor: '#F5F5F5',
-    padding: 16,
-    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'transparent',
   },
   dateLabel: {
-    fontSize: 10,
-    fontWeight: '900',
-    color: '#90A4AE',
-    marginBottom: 4,
+    fontSize: 13,
+    lineHeight: 18,
   },
   dateValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
   },
   monthContainer: {
-    marginBottom: 32,
+    marginBottom: 20,
   },
   monthName: {
-    fontSize: 16,
-    fontWeight: '900',
-    marginBottom: 16,
-    fontFamily: Fonts.title,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    marginBottom: 8,
   },
   weekLabels: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 4,
   },
   weekLabel: {
-    fontSize: 10,
-    fontWeight: 'bold',
-    color: '#90A4AE',
-    width: (SCREEN_WIDTH - 48) / 7,
+    width: `${100 / 7}%`,
+    fontSize: 12,
+    lineHeight: 16,
     textAlign: 'center',
   },
   daysGrid: {
@@ -546,17 +474,23 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   dayCell: {
-    width: (Dimensions.get('window').width - 48) / 7,
-    height: 48,
+    width: `${100 / 7}%`,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 24,
+  },
+  dayDot: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   dayText: {
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: 15,
+    lineHeight: 20,
   },
-  selectedDay: {
-    borderRadius: 24,
+  pressed: {
+    opacity: 0.7,
   },
 });

@@ -425,10 +425,41 @@ export const loadTransactions = async (
   return [...transactions].sort((a, b) => (b.occurredAt ?? 0) - (a.occurredAt ?? 0));
 };
 
-export const groupTransactionsBySection = (transactions: Transaction[]) => {
+/**
+ * `current` with `next` added after it, minus any row already in it.
+ *
+ * Pages are offsets into a list that can change between two requests: a
+ * transaction saved after page 1 was read pushes everything down by one, and
+ * page 2 then starts with the row page 1 ended on. Two rows with one id is also
+ * the one thing a keyed list cannot render.
+ */
+export const appendTransactionPage = (current: Transaction[], next: Transaction[]) => {
+  const seen = new Set(current.map((transaction) => transaction.id));
+  const fresh: Transaction[] = [];
+  next.forEach((transaction) => {
+    if (seen.has(transaction.id)) return;
+    seen.add(transaction.id);
+    fresh.push(transaction);
+  });
+  return fresh.length === 0 ? current : [...current, ...fresh];
+};
+
+/**
+ * Rows by day, newest day first — or oldest first, for the list sorted that way.
+ *
+ * The order has to follow the list's sort once the list arrives in pages. A
+ * later page always holds days further along in that order, so its days belong
+ * below the ones already on screen; grouping an oldest-first list newest-first
+ * would put each new page's days above everything the user has scrolled past.
+ */
+export const groupTransactionsBySection = (
+  transactions: Transaction[],
+  order: 'newest' | 'oldest' = 'newest'
+) => {
   if (transactions.length === 0) {
     return [];
   }
+  const direction = order === 'oldest' ? -1 : 1;
   const grouped: Record<string, Transaction[]> = {};
   transactions.forEach((transaction) => {
     if (!grouped[transaction.section]) {
@@ -439,7 +470,7 @@ export const groupTransactionsBySection = (transactions: Transaction[]) => {
   return Object.entries(grouped)
     .map(([title, data]) => ({
       title,
-      data: data.sort((a, b) => (b.occurredAt ?? 0) - (a.occurredAt ?? 0)),
+      data: data.sort((a, b) => direction * ((b.occurredAt ?? 0) - (a.occurredAt ?? 0))),
       sortValue:
         title === 'Today'
           ? Number.MAX_SAFE_INTEGER
@@ -447,6 +478,6 @@ export const groupTransactionsBySection = (transactions: Transaction[]) => {
             ? Number.MAX_SAFE_INTEGER - 1
             : (data[0]?.occurredAt ?? 0),
     }))
-    .sort((a, b) => (b.sortValue ?? 0) - (a.sortValue ?? 0))
+    .sort((a, b) => direction * ((b.sortValue ?? 0) - (a.sortValue ?? 0)))
     .map(({ sortValue, ...rest }) => rest);
 };

@@ -1,8 +1,9 @@
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useState } from 'react';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { SkeletonFrame } from '@/components/ui/Skeleton';
 import { getMoodIconName } from '@/constants/theme';
@@ -16,8 +17,15 @@ export type QuickPrompt = {
   id: number;
   title: string;
   amount: number;
+  /** "expense" or "income". Absent from servers older than the field. */
+  type?: string;
   mode: string;
   category: string;
+  /** The exact account to pay from; null means the default for `mode`. */
+  account_id?: number | null;
+  merchant?: string;
+  tag?: string;
+  notes?: string;
   icon: string;
 };
 
@@ -67,20 +75,19 @@ export function QuickPrompts({
 
   const canAddMore = prompts.length < 10;
 
+  const colors = theme.colors;
+  const chipStyle = [styles.chip, { backgroundColor: colors.card, borderColor: colors.border }];
+
   return (
-    <View className="py-6 flex-row items-center">
-      <ThemedText variant="micro" className="pl-6 uppercase tracking-widest opacity-40 mr-3">
-        QUICK PROMPTS:
+    <View style={styles.section}>
+      <ThemedText accessibilityRole="header" style={[styles.heading, { color: colors.text }]}>
+        Quick prompts
       </ThemedText>
 
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingRight: theme.components.screen.horizontalPadding,
-          gap: theme.spacing.sm + 2,
-          alignItems: 'center',
-        }}>
+        contentContainerStyle={styles.row}>
         {isLoading ? (
           // Chips, not a spinner: the strip is a fixed-height row and a spinner
           // in it is the one place on Home that visibly resizes when its
@@ -88,51 +95,104 @@ export function QuickPrompts({
           <SkeletonFrame
             label="Loading quick prompts"
             testID="quick-prompts-skeleton"
-            style={{ flexDirection: 'row', gap: theme.spacing.sm + 2 }}>
-            {[132, 104, 148].map((width, chip) => (
-              <Shimmer key={width} width={width} height={34} radius={17} index={chip * 2} />
+            style={styles.skeleton}>
+            {[148, 156, 92].map((width, chip) => (
+              <Shimmer key={width} width={width} height={40} radius={20} index={chip * 2} />
             ))}
           </SkeletonFrame>
         ) : error ? (
-          <Pressable
+          <PressableView
+            accessibilityRole="button"
             onPress={() => void fetchPrompts()}
-            className="flex-row items-center rounded-full border border-red-100 bg-red-50 px-4 py-2 dark:border-red-900/30 dark:bg-red-900/20">
-            <MaterialCommunityIcons name="refresh" size={14} color={theme.colors.accent} />
-            <ThemedText tone="negative" variant="captionStrong" className="ml-2">
-              Retry prompts
+            style={chipStyle}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="refresh" size={18} color={colors.negative} />
+            <ThemedText tone="negative" style={styles.label}>
+              Try again
             </ThemedText>
-          </Pressable>
+          </PressableView>
         ) : (
           prompts.map((item) => (
-            <Pressable
+            <PressableView
               key={item.id}
+              accessibilityRole="button"
               onPress={() => {
                 haptics.select();
                 onSelect(item);
               }}
               onLongPress={() => onLongPress(item)}
-              className="flex-row items-center bg-white dark:bg-gray-800 rounded-full px-5 py-2 gap-2 shadow-sm active:opacity-70 border border-gray-50 dark:border-gray-700">
+              style={chipStyle}
+              pressedStyle={styles.pressed}>
               <MaterialCommunityIcons
                 name={getMoodIconName(item.icon || 'lightning-bolt', theme.mood.iconStyle) as any}
-                size={14}
-                color={theme.colors.accent}
+                size={18}
+                color={colors.text}
               />
-              <ThemedText variant="captionStrong" className="opacity-80">
+              <ThemedText numberOfLines={1} style={[styles.label, { color: colors.text }]}>
                 {item.title}
               </ThemedText>
-            </Pressable>
+            </PressableView>
           ))
         )}
         {!isLoading && !error && canAddMore && (
-          <Pressable
+          <PressableView
+            accessibilityRole="button"
+            accessibilityLabel="New quick prompt"
             onPress={onAdd}
-            className="flex-row items-center bg-gray-50 dark:bg-gray-800/50 border border-dashed border-gray-300 dark:border-gray-600 rounded-full px-4 py-2 gap-2 active:opacity-70">
-            <ThemedText tone="muted" variant="captionStrong" >
-              Add +
-            </ThemedText>
-          </Pressable>
+            style={[styles.chip, styles.newChip, { borderColor: colors.borderStrong }]}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="plus" size={18} color={colors.text} />
+            <ThemedText style={[styles.label, { color: colors.text }]}>New</ThemedText>
+          </PressableView>
         )}
       </ScrollView>
     </View>
   );
 }
+
+/** Board R1-Home-Empty: a 14/700 heading over a row of 40dp chips, 16 in from the edge. */
+const styles = StyleSheet.create({
+  section: {
+    marginTop: 10,
+    marginBottom: 14,
+  },
+  heading: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  row: {
+    paddingHorizontal: 16,
+    gap: 8,
+    alignItems: 'center',
+  },
+  skeleton: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  chip: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  newChip: {
+    gap: 6,
+    borderStyle: 'dashed',
+    backgroundColor: 'transparent',
+  },
+  label: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

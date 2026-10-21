@@ -1,27 +1,38 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { Card } from '@/components/ui/theme-primitives';
 import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { formatCreditDate, type CreditSummary } from '@/lib/billing';
+import {
+  describeAccess,
+  endedAccessLine,
+  formatCreditDate,
+  type BillingStatus,
+} from '@/lib/billing';
 
 type CreditStatusCardProps = {
-  credits: CreditSummary | null;
+  /**
+   * The whole billing status, not just the credits: what to say at zero
+   * depends on whether a pass is running, ran out, or was never bought.
+   */
+  status: BillingStatus | null;
   loading?: boolean;
   compact?: boolean;
   onPress?: () => void;
 };
 
 export function CreditStatusCard({
-  credits,
+  status,
   loading = false,
   compact = false,
   onPress,
 }: CreditStatusCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
+  const credits = status?.credits ?? null;
   const dailyLimit = credits?.daily_limit ?? 0;
   const dailyRemaining = credits?.daily_credits_remaining ?? 0;
   const dailyUsed = credits?.daily_credits_used ?? 0;
@@ -39,87 +50,106 @@ export function CreditStatusCard({
    * the daily allowance is not the story: having run out is.
    */
   const isOutOfCredits = !loading && credits !== null && totalRemaining <= 0;
-  const trialHasExpired = useHasPassed(credits?.trial_expires_at);
+  // Read so the card redraws the moment the trial runs out; `describeAccess`
+  // is what decides what that means.
+  useHasPassed(credits?.trial_expires_at);
+  const access = describeAccess(status);
   // A date in the past described in the future tense is the kind of small lie
-  // that makes someone distrust every other number on the screen.
-  const trialLine = trialExpiry
-    ? trialHasExpired
-      ? `Free trial ended ${trialExpiry}`
-      : `Trial expires ${trialExpiry}`
-    : null;
+  // that makes someone distrust every other number on the screen. So is
+  // naming the trial to someone whose paid pass is what actually ran out.
+  const trialLine =
+    access.kind === 'ended'
+      ? endedAccessLine(access.ended)
+      : access.kind === 'trial' && trialExpiry
+        ? `Trial expires ${trialExpiry}`
+        : null;
+  const passEnd = access.kind === 'pass' ? formatCreditDate(access.endsAt) : null;
+  // At zero, the line under the bar says what gets AI back. Someone whose pass
+  // ran out renews; someone who only ever had the trial has nothing to renew.
+  // Inside a running pass, buying another one queues behind it and adds
+  // nothing today, so it is not offered.
+  const outOfCreditsHint =
+    access.kind === 'pass'
+      ? passEnd
+        ? `${access.planName} runs until ${passEnd}`
+        : `${access.planName} credits used up`
+      : access.kind === 'ended' && access.ended.kind === 'pass'
+        ? 'Renew to keep capturing by voice and text'
+        : 'Choose a pass to keep capturing by voice and text';
   const needsAttention = isOutOfCredits || isLowDailyLimit;
+  const isOutForToday = !loading && credits !== null && !isOutOfCredits && dailyRemaining <= 0;
+  const compactTitle = loading
+    ? 'AI credits'
+    : isOutOfCredits
+      ? 'Out of AI credits'
+      : isOutForToday
+        ? 'No AI credits left today'
+        : isLowDailyLimit
+          ? 'Daily AI credits low'
+          : 'AI credits';
+  const compactLines = loading
+    ? ['Checking balance...']
+    : isOutOfCredits
+      ? [
+          access.kind === 'pass'
+            ? `${access.planName} credits used up`
+            : access.kind === 'ended'
+              ? trialLine
+              : null,
+          outOfCreditsHint,
+        ].filter((line): line is string => Boolean(line))
+      : [`${dailyUsed} of ${dailyLimit} used · ${totalRemaining} total credits left`];
+
+  /**
+   * Home's notice (boards R1-Home-CreditsLow and -Dark): one amber row with
+   * the state in warning ink, the numbers under it, and "View plans" at the
+   * end when there is somewhere to go. Without anything to warn about it is
+   * an ordinary card.
+   */
   const compactContent = (
-    <Card
-      compact
+    <View
       style={{
-        padding: theme.spacing.md,
-        gap: theme.spacing.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 10,
+        paddingLeft: 16,
+        paddingRight: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        backgroundColor: needsAttention ? colors.warningSurface : colors.card,
+        borderColor: needsAttention ? colors.warningBorder : colors.border,
       }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
-        <View
+      <MaterialCommunityIcons
+        name={needsAttention ? 'alert-circle-outline' : 'creation'}
+        size={20}
+        color={needsAttention ? colors.warning : colors.text}
+      />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <ThemedText
           style={{
-            height: 32,
-            width: 32,
-            borderRadius: 16,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: needsAttention ? '#FFF3E0' : colors.secondary,
+            fontSize: 13,
+            lineHeight: 18,
+            fontWeight: '700',
+            color: needsAttention ? colors.warning : colors.text,
           }}>
-          <MaterialCommunityIcons
-            name={needsAttention ? 'alert-circle-outline' : 'creation'}
-            size={17}
-            color={needsAttention ? '#EF6C00' : colors.accent}
-          />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <ThemedText numberOfLines={1} variant="captionStrong" style={{ color: colors.text }}>
-            {isOutOfCredits
-              ? 'Out of AI credits'
-              : isLowDailyLimit
-                ? 'Daily AI credits low'
-                : 'AI credits'}
+          {compactTitle}
+        </ThemedText>
+        {compactLines.map((line) => (
+          <ThemedText key={line} tone="muted" style={{ fontSize: 12, lineHeight: 16 }}>
+            {line}
           </ThemedText>
-          <ThemedText numberOfLines={1} variant="caption" style={{ color: `${colors.text}8F` }}>
-            {loading
-              ? 'Checking balance...'
-              : isOutOfCredits
-                ? (trialHasExpired && trialLine) || 'Tap to see plans'
-                : `${dailyUsed}/${dailyLimit} used today`}
-          </ThemedText>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <ThemedText variant="cardTitle" style={{ color: colors.text, fontSize: 18 }}>
-            {credits?.daily_credits_remaining ?? '—'}
-          </ThemedText>
-          <ThemedText variant="micro" style={{ color: `${colors.text}8F` }}>
-            left today
-          </ThemedText>
-        </View>
+        ))}
       </View>
-
-      <View
-        style={{
-          height: 5,
-          borderRadius: 3,
-          overflow: 'hidden',
-          backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.08)' : '#F1E6E8',
-        }}>
-        <View
-          style={{
-            height: '100%',
-            width: `${progress * 100}%`,
-            borderRadius: 3,
-            backgroundColor: needsAttention ? '#EF6C00' : colors.accent,
-          }}
-        />
-      </View>
-
-      <ThemedText numberOfLines={1} variant="micro" style={{ color: `${colors.text}7A` }}>
-        {isOutOfCredits
-          ? 'Renew to keep capturing by voice and text'
-          : `${credits?.total_credits_remaining ?? '—'} total credits left`}
-      </ThemedText>
-    </Card>
+      {onPress ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 }}>
+          <ThemedText style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: colors.text }}>
+            View plans
+          </ThemedText>
+          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text} />
+        </View>
+      ) : null}
+    </View>
   );
 
   const content = compact ? compactContent : (
@@ -149,7 +179,7 @@ export function CreditStatusCard({
             {loading
               ? 'Checking balance...'
               : isOutOfCredits
-                ? (trialHasExpired && trialLine) || 'Out of credits — tap to see plans'
+                ? (access.kind === 'ended' && trialLine) || 'Out of credits — tap to see plans'
                 : trialLine
                   ? trialLine
                   : resetDate
@@ -201,15 +231,13 @@ export function CreditStatusCard({
 
   if (onPress) {
     return (
-      <Pressable
+      <PressableView
         accessibilityRole="button"
         onPress={onPress}
-        style={({ pressed }) => ({
-          opacity: pressed ? 0.86 : 1,
-          marginHorizontal: compact ? 0 : 24,
-        })}>
+        style={{ marginHorizontal: compact ? 0 : 24 }}
+        pressedStyle={{ opacity: 0.86 }}>
         {content}
-      </Pressable>
+      </PressableView>
     );
   }
 

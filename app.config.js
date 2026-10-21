@@ -30,8 +30,40 @@ const isPlayStoreBundle = process.env.EAS_BUILD_PROFILE === 'production';
  */
 const crashReportingEnabled = () => Boolean(process.env.EXPO_PUBLIC_SENTRY_DSN);
 
+/**
+ * The preview variant: a second copy of the app, installed beside the Play
+ * Store one to test a build on the same phone.
+ *
+ * Android refuses to install an APK over an app signed with a different key,
+ * and Play re-signs its copy, so a same-package test APK only goes on after
+ * uninstalling the Play one — which drops the phone out of closed testing. A
+ * different package is a different app: both install side by side, each with
+ * its own data and sign-in.
+ *
+ * It gets its own URL schemes too. Google's Android sign-in returns to a scheme
+ * named after the package (`app/auth.tsx` reads it from here), and if both apps
+ * registered `com.finnri.app` the Play copy's sign-in could come back into this
+ * one. The finnri.app invite App Link is dropped for the same reason, so
+ * invites keep opening the Play copy.
+ *
+ * Set by the `preview` profile in `eas.json`. Unset everywhere else, so the
+ * production build is exactly `app.json`.
+ */
+const isPreviewVariant = () => process.env.APP_VARIANT === 'preview';
+const PREVIEW_PACKAGE = 'com.finnri.app.preview';
+
+const withVariant = (config) =>
+  isPreviewVariant()
+    ? {
+        ...config,
+        name: 'Finnri Preview',
+        scheme: ['finnri-preview', PREVIEW_PACKAGE],
+        android: { ...config.android, package: PREVIEW_PACKAGE, intentFilters: [] },
+      }
+    : config;
+
 module.exports = ({ config }) => ({
-  ...config,
+  ...withVariant(config),
   plugins: [
     ...config.plugins,
     ...(crashReportingEnabled() ? ['@sentry/react-native'] : []),

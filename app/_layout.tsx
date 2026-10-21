@@ -271,6 +271,7 @@ export default function RootLayout() {
         <Stack.Screen name="budgets" />
         <Stack.Screen name="subscriptions" />
         <Stack.Screen name="billing" />
+        <Stack.Screen name="purchase-history" />
         <Stack.Screen name="ai-usage" />
         <Stack.Screen name="ask" />
         <Stack.Screen name="tools" />

@@ -2,6 +2,7 @@ import {
   formatRelativeDay,
   formatTime,
   resetHourClockCache,
+  rowTimeLabel,
   toApiTime,
   uses24HourClock,
 } from '@/lib/datetime';
@@ -147,5 +148,17 @@ describe('formatRelativeDay', () => {
     expect(formatRelativeDay(undefined)).toBeNull();
     expect(formatRelativeDay('')).toBeNull();
     expect(formatRelativeDay('last Tuesday')).toBeNull();
+  });
+});
+
+describe('rowTimeLabel', () => {
+  it('lowercases the meridiem on a 12-hour label', () => {
+    expect(rowTimeLabel('3:48 PM')).toBe('3:48 pm');
+    expect(rowTimeLabel('10:09 AM')).toBe('10:09 am');
+  });
+
+  it('leaves 24-hour labels and dates alone', () => {
+    expect(rowTimeLabel('15:48')).toBe('15:48');
+    expect(rowTimeLabel('5 October 2026')).toBe('5 October 2026');
   });
 });

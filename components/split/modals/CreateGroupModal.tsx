@@ -1,31 +1,27 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { cssInterop } from 'nativewind';
-import { ActivityIndicator, Pressable, ScrollView, TextInput, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { MemberToggleChip } from '@/components/split/primitives/SplitPrimitives';
+import { groupKindOptions } from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { PrimaryButton } from '@/components/ui/Button';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
+import { PressableView } from '@/components/ui/PressableView';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { haptics } from '@/lib/haptics';
 import type { GroupKind } from '@/lib/split-preferences';
 import type { SplitFriend } from '@/lib/splits';
 
-const TText = cssInterop(ThemedText, { className: 'style' });
-
-const groupKindOptions: {
-  kind: GroupKind;
-  label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-}[] = [
-  { kind: 'trip', label: 'Trip', icon: 'airplane' },
-  { kind: 'home', label: 'Home', icon: 'home-outline' },
-  { kind: 'couple', label: 'Couple', icon: 'heart-outline' },
-  { kind: 'other', label: 'Other', icon: 'format-list-bulleted' },
-];
-
+/**
+ * Create or edit a group (board R6-CreateGroup): photo and name, the kind
+ * chips, members from existing friends, the balance alert, and one button.
+ */
 export function CreateGroupModal({
   visible,
   saving,
@@ -77,49 +73,42 @@ export function CreateGroupModal({
   onDone: () => void;
 }) {
   const theme = useThemeTokens().colors;
+  // The board draws Members as a row; a sheet cannot open over this one, so
+  // the row opens the friend chips in place instead.
+  const [membersOpen, setMembersOpen] = useState(false);
+  const selectedNames = friends
+    .filter((friend) => selectedFriendIds.includes(friend.id))
+    .map((friend) => friend.name);
+  const membersSummary =
+    friends.length === 0
+      ? 'No friends yet · add friends first'
+      : selectedNames.length > 0
+        ? selectedNames.join(', ')
+        : 'Choose from your friends';
 
   return (
     <AnimatedBottomSheet
       visible={visible}
       onClose={onClose}
       avoidKeyboard
+      backdropOpacity={0.3}
       sheetStyle={{ maxHeight: '94%' }}>
-      <View
-        className="overflow-hidden rounded-t-[28px] border"
-        style={{ backgroundColor: theme.background, borderColor: theme.border, flexShrink: 1 }}>
-        <View
-          className="min-h-16 flex-row items-center border-b px-5"
-          style={{ borderColor: theme.border }}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close group composer"
-            onPress={onClose}
-            className="h-11 w-11 items-center justify-center">
-            <MaterialCommunityIcons name="close" size={28} color={theme.text} />
-          </Pressable>
-          <TText variant="screenTitle" className="flex-1 text-center">
+      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+        <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
+        <View style={styles.header}>
+          <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
             {title}
-          </TText>
-          <Pressable
-            accessibilityRole="button"
-            disabled={saving}
-            onPress={onDone}
-            className="min-h-11 min-w-11 items-end justify-center">
-            {saving ? (
-              <ActivityIndicator color={theme.accent} />
-            ) : (
-              <TText variant="button" style={{ color: theme.text }}>
-                {doneLabel}
-              </TText>
-            )}
-          </Pressable>
+          </ThemedText>
+          <SheetCloseButton accessibilityLabel="Close group composer" onPress={onClose} />
         </View>
 
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ padding: 24, paddingBottom: 44 }}>
-          <View className="flex-row items-center gap-5">
+          bounces={false}
+          style={{ flexGrow: 0, flexShrink: 1 }}
+          contentContainerStyle={styles.body}>
+          <View style={styles.nameRow}>
             {/* The control was drawn from the first version of this sheet and
                 wired to nothing, so the one affordance that looks like it takes
                 a photo did not. */}
@@ -129,14 +118,17 @@ export function CreateGroupModal({
               accessibilityHint={photoUri ? 'Opens the picker to replace this photo' : undefined}
               disabled={photoBusy}
               onPress={onPickPhoto}
-              className="h-20 w-20 items-center justify-center overflow-hidden rounded-xl border"
-              style={{
-                backgroundColor: theme.card,
-                borderColor: photoUri ? theme.accent : theme.border,
-                opacity: photoBusy ? 0.6 : 1,
-              }}>
+              style={[
+                styles.photo,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: photoUri ? theme.borderStrong : theme.border,
+                  borderStyle: photoUri ? 'solid' : 'dashed',
+                  opacity: photoBusy ? 0.6 : 1,
+                },
+              ]}>
               {photoBusy ? (
-                <ActivityIndicator color={theme.accent} />
+                <ActivityIndicator color={theme.muted} />
               ) : photoUri ? (
                 <Image
                   source={{ uri: photoUri }}
@@ -146,123 +138,97 @@ export function CreateGroupModal({
                   accessibilityIgnoresInvertColors
                 />
               ) : (
-                <MaterialCommunityIcons
-                  name="camera-plus-outline"
-                  size={30}
-                  color={theme.mutedStrong}
-                />
+                <MaterialCommunityIcons name="camera-outline" size={24} color={theme.text} />
               )}
             </Pressable>
-            <View className="flex-1">
-              <TText className="text-sm" style={{ color: theme.muted }}>Group name</TText>
-              <TextInput
-                value={groupName}
-                onChangeText={onChangeName}
-                autoFocus
-                placeholder="Group name"
-                placeholderTextColor={theme.mutedStrong}
-                style={{
-                  minHeight: 48,
-                  borderBottomWidth: 2,
-                  borderColor: groupName ? theme.muted : theme.accent,
+            <TextInput
+              accessibilityLabel="Group name"
+              value={groupName}
+              onChangeText={onChangeName}
+              autoFocus
+              placeholder="Group name"
+              placeholderTextColor={theme.muted}
+              style={[
+                styles.nameInput,
+                {
+                  backgroundColor: theme.card,
+                  borderColor: theme.border,
                   color: theme.text,
                   fontFamily: Fonts.body,
-                  fontSize: 20,
-                }}
-              />
-              {photoUri ? (
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Remove group photo"
-                  onPress={onRemovePhoto}
-                  hitSlop={8}
-                  className="mt-2 self-start">
-                  <TText className="text-sm" style={{ color: theme.accent }}>
-                    Remove photo
-                  </TText>
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-
-          <TText
-            className="mt-8 text-base"
-            style={{ color: theme.mutedStrong, fontFamily: Fonts.title }}>
-            Type
-          </TText>
-          <View className="mt-4 flex-row gap-3">
-            {groupKindOptions.map((option) => (
-              <GroupTypeCard
-                key={option.kind}
-                option={option}
-                selected={groupKind === option.kind}
-                onPress={() => onChangeKind(option.kind)}
-              />
-            ))}
-          </View>
-
-          <View className="mt-9 flex-row items-center justify-between">
-            <View className="flex-row items-center gap-2">
-              <TText variant="sectionTitle" style={{ color: theme.accent }}>
-                Set balance alert
-              </TText>
-              <MaterialCommunityIcons name="diamond-stone" size={18} color={theme.accent} />
-            </View>
-            <HapticSwitch
-              value={balanceAlertEnabled}
-              onValueChange={onToggleBalanceAlert}
-              trackColor={{ false: theme.secondary, true: theme.accent }}
-              thumbColor={theme.onAccent}
-              ios_backgroundColor={theme.secondary}
+                },
+              ]}
             />
           </View>
-          <TText className="mt-5 text-base leading-6" style={{ color: theme.muted }}>
-            Finnri can mark this group when someone reaches a balance limit.
-          </TText>
-
-          {balanceAlertEnabled ? (
-            <View className="mt-8">
-              <TText
-                className="text-base"
-                style={{ color: theme.mutedStrong, fontFamily: Fonts.title }}>
-                Balance amount
-              </TText>
-              <View className="mt-3 flex-row items-center gap-5">
-                <View
-                  className="h-16 w-16 items-center justify-center rounded-lg border"
-                  style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                  <TText variant="amount" style={{ color: theme.text }}>
-                    {CURRENCY_SYMBOL}
-                  </TText>
-                </View>
-                <TextInput
-                  value={balanceAlertAmount}
-                  onChangeText={onChangeBalanceAlertAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={theme.mutedStrong}
-                  style={{
-                    flex: 1,
-                    minHeight: 64,
-                    borderBottomWidth: 2,
-                    borderColor: balanceAlertAmount ? theme.accent : theme.muted,
-                    color: theme.text,
-                    fontFamily: Fonts.title,
-                    fontSize: 32,
-                  }}
-                />
-              </View>
-            </View>
+          {photoUri ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Remove group photo"
+              onPress={onRemovePhoto}
+              hitSlop={8}
+              style={styles.removePhoto}>
+              <ThemedText style={[styles.link, { color: theme.text }]}>Remove photo</ThemedText>
+            </Pressable>
           ) : null}
 
-          <View className="mt-9">
-            <TText
-              className="text-base"
-              style={{ color: theme.mutedStrong, fontFamily: Fonts.title }}>
-              Members
-            </TText>
-            {friends.length > 0 ? (
-              <View className="mt-3 flex-row flex-wrap gap-2">
+          <View style={styles.kinds}>
+            {groupKindOptions.map((option) => {
+              const selected = groupKind === option.kind;
+              return (
+                <PressableView
+                  key={option.kind}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  onPress={() => {
+                    haptics.select();
+                    onChangeKind(option.kind);
+                  }}
+                  style={[
+                    styles.kind,
+                    {
+                      backgroundColor: selected ? theme.selectedFill : theme.card,
+                      borderColor: selected ? theme.selectedBorder : theme.border,
+                    },
+                  ]}
+                  pressedStyle={styles.pressed}>
+                  <MaterialCommunityIcons name={option.icon} size={18} color={theme.text} />
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[
+                      styles.kindLabel,
+                      { color: theme.text, fontWeight: selected ? '700' : '500' },
+                    ]}>
+                    {option.label}
+                  </ThemedText>
+                </PressableView>
+              );
+            })}
+          </View>
+
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <PressableView
+              accessibilityRole="button"
+              accessibilityState={{ expanded: membersOpen, disabled: friends.length === 0 }}
+              accessibilityLabel={`Members, ${membersSummary}`}
+              disabled={friends.length === 0}
+              onPress={() => setMembersOpen((open) => !open)}
+              style={styles.row}
+              pressedStyle={styles.pressed}>
+              <ThemedText tone="muted" style={styles.rowLabel}>
+                Members
+              </ThemedText>
+              <ThemedText
+                numberOfLines={2}
+                style={[styles.rowValue, { color: friends.length === 0 ? theme.muted : theme.text }]}>
+                {membersSummary}
+              </ThemedText>
+              <MaterialCommunityIcons
+                name={membersOpen ? 'chevron-up' : 'chevron-right'}
+                size={20}
+                color={theme.muted}
+              />
+            </PressableView>
+            {membersOpen && friends.length > 0 ? (
+              <View style={[styles.members, { borderTopColor: theme.border }]}>
                 {friends.map((friend) => (
                   <MemberToggleChip
                     key={friend.id}
@@ -272,52 +238,232 @@ export function CreateGroupModal({
                   />
                 ))}
               </View>
-            ) : (
-              <View
-                className="mt-3 rounded-2xl border p-4"
-                style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                <TText className="text-sm" style={{ color: theme.muted }}>
-                  No friends yet. You can add members after creating friends.
-                </TText>
+            ) : null}
+          </View>
+
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.alertRow}>
+              <View style={styles.alertText}>
+                <View style={styles.alertTitleRow}>
+                  <ThemedText style={[styles.alertTitle, { color: theme.text }]}>
+                    Balance alert
+                  </ThemedText>
+                  <View style={[styles.tag, { backgroundColor: theme.track }]}>
+                    <ThemedText style={[styles.tagLabel, { color: theme.text }]}>Finnri plan</ThemedText>
+                  </View>
+                </View>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Mark this group when someone reaches a balance limit.
+                </ThemedText>
               </View>
-            )}
+              <HapticSwitch
+                accessibilityLabel="Balance alert"
+                value={balanceAlertEnabled}
+                onValueChange={onToggleBalanceAlert}
+              />
+            </View>
+            {balanceAlertEnabled ? (
+              <View style={[styles.row, styles.amountRow, { borderTopColor: theme.border }]}>
+                <ThemedText tone="muted" style={styles.rowLabel}>
+                  Alert at
+                </ThemedText>
+                <ThemedText style={[styles.rupee, { color: theme.text }]}>{CURRENCY_SYMBOL}</ThemedText>
+                <TextInput
+                  accessibilityLabel="Balance amount"
+                  value={balanceAlertAmount}
+                  onChangeText={onChangeBalanceAlertAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.amountInput, { color: theme.text, fontFamily: Fonts.title }]}
+                />
+              </View>
+            ) : null}
           </View>
         </ScrollView>
+
+        <View style={styles.footer}>
+          <PrimaryButton label={doneLabel} loading={saving} onPress={onDone} />
+        </View>
       </View>
     </AnimatedBottomSheet>
   );
 }
 
-function GroupTypeCard({
-  option,
-  selected,
-  onPress,
-}: {
-  option: (typeof groupKindOptions)[number];
-  selected: boolean;
-  onPress: () => void;
-}) {
-  const theme = useThemeTokens().colors;
-  return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      className="min-h-[118px] flex-1 items-center justify-center gap-3 rounded-2xl border"
-      style={{
-        backgroundColor: selected ? theme.secondary : theme.card,
-        borderColor: selected ? theme.accent : theme.border,
-      }}>
-      <MaterialCommunityIcons
-        name={option.icon}
-        size={30}
-        color={selected ? theme.accent : theme.mutedStrong}
-      />
-      <TText
-        className="text-base"
-        style={{ color: selected ? theme.accent : theme.text, fontFamily: Fonts.title }}>
-        {option.label}
-      </TText>
-    </Pressable>
-  );
-}
+const styles = StyleSheet.create({
+  sheet: {
+    flexShrink: 1,
+    overflow: 'hidden',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingBottom: 24,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  header: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 8,
+  },
+  title: {
+    flex: 1,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+  body: {
+    gap: 12,
+    paddingTop: 4,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  photo: {
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  nameInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    fontSize: 16,
+  },
+  removePhoto: {
+    alignSelf: 'flex-start',
+    marginTop: -4,
+  },
+  link: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  kinds: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  kind: {
+    flex: 1,
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingHorizontal: 6,
+    borderWidth: 1,
+    borderRadius: 20,
+  },
+  kindLabel: {
+    flexShrink: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  card: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  row: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  rowLabel: {
+    width: 92,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  rowValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  members: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    borderTopWidth: 1,
+  },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+  },
+  alertText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  alertTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  alertTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  tag: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  tagLabel: {
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
+  caption: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  amountRow: {
+    borderTopWidth: 1,
+  },
+  rupee: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+  },
+  amountInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    fontSize: 20,
+    fontVariant: ['tabular-nums'],
+  },
+  footer: {
+    paddingTop: 8,
+    paddingHorizontal: 16,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

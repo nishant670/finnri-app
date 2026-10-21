@@ -2,11 +2,11 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
 } from 'react-native';
@@ -16,9 +16,13 @@ import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { PrimaryButton } from '@/components/ui/Button';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
+import { ListRow } from '@/components/ui/ListRow';
+import { PressableView } from '@/components/ui/PressableView';
+import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
-import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -30,7 +34,7 @@ import {
   fetchBudgets,
   updateBudget,
 } from '@/lib/budgets';
-import { categoryVisual } from '@/lib/categories';
+import { CATEGORIES, categoryVisual } from '@/lib/categories';
 import { formatApiDate } from '@/lib/datetime';
 import { haptics } from '@/lib/haptics';
 import { formatMoney } from '@/lib/money';
@@ -75,7 +79,6 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
   const dialog = useAppDialog();
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const muted = `${colors.text}99`;
   const source = toParam(params.source);
   const budgetId = toParam(params.budgetId);
   const prefillCategory = toParam(params.category);
@@ -86,11 +89,19 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Budget | null>(null);
-  const [name, setName] = useState('Monthly spending');
+  const [name, setName] = useState('');
   const [category, setCategory] = useState('');
-  const [limitAmount, setLimitAmount] = useState('10000');
+  const [limitAmount, setLimitAmount] = useState('');
   const [threshold, setThreshold] = useState('80');
   const [active, setActive] = useState(true);
+  /**
+   * The form is a thing you open, not the top of the screen. It used to sit
+   * above the list permanently — five inputs and an unlabelled switch between
+   * the user and the budgets they came to check, the same "the screen is the
+   * form" shape M2 took out of Subscriptions.
+   */
+  const [isFormOpen, setIsFormOpen] = useState(false);
+  const [showBudgetOptions, setShowBudgetOptions] = useState(false);
   const [routePrefillConsumed, setRoutePrefillConsumed] = useState(false);
   const {
     entitlement,
@@ -104,11 +115,16 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
   const [previewCategories, setPreviewCategories] = useState<DashboardCategory[]>([]);
 
   const formTitle = editing ? 'Edit budget' : 'New monthly budget';
-  const submitLabel = editing ? 'Update budget' : 'Create budget';
+  const submitLabel = editing ? 'Save changes' : 'Create budget';
+  /** A budget is named after what it caps unless the user names it. */
+  const derivedName = category ? `${category} budget` : 'Monthly spending';
+  const showForm = !locked && (isFormOpen || editing !== null || (!loading && budgets.length === 0));
+  const categorySpend = previewCategories.find((entry) => entry.category === category);
   const activeBudgets = useMemo(() => budgets.filter((budget) => budget.active).length, [budgets]);
 
   const editBudget = useCallback((budget: Budget) => {
     setEditing(budget);
+    setShowBudgetOptions(false);
     setName(budget.name);
     setCategory(budget.category ?? '');
     setLimitAmount(String(budget.limit_amount));
@@ -130,9 +146,9 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     const cleanCategory = prefillCategory?.trim();
     const parsedLimit = parseAmount(suggestedLimit ?? '');
     if (cleanCategory) {
-      setName(`${cleanCategory} budget`);
       setCategory(cleanCategory);
     }
+    setIsFormOpen(true);
     if (Number.isFinite(parsedLimit) && parsedLimit > 0) {
       setLimitAmount(String(Math.ceil(parsedLimit * 1.1)));
     }
@@ -143,13 +159,28 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
 
   const resetForm = () => {
     setEditing(null);
-    setName('Monthly spending');
+    setName('');
     setCategory('');
-    setLimitAmount('10000');
+    setLimitAmount('');
     setThreshold('80');
     setActive(true);
+    setShowBudgetOptions(false);
     setRoutePrefillConsumed(true);
     setError(null);
+  };
+
+  const openNewBudget = () => {
+    resetForm();
+    setIsFormOpen(true);
+    // The user's own spend is the best hint at a limit; the same read the
+    // paywall uses, so it costs one request.
+    void loadPreview();
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  };
+
+  const closeForm = () => {
+    resetForm();
+    setIsFormOpen(false);
   };
 
   /**
@@ -189,7 +220,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         void loadPreview();
         return;
       }
-      setError(getFriendlyErrorMessage(loadError, 'Unable to load budgets right now.'));
+      setError(getFriendlyErrorMessage(loadError, "Couldn't load your budgets. Try again in a moment."));
     } finally {
       setLoading(false);
     }
@@ -207,10 +238,11 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     const thresholdValue = Math.round(parseAmount(threshold));
     const nextErrors: string[] = [];
 
-    if (!name.trim()) nextErrors.push('Name is required.');
-    if (!Number.isFinite(amount) || amount <= 0) nextErrors.push('Limit must be positive.');
+    if (!Number.isFinite(amount) || amount <= 0) nextErrors.push('Enter a monthly limit above zero.');
     if (!Number.isInteger(thresholdValue) || thresholdValue < 1 || thresholdValue > 100) {
-      nextErrors.push('Alert threshold must be between 1 and 100.');
+      nextErrors.push('Alert level should be between 1% and 100%.');
+      // It lives under More options; a message about a hidden field opens it.
+      setShowBudgetOptions(true);
     }
     if (nextErrors.length > 0) {
       haptics.rejected();
@@ -222,7 +254,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     setError(null);
     try {
       const payload = {
-        name: name.trim(),
+        name: name.trim() || derivedName,
         category: category.trim(),
         limit_amount: amount,
         alert_threshold_percent: thresholdValue,
@@ -234,7 +266,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         await createBudget(token, payload);
       }
       haptics.saved();
-      resetForm();
+      closeForm();
       await load();
     } catch (saveError) {
       if (captureEntitlement(saveError)) {
@@ -245,7 +277,9 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
       // A server refusal is the same event to the finger as a missing field —
       // C3's argument for routing both through one rejection, one panel over.
       haptics.rejected();
-      setError(getFriendlyErrorMessage(saveError, 'Unable to save this budget.'));
+      setError(
+        getFriendlyErrorMessage(saveError, "Couldn't save this budget. Check your connection and try again.")
+      );
     } finally {
       setSaving(false);
     }
@@ -255,21 +289,21 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     if (!token) return;
     const confirmed = await dialog.confirm({
       title: 'Delete budget?',
-      message: `${budget.name} alerts will stop after deletion.`,
+      message: `You'll stop getting alerts for ${budget.name}.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
     if (!confirmed) return;
     try {
       await deleteBudget(token, budget.id);
-      if (editing?.id === budget.id) resetForm();
+      if (editing?.id === budget.id) closeForm();
       await load();
     } catch (deleteError) {
       if (captureEntitlement(deleteError)) {
         presentUpgrade();
         return;
       }
-      setError(getFriendlyErrorMessage(deleteError, 'Unable to delete this budget.'));
+      setError(getFriendlyErrorMessage(deleteError, "Couldn't delete this budget. Try again."));
     }
   };
 
@@ -282,11 +316,11 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
           <PanelActionRow
             subtitle={
               locked
-                ? 'Monthly limits, on the Finnri plan'
+                ? 'Monthly limits · part of the Finnri plan'
                 : `${activeBudgets} active monthly limit${activeBudgets === 1 ? '' : 's'}`
             }
-            actionLabel={locked ? undefined : 'New budget'}
-            onAction={locked ? undefined : resetForm}
+            actionLabel={locked ? undefined : 'Add'}
+            onAction={locked ? undefined : openNewBudget}
             colors={colors}
           />
         ) : (
@@ -295,7 +329,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
             subtitle={locked ? 'On the Finnri plan' : `${activeBudgets} active`}
             onBack={() => router.back()}
             rightIcon={locked ? undefined : 'plus'}
-            onRightPress={locked ? undefined : resetForm}
+            onRightPress={locked ? undefined : openNewBudget}
           />
         )}
 
@@ -303,11 +337,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
           ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            paddingHorizontal: 24,
-            paddingBottom: embedded ? 120 : 32,
-            gap: 16,
-          }}>
+          contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
           {locked ? (
             <BudgetPaywallPreview
               categories={previewCategories}
@@ -315,128 +345,193 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
               onUpgrade={presentUpgrade}
               colors={colors}
             />
-          ) : (
-          <View className="rounded-[28px] border p-4" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-            <View className="mb-4 flex-row items-center justify-between">
-              <View>
-                <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-                  {formTitle}
-                </ThemedText>
-                <ThemedText className="text-xs" style={{ color: muted }}>
-                  INR monthly limit
-                </ThemedText>
+          ) : showForm ? (
+            <View
+              testID="budget-form"
+              style={[styles.card, styles.form, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={styles.formHeader}>
+                <View style={styles.flex}>
+                  <ThemedText style={[styles.cardTitle, { color: colors.text }]}>{formTitle}</ThemedText>
+                  <ThemedText tone="muted" style={styles.caption}>
+                    Finnri warns you before you go over.
+                  </ThemedText>
+                </View>
+                {budgets.length > 0 ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close the budget form"
+                    onPress={closeForm}
+                    hitSlop={10}>
+                    <MaterialCommunityIcons name="close" size={22} color={colors.muted} />
+                  </Pressable>
+                ) : null}
               </View>
-              <HapticSwitch value={active} onValueChange={setActive} />
-            </View>
 
-            <BudgetInput label="Name" value={name} onChangeText={setName} colors={colors} />
-            <BudgetInput
-              label="Category"
-              value={category}
-              onChangeText={setCategory}
-              placeholder="All categories"
-              colors={colors}
-            />
-            <View className="flex-row gap-3">
-              <View className="flex-1">
+              <ThemedText style={[styles.label, { color: colors.text }]}>What do you want to cap?</ThemedText>
+              {/* The canonical list as chips. This was a free-text box, so
+                  "food" made a budget no entry could ever count towards — the
+                  category it needed to match is "Food & Drinks". */}
+              <View style={styles.chips}>
+                {['', ...CATEGORIES].map((option) => {
+                  const selected = category === option;
+                  const visual = option ? categoryVisual(option) : null;
+                  return (
+                    <PressableView
+                      key={option || 'all'}
+                      testID={`budget-category-${option || 'all'}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        haptics.select();
+                        setCategory(option);
+                      }}
+                      style={[
+                        styles.chip,
+                        {
+                          backgroundColor: selected ? colors.selectedFill : colors.card,
+                          borderColor: selected ? colors.selectedBorder : colors.border,
+                        },
+                      ]}
+                      pressedStyle={styles.pressed}>
+                      <MaterialCommunityIcons
+                        name={visual ? visual.icon : 'chart-donut'}
+                        size={16}
+                        color={colors.text}
+                      />
+                      <ThemedText
+                        style={[styles.chipLabel, { color: colors.text, fontWeight: selected ? '700' : '500' }]}>
+                        {option || 'All spending'}
+                      </ThemedText>
+                    </PressableView>
+                  );
+                })}
+              </View>
+
+              <BudgetInput
+                label="Monthly limit"
+                value={limitAmount}
+                onChangeText={(value) => setLimitAmount(value.replace(/[^0-9.]/g, ''))}
+                placeholder="10,000"
+                keyboardType="decimal-pad"
+                colors={colors}
+                testID="budget-limit-input"
+              />
+              {categorySpend ? (
+                <PressableView
+                  accessibilityRole="button"
+                  onPress={() => {
+                    haptics.select();
+                    setLimitAmount(String(suggestedLimitFor(categorySpend.amount)));
+                  }}
+                  style={[styles.hint, { backgroundColor: colors.selectedFill }]}
+                  pressedStyle={styles.pressed}>
+                  <MaterialCommunityIcons name="lightbulb-on-outline" size={18} color={colors.text} />
+                  <ThemedText style={[styles.hintText, { color: colors.text }]}>
+                    {`You've spent ${formatMoney(categorySpend.amount)} on ${category} this month. Use ${formatMoney(
+                      suggestedLimitFor(categorySpend.amount)
+                    )}?`}
+                  </ThemedText>
+                </PressableView>
+              ) : null}
+
+              <FormDisclosure
+                testID="budget-more-options"
+                label="More options"
+                summary={[
+                  `Called “${name.trim() || derivedName}”`,
+                  `Alert at ${threshold || '0'}%`,
+                  editing && !active ? 'Paused' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+                expanded={showBudgetOptions}
+                onToggle={() => setShowBudgetOptions((open) => !open)}>
                 <BudgetInput
-                  label="Limit"
-                  value={limitAmount}
-                  onChangeText={(value) => setLimitAmount(value.replace(/[^0-9.]/g, ''))}
-                  keyboardType="decimal-pad"
+                  label="Name"
+                  value={name}
+                  onChangeText={setName}
+                  placeholder={derivedName}
                   colors={colors}
                 />
-              </View>
-              <View className="w-28">
                 <BudgetInput
-                  label="Alert %"
+                  label="Alert me at (% of the limit)"
                   value={threshold}
                   onChangeText={(value) => setThreshold(value.replace(/[^0-9]/g, ''))}
                   keyboardType="number-pad"
                   colors={colors}
                 />
-              </View>
-            </View>
+                {editing ? (
+                  <View style={[styles.switchRow, { borderColor: colors.border }]}>
+                    <View style={styles.flex}>
+                      <ThemedText style={[styles.switchTitle, { color: colors.text }]}>Active</ThemedText>
+                      <ThemedText tone="muted" style={styles.caption}>
+                        A paused budget keeps its history but stops alerting.
+                      </ThemedText>
+                    </View>
+                    <HapticSwitch
+                      accessibilityLabel="Budget active"
+                      value={active}
+                      onValueChange={setActive}
+                    />
+                  </View>
+                ) : null}
+              </FormDisclosure>
 
-            {error && (
-              <View className="mb-3 rounded-2xl px-3 py-2" style={{ backgroundColor: '#FFEBEE' }}>
-                <ThemedText className="text-xs font-bold" style={{ color: '#D32F2F' }}>
+              {error && (
+                <ThemedText tone="negative" style={[styles.caption, styles.error]}>
                   {error}
                 </ThemedText>
-              </View>
-            )}
-
-            <Pressable
-              onPress={saveBudget}
-              disabled={saving}
-              className="h-12 items-center justify-center rounded-2xl"
-              style={{ backgroundColor: colors.accent, opacity: saving ? 0.6 : 1 }}>
-              {saving ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-                  {submitLabel}
-                </ThemedText>
               )}
-            </Pressable>
-          </View>
-          )}
+
+              <PrimaryButton
+                testID="budget-save"
+                label={submitLabel}
+                loading={saving}
+                onPress={saveBudget}
+                style={styles.save}
+              />
+            </View>
+          ) : null}
 
           {locked ? null : loading ? (
-            <SkeletonFrame label="Loading budgets" testID="budgets-skeleton">
-              <SkeletonCards count={3} lines={2} radius={28} />
-            </SkeletonFrame>
-          ) : budgets.length === 0 ? (
-            <View className="items-center rounded-[28px] border p-8" style={{ borderColor: colors.border }}>
-              <MaterialCommunityIcons name="chart-donut" size={36} color={colors.accent} />
-              <ThemedText className="mt-3 text-center text-sm font-black">
-                Set your first monthly limit
-              </ThemedText>
-              <ThemedText className="mt-1 text-center text-xs" style={{ color: muted }}>
-                Pick the spending area you want to control first; Finnri will warn you before you cross the limit.
-              </ThemedText>
+            <View style={styles.gutter}>
+              <SkeletonFrame label="Loading budgets" testID="budgets-skeleton">
+                <SkeletonCards count={3} lines={2} radius={16} />
+              </SkeletonFrame>
             </View>
+          ) : budgets.length === 0 ? (
+            <ThemedText tone="muted" style={[styles.caption, styles.emptyHint]}>
+              Start with the one area that surprises you most each month. You can add more later.
+            </ThemedText>
           ) : (
-            <View className="gap-3">
-              {budgets.map((budget) => (
-                <Pressable
-                  key={budget.id}
-                  onPress={() => editBudget(budget)}
-                  className="rounded-[28px] border p-4"
-                  style={{
-                    backgroundColor: colors.card,
-                    borderColor: editing?.id === budget.id ? colors.accent : colors.border,
-                  }}>
-                  <View className="flex-row items-start justify-between gap-3">
-                    <View className="flex-1">
-                      <ThemedText className="text-base font-black" style={{ fontFamily: Fonts.title }}>
-                        {budget.name}
-                      </ThemedText>
-                      <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-                        {budget.category ? budget.category : 'All categories'} · alert at{' '}
-                        {budget.alert_threshold_percent}%
-                      </ThemedText>
-                    </View>
-                    <ThemedText className="text-base font-black" style={{ color: colors.accent }}>
-                      {formatMoney(budget.limit_amount)}
-                    </ThemedText>
-                  </View>
-                  <View className="mt-4 flex-row items-center justify-between">
-                    <View className="flex-row items-center gap-2">
-                      <View
-                        className="h-2 w-2 rounded-full"
-                        style={{ backgroundColor: budget.active ? '#2E7D32' : '#9E9E9E' }}
-                      />
-                      <ThemedText className="text-xs font-bold" style={{ color: muted }}>
-                        {budget.active ? 'Active' : 'Paused'}
-                      </ThemedText>
-                    </View>
-                    <Pressable onPress={() => void confirmDelete(budget)} hitSlop={10}>
-                      <MaterialCommunityIcons name="trash-can-outline" size={20} color="#D32F2F" />
-                    </Pressable>
-                  </View>
-                </Pressable>
-              ))}
+            <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              {budgets.map((budget, index) => {
+                const visual = budget.category ? categoryVisual(budget.category) : null;
+                return (
+                  <ListRow
+                    key={budget.id}
+                    icon={visual ? visual.icon : 'chart-donut'}
+                    hue={visual ? visual.color : '#64748B'}
+                    title={budget.name}
+                    meta={`${budget.category ? budget.category : 'All spending'} · alert at ${budget.alert_threshold_percent}%`}
+                    amount={`${formatMoney(budget.limit_amount)} limit`}
+                    status={budget.active ? 'Active' : 'Paused'}
+                    statusTone={budget.active ? 'positive' : 'muted'}
+                    divider={index > 0}
+                    onPress={() => editBudget(budget)}
+                    accessory={
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Delete ${budget.name}`}
+                        onPress={() => void confirmDelete(budget)}
+                        hitSlop={6}
+                        style={styles.delete}>
+                        <MaterialCommunityIcons name="trash-can-outline" size={20} color={colors.negative} />
+                      </Pressable>
+                    }
+                  />
+                );
+              })}
             </View>
           )}
         </ScrollView>
@@ -466,62 +561,60 @@ function BudgetPaywallPreview({
   onUpgrade,
   colors,
 }: BudgetPaywallPreviewProps) {
-  const muted = `${colors.text}99`;
   const lead = categories[0];
 
   return (
-    <View
-      className="rounded-[28px] border p-5"
-      style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-      <View className="flex-row items-center gap-3">
-        <View
-          className="h-11 w-11 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: `${colors.accent}1F` }}>
-          <MaterialCommunityIcons name="chart-donut" size={22} color={colors.accent} />
-        </View>
-        <View className="flex-1">
-          <ThemedText className="text-lg font-black" style={{ fontFamily: Fonts.title }}>
-            {featureLabel}
-          </ThemedText>
-          <ThemedText className="text-xs" style={{ color: muted }}>
-            Included with the Finnri plan
-          </ThemedText>
-        </View>
-      </View>
-
-      <ThemedText className="mt-4 text-sm" style={{ lineHeight: 20 }}>
+    <View style={[styles.card, styles.preview, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      <ThemedText style={[styles.cardTitle, { color: colors.text }]}>
+        Limits from what you already spend
+      </ThemedText>
+      <ThemedText tone="muted" style={styles.body}>
         {lead
           ? `Set a limit on ${lead.category} — you spent ${formatMoney(lead.amount)} this month.`
           : 'Set a monthly limit and hear about it before you cross it, not after.'}
       </ThemedText>
 
       {categories.length > 0 && (
-        <View className="mt-4 gap-2">
-          {categories.map((entry) => {
+        <View style={styles.previewRows}>
+          {categories.map((entry, index) => {
             const visual = categoryVisual(entry.category);
             const suggestion = suggestedLimitFor(entry.amount);
+            const share = suggestion > 0 ? Math.min(1, entry.amount / suggestion) : 0;
             return (
               <View
                 key={entry.category}
-                className="flex-row items-center gap-3 rounded-2xl px-3 py-3"
-                style={{ backgroundColor: colors.background }}>
-                <View
-                  className="h-9 w-9 items-center justify-center rounded-xl"
-                  style={{ backgroundColor: visual.bgColor }}>
+                style={[
+                  styles.previewRow,
+                  index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                ]}>
+                <View style={[styles.previewTile, { backgroundColor: visual.bgColor }]}>
                   <MaterialCommunityIcons name={visual.icon} size={18} color={visual.color} />
                 </View>
-                <View className="flex-1">
-                  <ThemedText className="text-sm font-black">{entry.category}</ThemedText>
-                  <ThemedText className="text-xs" style={{ color: muted }}>
-                    {formatMoney(entry.amount)} this month
-                  </ThemedText>
-                </View>
-                <View
-                  className="rounded-full px-3 py-1"
-                  style={{ backgroundColor: `${colors.accent}1F` }}>
-                  <ThemedText className="text-xs font-black" style={{ color: colors.accent }}>
-                    {formatMoney(suggestion)} limit
-                  </ThemedText>
+                <View style={styles.flex}>
+                  <View style={styles.previewLine}>
+                    <ThemedText numberOfLines={1} style={[styles.previewTitle, { color: colors.text }]}>
+                      {entry.category}
+                    </ThemedText>
+                    <ThemedText style={[styles.previewLimit, { color: colors.text }]}>
+                      {formatMoney(suggestion)} limit
+                    </ThemedText>
+                  </View>
+                  <View style={[styles.bar, { backgroundColor: colors.track }]}>
+                    <View
+                      style={[
+                        styles.barFill,
+                        { width: `${Math.round(share * 100)}%`, backgroundColor: visual.color },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.previewLine}>
+                    <ThemedText tone="muted" style={[styles.caption, styles.flex]}>
+                      {formatMoney(entry.amount)} spent this month
+                    </ThemedText>
+                    <ThemedText tone="muted" style={styles.caption}>
+                      {Math.round(share * 100)}%
+                    </ThemedText>
+                  </View>
                 </View>
               </View>
             );
@@ -529,21 +622,19 @@ function BudgetPaywallPreview({
         </View>
       )}
 
-      <Pressable
-        accessibilityRole="button"
+      <PrimaryButton
+        label={`Unlock ${featureLabel}`}
+        icon="lock-outline"
         onPress={onUpgrade}
-        className="mt-5 items-center justify-center rounded-2xl"
-        style={{ backgroundColor: colors.accent, minHeight: 52 }}>
-        <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
-          Unlock {featureLabel}
-        </ThemedText>
-      </Pressable>
+        style={styles.save}
+      />
     </View>
   );
 }
 
 type BudgetInputProps = {
   label: string;
+  testID?: string;
   value: string;
   onChangeText: (value: string) => void;
   placeholder?: string;
@@ -553,6 +644,7 @@ type BudgetInputProps = {
 
 function BudgetInput({
   label,
+  testID,
   value,
   onChangeText,
   placeholder,
@@ -560,19 +652,193 @@ function BudgetInput({
   colors,
 }: BudgetInputProps) {
   return (
-    <View className="mb-3">
-      <ThemedText className="mb-1 text-[11px] font-black uppercase" style={{ color: `${colors.text}99` }}>
-        {label}
-      </ThemedText>
+    <View style={styles.field}>
+      <ThemedText style={[styles.label, { color: colors.text }]}>{label}</ThemedText>
       <TextInput
+        testID={testID}
+        accessibilityLabel={label}
         value={value}
         onChangeText={onChangeText}
         placeholder={placeholder}
-        placeholderTextColor={`${colors.text}66`}
+        placeholderTextColor={colors.muted}
         keyboardType={keyboardType}
-        className="h-12 rounded-2xl border px-4 text-sm"
-        style={{ borderColor: colors.border, color: colors.text, backgroundColor: colors.background }}
+        style={[styles.input, { borderColor: colors.border, color: colors.text, backgroundColor: colors.card }]}
       />
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    gap: 12,
+    paddingTop: 14,
+  },
+  gutter: {
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  flex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  card: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  form: {
+    padding: 16,
+    gap: 4,
+  },
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 12,
+  },
+  cardTitle: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  body: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  label: {
+    marginBottom: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  chips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 14,
+  },
+  chip: {
+    height: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  field: {
+    marginBottom: 12,
+  },
+  input: {
+    height: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 12,
+    fontSize: 15,
+  },
+  hint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: -4,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  hintText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  switchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  switchTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  error: {
+    marginTop: 8,
+  },
+  save: {
+    marginTop: 14,
+  },
+  emptyHint: {
+    marginHorizontal: SCREEN_GUTTER + 8,
+    textAlign: 'center',
+  },
+  delete: {
+    width: 40,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  preview: {
+    paddingTop: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  previewRows: {
+    marginTop: 8,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingVertical: 12,
+  },
+  previewTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 8,
+  },
+  previewTitle: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  previewLimit: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  bar: {
+    height: 6,
+    marginVertical: 6,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 6,
+    borderRadius: 3,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

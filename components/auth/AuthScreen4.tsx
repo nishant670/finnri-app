@@ -48,8 +48,8 @@ export const AuthScreen4 = ({ onContinue }: ScreenProps) => {
           style={[styles.primaryButton, { backgroundColor: theme.accent }]}
           onPress={() => onContinue()}
         >
-          <Text style={styles.primaryButtonText}>Go to Finnri</Text>
-          <MaterialCommunityIcons name="arrow-right" size={20} color="white" style={{ marginLeft: 8 }} />
+          <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>Go to Finnri</Text>
+          <MaterialCommunityIcons name="arrow-right" size={20} color={theme.onAccent} style={{ marginLeft: 8 }} />
         </TouchableOpacity>
       </View>
     </ScrollView>

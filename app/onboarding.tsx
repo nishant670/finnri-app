@@ -178,13 +178,13 @@ export default function OnboardingScreen() {
                         { backgroundColor: activeIndex === SCREENS.length - 1 ? theme.accent : theme.text }
                     ]}
                 >
-                    <Text style={[styles.primaryButtonText, { color: activeIndex === SCREENS.length - 1 ? 'white' : theme.background }]}>
+                    <Text style={[styles.primaryButtonText, { color: activeIndex === SCREENS.length - 1 ? theme.onAccent : theme.background }]}>
                         {activeIndex === SCREENS.length - 1 ? 'Get started' : 'Next'}
                     </Text>
                     <MaterialCommunityIcons
                         name="arrow-right"
                         size={18}
-                        color={activeIndex === SCREENS.length - 1 ? 'white' : theme.background}
+                        color={activeIndex === SCREENS.length - 1 ? theme.onAccent : theme.background}
                         style={{ marginLeft: 8 }}
                     />
                 </Pressable>

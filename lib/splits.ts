@@ -272,6 +272,47 @@ export type SplitBill = {
  */
 export type SplitSettlementStatus = 'pending' | 'confirmed' | 'denied';
 
+/**
+ * How a settlement was paid. The person asked to confirm it is being asked
+ * whether money reached them, and "by UPI" or "in cash" is what lets them
+ * check — a bare amount leaves them guessing which transfer is meant.
+ * Absent on settlements recorded before it was asked.
+ */
+export type SettlementPaymentMode = 'cash' | 'upi' | 'bank_transfer' | 'card' | 'wallet' | 'other';
+
+export const SETTLEMENT_PAYMENT_MODES: { value: SettlementPaymentMode; label: string }[] = [
+  { value: 'upi', label: 'UPI' },
+  { value: 'cash', label: 'Cash' },
+  { value: 'bank_transfer', label: 'Bank transfer' },
+  { value: 'card', label: 'Card' },
+  { value: 'wallet', label: 'Wallet' },
+  { value: 'other', label: 'Other' },
+];
+
+// The server words its notification the same way; "other" adds nothing to a
+// sentence ("paid you ₹500 another way" says less than it seems to).
+const settlementPaymentPhrases: Record<SettlementPaymentMode, string | null> = {
+  upi: 'by UPI',
+  cash: 'in cash',
+  bank_transfer: 'by bank transfer',
+  card: 'by card',
+  wallet: 'from a wallet',
+  other: null,
+};
+
+/** "by UPI", "in cash" — or null when it was not recorded, or was "other". */
+export const settlementPaymentPhrase = (mode?: string | null): string | null =>
+  mode && mode in settlementPaymentPhrases
+    ? settlementPaymentPhrases[mode as SettlementPaymentMode]
+    : null;
+
+/** The feed's caption for how a settlement was paid: "Paid by UPI". */
+export const settlementPaymentCaption = (mode?: string | null): string | null => {
+  if (mode === 'other') return 'Paid another way';
+  const phrase = settlementPaymentPhrase(mode);
+  return phrase ? `Paid ${phrase}` : null;
+};
+
 export type SplitSettlement = {
   id: number;
   user_id: number;
@@ -281,6 +322,7 @@ export type SplitSettlement = {
   direction: SettlementDirection;
   date: string;
   notes?: string;
+  payment_mode?: SettlementPaymentMode | '';
   status?: SplitSettlementStatus;
   counterparty_user_id?: number | null;
   responded_at?: string | null;
@@ -314,6 +356,8 @@ export type SplitActivityItem = {
   direction?: SettlementDirection;
   /** On settlement rows only: whether the other side has agreed to it yet. */
   status?: SplitSettlementStatus;
+  /** On settlement rows only: how it was paid, when that was recorded. */
+  payment_mode?: SettlementPaymentMode | '';
   /**
    * Who recorded this, when it was not the caller — named the way the caller
    * names them. Present only on items from a shared group.
@@ -322,7 +366,16 @@ export type SplitActivityItem = {
   participant_count?: number;
   participants?: SplitParticipant[];
   notes?: string;
+  /** On settlement rows: the name of the group it settled, when it named one. */
+  group_name?: string;
+  /** On settlement rows: when the other side confirmed or denied it. */
+  responded_at?: string | null;
   created_at: string;
+  /**
+   * When the row last happened — added, edited, or answered. The feed is
+   * ordered on it, newest first. Absent from servers before 2026-10-15.
+   */
+  activity_at?: string;
 };
 
 export type SplitActivityResponse = {
@@ -384,6 +437,7 @@ export type SplitSettlementPayload = {
   direction: SettlementDirection;
   date: string;
   notes?: string;
+  payment_mode?: SettlementPaymentMode;
 };
 
 export class SplitApiError extends Error {
@@ -874,8 +928,13 @@ export const fetchSplitSettlements = async (token: string): Promise<SplitSettlem
   return (payload as SplitSettlement[]).map(normalizeSettlement);
 };
 
-export const fetchSplitActivity = async (token: string): Promise<SplitActivityItem[]> => {
-  const response = await fetch(`${API_BASE_URL}/v1/split/activity`, {
+/** One page of the split feed, newest first, with the feed's full length in `total`. */
+export const fetchSplitActivityPage = async (
+  token: string,
+  query?: Record<string, string>
+): Promise<SplitActivityResponse> => {
+  const search = query ? `?${new URLSearchParams(query).toString()}` : '';
+  const response = await fetch(`${API_BASE_URL}/v1/split/activity${search}`, {
     headers: authHeaders(token),
   });
   if (!response.ok) {
@@ -889,13 +948,53 @@ export const fetchSplitActivity = async (token: string): Promise<SplitActivityIt
   ) {
     throw new Error('The split activity response was invalid.');
   }
-  return (payload as SplitActivityResponse).items.map((item) => ({
-    ...item,
-    amount: item.amount == null ? undefined : Number(item.amount),
-    participants: (item.participants ?? []).map((participant) =>
-      coerceAmount(participant as unknown as Record<string, unknown>, ['share_amount'])
-    ) as SplitParticipant[],
-  }));
+  const page = payload as SplitActivityResponse;
+  return {
+    ...page,
+    total: Number(page.total ?? page.items.length),
+    items: page.items.map((item) => ({
+      ...item,
+      amount: item.amount == null ? undefined : Number(item.amount),
+      participants: (item.participants ?? []).map((participant) =>
+        coerceAmount(participant as unknown as Record<string, unknown>, ['share_amount'])
+      ) as SplitParticipant[],
+    })),
+  };
+};
+
+/** Largest page the API serves; the history reads every page of it. */
+const SETTLEMENT_HISTORY_PAGE_SIZE = 100;
+
+/**
+ * Every settlement between the caller and one friend, newest first: the ones
+ * either of them recorded, confirmed, waiting or denied.
+ *
+ * All of it, not a page. This is a ledger someone opens to check a payment
+ * from months ago, and a history that silently stops at its hundredth row
+ * would answer "it never happened" for the one they were looking for.
+ */
+export const fetchFriendSettlementHistory = async (
+  token: string,
+  friendId: number
+): Promise<SplitActivityItem[]> => {
+  const items: SplitActivityItem[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await fetchSplitActivityPage(token, {
+      type: 'settlement',
+      friend_id: String(friendId),
+      // A ledger of payments reads by when each was paid; the feed itself is
+      // in the order things were recorded.
+      order: 'date',
+      page: String(page),
+      page_size: String(SETTLEMENT_HISTORY_PAGE_SIZE),
+    });
+    items.push(...result.items);
+    if (result.items.length === 0 || items.length >= result.total) {
+      // Checked here as well: a server from before the filters existed ignores
+      // them and sends the whole feed.
+      return items.filter((item) => item.type === 'settlement' && item.friend_id === friendId);
+    }
+  }
 };
 
 export const createSplitSettlement = async (

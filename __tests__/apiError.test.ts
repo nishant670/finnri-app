@@ -7,7 +7,7 @@ describe('api error messages', () => {
         new Error('fetch failed: java.net.ConnectException: Failed to connect to /192.168.0.101:8080'),
         'Unable to load activity.',
       ),
-    ).toBe('Could not connect to Finnri. Check your internet connection and make sure the app is online.');
+    ).toBe("Can't reach Finnri right now. Check your internet connection and try again.");
   });
 
   it('replaces URLs and IP addresses instead of showing raw endpoints', () => {
@@ -16,7 +16,7 @@ describe('api error messages', () => {
         'Failed to connect to http://192.168.0.101:8080/v1/entries',
         'Unable to load activity.',
       ),
-    ).toBe('Could not connect to Finnri. Check your internet connection and make sure the app is online.');
+    ).toBe("Can't reach Finnri right now. Check your internet connection and try again.");
   });
 
   it('keeps readable product messages intact', () => {
