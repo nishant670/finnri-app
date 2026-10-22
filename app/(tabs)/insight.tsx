@@ -316,7 +316,11 @@ export default function InsightScreen() {
 
         {insightLevel >= 2 && dashboard.summary.transaction_count > 0 && (
           <Reflow>
-            <SpendingAnalysisCard dashboard={dashboard} onDetails={openSpendingAnalysis} />
+            <SpendingAnalysisCard
+              dashboard={dashboard}
+              onDetails={openSpendingAnalysis}
+              showTrend={false}
+            />
           </Reflow>
         )}
 

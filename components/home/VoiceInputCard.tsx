@@ -319,6 +319,9 @@ export function VoiceInputCard({
     transform: [{ translateY: interpolate(textEntryAnim.value, [0, 1], [-8, 0]) }],
   }));
   const halo = mixHex(colors.card, colors.accent, HALO_TINT);
+  // Three ways in don't fit side by side on a narrow phone, so each stacks its
+  // icon over its label.
+  const stacked = Boolean(onScanBill && onAddManually);
   const busy = isProcessing || isRecording;
 
   const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
@@ -580,18 +583,18 @@ export function VoiceInputCard({
           ) : null}
         </Animated.View>
       ) : (
-        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+        <View style={[styles.footer, stacked && styles.footerStacked, { borderTopColor: colors.border }]}>
           <PressableView
             accessibilityRole="button"
             onPress={onToggleTextInput}
             disabled={busy}
-            style={[styles.footerAction, busy && styles.inactive]}
+            style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
             pressedStyle={styles.pressed}>
             <MaterialCommunityIcons name="pencil-outline" size={18} color={colors.muted} />
             <ThemedText
               numberOfLines={1}
               adjustsFontSizeToFit
-              style={[styles.footerLabel, { color: colors.text }]}>
+              style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
               Type instead
             </ThemedText>
           </PressableView>
@@ -604,13 +607,13 @@ export function VoiceInputCard({
                 accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in the entry."
                 onPress={onScanBill}
                 disabled={busy}
-                style={[styles.footerAction, busy && styles.inactive]}
+                style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
                 pressedStyle={styles.pressed}>
                 <MaterialCommunityIcons name="camera-outline" size={18} color={colors.muted} />
                 <ThemedText
                   numberOfLines={1}
                   adjustsFontSizeToFit
-                  style={[styles.footerLabel, { color: colors.text }]}>
+                  style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
                   Scan a bill
                 </ThemedText>
               </PressableView>
@@ -624,13 +627,13 @@ export function VoiceInputCard({
                 accessibilityRole="button"
                 onPress={onAddManually}
                 disabled={busy}
-                style={[styles.footerAction, busy && styles.inactive]}
+                style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
                 pressedStyle={styles.pressed}>
                 <MaterialCommunityIcons name="plus" size={18} color={colors.muted} />
                 <ThemedText
                   numberOfLines={1}
                   adjustsFontSizeToFit
-                  style={[styles.footerLabel, { color: colors.text }]}>
+                  style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
                   Add manually
                 </ThemedText>
               </PressableView>
@@ -734,6 +737,17 @@ const styles = StyleSheet.create({
   footerDivider: {
     width: 1,
     height: 24,
+  },
+  footerStacked: {
+    height: 60,
+  },
+  footerActionStacked: {
+    flexDirection: 'column',
+    gap: 3,
+  },
+  footerLabelStacked: {
+    fontSize: 13,
+    lineHeight: 16,
   },
   footerLabel: {
     flexShrink: 1,

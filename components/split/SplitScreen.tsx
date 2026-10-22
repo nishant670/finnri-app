@@ -2266,6 +2266,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                       onNewGroup={() => openModal('group')}
                       filterActive={balanceFilter !== 'open'}
                       onOpenFilter={() => setFilterSheetVisible(true)}
+                      hideFilter={visibleFriends.length > 0}
                     />
                   )}
 

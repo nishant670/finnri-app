@@ -1,18 +1,22 @@
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
+import { StyleSheet } from 'react-native';
 
 import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
+import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import type { Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { formatMoney } from '@/lib/money';
 import { dueAction } from '@/lib/money-overview';
 import { updateRefundStatus } from '@/lib/refundables';
 import { todayISO } from '@/lib/subscription-form';
 import { markSubscriptionPaid, type Subscription } from '@/lib/subscriptions';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
-import type { UpcomingDue } from '@/lib/upcoming';
+import { formatDueLabel, type UpcomingDue } from '@/lib/upcoming';
 
 /**
  * Finishing a due where it is listed (P20): "Mark paid" opens the same sheet
@@ -130,3 +134,44 @@ export function useDueActions({
 
   return { accessoryFor, sheet };
 }
+
+/**
+ * The second line of a due that can be finished in place: what it costs, then
+ * how late it is in the status colour — "₹399 · 23 days overdue". The title
+ * line stays the name alone, so a long name never hides the amount.
+ */
+export function DueStatusLine({ due }: { due: UpcomingDue }) {
+  const { colors } = useThemeTokens();
+  const isRefund = due.kind === 'refund';
+  const amount =
+    due.amount === null ? null : isRefund ? formatMoney(due.amount, { sign: 'always' }) : formatMoney(due.amount);
+  const status = isRefund ? `Expected back · ${formatDueLabel(due)}` : formatDueLabel(due);
+  const tone =
+    due.state === 'overdue' ? colors.negative : due.state === 'scheduled' ? colors.muted : colors.warning;
+  return (
+    <ThemedText numberOfLines={2} style={styles.line}>
+      {amount ? (
+        <ThemedText
+          style={[styles.line, styles.amount, { color: isRefund ? colors.positive : colors.text }]}>
+          {amount}
+        </ThemedText>
+      ) : null}
+      {amount ? <ThemedText style={[styles.line, { color: colors.muted }]}> · </ThemedText> : null}
+      <ThemedText style={[styles.line, styles.status, { color: tone }]}>{status}</ThemedText>
+    </ThemedText>
+  );
+}
+
+const styles = StyleSheet.create({
+  line: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  amount: {
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  status: {
+    fontWeight: '600',
+  },
+});

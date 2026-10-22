@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   interpolate,
   runOnJS,
@@ -181,14 +181,18 @@ export function CollapsibleCapture({
           pillStyle,
         ]}
         pointerEvents={pillActive ? 'auto' : 'none'}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Expand capture and write an expense"
-          onPress={onExpand}
-          style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
-            {isRecording ? 'Listening…' : 'Log an expense'}
-          </ThemedText>
+        {/* The label, +, and mic are siblings: a button inside a button is
+            invalid on web and confuses screen readers. */}
+        <View style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Expand capture and write an expense"
+            onPress={onExpand}
+            style={styles.pillLabelTarget}>
+            <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
+              {isRecording ? 'Listening…' : 'Log an expense'}
+            </ThemedText>
+          </Pressable>
           {onAddPress && !isRecording ? (
             <Pressable
               accessibilityRole="button"
@@ -211,7 +215,7 @@ export function CollapsibleCapture({
               color={theme.onAccent}
             />
           </Pressable>
-        </Pressable>
+        </View>
       </Animated.View>
     </Animated.View>
   );
@@ -227,14 +231,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingLeft: 20,
+    paddingLeft: 0,
     paddingRight: 6,
     borderRadius: CAPTURE_PILL_HEIGHT / 2,
     borderWidth: 1,
   },
-  pillLabel: {
+  pillLabelTarget: {
     flex: 1,
-    minWidth: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingLeft: 20,
+  },
+  pillLabel: {
     fontSize: 15,
     lineHeight: 20,
   },

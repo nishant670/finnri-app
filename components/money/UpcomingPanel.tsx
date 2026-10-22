@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { cardVisual, recurringVisuals, refundVisual } from '@/components/money/money-visuals';
-import { useDueActions } from '@/components/money/useDueActions';
+import { DueStatusLine, useDueActions } from '@/components/money/useDueActions';
 import { ThemedText } from '@/components/themed-text';
 import { ListRow, type ListRowTone } from '@/components/ui/ListRow';
 import { StateView } from '@/components/ui/StateView';
@@ -177,13 +177,13 @@ export function UpcomingPanel({
               key={due.key}
               icon={visual.icon}
               hue={visual.hue}
-              title={`${due.title} · ${amount}`}
-              meta={status}
+              title={due.title}
               divider={index > 0}
               accessibilityLabel={`${due.title}, ${amount}, ${status}`}
               onPress={() => openDue(due)}
-              accessory={<View style={styles.accessory}>{accessoryFor(due)}</View>}
-            />
+              accessory={<View style={styles.accessory}>{accessoryFor(due)}</View>}>
+              <DueStatusLine due={due} />
+            </ListRow>
           );
         }
         return (

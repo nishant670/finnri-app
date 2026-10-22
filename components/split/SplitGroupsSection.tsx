@@ -24,6 +24,8 @@ type SplitGroupsSectionProps = {
   /** A balance filter other than the default "open" is set. */
   filterActive: boolean;
   onOpenFilter: () => void;
+  /** Balances shows one Filter, on People above, for both lists (P23). */
+  hideFilter?: boolean;
 };
 
 /** Groups (board R6-Groups): "Groups · N" over one card of rows, or R6-Empty's card. */
@@ -38,6 +40,7 @@ export function SplitGroupsSection({
   onNewGroup,
   filterActive,
   onOpenFilter,
+  hideFilter = false,
 }: SplitGroupsSectionProps) {
   const hasRows = groups.length > 0 || showNonGroupSummary;
   return (
@@ -45,7 +48,9 @@ export function SplitGroupsSection({
       {hasRows || filterActive || hiddenSettledCount > 0 ? (
         <GroupHeader
           label={groups.length > 0 ? `Groups · ${groups.length}` : 'Groups'}
-          accessory={<BalanceFilterButton active={filterActive} onPress={onOpenFilter} />}
+          accessory={
+            hideFilter ? undefined : <BalanceFilterButton active={filterActive} onPress={onOpenFilter} />
+          }
         />
       ) : null}
       {hasRows ? (
