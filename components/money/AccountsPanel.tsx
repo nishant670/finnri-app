@@ -25,6 +25,7 @@ import {
   hasOpeningBalance,
 } from '@/lib/account-display';
 import { formatMoney } from '@/lib/money';
+import { cardTotalSummary } from '@/lib/money-overview';
 import { Account, type AccountType, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 
@@ -195,7 +196,6 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
             spentThisMonth: summary.spentThisMonth + spentThisMonth,
             creditCards: summary.creditCards + 1,
             outstanding: summary.outstanding + (account.summary?.outstanding ?? 0),
-            creditLimit: summary.creditLimit + Number(account.credit_limit ?? 0),
             cardsMissingDueDate:
               !account.due_day || account.due_day < 1 || account.due_day > 31
                 ? summary.cardsMissingDueDate + 1
@@ -208,12 +208,13 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
       {
         spentThisMonth: 0,
         outstanding: 0,
-        creditLimit: 0,
         creditCards: 0,
         cardsMissingDueDate: 0,
       }
     );
   }, [accounts]);
+
+  const cardTotals = useMemo(() => cardTotalSummary(accounts), [accounts]);
 
   const handleAddAccount = (type?: AccountType) => {
     const suggestionMatchesType = !type || !suggestedAccount?.type || suggestedAccount.type === type;
@@ -369,7 +370,7 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
               {accountSummary.creditCards > 0 && (
                 <View style={[styles.tile, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <ThemedText tone="muted" style={styles.tileLabel}>
-                    Card outstanding
+                    Owed on cards
                   </ThemedText>
                   <ThemedText
                     numberOfLines={1}
@@ -377,11 +378,10 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
                     style={[styles.tileValue, { color: theme.text }]}>
                     {formatMoney(accountSummary.outstanding)}
                   </ThemedText>
-                  {accountSummary.creditLimit > 0 && (
-                    <ThemedText tone="muted" numberOfLines={1} style={styles.tileCaption}>
-                      of {formatMoney(accountSummary.creditLimit)} limit
-                    </ThemedText>
-                  )}
+                  {/* P19: a limit only when every card has one. */}
+                  <ThemedText tone="muted" numberOfLines={2} style={styles.tileCaption}>
+                    {cardTotals.caption}
+                  </ThemedText>
                 </View>
               )}
             </View>

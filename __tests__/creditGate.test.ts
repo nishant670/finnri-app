@@ -55,7 +55,7 @@ describe('creditGateFor', () => {
 
     // Credits remain; they simply cannot be spent until tomorrow, so the
     // advice is to wait or type it in — not to buy anything.
-    expect(gate?.title).toBe("Today's AI credits are used up");
+    expect(gate?.title).toBe('No AI credits left today');
     expect(gate?.message).toMatch(/come back tomorrow/);
   });
 

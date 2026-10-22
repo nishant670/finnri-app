@@ -55,9 +55,15 @@ export const SplitActivityRow = memo(function SplitActivityRow({
             ? 'Denied'
             : item.status
               ? 'Awaiting confirmation'
-              : undefined
+              : item.yourSide?.label
         }
-        statusTone={item.status === 'denied' ? 'negative' : 'warning'}
+        statusTone={
+          item.status === 'denied'
+            ? 'negative'
+            : item.status
+              ? 'warning'
+              : (item.yourSide?.tone ?? 'muted')
+        }
         divider={divider}
         accessibilityLabel={`Open activity ${item.title}`}
         onPress={() => onOpen(item.item)}

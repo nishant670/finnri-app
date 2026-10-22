@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/themed-text';
 import { Button, PrimaryButton } from '@/components/ui/Button';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ListRow } from '@/components/ui/ListRow';
+import { PickerOptionList, PickerSheet, type PickerOption } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
@@ -77,6 +78,7 @@ export function GroupDetailModal({
   const theme = useThemeTokens().colors;
   const [groupSearchVisible, setGroupSearchVisible] = useState(false);
   const [groupSearchQuery, setGroupSearchQuery] = useState('');
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const bills = summary?.bills;
   const sortedBills = useMemo(() => sortSplitBills(bills ?? [], billSort), [bills, billSort]);
 
@@ -165,9 +167,34 @@ export function GroupDetailModal({
                   style={styles.iconButton}>
                   <MaterialCommunityIcons name="cog-outline" size={24} color={theme.text} />
                 </Pressable>
+                {/* P27: Totals, Balances and Export are occasional, so they
+                    live in ⋯ rather than in a strip under every balance. */}
+                <Pressable
+                  testID="group-more"
+                  accessibilityRole="button"
+                  accessibilityLabel="More group options"
+                  onPress={() => setIsMoreOpen(true)}
+                  style={styles.iconButton}>
+                  <MaterialCommunityIcons name="dots-vertical" size={24} color={theme.text} />
+                </Pressable>
               </View>
             }
           />
+
+          <PickerSheet
+            visible={isMoreOpen}
+            title={summary.group.name}
+            onClose={() => setIsMoreOpen(false)}>
+            <PickerOptionList
+              accessibilityLabel="More group options"
+              options={GROUP_EXTRAS}
+              selectedKey={null}
+              onSelect={(key) => {
+                setIsMoreOpen(false);
+                onOpenAction(summary, key as GroupActionMode);
+              }}
+            />
+          </PickerSheet>
 
           <KeyboardAvoidingScreen
             keyboardShouldPersistTaps="handled"
@@ -228,25 +255,6 @@ export function GroupDetailModal({
                     />
                   ) : null}
                 </View>
-              </View>
-              <View style={[styles.pills, { borderTopColor: theme.border }]}>
-                <GroupPill
-                  label="Totals"
-                  icon="calculator-variant-outline"
-                  onPress={() => onOpenAction(summary, 'totals')}
-                />
-                <GroupPill
-                  label="Balances"
-                  icon="scale-balance"
-                  onPress={() => onOpenAction(summary, 'balances')}
-                  divider
-                />
-                <GroupPill
-                  label="Export"
-                  icon="export-variant"
-                  onPress={() => onOpenAction(summary, 'export')}
-                  divider
-                />
               </View>
             </View>
 
@@ -353,32 +361,12 @@ export function GroupDetailModal({
   );
 }
 
-/** One of the three cells along the foot of the balance card. */
-function GroupPill({
-  label,
-  icon,
-  onPress,
-  divider = false,
-}: {
-  label: string;
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  onPress: () => void;
-  divider?: boolean;
-}) {
-  const theme = useThemeTokens().colors;
-  return (
-    <PressableView
-      accessibilityRole="button"
-      onPress={onPress}
-      style={[styles.pill, divider && { borderLeftWidth: 1, borderLeftColor: theme.border }]}
-      pressedStyle={styles.pressed}>
-      <MaterialCommunityIcons name={icon} size={18} color={theme.text} />
-      <ThemedText numberOfLines={1} style={[styles.pillLabel, { color: theme.text }]}>
-        {label}
-      </ThemedText>
-    </PressableView>
-  );
-}
+/** What ⋯ on a group offers (P27), in the order the old strip had them. */
+const GROUP_EXTRAS: PickerOption[] = [
+  { key: 'totals', label: 'Totals', caption: 'What the group spent, and your share', icon: 'calculator-variant-outline' },
+  { key: 'balances', label: 'Balances', caption: 'Who owes whom', icon: 'scale-balance' },
+  { key: 'export', label: 'Export', caption: 'Share the expenses as a file', icon: 'export-variant' },
+];
 
 function GroupExpenseRow({
   bill,
@@ -487,23 +475,6 @@ const styles = StyleSheet.create({
   action: {
     flex: 1,
     paddingHorizontal: 8,
-  },
-  pills: {
-    flexDirection: 'row',
-    borderTopWidth: 1,
-  },
-  pill: {
-    flex: 1,
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
-  pillLabel: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
   },
   alone: {
     gap: 2,

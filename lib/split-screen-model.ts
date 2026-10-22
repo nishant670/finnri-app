@@ -16,6 +16,7 @@ import {
 } from '@/lib/splits';
 import { getActivityIcon } from '@/lib/split-screen-helpers';
 import { formatRelativeDay } from '@/lib/datetime';
+import { formatMoney } from '@/lib/money';
 
 export const computeBalanceTotals = (balances: SplitBalance[]) => {
   return balances.reduce(
@@ -233,6 +234,34 @@ export const activityDateLabel = (item: SplitActivityItem, now: Date = new Date(
     : `${verb} ${relative}`;
 };
 
+/**
+ * The user's own side of a feed row (P26): what an expense left them lent or
+ * owing, or which way a settlement went. Null for rows that move no money,
+ * and for an expense the user has no share in.
+ */
+export const activityYourSide = (
+  item: SplitActivityItem
+): { amount: number; label: string; tone: 'positive' | 'negative' } | null => {
+  if (item.type === 'bill') {
+    const lent = (item.participants ?? [])
+      .filter((participant) => participant.direction === 'friend_owes_user')
+      .reduce((sum, participant) => sum + Number(participant.share_amount || 0), 0);
+    const owe = (item.participants ?? [])
+      .filter((participant) => participant.direction === 'user_owes_friend')
+      .reduce((sum, participant) => sum + Number(participant.share_amount || 0), 0);
+    const net = Math.round((lent - owe) * 100) / 100;
+    if (net > 0) return { amount: net, label: `you lent ${formatMoney(net)}`, tone: 'positive' };
+    if (net < 0) return { amount: net, label: `you owe ${formatMoney(-net)}`, tone: 'negative' };
+    return null;
+  }
+  if (item.type === 'settlement' && item.amount) {
+    return item.direction === 'friend_paid_user'
+      ? { amount: item.amount, label: `you got ${formatMoney(item.amount)}`, tone: 'positive' }
+      : { amount: -item.amount, label: `you paid ${formatMoney(item.amount)}`, tone: 'negative' };
+  }
+  return null;
+};
+
 export const buildRecentActivity = (activity: SplitActivityItem[]) => {
   return activity.map((item) => {
     const fallbackCaption =
@@ -276,6 +305,7 @@ export const buildRecentActivity = (activity: SplitActivityItem[]) => {
       icon: getActivityIcon(item.type),
       caption,
       status,
+      yourSide: activityYourSide(item),
     };
   });
 };

@@ -14,6 +14,7 @@ import {
 } from '@/components/insights/insight-ui';
 import { SectionHeader } from '@/components/insights/SectionHeader';
 import { AppHeader } from '@/components/navigation/AppHeader';
+import { ReviewPeriodSwitch } from '@/components/insights/ReviewPeriodSwitch';
 import { ThemedText } from '@/components/themed-text';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { ListRow } from '@/components/ui/ListRow';
@@ -152,7 +153,7 @@ export default function WeeklyReviewScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
-        title="Weekly review"
+        title="Review"
         subtitle={label}
         onBack={() => router.back()}
         style={{ paddingHorizontal: 16, paddingVertical: 10 }}
@@ -166,6 +167,7 @@ export default function WeeklyReviewScreen() {
           </Pressable>
         }
       />
+      <ReviewPeriodSwitch active="week" />
 
       {loading && !dashboard ? (
         <SkeletonFrame

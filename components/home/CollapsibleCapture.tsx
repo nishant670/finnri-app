@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import Animated, {
   interpolate,
   runOnJS,
@@ -70,6 +70,11 @@ type CollapsibleCaptureProps = {
   onExpand: () => void;
   /** Start or stop recording straight from the pill. */
   onMicPress: () => void;
+  /**
+   * Open manual entry from the pill (P11). The floating + is gone, so the bar
+   * that stays on screen while scrolling carries both ways in.
+   */
+  onAddPress?: () => void;
   isRecording: boolean;
   /**
    * Held open regardless of scroll — while recording, or with a draft or a
@@ -87,6 +92,7 @@ export function CollapsibleCapture({
   children,
   onExpand,
   onMicPress,
+  onAddPress,
   isRecording,
   locked = false,
   onExpandedHeightChange,
@@ -175,14 +181,28 @@ export function CollapsibleCapture({
           pillStyle,
         ]}
         pointerEvents={pillActive ? 'auto' : 'none'}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Expand capture and write an expense"
-          onPress={onExpand}
-          style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
-            {isRecording ? 'Listening…' : 'Log an expense'}
-          </ThemedText>
+        {/* The label, +, and mic are siblings: a button inside a button is
+            invalid on web and confuses screen readers. */}
+        <View style={[styles.pill, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Expand capture and write an expense"
+            onPress={onExpand}
+            style={styles.pillLabelTarget}>
+            <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
+              {isRecording ? 'Listening…' : 'Log an expense'}
+            </ThemedText>
+          </Pressable>
+          {onAddPress && !isRecording ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add manually"
+              onPress={onAddPress}
+              hitSlop={4}
+              style={[styles.pillAdd, { backgroundColor: theme.card, borderColor: theme.borderStrong }]}>
+              <MaterialCommunityIcons name="plus" size={22} color={theme.text} />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={isRecording ? 'Stop recording' : 'Start recording'}
@@ -195,29 +215,44 @@ export function CollapsibleCapture({
               color={theme.onAccent}
             />
           </Pressable>
-        </Pressable>
+        </View>
       </Animated.View>
     </Animated.View>
   );
 }
 
-/** Board R3-Home: a 56dp bar on the card, the mic a 44dp accent circle at its end. */
+/**
+ * Board R3-Home-Proposals: a 56dp bar on the card, an outlined 44dp + and the
+ * mic as a 44dp accent circle at its end.
+ */
 const styles = StyleSheet.create({
   pill: {
     height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingLeft: 20,
+    paddingLeft: 0,
     paddingRight: 6,
     borderRadius: CAPTURE_PILL_HEIGHT / 2,
     borderWidth: 1,
   },
-  pillLabel: {
+  pillLabelTarget: {
     flex: 1,
-    minWidth: 0,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    paddingLeft: 20,
+  },
+  pillLabel: {
     fontSize: 15,
     lineHeight: 20,
+  },
+  pillAdd: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillMic: {
     width: 44,

@@ -60,8 +60,12 @@ import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/t
 import { buildTransactionListItems, type TransactionListItem } from '@/lib/transaction-list';
 import { isAmountSort } from '@/lib/transactions';
 import {
+  QUICK_FILTERS,
+  applyQuickFilter,
   clearFilterFields,
   describeFilters,
+  isQuickFilterSelected,
+  withoutQuickFilterChips,
   emptyFilterState,
   isFilterActive as hasFilterConstraints,
   toTransactionFilters,
@@ -284,7 +288,10 @@ export default function TransactionsScreen() {
    * screen said so.
    */
   const appliedChips = useMemo(
-    () => (reviewMode ? [] : describeFilters(filters, accountNameFor)),
+    () =>
+      reviewMode
+        ? []
+        : withoutQuickFilterChips(describeFilters(filters, accountNameFor), filters, new Date()),
     [accountNameFor, filters, reviewMode]
   );
 
@@ -682,6 +689,49 @@ export default function TransactionsScreen() {
         </Pressable>
       </View>
 
+      {/* Quick filters (P12): the four views people switch between most, one
+          tap each, without opening the sheet. */}
+      {!reviewMode ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chips}>
+          {QUICK_FILTERS.map((quick) => {
+            const selected = isQuickFilterSelected(quick.key, filters, new Date());
+            return (
+              <PressableView
+                key={quick.key}
+                testID={`quick-filter-${quick.key}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  haptics.select();
+                  setFilters((prev) => applyQuickFilter(quick.key, prev, new Date()));
+                  clearRouteParams();
+                }}
+                style={[
+                  styles.quickChip,
+                  {
+                    backgroundColor: selected ? theme.selectedFill : theme.card,
+                    borderColor: selected ? theme.selectedBorder : theme.border,
+                  },
+                ]}
+                pressedStyle={styles.pressed}>
+                <ThemedText
+                  style={[
+                    styles.quickChipLabel,
+                    { color: theme.text, fontWeight: selected ? '700' : '500' },
+                  ]}>
+                  {quick.label}
+                </ThemedText>
+              </PressableView>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
       {/* Every applied filter, however it was set — by the sheet, by a preset,
           or by a tap on an Insights chart — with its own ×. Filter state that
           is real but invisible reads as a broken list. */}
@@ -824,6 +874,7 @@ export default function TransactionsScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
+        startOnLastPayment
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
@@ -1079,6 +1130,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  quickChip: {
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  quickChipLabel: {
+    fontSize: 14,
+    lineHeight: 18,
   },
   clearAll: {
     height: 32,

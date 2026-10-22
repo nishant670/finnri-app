@@ -7,8 +7,10 @@ import type { LedgerAnswer } from '@/lib/parse';
 const mockParse = jest.fn();
 const mockOpenTransactions = jest.fn();
 
+let mockParams: { q?: string } = {};
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useLocalSearchParams: () => mockParams,
 }));
 jest.mock('@/hooks/use-auth-store', () => ({
   useAuthStore: () => ({ token: 'session-token', user: { is_guest: false } }),
@@ -50,7 +52,10 @@ const answer = (overrides: Partial<LedgerAnswer> = {}): LedgerAnswer => ({
 });
 
 describe('Ask Finnri (boards R12-AskEmpty, R12-AskAnswer)', () => {
-  beforeEach(() => mockParse.mockReset());
+  beforeEach(() => {
+    mockParse.mockReset();
+    mockParams = {};
+  });
 
   it('opens on the starter questions, drawn in ink rather than orange', async () => {
     const screen = await render(<AskFinnriScreen />);
@@ -88,5 +93,20 @@ describe('describeThreadAnswer', () => {
       detail: 'Food & Drinks · from 1 transaction',
     });
     expect(describeThreadAnswer(answer({ metric: 'count', transaction_count: 3 })).detail).toBe('');
+  });
+
+  it('asks a question handed over from Insights once (P32)', async () => {
+    mockParse.mockReset();
+    mockParse.mockResolvedValue({ stage: 'answer', answer: answer() });
+    mockParams = { q: 'My biggest expenses this month' };
+    const screen = await render(<AskFinnriScreen />);
+
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(1));
+    expect(mockParse.mock.calls[0][0]).toMatchObject({
+      hintText: 'My biggest expenses this month',
+    });
+    await screen.rerender(<AskFinnriScreen />);
+    expect(mockParse).toHaveBeenCalledTimes(1);
+    mockParams = {};
   });
 });

@@ -27,17 +27,16 @@ import { BudgetWatchSection } from '@/components/insights/BudgetWatch';
 import { InsightsHeader } from '@/components/insights/InsightsHeader';
 import { InsightsUnlockProgressCard } from '@/components/insights/InsightsUnlockProgressCard';
 import { NeedsReview } from '@/components/insights/NeedsReview';
-import { PeriodPulseCard } from '@/components/insights/PeriodPulseCard';
 import { Reflow } from '@/components/insights/Reflow';
 import {
-  MonthlyReviewTeaser,
-  RecurringReviewTeaser,
-  WeeklyReviewTeaser,
-} from '@/components/insights/ReviewTeasers';
-import { SmartAlerts } from '@/components/insights/SmartAlerts';
+  AskSuggestions,
+  GlanceCard,
+  QuickFacts,
+  ReviewsSection,
+  StandsOut,
+} from '@/components/insights/InsightsGlance';
 import { SpendingAnalysisCard } from '@/components/insights/SpendingAnalysisCard';
-import { TopTakeawayCard } from '@/components/insights/TopTakeawayCard';
-import { getInsightLevel, getNeedsReview, getTopTakeaway } from '@/lib/insight-summary';
+import { getInsightLevel, getNeedsReview } from '@/lib/insight-summary';
 
 const defaultRange = (): DateRange => {
   const current = new Date();
@@ -142,16 +141,22 @@ export default function InsightScreen() {
    */
   const periodIsEmpty = periodIsEmptyButAccountIsNot(dashboard);
 
-  // The hero card promotes one insight to the top of the screen. Smart Alerts
-  // must not then repeat it — the same alert twice on one screen reads as
-  // padding and made the whole tab look thinner than it is.
-  const smartAlertCards = useMemo(() => {
-    if (!dashboard) return [];
-    const promoted = getTopTakeaway(dashboard, reviewItems.length).promotedKind;
-    return promoted
-      ? dashboard.insights.filter((card) => card.kind !== promoted)
-      : dashboard.insights;
-  }, [dashboard, reviewItems.length]);
+  const openSpendingAnalysis = () => {
+    if (!dashboard) return;
+    router.push({
+      pathname: '/spending-analysis',
+      params: {
+        start: dashboard.period.start,
+        end: dashboard.period.end,
+        label: currentRange.label,
+      },
+    });
+  };
+  const monthName = (currentRange.start ?? new Date()).toLocaleDateString('en-GB', {
+    month: 'long',
+  });
+  const glanceHeading =
+    currentRange.preset === 'this_month' ? `Spent in ${monthName} so far` : `Spent · ${currentRange.label}`;
 
   // The header is real on the way in, because it is real the whole time the
   // screen exists — a period label that arrives with the data would be the
@@ -231,7 +236,7 @@ export default function InsightScreen() {
             one thing that is still true when the period is empty — and because
             a month means very little until there is something to read it
             against. See `OverviewBand`. */}
-        {overview?.has_history ? (
+        {overview?.has_history && periodIsEmpty ? (
           <Reflow>
             <OverviewBand
               overview={overview}
@@ -262,36 +267,45 @@ export default function InsightScreen() {
           </Reflow>
         ) : null}
 
+        {/* P29: the tab opens on the window at a glance and four quick facts. */}
         {insightLevel >= 2 && !periodIsEmpty ? (
           <>
             <Reflow>
-              <TopTakeawayCard dashboard={dashboard} reviewCount={reviewItems.length} />
+              <GlanceCard
+                dashboard={dashboard}
+                heading={glanceHeading}
+                onOpen={openSpendingAnalysis}
+              />
             </Reflow>
             <Reflow>
-              <PeriodPulseCard
-                dashboard={dashboard}
-                insightLevel={insightLevel}
-                reviewCount={reviewItems.length}
-              />
+              <QuickFacts dashboard={dashboard} />
             </Reflow>
           </>
         ) : null}
 
-        {insightLevel >= 4 ? (
-          <>
-            {/* The weekly review reads the selected window, so it is one of the
-                cards that had nothing to say in an empty one. The monthly
-                review is not period-scoped and stays — in a month with no
-                data yet, last month's review is the useful thing on screen. */}
-            {periodIsEmpty ? null : (
-              <Reflow>
-                <WeeklyReviewTeaser dashboard={dashboard} rangeLabel={currentRange.label} />
-              </Reflow>
-            )}
-            <Reflow>
-              <MonthlyReviewTeaser />
-            </Reflow>
-          </>
+        {/* P30 + P34: what stands out, with suspected subscriptions asked about inline. */}
+        {insightLevel >= 2 && !periodIsEmpty ? (
+          <Reflow>
+            <StandsOut
+              dashboard={dashboard}
+              rangeLabel={currentRange.label}
+              onChanged={() => void loadData(true)}
+            />
+          </Reflow>
+        ) : null}
+
+        {/* P32 */}
+        {insightLevel >= 2 ? (
+          <Reflow>
+            <AskSuggestions monthName={monthName} />
+          </Reflow>
+        ) : null}
+
+        {/* P31: one Reviews section, this week and last month. */}
+        {insightLevel >= 2 ? (
+          <Reflow>
+            <ReviewsSection dashboard={dashboard} />
+          </Reflow>
         ) : null}
 
         {insightLevel >= 3 && allClear && (
@@ -304,29 +318,12 @@ export default function InsightScreen() {
           <Reflow>
             <SpendingAnalysisCard
               dashboard={dashboard}
-              onDetails={() =>
-                router.push({
-                  pathname: '/spending-analysis',
-                  params: {
-                    start: dashboard.period.start,
-                    end: dashboard.period.end,
-                    label: currentRange.label,
-                  },
-                })
-              }
+              onDetails={openSpendingAnalysis}
+              showTrend={false}
             />
           </Reflow>
         )}
 
-        {insightLevel >= 3 && (
-          <Reflow>
-            <SmartAlerts
-              cards={smartAlertCards}
-              dashboard={dashboard}
-              rangeLabel={currentRange.label}
-            />
-          </Reflow>
-        )}
 
         {insightLevel >= 3 &&
           dashboard.budget_statuses?.some((budget) => budget.status !== 'safe') && (
@@ -335,17 +332,23 @@ export default function InsightScreen() {
             </Reflow>
           )}
 
-        {insightLevel >= 3 && dashboard.recurring_candidates.length > 0 && (
-          <Reflow>
-            <RecurringReviewTeaser dashboard={dashboard} rangeLabel={currentRange.label} />
-          </Reflow>
-        )}
 
         {insightLevel >= 4 && dashboard.account_spending.length > 0 && (
           <Reflow>
             <AccountIntelligence dashboard={dashboard} />
           </Reflow>
         )}
+
+        {/* The months strip, under everything about this window. */}
+        {overview?.has_history && !periodIsEmpty ? (
+          <Reflow>
+            <OverviewBand
+              overview={overview}
+              selectedMonth={selectedMonthKey(currentRange)}
+              onSelectMonth={(month) => setCurrentRange(rangeForOverviewMonth(month))}
+            />
+          </Reflow>
+        ) : null}
 
         {previewReviewItems.length > 0 && (
           <Reflow>

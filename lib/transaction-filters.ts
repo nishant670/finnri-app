@@ -227,3 +227,74 @@ export const clearFilterFields = (
   });
   return next;
 };
+
+export type QuickFilterKey = 'all' | 'expenses' | 'income' | 'this-month';
+
+/** The chips under the search box (board R3-List-Proposals, P12). */
+export const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'expenses', label: 'Expenses' },
+  { key: 'income', label: 'Income' },
+  { key: 'this-month', label: 'This month' },
+];
+
+const thisMonthPreset = FILTER_PRESETS.find((preset) => preset.key === 'this-month')!;
+
+export const isQuickFilterSelected = (
+  key: QuickFilterKey,
+  state: TransactionFilterState,
+  now: Date
+): boolean => {
+  const thisMonth = isPresetApplied(thisMonthPreset, state, now);
+  switch (key) {
+    case 'all':
+      return state.type === 'All' && !thisMonth;
+    case 'expenses':
+      return state.type === 'Expense';
+    case 'income':
+      return state.type === 'Income';
+    case 'this-month':
+      return thisMonth;
+  }
+};
+
+/**
+ * A quick filter's tap. Expenses and Income take turns as the type and a
+ * second tap takes either back off; This month toggles on top of either; All
+ * clears both.
+ */
+export const applyQuickFilter = (
+  key: QuickFilterKey,
+  state: TransactionFilterState,
+  now: Date
+): TransactionFilterState => {
+  const selected = isQuickFilterSelected(key, state, now);
+  switch (key) {
+    case 'all': {
+      const cleared = { ...state, type: 'All' as const };
+      return isPresetApplied(thisMonthPreset, cleared, now)
+        ? applyPreset(thisMonthPreset, cleared, now)
+        : cleared;
+    }
+    case 'expenses':
+      return { ...state, type: selected ? 'All' : 'Expense' };
+    case 'income':
+      return { ...state, type: selected ? 'All' : 'Income' };
+    case 'this-month':
+      return applyPreset(thisMonthPreset, state, now);
+  }
+};
+
+/**
+ * The applied-filter chips, less what the quick filters already show, so a
+ * tap on "Income" doesn't also grow an "Income ×" chip below it.
+ */
+export const withoutQuickFilterChips = (
+  chips: AppliedFilterChip[],
+  state: TransactionFilterState,
+  now: Date
+) =>
+  chips.filter(
+    (chip) =>
+      chip.key !== 'type' && !(chip.key === 'dates' && isPresetApplied(thisMonthPreset, state, now))
+  );

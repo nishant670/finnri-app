@@ -20,15 +20,28 @@ export function TabHeader({
   title,
   actions = [],
   busy = false,
+  onBack,
 }: {
   title: string;
   actions?: TabHeaderAction[];
   /** A small spinner before the actions while the tab refreshes. */
   busy?: boolean;
+  /** A back chevron before the title, for a full list opened inside a tab. */
+  onBack?: () => void;
 }) {
   const { colors } = useThemeTokens();
   return (
-    <View style={styles.header}>
+    <View style={[styles.header, onBack ? styles.headerWithBack : null]}>
+      {onBack ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={onBack}
+          hitSlop={4}
+          style={styles.back}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color={colors.text} />
+        </Pressable>
+      ) : null}
       <ThemedText
         accessibilityRole="header"
         numberOfLines={1}
@@ -60,6 +73,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingLeft: 16,
     paddingRight: 8,
+  },
+  headerWithBack: {
+    paddingLeft: 4,
+  },
+  back: {
+    width: 40,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   title: {
     flex: 1,

@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react';
+import type { Dispatch, ReactNode, SetStateAction } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 
@@ -63,7 +63,24 @@ type AccountFormStepTwoProps = {
   showMonthModal: boolean;
   showReminderOptions: boolean;
   updateIdentifier: (value: string) => void;
+  /**
+   * Part of the one-sheet account form (P21): the detail fields only, with
+   * no header, intro, scroll or footer of their own.
+   */
+  embedded?: boolean;
 };
+
+/** The form's own scroll, or a plain stack when the one-sheet form scrolls it. */
+function DetailsScroll({ embedded, children }: { embedded: boolean; children: ReactNode }) {
+  if (embedded) return <View>{children}</View>;
+  return (
+    <KeyboardAvoidingScreen
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={styles.scrollContent}>
+      {children}
+    </KeyboardAvoidingScreen>
+  );
+}
 
 export function AccountFormStepTwo({
   annualFee,
@@ -108,31 +125,34 @@ export function AccountFormStepTwo({
   showMonthModal,
   showReminderOptions,
   updateIdentifier,
+  embedded = false,
 }: AccountFormStepTwoProps) {
   const theme = useThemeTokens().colors;
   if (selectedType === 'credit_card') {
     return (
-      <View style={{ flex: 1 }}>
-        <ScreenHeader
-          subtitle="Step 2 of 2"
-          onBack={() => setStep(1)}
-          rightText={isSaving ? 'Saving' : 'Save now'}
-          onRightPress={handleSave}
-        />
-        <KeyboardAvoidingScreen
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}>
+      <View style={embedded ? undefined : { flex: 1 }}>
+        {embedded ? null : (
+          <ScreenHeader
+            subtitle="Step 2 of 2"
+            onBack={() => setStep(1)}
+            rightText={isSaving ? 'Saving' : 'Save now'}
+            onRightPress={handleSave}
+          />
+        )}
+        <DetailsScroll embedded={embedded}>
           {/* A heading, not a mascot. The speech bubble said one line in
               18pt black over a cartoon face, and it was the loudest thing on
               a screen whose fields are all optional. */}
-          <View style={styles.stepIntro}>
-            <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
-              {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
-            </ThemedText>
-            <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
-              {detailCopy.message} All optional — add the rest any time.
-            </ThemedText>
-          </View>
+          {embedded ? null : (
+            <View style={styles.stepIntro}>
+              <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+                {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+              </ThemedText>
+              <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+                {detailCopy.message} All optional — add the rest any time.
+              </ThemedText>
+            </View>
+          )}
 
           <ThemedText style={styles.sectionHeaderLabel}>Card</ThemedText>
 
@@ -155,13 +175,13 @@ export function AccountFormStepTwo({
                     { borderColor: isActive ? theme.selectedBorder : theme.border },
                     isActive && { backgroundColor: theme.selectedFill },
                   ]}>
-                  <MaterialCommunityIcons
-                    name={provider.icon}
-                    size={16}
-                    color={theme.text}
-                  />
+                  <MaterialCommunityIcons name={provider.icon} size={16} color={theme.text} />
                   <ThemedText
-                    style={[styles.providerChipText, { color: theme.text }, isActive && { fontWeight: '700' }]}>
+                    style={[
+                      styles.providerChipText,
+                      { color: theme.text },
+                      isActive && { fontWeight: '700' },
+                    ]}>
                     {provider.name}
                   </ThemedText>
                 </TouchableOpacity>
@@ -261,7 +281,10 @@ export function AccountFormStepTwo({
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={dueDay ? `Due day ${dueDay}` : 'Choose the due day'}
-            style={[styles.dropdownContainerSmall, { backgroundColor: theme.card, marginBottom: 24 }]}
+            style={[
+              styles.dropdownContainerSmall,
+              { backgroundColor: theme.card, marginBottom: 24 },
+            ]}
             onPress={() => setShowDayModal(true)}>
             <MaterialCommunityIcons
               name="calendar-outline"
@@ -387,7 +410,9 @@ export function AccountFormStepTwo({
                   </ThemedText>
                   <TouchableOpacity
                     accessibilityRole="button"
-                    accessibilityLabel={feeMonth ? `Fee charged in ${feeMonth}` : 'Choose the fee month'}
+                    accessibilityLabel={
+                      feeMonth ? `Fee charged in ${feeMonth}` : 'Choose the fee month'
+                    }
                     style={[styles.dropdownContainerSmall, { backgroundColor: theme.card }]}
                     onPress={() => setShowMonthModal(true)}>
                     <MaterialCommunityIcons
@@ -430,29 +455,35 @@ export function AccountFormStepTwo({
               </View>
             </FormDisclosure>
           </View>
-        </KeyboardAvoidingScreen>
+        </DetailsScroll>
 
         {/* Footer Step 2 */}
-        <View style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-          {saveError ? (
-            <View style={styles.errorContainer}>
-              <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
-              <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+        {embedded ? null : (
+          <View
+            style={[
+              styles.footer,
+              { backgroundColor: theme.background, borderTopColor: theme.border },
+            ]}>
+            {saveError ? (
+              <View style={styles.errorContainer}>
+                <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
+                <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+              </View>
+            ) : null}
+            <View style={styles.footerActions}>
+              <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
+                <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
+              </TouchableOpacity>
+              <PrimaryButton
+                label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+                icon={isSaving ? undefined : 'check'}
+                loading={isSaving}
+                onPress={handleSave}
+                style={styles.saveButton}
+              />
             </View>
-          ) : null}
-          <View style={styles.footerActions}>
-            <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
-              <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
-            </TouchableOpacity>
-            <PrimaryButton
-              label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
-              icon={isSaving ? undefined : 'check'}
-              loading={isSaving}
-              onPress={handleSave}
-              style={styles.saveButton}
-            />
           </View>
-        </View>
+        )}
 
         {
           <AccountSelectionSheet
@@ -479,26 +510,28 @@ export function AccountFormStepTwo({
   // Generic Step 2 for other account types
   return (
     <>
-      <ScreenHeader
-        subtitle="Step 2 of 2"
-        onBack={() => setStep(1)}
-        rightText={isSaving ? 'Saving' : 'Save now'}
-        onRightPress={handleSave}
-      />
-      <KeyboardAvoidingScreen
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}>
+      {embedded ? null : (
+        <ScreenHeader
+          subtitle="Step 2 of 2"
+          onBack={() => setStep(1)}
+          rightText={isSaving ? 'Saving' : 'Save now'}
+          onRightPress={handleSave}
+        />
+      )}
+      <DetailsScroll embedded={embedded}>
         {/* A heading, not a mascot. The speech bubble said one line in
             18pt black over a cartoon face, and it was the loudest thing on
             a screen whose fields are all optional. */}
-        <View style={styles.stepIntro}>
-          <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
-            {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
-          </ThemedText>
-          <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
-            {detailCopy.message} All optional — add the rest any time.
-          </ThemedText>
-        </View>
+        {embedded ? null : (
+          <View style={styles.stepIntro}>
+            <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
+              {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
+            </ThemedText>
+            <ThemedText style={[styles.stepDescription, { color: theme.mutedStrong }]}>
+              {detailCopy.message} All optional — add the rest any time.
+            </ThemedText>
+          </View>
+        )}
 
         {detailCopy.providerLabel && (
           <>
@@ -521,15 +554,15 @@ export function AccountFormStepTwo({
                         { backgroundColor: theme.card },
                         { backgroundColor: theme.card },
                         { borderColor: isActive ? theme.selectedBorder : theme.border },
-                    isActive && { backgroundColor: theme.selectedFill },
+                        isActive && { backgroundColor: theme.selectedFill },
                       ]}>
-                      <MaterialCommunityIcons
-                        name={provider.icon}
-                        size={16}
-                        color={theme.text}
-                      />
+                      <MaterialCommunityIcons name={provider.icon} size={16} color={theme.text} />
                       <ThemedText
-                        style={[styles.providerChipText, { color: theme.text }, isActive && { fontWeight: '700' }]}>
+                        style={[
+                          styles.providerChipText,
+                          { color: theme.text },
+                          isActive && { fontWeight: '700' },
+                        ]}>
                         {provider.name}
                       </ThemedText>
                     </TouchableOpacity>
@@ -642,28 +675,34 @@ export function AccountFormStepTwo({
             </View>
           </>
         )}
-      </KeyboardAvoidingScreen>
+      </DetailsScroll>
 
-      <View style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
-        {saveError ? (
-          <View style={styles.errorContainer}>
-            <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
-            <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+      {embedded ? null : (
+        <View
+          style={[
+            styles.footer,
+            { backgroundColor: theme.background, borderTopColor: theme.border },
+          ]}>
+          {saveError ? (
+            <View style={styles.errorContainer}>
+              <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
+              <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+            </View>
+          ) : null}
+          <View style={styles.footerActions}>
+            <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
+              <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
+            </TouchableOpacity>
+            <PrimaryButton
+              label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+              icon={isSaving ? undefined : 'check'}
+              loading={isSaving}
+              onPress={handleSave}
+              style={styles.saveButton}
+            />
           </View>
-        ) : null}
-        <View style={styles.footerActions}>
-          <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
-            <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
-          </TouchableOpacity>
-          <PrimaryButton
-            label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
-            icon={isSaving ? undefined : 'check'}
-            loading={isSaving}
-            onPress={handleSave}
-            style={styles.saveButton}
-          />
         </View>
-      </View>
+      )}
     </>
   );
 }

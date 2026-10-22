@@ -3,7 +3,7 @@ import * as Haptics from 'expo-haptics';
 import React from 'react';
 
 import { TransactionItem } from '@/components/home/TransactionItem';
-import { MoneySegments } from '@/components/money/MoneySegments';
+import { Segments } from '@/components/ui/Segments';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 
 const performAndroid = Haptics.performAndroidHapticsAsync as jest.Mock;
@@ -45,7 +45,16 @@ describe('the control carries the feedback, not the screen', () => {
 
   it('answers a segment change', async () => {
     const onChange = jest.fn();
-    const screen = await render(<MoneySegments active="upcoming" onChange={onChange} />);
+    const screen = await render(
+      <Segments
+        active="upcoming"
+        options={[
+          { key: 'upcoming', label: 'Upcoming' },
+          { key: 'budgets', label: 'Budgets' },
+        ]}
+        onChange={onChange}
+      />
+    );
 
     await fireEvent.press(screen.getByLabelText('Budgets'));
 

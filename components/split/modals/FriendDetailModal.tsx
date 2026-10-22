@@ -27,6 +27,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { SplitFriend } from '@/lib/splits';
+import { remindFriend } from '@/lib/split-remind';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
 
@@ -197,7 +198,14 @@ export function FriendDetailModal({
               icon="history"
               onPress={() => setIsSettlementsOpen(true)}
             />
-            <DetailPill label="Remind..." icon="bell-ring-outline" />
+            {/* P25: Remind shares the amount on WhatsApp, SMS or anywhere. */}
+            {netBalance > 0 ? (
+              <DetailPill
+                label="Remind"
+                icon="bell-ring-outline"
+                onPress={() => void remindFriend(friend.name, netBalance)}
+              />
+            ) : null}
             <DetailPill label="Charts" icon="diamond-stone" />
             <DetailPill label="Convert" icon="diamond-stone" />
           </ScrollView>
