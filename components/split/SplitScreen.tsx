@@ -92,7 +92,7 @@ import {
   type SplitSlotPerson,
   type SplitWeights,
 } from '@/lib/split-preferences';
-import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSplitBill, createSplitFriend, createSplitGroup, createSplitGroupDirectInvite, createSplitGroupInviteLink, createSplitSettlement, decideSplitSettlement, deleteSplitBill, fetchPendingSplitSettlements, fetchSplitActivityPage, fetchSplitBalances, fetchSplitBills, fetchSplitFriends, fetchSplitGroups, fetchSplitGroupDirectInvites, leaveSplitGroup, mergeSplitFriend, revokeSplitGroupDirectInvite, splitScreenState, updateSplitBill, updateSplitFriend, setSplitGroupDefaultSplit, updateSplitGroup, type SettlementDirection, type SettlementPaymentMode, type SplitActivityItem, type SplitBalance, type SplitBill, type SplitFriend, type SplitGroup, type SplitGroupEntryDisposition, type SplitGroupDirectInvite, type SplitSettlement, type SplitGroupMemberInvite } from '@/lib/splits';
+import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSplitBill, createSplitFriend, createSplitGroup, createSplitGroupDirectInvite, createSplitGroupInviteLink, createSplitSettlement, decideSplitSettlement, deleteSplitBill, fetchPendingSplitSettlements, fetchSplitActivityPage, fetchSplitBalances, fetchSplitBills, fetchSplitFriends, fetchSplitGroups, fetchSplitGroupDirectInvites, leaveSplitGroup, mergeSplitFriend, newMemberPayload, revokeSplitGroupDirectInvite, splitScreenState, updateSplitBill, updateSplitFriend, setSplitGroupDefaultSplit, updateSplitGroup, type SettlementDirection, type SettlementPaymentMode, type SplitActivityItem, type SplitBalance, type SplitBill, type SplitFriend, type SplitGroup, type SplitGroupEntryDisposition, type SplitGroupDirectInvite, type SplitSettlement, type SplitGroupMemberInvite } from '@/lib/splits';
 import { TView } from '@/components/split/primitives/themed-interop';
 import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
@@ -106,6 +106,7 @@ import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import type { ActivityListItem, ActivityRowModel } from '@/lib/split-screen-model';
 import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
 import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
+import { remindFriend } from '@/lib/split-remind';
 import { SplitGroupInviteModal } from '@/components/split/SplitGroupInviteModal';
 import { SplitGroupsSection } from '@/components/split/SplitGroupsSection';
 import { SplitHeader } from '@/components/split/SplitHeader';
@@ -199,7 +200,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
-  const [activeSection, setActiveSection] = useState<ActiveSection>('groups');
+  const [activeSection, setActiveSection] = useState<ActiveSection>('balances');
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [balanceFilter, setBalanceFilter] = useState<BalanceFilter>('open');
@@ -306,6 +307,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     null
   );
   const [selectedGroupFriendIds, setSelectedGroupFriendIds] = useState<number[]>([]);
+  /** P28: names typed into a new group that are not friends yet. */
+  const [newGroupMemberNames, setNewGroupMemberNames] = useState<string[]>([]);
 
   const [billAmount, setBillAmount] = useState('');
   const [billInitialData, setBillInitialData] = useState<Partial<EntryForm>>({});
@@ -778,6 +781,17 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     balanceMatchesFilter(nonGroupSummary.netBalance) &&
     (!normalizedSearch || 'non-group expenses'.includes(normalizedSearch));
 
+  /** How many groups each friend shares with the user, for the People rows. */
+  const groupCountByFriendId = useMemo(() => {
+    const counts = new Map<number, number>();
+    groups.forEach((group) => {
+      (group.members ?? []).forEach((member) => {
+        if (member.friend_id) counts.set(member.friend_id, (counts.get(member.friend_id) ?? 0) + 1);
+      });
+    });
+    return counts;
+  }, [groups]);
+
   const visibleFriends = useMemo(
     () => filterVisibleFriends({ friends, balanceByFriendId, normalizedSearch, balanceFilter }),
     [balanceByFriendId, balanceFilter, friends, normalizedSearch]
@@ -822,6 +836,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setGroupBalanceAlertEnabled(false);
     setGroupBalanceAlertAmount('');
     setSelectedGroupFriendIds([]);
+    setNewGroupMemberNames([]);
   };
 
   const resetBillForm = () => {
@@ -920,7 +935,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         }
         setPendingFriendGroupId(null);
       } else {
-        setActiveSection('friends');
+        setActiveSection('balances');
         setBalanceFilter('all');
         setSearchQuery('');
       }
@@ -999,11 +1014,15 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         groupPhotoUri === null
           ? undefined
           : ((await resolveAttachmentForSave(token, groupPhotoUri || null)) ?? '');
+      // New names become friends first, so the group can hold them (P28).
+      const createdFriends = await Promise.all(
+        newGroupMemberNames.map((name) => createSplitFriend(token, newMemberPayload(name)))
+      );
       const payload = {
         name: groupName.trim(),
         kind: groupKind,
         ...(photoUrl === undefined ? {} : { photo_url: photoUrl }),
-        friend_ids: selectedGroupFriendIds,
+        friend_ids: [...selectedGroupFriendIds, ...createdFriends.map((friend) => friend.id)],
       };
       const savedGroup = editingGroupId
         ? await updateSplitGroup(token, editingGroupId, payload)
@@ -1018,7 +1037,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       }));
       haptics.saved();
       closeModal();
-      setActiveSection('groups');
+      setActiveSection('balances');
       await loadSplitData();
       setSelectedGroupDetailId(isEditingGroup ? null : savedGroup.id);
     } catch (saveError) {
@@ -1344,7 +1363,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   };
 
   const openContextCreate = () => {
-    if (activeSection === 'friends') {
+    if (activeSection === 'balances') {
       openModal('friend');
       return;
     }
@@ -2032,6 +2051,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       onArchive={() => handleArchiveFriend(friend)}
       onOpen={() => openFriendDetail(friend.id)}
       onLongPress={() => setSelectedFriendActions(friend)}
+      groupCount={groupCountByFriendId.get(friend.id) ?? 0}
+      onRemind={() =>
+        void remindFriend(friend.name, balanceByFriendId.get(friend.id)?.net_balance ?? 0)
+      }
+      onSettle={() => openSettlementForFriend(friend.id)}
     />
   );
 
@@ -2215,7 +2239,19 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                     />
                   </View>
 
-                  {activeSection === 'groups' && (
+                  {activeSection === 'balances' && (
+                    <SplitFriendsSection
+                      visibleFriends={visibleFriends}
+                      hasAnyFriends={friends.length > 0}
+                      normalizedSearch={normalizedSearch}
+                      renderFriendRow={renderFriendRow}
+                      onAddFriend={() => openModal('friend')}
+                      filterActive={balanceFilter !== 'open'}
+                      onOpenFilter={() => setFilterSheetVisible(true)}
+                      label="People"
+                    />
+                  )}
+                  {activeSection === 'balances' && (
                     <SplitGroupsSection
                       groups={visibleGroupSummaries}
                       showNonGroupSummary={showNonGroupSummary}
@@ -2233,17 +2269,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
                     />
                   )}
 
-                  {activeSection === 'friends' && (
-                    <SplitFriendsSection
-                      visibleFriends={visibleFriends}
-                      hasAnyFriends={friends.length > 0}
-                      normalizedSearch={normalizedSearch}
-                      renderFriendRow={renderFriendRow}
-                      onAddFriend={() => openModal('friend')}
-                      filterActive={balanceFilter !== 'open'}
-                      onOpenFilter={() => setFilterSheetVisible(true)}
-                    />
-                  )}
                 </>
               )}
             </>
@@ -2565,6 +2590,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onToggleBalanceAlert={() => setGroupBalanceAlertEnabled((current) => !current)}
           onChangeBalanceAlertAmount={setGroupBalanceAlertAmount}
           onToggleFriend={toggleGroupFriend}
+          newMemberNames={newGroupMemberNames}
+          onAddNewMember={(name) => setNewGroupMemberNames((current) => [...current, name])}
+          onRemoveNewMember={(name) =>
+            setNewGroupMemberNames((current) => current.filter((candidate) => candidate !== name))
+          }
           onClose={closeModal}
           onDone={() => void handleCreateGroup()}
         />

@@ -7,7 +7,7 @@ import { MemberToggleChip } from '@/components/split/primitives/SplitPrimitives'
 import { groupKindOptions } from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
-import { PrimaryButton } from '@/components/ui/Button';
+import { Button, PrimaryButton } from '@/components/ui/Button';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
@@ -42,6 +42,9 @@ export function CreateGroupModal({
   onToggleBalanceAlert,
   onChangeBalanceAlertAmount,
   onToggleFriend,
+  newMemberNames,
+  onAddNewMember,
+  onRemoveNewMember,
   onClose,
   onDone,
 }: {
@@ -69,22 +72,35 @@ export function CreateGroupModal({
   onToggleBalanceAlert: () => void;
   onChangeBalanceAlertAmount: (value: string) => void;
   onToggleFriend: (friendId: number) => void;
+  /** Names typed in that are not friends yet; saved as friends with the group. */
+  newMemberNames: string[];
+  onAddNewMember: (name: string) => void;
+  onRemoveNewMember: (name: string) => void;
   onClose: () => void;
   onDone: () => void;
 }) {
   const theme = useThemeTokens().colors;
-  // The board draws Members as a row; a sheet cannot open over this one, so
-  // the row opens the friend chips in place instead.
-  const [membersOpen, setMembersOpen] = useState(false);
-  const selectedNames = friends
-    .filter((friend) => selectedFriendIds.includes(friend.id))
-    .map((friend) => friend.name);
-  const membersSummary =
-    friends.length === 0
-      ? 'No friends yet · add friends first'
-      : selectedNames.length > 0
-        ? selectedNames.join(', ')
-        : 'Choose from your friends';
+  const [memberQuery, setMemberQuery] = useState('');
+  const selectedFriends = friends.filter((friend) => selectedFriendIds.includes(friend.id));
+  const query = memberQuery.trim().toLowerCase();
+  // Friends not in yet: the ones matching what is typed, or a few to start.
+  const suggestions = friends
+    .filter((friend) => !selectedFriendIds.includes(friend.id))
+    .filter((friend) => !query || friend.name.toLowerCase().includes(query))
+    .slice(0, 6);
+
+  const addMember = () => {
+    const name = memberQuery.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    const existing = friends.find((friend) => friend.name.trim().toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!selectedFriendIds.includes(existing.id)) onToggleFriend(existing.id);
+    } else if (!newMemberNames.some((candidate) => candidate.toLowerCase() === name.toLowerCase())) {
+      haptics.select();
+      onAddNewMember(name);
+    }
+    setMemberQuery('');
+  };
 
   return (
     <AnimatedBottomSheet
@@ -204,41 +220,83 @@ export function CreateGroupModal({
             })}
           </View>
 
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <PressableView
-              accessibilityRole="button"
-              accessibilityState={{ expanded: membersOpen, disabled: friends.length === 0 }}
-              accessibilityLabel={`Members, ${membersSummary}`}
-              disabled={friends.length === 0}
-              onPress={() => setMembersOpen((open) => !open)}
-              style={styles.row}
-              pressedStyle={styles.pressed}>
-              <ThemedText tone="muted" style={styles.rowLabel}>
-                Members
-              </ThemedText>
-              <ThemedText
-                numberOfLines={2}
-                style={[styles.rowValue, { color: friends.length === 0 ? theme.muted : theme.text }]}>
-                {membersSummary}
-              </ThemedText>
-              <MaterialCommunityIcons
-                name={membersOpen ? 'chevron-up' : 'chevron-right'}
-                size={20}
-                color={theme.muted}
+          {/* Members by name (P28, board R6-CreateGroup-Proposals): pick a
+              friend, or type a new name and Add — it becomes a friend too. */}
+          <View
+            testID="group-members"
+            style={[styles.card, styles.membersCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ThemedText tone="muted" style={styles.membersLabel}>
+              Members
+            </ThemedText>
+            <View style={styles.memberChips}>
+              <View style={[styles.youChip, { backgroundColor: theme.track }]}>
+                <ThemedText style={[styles.youLabel, { color: theme.text }]}>You</ThemedText>
+              </View>
+              {selectedFriends.map((friend) => (
+                <MemberToggleChip
+                  key={friend.id}
+                  friend={friend}
+                  selected
+                  onPress={() => onToggleFriend(friend.id)}
+                />
+              ))}
+              {newMemberNames.map((name) => (
+                <Pressable
+                  key={`new-${name}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${name}`}
+                  onPress={() => onRemoveNewMember(name)}
+                  style={[
+                    styles.newChip,
+                    { backgroundColor: theme.selectedFill, borderColor: theme.selectedBorder },
+                  ]}>
+                  <ThemedText style={[styles.newChipLabel, { color: theme.text }]}>{name}</ThemedText>
+                  <MaterialCommunityIcons name="close" size={14} color={theme.text} />
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.addRow}>
+              <TextInput
+                accessibilityLabel="Member name or phone"
+                value={memberQuery}
+                onChangeText={setMemberQuery}
+                onSubmitEditing={addMember}
+                returnKeyType="done"
+                placeholder="Name or phone"
+                placeholderTextColor={theme.muted}
+                style={[
+                  styles.addInput,
+                  { color: theme.text, borderColor: theme.border, backgroundColor: theme.card, fontFamily: Fonts.body },
+                ]}
               />
-            </PressableView>
-            {membersOpen && friends.length > 0 ? (
-              <View style={[styles.members, { borderTopColor: theme.border }]}>
-                {friends.map((friend) => (
+              <Button
+                testID="group-member-add"
+                label="Add"
+                icon="plus"
+                variant="outline"
+                height={44}
+                disabled={!memberQuery.trim()}
+                onPress={addMember}
+              />
+            </View>
+            {suggestions.length > 0 ? (
+              <View style={styles.memberChips}>
+                {suggestions.map((friend) => (
                   <MemberToggleChip
                     key={friend.id}
                     friend={friend}
-                    selected={selectedFriendIds.includes(friend.id)}
-                    onPress={() => onToggleFriend(friend.id)}
+                    selected={false}
+                    onPress={() => {
+                      onToggleFriend(friend.id);
+                      setMemberQuery('');
+                    }}
                   />
                 ))}
               </View>
             ) : null}
+            <ThemedText tone="muted" style={styles.membersHint}>
+              New names are saved as friends too.
+            </ThemedText>
           </View>
 
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -291,6 +349,62 @@ export function CreateGroupModal({
 }
 
 const styles = StyleSheet.create({
+  membersCard: {
+    gap: 10,
+    padding: 14,
+  },
+  membersLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  memberChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  youChip: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderRadius: 18,
+  },
+  youLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  newChip: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  newChipLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  addRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  addInput: {
+    flex: 1,
+    minWidth: 0,
+    height: 44,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+    fontSize: 15,
+  },
+  membersHint: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
   sheet: {
     flexShrink: 1,
     overflow: 'hidden',

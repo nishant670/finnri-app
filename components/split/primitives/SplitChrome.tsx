@@ -12,7 +12,8 @@ import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 
-export type ActiveSection = 'groups' | 'friends' | 'activity';
+/** P23: one Balances list, people first and groups under them, then Activity. */
+export type ActiveSection = 'balances' | 'activity';
 
 export function SplitScreenFrame({
   embedded,
@@ -87,8 +88,7 @@ export function SegmentedSections({
     <Segments
       active={activeSection}
       options={[
-        { key: 'groups', label: 'Groups', testID: 'split-section-groups' },
-        { key: 'friends', label: 'Friends', testID: 'split-section-friends' },
+        { key: 'balances', label: 'Balances', testID: 'split-section-balances' },
         { key: 'activity', label: 'Activity', badge: activityBadge, testID: 'split-section-activity' },
       ]}
       onChange={onChange}

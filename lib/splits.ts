@@ -517,6 +517,15 @@ export const fetchSplitFriends = async (token: string): Promise<SplitFriend[]> =
   return payload as SplitFriend[];
 };
 
+/**
+ * A friend made from what was typed into a new group's members (P28). A
+ * phone number is kept as the phone too, so an invite can reach it later.
+ */
+export const newMemberPayload = (typed: string): SplitFriendPayload => {
+  const name = typed.trim().replace(/\s+/g, ' ');
+  return /^\+?\d[\d\s-]{6,}$/.test(name) ? { name, phone: name.replace(/[\s-]/g, '') } : { name };
+};
+
 export const createSplitFriend = async (
   token: string,
   payload: SplitFriendPayload

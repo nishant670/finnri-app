@@ -20,6 +20,8 @@ type SplitFriendsSectionProps = {
   /** A balance filter other than the default "open" is set. */
   filterActive: boolean;
   onOpenFilter: () => void;
+  /** The heading's word: "People" on Balances (P23). */
+  label?: string;
 };
 
 /** Friends: "Friends · N" over one card of rows, as Groups is laid out. */
@@ -31,13 +33,17 @@ export function SplitFriendsSection({
   onAddFriend,
   filterActive,
   onOpenFilter,
+  label = 'Friends',
 }: SplitFriendsSectionProps) {
   const hasRows = visibleFriends.length > 0;
+  // On Balances, friends who are all settled simply leave People empty; the
+  // groups below are the rest of the list (P23). A search still says so.
+  if (label === 'People' && hasAnyFriends && !hasRows && !normalizedSearch) return null;
   return (
     <View>
       {hasRows || hasAnyFriends ? (
         <GroupHeader
-          label={hasRows ? `Friends · ${visibleFriends.length}` : 'Friends'}
+          label={hasRows ? `${label} · ${visibleFriends.length}` : label}
           accessory={<BalanceFilterButton active={filterActive} onPress={onOpenFilter} />}
         />
       ) : null}
