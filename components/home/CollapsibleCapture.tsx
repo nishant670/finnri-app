@@ -70,6 +70,11 @@ type CollapsibleCaptureProps = {
   onExpand: () => void;
   /** Start or stop recording straight from the pill. */
   onMicPress: () => void;
+  /**
+   * Open manual entry from the pill (P11). The floating + is gone, so the bar
+   * that stays on screen while scrolling carries both ways in.
+   */
+  onAddPress?: () => void;
   isRecording: boolean;
   /**
    * Held open regardless of scroll — while recording, or with a draft or a
@@ -87,6 +92,7 @@ export function CollapsibleCapture({
   children,
   onExpand,
   onMicPress,
+  onAddPress,
   isRecording,
   locked = false,
   onExpandedHeightChange,
@@ -183,6 +189,16 @@ export function CollapsibleCapture({
           <ThemedText tone="muted" numberOfLines={1} style={styles.pillLabel}>
             {isRecording ? 'Listening…' : 'Log an expense'}
           </ThemedText>
+          {onAddPress && !isRecording ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Add manually"
+              onPress={onAddPress}
+              hitSlop={4}
+              style={[styles.pillAdd, { backgroundColor: theme.card, borderColor: theme.borderStrong }]}>
+              <MaterialCommunityIcons name="plus" size={22} color={theme.text} />
+            </Pressable>
+          ) : null}
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={isRecording ? 'Stop recording' : 'Start recording'}
@@ -201,7 +217,10 @@ export function CollapsibleCapture({
   );
 }
 
-/** Board R3-Home: a 56dp bar on the card, the mic a 44dp accent circle at its end. */
+/**
+ * Board R3-Home-Proposals: a 56dp bar on the card, an outlined 44dp + and the
+ * mic as a 44dp accent circle at its end.
+ */
 const styles = StyleSheet.create({
   pill: {
     height: '100%',
@@ -218,6 +237,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
     fontSize: 15,
     lineHeight: 20,
+  },
+  pillAdd: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   pillMic: {
     width: 44,

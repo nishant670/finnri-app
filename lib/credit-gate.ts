@@ -54,8 +54,8 @@ export const creditGateFor = (
   // morning is the wrong advice, and they can still add the expense by hand.
   if (dailyCapReached && !balanceGone) {
     return {
-      title: "Today's AI credits are used up",
-      message: `You have used all ${dailyLimit} AI credits for today. Add the expense manually, or come back tomorrow.`,
+      title: 'No AI credits left today',
+      message: 'Voice and typed notes come back tomorrow. Adding manually is always free.',
       actionLabel: options.isGuest ? 'Sign in for more credits' : 'View plans',
       action: options.isGuest ? 'login' : 'upgrade',
       reason: 'daily_limit',

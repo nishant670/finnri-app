@@ -125,6 +125,39 @@ type VoiceInputCardProps = {
    * the title on a narrow phone.
    */
   onScanBill?: () => void;
+  /**
+   * Manual entry, as the capture card's last footer action (P2). It is free,
+   * so it is also what the card offers once AI credits run out.
+   */
+  onAddManually?: () => void;
+  /**
+   * AI capture can't be paid for (P1). The card says so itself instead of a
+   * separate block below it: the mic greys out, manual entry becomes the
+   * card's one accent action, and the way to more credits sits at its foot.
+   */
+  creditBlock?: CaptureCreditBlock | null;
+  /**
+   * A quiet status strip at the card's foot while credits are running low,
+   * such as "8 AI credits left today · View plans" (P1).
+   */
+  creditNote?: CaptureCreditNote | null;
+};
+
+export type CaptureCreditBlock = {
+  title: string;
+  message: string;
+  /** "950 total credits left", or null when there is nothing to report. */
+  footnote?: string | null;
+  actionLabel: string;
+  onAction: () => void;
+  /** A refused capture can be put away; a balance that is gone cannot. */
+  onDismiss?: () => void;
+};
+
+export type CaptureCreditNote = {
+  text: string;
+  actionLabel: string;
+  onAction: () => void;
 };
 
 export function VoiceInputCard({
@@ -143,6 +176,9 @@ export function VoiceInputCard({
   isTextInputVisible = false,
   onToggleTextInput,
   onScanBill,
+  onAddManually,
+  creditBlock,
+  creditNote,
 }: VoiceInputCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
@@ -286,6 +322,70 @@ export function VoiceInputCard({
   const busy = isProcessing || isRecording;
 
   const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
+
+  const creditLink = (text: string | null | undefined, actionLabel: string, onAction: () => void) => (
+    <PressableView
+      accessibilityRole="button"
+      accessibilityLabel={text ? `${text}. ${actionLabel}` : actionLabel}
+      onPress={onAction}
+      style={[styles.creditLink, { borderTopColor: colors.border }]}
+      pressedStyle={styles.pressed}>
+      <ThemedText tone="muted" numberOfLines={1} style={[styles.caption, styles.creditLinkText]}>
+        {text ?? ''}
+      </ThemedText>
+      <View style={styles.creditLinkAction}>
+        <ThemedText style={[styles.creditLinkLabel, { color: colors.text }]}>{actionLabel}</ThemedText>
+        <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
+      </View>
+    </PressableView>
+  );
+
+  // Out of AI credits (P1, board R1-Home-UsedUp-Proposals). Not shown over a
+  // recording or a parse already under way: those finish first.
+  if (creditBlock && !isRecording && !isProcessing && !hasRecording) {
+    return (
+      <View style={cardStyle} accessibilityRole="alert">
+        <View style={styles.hero}>
+          <View style={[styles.micFrame, { backgroundColor: mixHex(colors.card, colors.track, 0.5) }]}>
+            <View
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Voice capture paused"
+              accessibilityState={{ disabled: true }}
+              style={[styles.mic, { backgroundColor: colors.track }]}>
+              <MaterialCommunityIcons
+                name="microphone-off"
+                size={28}
+                color={withAlpha(colors.text, 0.5)}
+              />
+            </View>
+          </View>
+          <View style={styles.heroText}>
+            <ThemedText style={[styles.title, { color: colors.text }]}>{creditBlock.title}</ThemedText>
+            <ThemedText tone="muted" style={styles.body}>
+              {creditBlock.message}
+            </ThemedText>
+          </View>
+          {creditBlock.onDismiss ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              onPress={creditBlock.onDismiss}
+              hitSlop={8}
+              style={[styles.iconButton, styles.dismiss]}>
+              <MaterialCommunityIcons name="close" size={20} color={colors.muted} />
+            </Pressable>
+          ) : null}
+        </View>
+        {onAddManually ? (
+          <View style={styles.blockedAction}>
+            <Button label="Add manually" icon="plus" height={48} onPress={onAddManually} />
+          </View>
+        ) : null}
+        {creditLink(creditBlock.footnote, creditBlock.actionLabel, creditBlock.onAction)}
+      </View>
+    );
+  }
 
   // A finished clip, waiting to be used or dropped.
   if (hasRecording && !isRecording) {
@@ -485,10 +585,15 @@ export function VoiceInputCard({
             accessibilityRole="button"
             onPress={onToggleTextInput}
             disabled={busy}
-            style={[styles.footerAction, styles.footerActionFirst, busy && styles.inactive]}
+            style={[styles.footerAction, busy && styles.inactive]}
             pressedStyle={styles.pressed}>
-            <MaterialCommunityIcons name="pencil-outline" size={20} color={colors.text} />
-            <ThemedText style={[styles.footerLabel, { color: colors.text }]}>Type instead</ThemedText>
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={colors.muted} />
+            <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[styles.footerLabel, { color: colors.text }]}>
+              Type instead
+            </ThemedText>
           </PressableView>
           {onScanBill ? (
             <>
@@ -501,15 +606,41 @@ export function VoiceInputCard({
                 disabled={busy}
                 style={[styles.footerAction, busy && styles.inactive]}
                 pressedStyle={styles.pressed}>
-                <MaterialCommunityIcons name="camera-outline" size={20} color={colors.text} />
-                <ThemedText style={[styles.footerLabel, { color: colors.text }]}>
+                <MaterialCommunityIcons name="camera-outline" size={18} color={colors.muted} />
+                <ThemedText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.footerLabel, { color: colors.text }]}>
                   Scan a bill
+                </ThemedText>
+              </PressableView>
+            </>
+          ) : null}
+          {onAddManually ? (
+            <>
+              <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+              <PressableView
+                testID="add-manually-home"
+                accessibilityRole="button"
+                onPress={onAddManually}
+                disabled={busy}
+                style={[styles.footerAction, busy && styles.inactive]}
+                pressedStyle={styles.pressed}>
+                <MaterialCommunityIcons name="plus" size={18} color={colors.muted} />
+                <ThemedText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.footerLabel, { color: colors.text }]}>
+                  Add manually
                 </ThemedText>
               </PressableView>
             </>
           ) : null}
         </View>
       )}
+      {creditNote && !shouldShowTextInput
+        ? creditLink(creditNote.text, creditNote.actionLabel, creditNote.onAction)
+        : null}
     </View>
   );
 }
@@ -588,25 +719,58 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderTopWidth: 1,
   },
+  // Equal shares, so two or three ways in sit evenly across the card
+  // (board R1-Home-Empty-Proposals).
   footerAction: {
+    flex: 1,
+    minWidth: 0,
     height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-  },
-  footerActionFirst: {
-    flex: 1,
-    paddingLeft: 22,
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
   },
   footerDivider: {
     width: 1,
     height: 24,
   },
   footerLabel: {
+    flexShrink: 1,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  dismiss: {
+    alignSelf: 'flex-start',
+  },
+  blockedAction: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  creditLink: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingLeft: 22,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  creditLinkText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  creditLinkAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  creditLinkLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   footerActions: {
     flexDirection: 'row',

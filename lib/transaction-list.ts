@@ -97,3 +97,26 @@ export const buildTransactionListItems = (
   });
   return items;
 };
+
+/**
+ * Each day's net total across everything loaded (P13: Home's Recent activity
+ * shows it, like the full list). Home only draws its newest five rows, but a
+ * day's total is the whole day's, so it is summed over the loaded set. The
+ * oldest day loaded may carry on past it while more remain on the server, so
+ * that one is left out (null) rather than shown short.
+ */
+export const dayTotalsByTitle = (
+  transactions: Transaction[],
+  { hasMore }: { hasMore: boolean }
+): Map<string, number | null> => {
+  const sections = groupTransactionsBySection(transactions);
+  const totals = new Map<string, number | null>();
+  sections.forEach((section, index) => {
+    const mayContinue = hasMore && index === sections.length - 1;
+    totals.set(
+      section.title,
+      mayContinue ? null : section.data.reduce((sum, transaction) => sum + transaction.amount, 0)
+    );
+  });
+  return totals;
+};
