@@ -3,7 +3,7 @@ import { useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { cardVisual, recurringVisuals, refundVisual } from '@/components/money/money-visuals';
-import type { MoneySegment } from '@/components/money/MoneySegments';
+import { useDueActions } from '@/components/money/useDueActions';
 import { ThemedText } from '@/components/themed-text';
 import { ListRow, type ListRowTone } from '@/components/ui/ListRow';
 import { StateView } from '@/components/ui/StateView';
@@ -13,6 +13,7 @@ import { kindOf } from '@/lib/recurring';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { fetchAccounts, type Account } from '@/lib/accounts';
 import { formatMoney } from '@/lib/money';
+import { dueAction } from '@/lib/money-overview';
 import { fetchSubscriptions, type Subscription } from '@/lib/subscriptions';
 import { fetchRefundables, type RefundableEntry } from '@/lib/refundables';
 import {
@@ -25,9 +26,19 @@ import {
 const HORIZON_DAYS = 30;
 
 type UpcomingPanelProps = {
-  onSelectSegment: (segment: MoneySegment) => void;
+  /** Where a recurring payment's row, and the empty state's Add, lead. */
+  onOpenRecurring: () => void;
   prefetchedAccounts?: Account[];
   prefetchedSubscriptions?: Subscription[];
+  /**
+   * False when the list sits at the top of Bills & dues (P18), inside the
+   * Recurring list's own scroll; it then draws nothing when nothing is due.
+   */
+  scroll?: boolean;
+  /** Bumped by the parent after it changes a recurring payment, to reload. */
+  reloadKey?: number;
+  /** Told after a due is marked paid or received here. */
+  onChanged?: () => void;
 };
 
 /**
@@ -39,9 +50,12 @@ type UpcomingPanelProps = {
  * takes `today` as an argument, which is why it can be tested.
  */
 export function UpcomingPanel({
-  onSelectSegment,
+  onOpenRecurring,
   prefetchedAccounts,
   prefetchedSubscriptions,
+  scroll = true,
+  reloadKey = 0,
+  onChanged,
 }: UpcomingPanelProps) {
   const router = useRouter();
   const colors = useThemeTokens().colors;
@@ -94,8 +108,20 @@ export function UpcomingPanel({
         return;
       }
       void load();
-    }, [load, prefetchedAccounts, prefetchedSubscriptions, token])
+      // `reloadKey` is read so a change made beside this list refreshes it.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [load, prefetchedAccounts, prefetchedSubscriptions, token, reloadKey])
   );
+
+  const { accessoryFor, sheet } = useDueActions({
+    token,
+    accounts,
+    subscriptions,
+    onChanged: () => {
+      void load();
+      onChanged?.();
+    },
+  });
 
   const dues = useMemo(
     () => buildUpcomingDues({ subscriptions, accounts, refundables, horizonDays: HORIZON_DAYS }),
@@ -118,7 +144,7 @@ export function UpcomingPanel({
       router.push({ pathname: '/entry/[id]', params: { id: String(due.sourceID) } });
       return;
     }
-    onSelectSegment('subscriptions');
+    onOpenRecurring();
   };
 
   const visualFor = (due: UpcomingDue) => {
@@ -137,6 +163,29 @@ export function UpcomingPanel({
       {group.map((due, index) => {
         const visual = visualFor(due);
         const isRefund = due.kind === 'refund';
+        const amount =
+          due.amount === null
+            ? '—'
+            : isRefund
+              ? formatMoney(due.amount, { sign: 'always' })
+              : formatMoney(due.amount);
+        // P20: a due that can be finished here says so on its row.
+        if (dueAction(due)) {
+          const status = isRefund ? `Expected back · ${formatDueLabel(due)}` : formatDueLabel(due);
+          return (
+            <ListRow
+              key={due.key}
+              icon={visual.icon}
+              hue={visual.hue}
+              title={`${due.title} · ${amount}`}
+              meta={status}
+              divider={index > 0}
+              accessibilityLabel={`${due.title}, ${amount}, ${status}`}
+              onPress={() => openDue(due)}
+              accessory={<View style={styles.accessory}>{accessoryFor(due)}</View>}
+            />
+          );
+        }
         return (
           <ListRow
             key={due.key}
@@ -168,72 +217,104 @@ export function UpcomingPanel({
     refundCount > 0 ? `${refundCount} refund${refundCount === 1 ? '' : 's'} expected` : null,
   ].filter(Boolean);
 
-  return (
-    <ScrollView
-      ref={scrollRef}
-      showsVerticalScrollIndicator={false}
-      style={{ flex: 1, backgroundColor: colors.background }}
-      contentContainerStyle={styles.content}>
-      {!loading && dues.length === 0 ? (
-        <View style={styles.empty}>
-          <StateView
-            icon="calendar-check"
-            title="Nothing due yet"
-            message="Renewals, credit card due dates, and money expected back land here once Finnri knows about them."
-            actionLabel="Add a subscription"
-            onAction={() => onSelectSegment('subscriptions')}
-          />
-        </View>
-      ) : (
-        <>
-          {/* Board R5-Upcoming: what is due, as one figure, before the list of it. */}
-          <View style={[styles.summary, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <ThemedText tone="muted" style={styles.eyebrow}>
-              {`Due in the next ${HORIZON_DAYS} days`}
-            </ThemedText>
-            <ThemedText style={[styles.total, { color: colors.text }]}>
-              {loading ? '…' : formatMoney(total)}
-            </ThemedText>
-            <ThemedText tone="muted" style={styles.caption}>
-              {loading ? (
-                'Checking renewals and card due dates'
-              ) : summaryLine.length > 0 ? (
-                <>
-                  {overdueTotal > 0 ? 'Includes ' : ''}
-                  {overdueTotal > 0 ? (
-                    <ThemedText style={[styles.caption, styles.strong, { color: colors.negative }]}>
-                      {`${formatMoney(overdueTotal)} overdue`}
-                    </ThemedText>
-                  ) : null}
-                  {overdueTotal > 0 && refundCount > 0 ? ' · ' : ''}
-                  {refundCount > 0
-                    ? `${refundCount} refund${refundCount === 1 ? '' : 's'} expected`
-                    : ''}
-                </>
-              ) : (
-                'Nothing overdue'
-              )}
-            </ThemedText>
-          </View>
+  if (!scroll) {
+    if (!loading && dues.length === 0) return null;
+    return (
+      <View style={styles.embedded}>
+        {overdue.length > 0 ? (
+          <>
+            <GroupHeader label="Overdue" tone="negative" />
+            {renderGroup(overdue)}
+          </>
+        ) : null}
+        {upcoming.length > 0 ? (
+          <>
+            <GroupHeader
+              label={`Due in the next ${HORIZON_DAYS} days`}
+              total={upcomingTotal > 0 ? formatMoney(upcomingTotal) : undefined}
+            />
+            {renderGroup(upcoming)}
+          </>
+        ) : null}
+        {sheet}
+      </View>
+    );
+  }
 
-          {overdue.length > 0 ? (
-            <>
-              <GroupHeader label="Overdue" tone="negative" />
-              {renderGroup(overdue)}
-            </>
-          ) : null}
-          {upcoming.length > 0 ? (
-            <>
-              <GroupHeader
-                label={`Next ${HORIZON_DAYS} days`}
-                total={upcomingTotal > 0 ? formatMoney(upcomingTotal) : undefined}
-              />
-              {renderGroup(upcoming)}
-            </>
-          ) : null}
-        </>
-      )}
-    </ScrollView>
+  return (
+    <>
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        style={{ flex: 1, backgroundColor: colors.background }}
+        contentContainerStyle={styles.content}>
+        {!loading && dues.length === 0 ? (
+          <View style={styles.empty}>
+            <StateView
+              icon="calendar-check"
+              title="Nothing due yet"
+              message="Renewals, credit card due dates, and money expected back land here once Finnri knows about them."
+              actionLabel="Add a subscription"
+              onAction={onOpenRecurring}
+            />
+          </View>
+        ) : (
+          <>
+            {/* Board R5-Upcoming: what is due, as one figure, before the list of it. */}
+            <View
+              style={[
+                styles.summary,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}>
+              <ThemedText tone="muted" style={styles.eyebrow}>
+                {`Due in the next ${HORIZON_DAYS} days`}
+              </ThemedText>
+              <ThemedText style={[styles.total, { color: colors.text }]}>
+                {loading ? '…' : formatMoney(total)}
+              </ThemedText>
+              <ThemedText tone="muted" style={styles.caption}>
+                {loading ? (
+                  'Checking renewals and card due dates'
+                ) : summaryLine.length > 0 ? (
+                  <>
+                    {overdueTotal > 0 ? 'Includes ' : ''}
+                    {overdueTotal > 0 ? (
+                      <ThemedText
+                        style={[styles.caption, styles.strong, { color: colors.negative }]}>
+                        {`${formatMoney(overdueTotal)} overdue`}
+                      </ThemedText>
+                    ) : null}
+                    {overdueTotal > 0 && refundCount > 0 ? ' · ' : ''}
+                    {refundCount > 0
+                      ? `${refundCount} refund${refundCount === 1 ? '' : 's'} expected`
+                      : ''}
+                  </>
+                ) : (
+                  'Nothing overdue'
+                )}
+              </ThemedText>
+            </View>
+
+            {overdue.length > 0 ? (
+              <>
+                <GroupHeader label="Overdue" tone="negative" />
+                {renderGroup(overdue)}
+              </>
+            ) : null}
+            {upcoming.length > 0 ? (
+              <>
+                <GroupHeader
+                  label={`Next ${HORIZON_DAYS} days`}
+                  total={upcomingTotal > 0 ? formatMoney(upcomingTotal) : undefined}
+                />
+                {renderGroup(upcoming)}
+              </>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+      {sheet}
+    </>
   );
 }
 
@@ -271,6 +352,12 @@ const styles = StyleSheet.create({
   },
   strong: {
     fontWeight: '600',
+  },
+  embedded: {
+    paddingBottom: 8,
+  },
+  accessory: {
+    paddingRight: 10,
   },
   card: {
     marginHorizontal: SCREEN_GUTTER,

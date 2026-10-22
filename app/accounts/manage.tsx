@@ -1,8 +1,14 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+
+import { ThemedText } from '@/components/themed-text';
+import { PrimaryButton } from '@/components/ui/Button';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { SkeletonFrame } from '@/components/ui/Skeleton';
 import { useAuthStore } from '@/hooks/use-auth-store';
@@ -21,7 +27,7 @@ import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
 
 import { styles } from '@/components/accounts/account-form-styles';
-import { AccountFormStepOne } from '@/components/accounts/AccountFormStepOne';
+import { AccountFormStepOne, AccountStyleFold } from '@/components/accounts/AccountFormStepOne';
 import { AccountFormStepTwo } from '@/components/accounts/AccountFormStepTwo';
 import { AccountFormSuccess } from '@/components/accounts/AccountFormSuccess';
 import {
@@ -39,7 +45,6 @@ export default function ManageAccountScreen() {
   const {
     id,
     type,
-    focus,
     name: suggestedName,
     provider,
     identifier,
@@ -47,7 +52,6 @@ export default function ManageAccountScreen() {
   } = useLocalSearchParams<{
     id?: string;
     type?: string;
-    focus?: string;
     name?: string;
     provider?: string;
     identifier?: string;
@@ -144,9 +148,6 @@ export default function ManageAccountScreen() {
         setAnnualFee(account.annual_fee ? String(account.annual_fee) : '');
         setFeeWaiverSpend(account.fee_waiver_spend ? String(account.fee_waiver_spend) : '');
         setIsDefault(Boolean(account.is_default));
-        if (focus === 'details') {
-          setStep(2);
-        }
       })
       .catch((error) => {
         setSaveError(getFriendlyErrorMessage(error, "Couldn't load this account."));
@@ -158,7 +159,7 @@ export default function ManageAccountScreen() {
     return () => {
       active = false;
     };
-  }, [accountId, focus, isEditing, token]);
+  }, [accountId, isEditing, token]);
 
   useEffect(() => {
     if (!token) {
@@ -301,7 +302,6 @@ export default function ManageAccountScreen() {
     } catch (err: unknown) {
       haptics.rejected();
       if (err instanceof AccountApiError && err.fields?.type) {
-        setStep(1);
         setTypeError('Pick an account type, then try again.');
       }
       setSaveError(
@@ -368,44 +368,9 @@ export default function ManageAccountScreen() {
     setLast4(value.slice(0, 40));
   };
 
-  return (
-    <SafeAreaView
-      style={[styles.safeArea, { backgroundColor: theme.background }]}
-      edges={['top', 'bottom']}>
-      <View style={styles.container}>
-        {isLoadingAccount ? (
-          <SkeletonFrame
-            label="Loading account"
-            testID="account-form-skeleton"
-            style={{ paddingHorizontal: 24, paddingTop: 24, gap: 20 }}>
-            <Shimmer width="56%" height={26} radius={10} index={0} />
-            {[0, 1, 2, 3].map((field) => (
-              <View key={field} style={{ gap: 10 }}>
-                <Shimmer width="34%" height={10} index={field * 2 + 1} />
-                <Shimmer height={54} radius={18} index={field * 2 + 2} />
-              </View>
-            ))}
-          </SkeletonFrame>
-        ) : step === 1 ? (
-          <AccountFormStepOne
-            isDefault={isDefault}
-            isEditing={isEditing}
-            isSaving={isSaving}
-            name={name}
-            saveError={saveError}
-            selectedColor={selectedColor}
-            selectedType={selectedType}
-            setIsDefault={setIsDefault}
-            setName={setName}
-            setSelectedColor={setSelectedColor}
-            setShowStyleOptions={setShowStyleOptions}
-            setStep={setStep}
-            showStyleOptions={showStyleOptions}
-            typeError={typeError}
-            updateSelectedType={updateSelectedType}
-          />
-        ) : step === 2 ? (
+  const stepTwo = (embedded: boolean) => (
           <AccountFormStepTwo
+            embedded={embedded}
             annualFee={annualFee}
             balance={balance}
             creditLimit={creditLimit}
@@ -449,6 +414,84 @@ export default function ManageAccountScreen() {
             showReminderOptions={showReminderOptions}
             updateIdentifier={updateIdentifier}
           />
+  );
+
+  return (
+    <SafeAreaView
+      style={[styles.safeArea, { backgroundColor: theme.background }]}
+      edges={['top', 'bottom']}>
+      <View style={styles.container}>
+        {isLoadingAccount ? (
+          <SkeletonFrame
+            label="Loading account"
+            testID="account-form-skeleton"
+            style={{ paddingHorizontal: 24, paddingTop: 24, gap: 20 }}>
+            <Shimmer width="56%" height={26} radius={10} index={0} />
+            {[0, 1, 2, 3].map((field) => (
+              <View key={field} style={{ gap: 10 }}>
+                <Shimmer width="34%" height={10} index={field * 2 + 1} />
+                <Shimmer height={54} radius={18} index={field * 2 + 2} />
+              </View>
+            ))}
+          </SkeletonFrame>
+        ) : step !== 3 ? (
+          <>
+            {/* One sheet for a new account (P21, board R5-Account-Proposals):
+                the type, the name, what that type needs, then colour and
+                default folded away — and one Save. */}
+            <View style={sheetStyles.header}>
+              <ThemedText accessibilityRole="header" style={[sheetStyles.title, { color: theme.text }]}>
+                {isEditing ? 'Edit account' : 'Add an account'}
+              </ThemedText>
+              <SheetCloseButton onPress={() => router.back()} />
+            </View>
+            <KeyboardAvoidingScreen
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}>
+              <AccountFormStepOne
+                embedded
+                isDefault={isDefault}
+                isEditing={isEditing}
+                isSaving={isSaving}
+                name={name}
+                saveError={saveError}
+                selectedColor={selectedColor}
+                selectedType={selectedType}
+                setIsDefault={setIsDefault}
+                setName={setName}
+                setSelectedColor={setSelectedColor}
+                setShowStyleOptions={setShowStyleOptions}
+                setStep={setStep}
+                showStyleOptions={showStyleOptions}
+                typeError={typeError}
+                updateSelectedType={updateSelectedType}
+              />
+              {stepTwo(true)}
+              <AccountStyleFold
+                isDefault={isDefault}
+                selectedColor={selectedColor}
+                setIsDefault={setIsDefault}
+                setSelectedColor={setSelectedColor}
+                open={showStyleOptions}
+                setOpen={setShowStyleOptions}
+              />
+            </KeyboardAvoidingScreen>
+            <View
+              style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+              {saveError ? (
+                <View style={styles.errorContainer}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.negative} />
+                  <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+                </View>
+              ) : null}
+              <PrimaryButton
+                testID="account-save"
+                label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+                loading={isSaving}
+                onPress={handleSave}
+              />
+            </View>
+          </>
         ) : (
           <AccountFormSuccess
             createdAccount={createdAccount}
@@ -464,3 +507,19 @@ export default function ManageAccountScreen() {
     </SafeAreaView>
   );
 }
+
+const sheetStyles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 8,
+  },
+  title: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+  },
+});
