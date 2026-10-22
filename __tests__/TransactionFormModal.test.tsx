@@ -161,7 +161,8 @@ describe('TransactionFormModal', () => {
       },
     });
 
-    expect(await findByText('HDFC UPI')).toBeTruthy();
+    // One "Paid with" row carries the method and the account (P6).
+    expect(await findByText('UPI · HDFC UPI')).toBeTruthy();
   });
 
   it('keeps an account-less entry saveable when no compatible account exists', async () => {
@@ -245,7 +246,7 @@ describe('TransactionFormModal', () => {
         initialData: metroPrompt,
       });
 
-      expect(await findByText('Paytm Wallet')).toBeTruthy();
+      expect(await findByText('Wallets · Paytm Wallet')).toBeTruthy();
 
       await fireEvent.press(await findByTestId('entry-account-picker'));
       const amazonRows = await findAllByText('Amazon Pay');
@@ -266,7 +267,7 @@ describe('TransactionFormModal', () => {
         initialData: { ...metroPrompt, accountId: 8, account: 'Amazon Pay' },
       });
 
-      expect(await findByText('Amazon Pay')).toBeTruthy();
+      expect(await findByText('Wallets · Amazon Pay')).toBeTruthy();
     });
   });
 

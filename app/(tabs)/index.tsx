@@ -379,6 +379,8 @@ export default function HomeScreen() {
     import('@/components/home/QuickPrompts').QuickPrompt | null
   >(null);
   const [modalMode, setModalMode] = useState<'audio' | 'manual' | 'quick-prompt'>('manual');
+  /** The sheet holds a blank entry, which starts on the last method used (P9). */
+  const [isBlankEntry, setIsBlankEntry] = useState(false);
   const dailyCreditLimit = billingStatus?.credits.daily_limit ?? 0;
   const dailyCreditsRemaining = billingStatus?.credits.daily_credits_remaining ?? 0;
   const shouldShowLowCreditNotice =
@@ -919,6 +921,7 @@ export default function HomeScreen() {
     createSaveProgress.current = {};
     setForm(createBlankForm());
     setModalMode('manual');
+    setIsBlankEntry(true);
     setIsEditOpen(true);
   }, [createBlankForm]);
 
@@ -1199,6 +1202,7 @@ export default function HomeScreen() {
       setAiSourceText('');
       setAiInputSource('text');
       setAiReview({ inputSource: 'receipt' });
+      setIsBlankEntry(false);
       setModalMode('audio');
       setIsParsing(true);
       setIsEditOpen(true);
@@ -1678,6 +1682,7 @@ export default function HomeScreen() {
         visible={isEditOpen}
         onClose={() => {
           setIsEditOpen(false);
+          setIsBlankEntry(false);
           receiptScanId.current += 1;
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
@@ -1690,6 +1695,7 @@ export default function HomeScreen() {
         initialData={form}
         onSave={handleConfirmEntry}
         mode={modalMode}
+        startOnLastPayment={isBlankEntry && modalMode === 'manual'}
         onRequestReceiptScan={openReceiptScan}
         isParsing={isParsing}
         aiReview={aiReview}

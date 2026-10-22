@@ -824,6 +824,7 @@ export default function TransactionsScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
+        startOnLastPayment
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}

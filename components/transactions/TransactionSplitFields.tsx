@@ -8,7 +8,8 @@ import { Segments } from '@/components/ui/Segments';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
-import { roundToPaise, toAmountInputValue } from '@/lib/money';
+import { formatMoney, roundToPaise, toAmountInputValue } from '@/lib/money';
+import { withAlpha } from '@/constants/theme';
 import {
   buildEqualParticipantsForGroup,
   buildParticipantsForGroup,
@@ -17,7 +18,27 @@ import {
 import type { SplitFriend, SplitGroup } from '@/lib/splits';
 import type { EntryForm, SplitParticipantForm } from './TransactionFormModal';
 
-export type TransactionSplitShareMode = 'amount' | 'percentage';
+/**
+ * How shares are entered (P8): `equal` keeps everyone on the same share and
+ * needs no typing, `amount` and `percentage` take each friend's share.
+ */
+export type TransactionSplitShareMode = 'equal' | 'amount' | 'percentage';
+
+/**
+ * What the split adds up to (P7): the payer keeps whatever the friends' shares
+ * leave, so "your share" is the remainder and only an over-assigned split has
+ * anything wrong with it.
+ */
+export const splitSummary = (totalAmount: string, participants: SplitParticipantForm[]) => {
+  const total = roundToPaise(totalAmount);
+  const assigned = roundToPaise(
+    participants.reduce((sum, participant) => sum + Number(participant.shareAmount || 0), 0)
+  );
+  const yourShare = Math.max(roundToPaise(total - assigned), 0);
+  const over = Math.max(roundToPaise(assigned - total), 0);
+  const ways = participants.length + (yourShare > 0 ? 1 : 0);
+  return { total, assigned, yourShare, over, ways };
+};
 
 const percentFromShare = (shareAmount: string, totalAmount: string) => {
   const share = Number(shareAmount || 0);
@@ -75,7 +96,8 @@ type TransactionSplitFieldsProps = {
 };
 
 /**
- * The shared-expense card under More details (board R2-Split).
+ * The shared-expense card under More details (boards R2-Split and
+ * R2-Split-Proposals: Equally · Amount · %, your share, what is left).
  *
  * The shared-expense portion of the general transaction composer.
  *
@@ -101,6 +123,7 @@ export function TransactionSplitFields({
     ? resolveParticipantsForGroup(selectedGroup, form.amount)
     : null;
   const rule = { borderTopWidth: 1, borderTopColor: colors.border };
+  const summary = splitSummary(form.amount, form.splitParticipants);
   const inputStyle = [styles.input, { color: colors.text, borderColor: colors.border, backgroundColor: colors.card }];
 
   return (
@@ -121,6 +144,8 @@ export function TransactionSplitFields({
           accessibilityState={{ checked: form.splitEnabled }}
           onPress={() => {
             haptics.toggle(!form.splitEnabled);
+            // A new split starts even (P8); the friend's half is already in.
+            if (!form.splitEnabled && form.splitParticipants.length === 0) onChangeShareMode('equal');
             setForm((previous) =>
               previous.splitEnabled
                 ? { ...previous, splitEnabled: false }
@@ -198,17 +223,29 @@ export function TransactionSplitFields({
               <Segments
                 active={shareMode}
                 options={[
+                  { key: 'equal', label: 'Equally' },
                   { key: 'amount', label: 'Amount' },
-                  { key: 'percentage', label: 'Percentage' },
+                  { key: 'percentage', label: '%', accessibilityLabel: 'Percentage' },
                 ]}
                 onChange={onChangeShareMode}
                 style={styles.shareMode}
               />
-              <TextButton icon="equal" label="Split equally" onPress={() => onApplyEqualSplit()} />
             </View>
           ) : null}
 
-          <View style={styles.people}>
+          {form.splitParticipants.length > 0 ? (
+            <View style={styles.youRow}>
+              <View style={[styles.avatar, { backgroundColor: colors.selectedFill }]}>
+                <ThemedText style={[styles.youTile, { color: colors.text }]}>You</ThemedText>
+              </View>
+              <ThemedText style={[styles.youLabel, { color: colors.text }]}>Your share</ThemedText>
+              <ThemedText testID="split-your-share" style={[styles.youAmount, { color: colors.text }]}>
+                {summary.total > 0 ? formatMoney(summary.yourShare) : '—'}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          <View style={[styles.people, form.splitParticipants.length > 0 ? rule : null]}>
             {form.splitParticipants.map((participant, index) => (
               <View key={index} style={styles.person}>
                 {friends.length > 0 ? (
@@ -252,6 +289,15 @@ export function TransactionSplitFields({
                       </ThemedText>
                     </View>
                   )}
+                  {shareMode === 'equal' ? (
+                    <ThemedText
+                      accessibilityLabel="Their share"
+                      style={[styles.shareText, { color: colors.text }]}>
+                      {summary.total > 0
+                        ? formatMoney(participant.shareAmount || 0)
+                        : `${participant.sharePercent ?? ''}%`}
+                    </ThemedText>
+                  ) : (
                   <TextInput
                     accessibilityLabel="Their share"
                     value={
@@ -275,6 +321,7 @@ export function TransactionSplitFields({
                     placeholderTextColor={colors.muted}
                     style={[inputStyle, styles.share]}
                   />
+                  )}
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Remove this friend"
@@ -304,6 +351,46 @@ export function TransactionSplitFields({
             <MaterialCommunityIcons name="plus" size={20} color={colors.text} />
             <ThemedText style={[styles.addFriendLabel, { color: colors.text }]}>Add a friend</ThemedText>
           </PressableView>
+
+          {form.splitParticipants.length > 0 && summary.total > 0 ? (
+            <View
+              testID="split-summary"
+              accessibilityLiveRegion="polite"
+              style={[
+                styles.summary,
+                rule,
+                {
+                  backgroundColor: withAlpha(
+                    summary.over > 0 ? colors.negative : colors.positive,
+                    0.08
+                  ),
+                },
+              ]}>
+              <MaterialCommunityIcons
+                name={summary.over > 0 ? 'alert-circle-outline' : 'check'}
+                size={18}
+                color={summary.over > 0 ? colors.negative : colors.positive}
+              />
+              <ThemedText style={[styles.summaryText, { color: colors.text }]}>
+                {summary.over > 0 ? (
+                  <>
+                    Shares are{' '}
+                    <ThemedText style={[styles.summaryText, styles.summaryStrong]}>
+                      {formatMoney(summary.over)}
+                    </ThemedText>{' '}
+                    more than the total
+                  </>
+                ) : (
+                  <>
+                    <ThemedText style={[styles.summaryText, styles.summaryStrong, { color: colors.text }]}>
+                      {formatMoney(summary.total)}
+                    </ThemedText>
+                    {` split ${summary.ways} ways · nothing left to assign`}
+                  </>
+                )}
+              </ThemedText>
+            </View>
+          ) : null}
 
           {form.splitGroupId === null ? (
             <View style={[styles.groupRow, rule]}>
@@ -450,8 +537,58 @@ const styles = StyleSheet.create({
     paddingRight: 10,
   },
   shareMode: {
-    width: 196,
+    flex: 1,
     height: 36,
+  },
+  youRow: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 52,
+  },
+  youTile: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '700',
+  },
+  youLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  youAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  shareText: {
+    width: 84,
+    textAlign: 'right',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  summary: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  summaryText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  summaryStrong: {
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   textButton: {
     height: 36,
