@@ -264,6 +264,17 @@ export type DashboardResponse = {
      * `undefined` rather than assuming the block is there.
      */
     overview?: DashboardOverview;
+    /** The window's single biggest expense (P29). Absent when it has none, or on an older API. */
+    largest_expense?: DashboardLargestExpense;
+};
+
+export type DashboardLargestExpense = {
+    entry_id: number;
+    title: string;
+    category: string;
+    merchant: string;
+    amount: number;
+    date: string;
 };
 
 export const fetchDashboard = async (

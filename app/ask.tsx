@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -143,6 +143,21 @@ export default function AskFinnriScreen() {
       requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
     }
   };
+
+  /**
+   * A suggestion tapped on Insights (P32) arrives as `q` and is asked once,
+   * as soon as there is a session to ask with.
+   */
+  const { q: suggestedQuestion } = useLocalSearchParams<{ q?: string }>();
+  const askedSuggestion = useRef<string | null>(null);
+  useEffect(() => {
+    const question = suggestedQuestion?.trim();
+    if (!question || !token || askedSuggestion.current === question) return;
+    askedSuggestion.current = question;
+    void submit(question);
+    // `submit` is rebuilt every render; the ref keeps this to one ask per question.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedQuestion, token]);
 
   const { colors } = theme;
   const canSend = Boolean(input.trim()) && !isSending;
