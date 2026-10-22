@@ -289,9 +289,17 @@ export default function RootLayout() {
             Under reduced motion there is no travel to coordinate, so the screen
             goes back to the push every other screen uses. That is the degrade
             the task asks for: the plain push, not a half-played transition. */}
+        {/* P15: the detail is a sheet over the list, so the screen under it
+            stays drawn — transparent, with the sheet's own backdrop. It still
+            fades in for C9's travel; reduced motion slides the sheet up, the
+            way every other sheet arrives. */}
         <Stack.Screen
           name="entry/[id]"
-          options={{ animation: motion.reduced ? 'slide_from_right' : 'fade' }}
+          options={{
+            presentation: 'transparentModal',
+            animation: motion.reduced ? 'slide_from_bottom' : 'fade',
+            contentStyle: { backgroundColor: 'transparent' },
+          }}
         />
       </Stack>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />

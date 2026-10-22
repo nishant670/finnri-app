@@ -9,11 +9,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
-import { Colors } from '@/constants/theme';
+import { Colors, withAlpha } from '@/constants/theme';
 import { Button, PrimaryButton } from '@/components/ui/Button';
 import { LabelRow } from '@/components/ui/LabelRow';
 import { PressableView } from '@/components/ui/PressableView';
 import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { categoryTile } from '@/lib/categories';
 import { paymentModeVisual } from '@/lib/payment-modes';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -55,6 +57,11 @@ import {
 } from '@/lib/splits';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
 import {
+  describeLoggedBy,
+  entryMonthRange,
+  openFilteredTransactions,
+} from '@/lib/transaction-links';
+import {
   normalizeDateLabel,
   formatDateLabel,
   parseDateLabel,
@@ -64,6 +71,9 @@ import {
 import { formatTime, rowTimeLabel } from '@/lib/datetime';
 import { formatMoney, toAmountInputValue } from '@/lib/money';
 import { updateRefundStatus } from '@/lib/refundables';
+
+/** Longer than any push animation, so it only ever fires when the event did not. */
+const PUSH_SETTLE_FALLBACK_MS = 900;
 
 export default function TransactionDetailsScreen() {
   const dialog = useAppDialog();
@@ -188,7 +198,14 @@ export default function TransactionDetailsScreen() {
         if (!event?.data?.closing) setPushSettled(true);
       }
     );
-    return unsubscribe;
+    // A backstop for the transparent modal this screen became with P15: if a
+    // platform skips `transitionEnd` for that presentation, Edit and Repeat
+    // from a row's swipe would otherwise never open.
+    const fallback = setTimeout(() => setPushSettled(true), PUSH_SETTLE_FALLBACK_MS);
+    return () => {
+      unsubscribe();
+      clearTimeout(fallback);
+    };
   }, [navigation]);
 
   useEffect(() => {
@@ -643,7 +660,7 @@ export default function TransactionDetailsScreen() {
     displayData.account?.name ||
     accounts.find((account) => account.id === displayData.account_id)?.name ||
     '';
-  /** "Expense · Sun, 11 Oct 2026, 8:53 pm" (board R4-Detail). */
+  /** "Bills · Sun, 11 Oct, 8:53 pm" (board R4-Detail-Proposals). */
   const heroCaption = (() => {
     const day = parseDateLabel(displayData.date);
     const date = day
@@ -651,43 +668,35 @@ export default function TransactionDetailsScreen() {
           weekday: 'short',
           day: 'numeric',
           month: 'short',
-          year: 'numeric',
         })
       : displayData.date || 'No date';
     const time = displayData.time ? rowTimeLabel(displayData.time) : '';
-    return [isIncomeEntry ? 'Income' : 'Expense', [date, time].filter(Boolean).join(', ')].join(' · ');
+    return [
+      displayData.category || (isIncomeEntry ? 'Income' : 'Expense'),
+      [date, time].filter(Boolean).join(', '),
+    ].join(' · ');
   })();
+
+  const loggedBy = describeLoggedBy(transaction?.source, transaction?.source_text);
+  const loggedWords = loggedBy?.words ?? '';
+  const linkMonth = entryMonthRange(displayData.date);
 
   if (isLoading && !transaction && !hasPreview) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+      <DetailSheetFrame onDismiss={dismiss}>
         <Stack.Screen options={{ headerShown: false }} />
         <EntryDetailSkeleton />
-      </SafeAreaView>
+      </DetailSheetFrame>
     );
   }
 
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
+    <DetailSheetFrame onDismiss={dismiss}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Header (board R4-Detail): back, and the title centred. */}
-      <View style={styles.header}>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={dismiss}
-          style={styles.headerButton}>
-          <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
-        </Pressable>
-        <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
-          Transaction
-        </ThemedText>
-        <View style={styles.headerButton} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {/* HERO: icon, amount, title, one caption. */}
+      <ScrollView style={styles.sheetScroll} contentContainerStyle={styles.scroll}>
+        {/* HERO (board R4-Detail-Proposals): the icon, the title over one
+            caption, and the amount at the end of the row. */}
         <View style={styles.hero}>
           <Animated.View
             ref={heroIconRef}
@@ -697,6 +706,15 @@ export default function TransactionDetailsScreen() {
             <MaterialCommunityIcons name={icon as any} size={24} color={tile.foreground} />
           </Animated.View>
 
+          <View style={styles.flex}>
+            <ThemedText numberOfLines={2} style={[styles.heroTitle, { color: theme.text }]}>
+              {displayData.title || 'Untitled transaction'}
+            </ThemedText>
+            <ThemedText tone="muted" numberOfLines={1} style={styles.heroCaption}>
+              {heroCaption}
+            </ThemedText>
+          </View>
+
           <Animated.View
             ref={heroAmountRef}
             collapsable={false}
@@ -704,19 +722,32 @@ export default function TransactionDetailsScreen() {
             style={amountTravel.style}>
             <ThemedText
               numberOfLines={1}
-              adjustsFontSizeToFit
               style={[styles.amount, { color: isIncomeEntry ? theme.positive : theme.text }]}>
               {formatMoney(isIncomeEntry ? amountValue : -amountValue, { sign: 'always' })}
             </ThemedText>
           </Animated.View>
-
-          <ThemedText style={[styles.heroTitle, { color: theme.text }]}>
-            {displayData.title || 'Untitled transaction'}
-          </ThemedText>
-          <ThemedText tone="muted" style={styles.heroCaption}>
-            {heroCaption}
-          </ThemedText>
         </View>
+
+        {/* How it was logged, in the user's own words (P14). */}
+        {loggedBy ? (
+          <View
+            testID="entry-logged-by"
+            style={[styles.card, styles.loggedBy, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.loggedTile, { backgroundColor: theme.secondary }]}>
+              <MaterialCommunityIcons name={loggedBy.icon} size={20} color={theme.text} />
+            </View>
+            <View style={styles.flex}>
+              <ThemedText tone="muted" style={styles.caption}>
+                {loggedBy.label}
+              </ThemedText>
+              {loggedWords ? (
+                <ThemedText style={[styles.loggedWords, { color: theme.text }]}>
+                  {`“${loggedWords}”`}
+                </ThemedText>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
 
         {/* DETAILS: read-only rows; an empty field has no row. */}
         <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -870,11 +901,36 @@ export default function TransactionDetailsScreen() {
           </View>
         ) : null}
 
-        {/* Delete stays out of the bottom bar, on a card of its own. */}
+        {/* Where to look next (P16): this category this month, and entries
+            like this one. */}
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <LinkRow
+            testID="entry-link-category"
+            label={`${displayData.category || 'Uncategorised'} in ${linkMonth.label}`}
+            onPress={() =>
+              openFilteredTransactions({
+                category: displayData.category || undefined,
+                type: isIncomeEntry ? 'Income' : 'Expense',
+                startDate: linkMonth.start,
+                endDate: linkMonth.end,
+              })
+            }
+          />
+          {displayData.title ? (
+            <LinkRow
+              testID="entry-link-similar"
+              label={`Past “${displayData.title}” entries`}
+              divider
+              onPress={() => openFilteredTransactions({ q: displayData.title })}
+            />
+          ) : null}
+        </View>
+
+        {/* Delete stays out of the bottom bar, as a plain row under the cards. */}
         <PressableView
           accessibilityRole="button"
           onPress={handleDelete}
-          style={[styles.card, styles.deleteRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+          style={styles.deleteRow}
           pressedStyle={styles.pressed}>
           <MaterialCommunityIcons name="trash-can-outline" size={20} color={theme.negative} />
           <ThemedText tone="negative" style={styles.deleteLabel}>
@@ -1022,65 +1078,174 @@ export default function TransactionDetailsScreen() {
           </View>
         </View>
       </AnimatedBottomSheet>
-    </SafeAreaView>
+    </DetailSheetFrame>
+  );
+}
+
+/**
+ * The detail as a sheet over the list it came from (P15): a dimmed backdrop
+ * that closes it, and the sheet's own handle, title and ×.
+ */
+function DetailSheetFrame({
+  onDismiss,
+  children,
+}: {
+  onDismiss: () => void;
+  children: React.ReactNode;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={styles.frame}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Close transaction"
+        onPress={onDismiss}
+        style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha('#000000', 0.32) }]}
+      />
+      <SafeAreaView
+        edges={['bottom']}
+        style={[styles.sheet, { backgroundColor: colors.background }]}>
+        <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
+        <View style={styles.sheetHeader}>
+          <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
+            Transaction
+          </ThemedText>
+          <SheetCloseButton onPress={onDismiss} />
+        </View>
+        {children}
+      </SafeAreaView>
+    </View>
+  );
+}
+
+function LinkRow({
+  label,
+  onPress,
+  divider = false,
+  testID,
+}: {
+  label: string;
+  onPress: () => void;
+  divider?: boolean;
+  testID?: string;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <PressableView
+      testID={testID}
+      accessibilityRole="link"
+      onPress={onPress}
+      style={[styles.linkRow, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}
+      pressedStyle={styles.pressed}>
+      <ThemedText numberOfLines={1} style={[styles.linkLabel, { color: colors.text }]}>
+        {label}
+      </ThemedText>
+      <MaterialCommunityIcons name="chevron-right" size={18} color={withAlpha(colors.text, 0.6)} />
+    </PressableView>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    height: 56,
+  frame: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    maxHeight: '92%',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginVertical: 8,
+  },
+  sheetHeader: {
+    height: 48,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  headerButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingLeft: 20,
+    paddingRight: 8,
   },
   title: {
-    flex: 1,
-    textAlign: 'center',
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
   },
+  sheetScroll: {
+    flexGrow: 0,
+  },
   scroll: {
-    paddingBottom: 32,
+    paddingBottom: 20,
   },
   hero: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 8,
-    paddingHorizontal: SCREEN_GUTTER,
+    gap: 12,
+    paddingTop: 4,
+    paddingHorizontal: 20,
   },
   heroIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   amount: {
-    marginTop: 12,
-    fontSize: 36,
-    lineHeight: 44,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: '700',
     letterSpacing: -0.3,
     fontVariant: ['tabular-nums'],
   },
   heroTitle: {
-    marginTop: 2,
-    textAlign: 'center',
     fontSize: 17,
     lineHeight: 22,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   heroCaption: {
-    marginTop: 4,
-    textAlign: 'center',
+    marginTop: 2,
     fontSize: 13,
     lineHeight: 18,
+  },
+  loggedBy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  loggedTile: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loggedWords: {
+    marginTop: 1,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  linkRow: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 14,
+    paddingRight: 12,
+  },
+  linkLabel: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '500',
   },
   card: {
     marginTop: 12,
@@ -1161,7 +1326,10 @@ const styles = StyleSheet.create({
     height: 48,
     flexDirection: 'row',
     alignItems: 'center',
+    alignSelf: 'flex-start',
     gap: 10,
+    marginTop: 8,
+    marginHorizontal: SCREEN_GUTTER,
     paddingHorizontal: 14,
   },
   deleteLabel: {
