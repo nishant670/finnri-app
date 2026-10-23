@@ -3,15 +3,13 @@ import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { formatDayMonth } from '@/lib/datetime';
 
 import { IllustrationPanel, MockCard, MockTile, MOCK_TILES, SlideText } from './onboarding-ui';
 
 /** "October" for a date in October; the month card reads as this month. */
 const monthName = (date: Date) => date.toLocaleDateString('en-IN', { month: 'long' });
 
-/** "26 Oct": the renewal is drawn a few days out, as the board has it. */
-const shortDate = (date: Date) =>
-  date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 
 /**
  * R13-Ob4: the month at a glance and what is coming up. The body says plainly
@@ -60,7 +58,7 @@ export default function Screen4() {
               <View style={styles.grow}>
                 <ThemedText style={styles.dueName}>Netflix</ThemedText>
                 <ThemedText tone="muted" style={styles.dueMeta}>
-                  {`Renews ${shortDate(renewal)}`}
+                  {`Renews ${formatDayMonth(renewal)}`}
                 </ThemedText>
               </View>
               <ThemedText style={styles.dueAmount}>₹649</ThemedText>
