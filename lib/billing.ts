@@ -18,6 +18,8 @@ export type CreditSummary = {
   reset_at: string;
   trial_expires_at?: string | null;
   grants?: CreditGrant[];
+  /** What each capture costs; absent from an API older than the field. */
+  capture_credits?: { text: number; voice: number; receipt: number };
 };
 
 export type LifetimeEligibility = {
