@@ -1,6 +1,13 @@
 import { Fonts } from '@/constants/theme';
 import { StyleSheet } from 'react-native';
 
+/**
+ * Google's own light sign-in button: a white fill with dark ink, in light and
+ * dark mode alike. The fill was always white; the label used to follow the
+ * theme's text colour, which in dark mode is white too — white on white.
+ */
+export const GOOGLE_BUTTON_INK = '#1F1F1F';
+
 export const styles = StyleSheet.create({
   content: {
     flex: 1,
@@ -227,6 +234,7 @@ export const styles = StyleSheet.create({
     marginRight: 10,
   },
   googleButtonText: {
+    color: GOOGLE_BUTTON_INK,
     fontSize: 17,
     fontWeight: 'bold',
     fontFamily: Fonts.title,

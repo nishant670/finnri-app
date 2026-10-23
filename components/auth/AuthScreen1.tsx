@@ -17,7 +17,7 @@ import { FinnriLogoMark } from '@/components/FinnriLogoMark';
 
 import { EMAIL_LOGIN_ENABLED } from '@/lib/auth';
 import { GoogleGlyph } from './GoogleGlyph';
-import { styles } from './styles';
+import { GOOGLE_BUTTON_INK, styles } from './styles';
 import { HERO_BASE_SIZE, welcomeHeroSize } from './welcome-layout';
 
 type AuthScreen1Props = {
@@ -189,13 +189,13 @@ export const AuthScreen1 = ({
           onPress={onGoogle}
         >
           {isGoogleLoading ? (
-            <ActivityIndicator color={theme.text} />
+            <ActivityIndicator color={GOOGLE_BUTTON_INK} />
           ) : (
             <>
               <View style={styles.googleMark}>
                 <GoogleGlyph size={20} />
               </View>
-              <Text style={[styles.googleButtonText, { color: theme.text }]}>
+              <Text style={styles.googleButtonText}>
                 Continue with Google
               </Text>
             </>

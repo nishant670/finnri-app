@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 import { GoogleGlyph } from './GoogleGlyph';
-import { styles } from './styles';
+import { GOOGLE_BUTTON_INK, styles } from './styles';
 import { ScreenProps } from './types';
 
 type AuthScreen2Props = ScreenProps & {
@@ -192,13 +192,13 @@ export const AuthScreen2 = ({
                   onPress={onGoogle}
                 >
                   {isGoogleLoading ? (
-                    <ActivityIndicator color={theme.text} />
+                    <ActivityIndicator color={GOOGLE_BUTTON_INK} />
                   ) : (
                     <>
                       <View style={styles.googleMark}>
                         <GoogleGlyph size={20} />
                       </View>
-                      <Text style={[styles.googleButtonText, { color: theme.text }]}>
+                      <Text style={styles.googleButtonText}>
                         Continue with Google
                       </Text>
                     </>

@@ -138,7 +138,7 @@ export const AuthSecuritySetupScreen = ({
         </View>
 
         <View style={styles.securityOptionsSection}>
-          <View style={[styles.securityCard, { backgroundColor: 'white' }]}>
+          <View style={[styles.securityCard, { backgroundColor: theme.card }]}>
             <View style={[styles.securityIconBox, { backgroundColor: '#F3E5F5' }]}>
               <MaterialCommunityIcons name="face-recognition" size={24} color="#7B1FA2" />
             </View>
@@ -159,7 +159,7 @@ export const AuthSecuritySetupScreen = ({
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={pinConfigured ? 'Change your PIN' : 'Set up a PIN'}
-            style={[styles.securityCard, { backgroundColor: 'white', marginTop: 12 }]}
+            style={[styles.securityCard, { backgroundColor: theme.card, marginTop: 12 }]}
             onPress={() => {
               setIsSettingPin(true);
               setLocalError(null);
