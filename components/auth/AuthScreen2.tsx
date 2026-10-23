@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 
 import { GoogleGlyph } from './GoogleGlyph';
-import { GOOGLE_BUTTON_INK, styles } from './styles';
+import { styles } from './styles';
 import { ScreenProps } from './types';
 
 type AuthScreen2Props = ScreenProps & {
@@ -186,19 +186,22 @@ export const AuthScreen2 = ({
                   accessibilityRole="button"
                   style={[
                     styles.googleButton,
-                    { borderColor: theme.border, opacity: isBusy ? 0.6 : 1 },
+                    // The card fill and the theme's ink, as R13-Welcome draws
+                    // it: a fixed white fill under theme text was white on
+                    // white in dark mode.
+                    { backgroundColor: theme.card, borderColor: theme.border, opacity: isBusy ? 0.6 : 1 },
                   ]}
                   disabled={isBusy}
                   onPress={onGoogle}
                 >
                   {isGoogleLoading ? (
-                    <ActivityIndicator color={GOOGLE_BUTTON_INK} />
+                    <ActivityIndicator color={theme.text} />
                   ) : (
                     <>
                       <View style={styles.googleMark}>
                         <GoogleGlyph size={20} />
                       </View>
-                      <Text style={styles.googleButtonText}>
+                      <Text style={[styles.googleButtonText, { color: theme.text }]}>
                         Continue with Google
                       </Text>
                     </>
