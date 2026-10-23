@@ -1,226 +1,121 @@
-import { Colors, Fonts } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withSequence,
-    withTiming
-} from 'react-native-reanimated';
+import { StyleSheet, View } from 'react-native';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-const samplePrompts = [
-  'Spent ₹250 on lunch via UPI',
-  'लंच पर UPI से ₹250 खर्च',
-  'लंचसाठी UPI ने ₹250 खर्च',
-  'లంచ్‌కు UPIతో ₹250 ఖర్చు',
-  'লাঞ্চে UPI দিয়ে ₹250 খরচ',
-];
+import { ThemedText } from '@/components/themed-text';
+import { useMotion } from '@/hooks/use-motion';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
-const waveformHeights = [12, 18, 14, 20];
+import { IllustrationPanel, SlideText, useBubbleFill } from './onboarding-ui';
 
+/**
+ * Only English and Hindi. The slide used to rotate five languages under "any
+ * language", and nothing verifies that parsing beyond these two works well
+ * enough to promise it. Each phrase is shown with the other as its "or" line.
+ */
+const SAMPLE_PROMPTS = ['लंच पर UPI से ₹250 खर्च', 'Spent ₹250 on lunch via UPI'];
+
+const ROTATE_MS = 2600;
+
+/** R13-Ob1: say it the way you'd say it. */
 export default function Screen1() {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const { colors } = useThemeTokens();
+  const bubble = useBubbleFill();
+  const motion = useMotion();
   const [promptIndex, setPromptIndex] = useState(0);
-  
-  const pulse1 = useSharedValue(1);
-  const pulse2 = useSharedValue(1);
-  const promptOpacity = useSharedValue(1);
+  const opacity = useSharedValue(1);
+  const fadeMs = motion.duration('base');
 
   useEffect(() => {
-    pulse1.value = withRepeat(
-      withSequence(
-        withTiming(1.5, { duration: 1500, easing: Easing.out(Easing.quad) }),
-        withTiming(1, { duration: 1500, easing: Easing.in(Easing.quad) })
-      ),
-      -1,
-      false
-    );
-    
-    const pulse2Timer = setTimeout(() => {
-      pulse2.value = withRepeat(
-        withSequence(
-          withTiming(1.4, { duration: 1800, easing: Easing.out(Easing.quad) }),
-          withTiming(1, { duration: 1800, easing: Easing.in(Easing.quad) })
-        ),
-        -1,
-        false
-      );
-    }, 500);
-
-    return () => clearTimeout(pulse2Timer);
-  }, [pulse1, pulse2]);
-
-  useEffect(() => {
-    let nextPromptTimer: ReturnType<typeof setTimeout> | undefined;
-
+    let swap: ReturnType<typeof setTimeout> | undefined;
     const interval = setInterval(() => {
-      promptOpacity.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.quad) });
-
-      nextPromptTimer = setTimeout(() => {
-        setPromptIndex(current => (current + 1) % samplePrompts.length);
-        promptOpacity.value = withTiming(1, { duration: 350, easing: Easing.in(Easing.quad) });
-      }, 280);
-    }, 2200);
-
+      opacity.value = withTiming(0, { duration: fadeMs });
+      swap = setTimeout(() => {
+        setPromptIndex((current) => (current + 1) % SAMPLE_PROMPTS.length);
+        opacity.value = withTiming(1, { duration: fadeMs });
+      }, fadeMs);
+    }, ROTATE_MS);
     return () => {
       clearInterval(interval);
-      if (nextPromptTimer) {
-        clearTimeout(nextPromptTimer);
-      }
+      if (swap) clearTimeout(swap);
     };
-  }, [promptOpacity]);
+  }, [fadeMs, opacity]);
 
-  const animatedStyle1 = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse1.value }],
-    opacity: 0.3 - (pulse1.value - 1) * 0.3,
-  }));
-
-  const animatedStyle2 = useAnimatedStyle(() => ({
-    transform: [{ scale: pulse2.value }],
-    opacity: 0.2 - (pulse2.value - 1) * 0.2,
-  }));
-
-  const promptAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: promptOpacity.value,
-  }));
+  const fade = useAnimatedStyle(() => ({ opacity: opacity.value }));
+  const spoken = SAMPLE_PROMPTS[promptIndex];
+  const other = SAMPLE_PROMPTS[(promptIndex + 1) % SAMPLE_PROMPTS.length];
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.micCircleContainer}>
-          <Animated.View style={[styles.pulseCircle, { backgroundColor: theme.accent }, animatedStyle1]} />
-          <Animated.View style={[styles.pulseCircle, { backgroundColor: theme.accent }, animatedStyle2]} />
-          <View style={[styles.micBox, { backgroundColor: theme.accent }]}>
-             <MaterialCommunityIcons name="microphone" size={40} color={theme.onAccent} />
+    <View style={styles.slide}>
+      <IllustrationPanel testID="onboarding-panel">
+        <View style={styles.stack}>
+          <View style={[styles.ring, { backgroundColor: bubble }]}>
+            <View style={[styles.mic, { backgroundColor: colors.accent }]}>
+              <MaterialCommunityIcons name="microphone-outline" size={34} color={colors.onAccent} />
+            </View>
           </View>
+          <Animated.View style={[styles.phrases, fade]}>
+            <View style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <MaterialCommunityIcons name="waveform" size={18} color={colors.accent} />
+              <ThemedText style={styles.chipText}>{spoken}</ThemedText>
+            </View>
+            <ThemedText tone="muted" style={styles.or}>
+              {`or “${other}”`}
+            </ThemedText>
+          </Animated.View>
         </View>
-
-        <View style={[styles.speechBubble, { backgroundColor: theme.card, marginBottom: 64 }]}>
-          <View style={styles.waveform}>
-              {waveformHeights.map((height, index) => (
-                  <View key={index} style={[styles.waveItem, { backgroundColor: theme.accent, height }]} />
-              ))}
-          </View>
-          <Animated.Text style={[styles.speechText, { color: theme.text }, promptAnimatedStyle]}>
-            {samplePrompts[promptIndex]}
-          </Animated.Text>
-        </View>
-        
-
-        <View style={styles.textGroup}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: Fonts.title }]}>
-            Speak money in{('\n')}<Text style={{ color: theme.accent }}>your language</Text>
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.text, opacity: 0.6, fontFamily: Fonts.body }]}>
-            Finnri understands any language, so you can capture spends the way you naturally talk.
-          </Text>
-        </View>
-      </View>
+      </IllustrationPanel>
+      <SlideText
+        title="Say it the way you’d say it"
+        body="Speak or type what you spent, in English, Hindi or a mix of both. Finnri turns it into an entry."
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  slide: {
     flex: 1,
+  },
+  stack: {
+    alignItems: 'center',
+    gap: 22,
+  },
+  ring: {
+    width: 132,
+    height: 132,
+    borderRadius: 66,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 40,
   },
-  content: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  micCircleContainer: {
-    height: 140,
-    width: 140,
+  mic: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 40,
   },
-  pulseCircle: {
-      position: 'absolute',
-      width: 140,
-      height: 140,
-      borderRadius: 70,
-  },
-  micBox: {
-    height: 80,
-    width: 80,
-    borderRadius: 40,
+  phrases: {
     alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: 'rgba(0,0,0,0.18)',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  speechBubble: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    minHeight: 50,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 3,
-    marginBottom: 16,
-  },
-  waveform: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      marginRight: 10,
-      gap: 2,
-  },
-  waveItem: {
-      width: 3,
-      borderRadius: 1.5,
-  },
-  speechText: {
-    flexShrink: 1,
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  languageRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
     gap: 8,
-    marginBottom: 40,
   },
-  languageChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 16,
-  },
-  languageText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  textGroup: {
+  chip: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 22,
   },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 34,
-  },
-  subtitle: {
-    fontSize: 15,
-    textAlign: 'center',
+  chipText: {
+    fontSize: 16,
     lineHeight: 22,
+    fontWeight: '500',
+  },
+  or: {
+    fontSize: 13,
+    lineHeight: 18,
   },
 });

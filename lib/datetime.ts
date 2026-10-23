@@ -194,3 +194,13 @@ export const formatRelativeDay = (value: string | Date | null | undefined): stri
   }
   return `${dayStart.getDate()} ${month} ${dayStart.getFullYear()}`;
 };
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "8 Oct", in the reader's own time zone. Spelled out rather than taken from
+ * `toLocaleDateString('en-IN', { month: 'short' })`, which writes September as
+ * "Sept" and so breaks the three-letter run every other month keeps.
+ */
+export const formatDayMonth = (date: Date): string =>
+  `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]}`;

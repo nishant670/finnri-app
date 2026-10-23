@@ -1,6 +1,7 @@
 import React from 'react';
 import { useRouter } from 'expo-router';
 import { AuthPinSetupScreen } from '@/components/auth/AuthPinSetupScreen';
+import { OnboardingScreenWrapper } from '@/components/onboarding/OnboardingScreenWrapper';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { saveLocalSecurityPin } from '@/lib/security';
@@ -30,12 +31,17 @@ export default function ChangePinScreen() {
         }
     };
 
+    // The wrapper sign-in uses: this route has no other safe-area handling, so
+    // the keypad's last row sat under the nav bar and the back arrow under the
+    // status bar.
     return (
-        <AuthPinSetupScreen
-            onComplete={handleComplete}
-            onCancel={() => router.back()}
-            isLoading={loading}
-            errorMessage={error}
-        />
+        <OnboardingScreenWrapper>
+            <AuthPinSetupScreen
+                onComplete={handleComplete}
+                onCancel={() => router.back()}
+                isLoading={loading}
+                errorMessage={error}
+            />
+        </OnboardingScreenWrapper>
     );
 }

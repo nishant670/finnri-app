@@ -23,6 +23,7 @@ import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { fetchAccounts, normalizeAccountType, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
@@ -81,6 +82,7 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
  */
 export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const router = useRouter();
+  const sheetBottom = useBottomInset(24);
   const params = useLocalSearchParams();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
@@ -812,7 +814,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         <ScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.sheet}>
+          contentContainerStyle={[styles.sheet, { paddingBottom: sheetBottom }]}>
           <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
           <View style={styles.sheetHeader}>
             <ThemedText style={[styles.sheetTitle, { color: colors.text }]}>{formTitle}</ThemedText>
@@ -1179,7 +1181,6 @@ const styles = StyleSheet.create({
   },
   sheet: {
     paddingHorizontal: 16,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,

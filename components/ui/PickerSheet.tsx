@@ -7,6 +7,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 
 type PickerSheetProps = {
   visible: boolean;
@@ -33,6 +34,7 @@ export function PickerSheet({
   avoidKeyboard = false,
 }: PickerSheetProps) {
   const { colors } = useThemeTokens();
+  const sheetBottom = useBottomInset(24);
 
   return (
     <AnimatedBottomSheet
@@ -40,7 +42,7 @@ export function PickerSheet({
       onClose={onClose}
       backdropOpacity={0.3}
       avoidKeyboard={avoidKeyboard}>
-      <View style={[styles.sheet, { backgroundColor: colors.background }]}>
+      <View style={[styles.sheet, { backgroundColor: colors.background, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
         <View style={styles.header}>
           <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
@@ -134,7 +136,6 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,

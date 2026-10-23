@@ -223,7 +223,7 @@ export default function ToolsScreen() {
 
   if (!token) {
     return (
-      <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
         <ScreenHeader title="Calculators" onBack={() => router.back()} />
         <View style={[styles.flex, { justifyContent: 'center' }]}>
           <StateView
@@ -240,7 +240,7 @@ export default function ToolsScreen() {
   const emiPrincipal = parseDecimalInput(principal);
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScreenHeader title="Calculators" onBack={() => router.back()} />
 

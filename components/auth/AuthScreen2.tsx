@@ -2,6 +2,7 @@ import { PHONE_IDENTIFIER_ENABLED } from '@/lib/auth';
 import { PRIVACY_URL, TERMS_URL } from '@/lib/legal';
 import * as WebBrowser from 'expo-web-browser';
 import { Colors } from '@/constants/theme';
+import { categoryTile } from '@/lib/categories';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
@@ -48,6 +49,10 @@ export const AuthScreen2 = ({
 }: AuthScreen2Props) => {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  // The illustration's pastel tiles, dimmed for a dark page the way category
+  // tiles are; the fixed pastels glared there.
+  const tileFill = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).background;
+  const tileInk = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).foreground;
   const [input, setInput] = React.useState('');
   const [touched, setTouched] = React.useState(false);
   const [localError, setLocalError] = React.useState<string | null>(null);
@@ -113,14 +118,14 @@ export const AuthScreen2 = ({
             <View style={styles.imageContainer}>
               <View style={styles.glowCircle} />
               <View style={[styles.mainCircle, { borderColor: theme.border }]}>
-                <View style={[styles.iconBox, { backgroundColor: '#FFCCBC' }]}>
-                  <MaterialCommunityIcons name="lock" size={30} color="#E64A19" />
+                <View style={[styles.iconBox, { backgroundColor: tileFill('#E64A19', '#FFCCBC') }]}>
+                  <MaterialCommunityIcons name="lock" size={30} color={tileInk('#E64A19', '#FFCCBC')} />
                 </View>
-                <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#BBDEFB' }]}>
-                  <MaterialCommunityIcons name="account-group" size={12} color="#1976D2" />
+                <View style={[styles.smallIcon, styles.pos1, { backgroundColor: tileFill('#1976D2', '#BBDEFB'), borderColor: theme.background }]}>
+                  <MaterialCommunityIcons name="account-group" size={12} color={tileInk('#1976D2', '#BBDEFB')} />
                 </View>
-                <View style={[styles.smallIcon, styles.pos2, { backgroundColor: '#FFF9C4' }]}>
-                  <MaterialCommunityIcons name="database" size={12} color="#FBC02D" />
+                <View style={[styles.smallIcon, styles.pos2, { backgroundColor: tileFill('#FBC02D', '#FFF9C4'), borderColor: theme.background }]}>
+                  <MaterialCommunityIcons name="database" size={12} color={tileInk('#FBC02D', '#FFF9C4')} />
                 </View>
               </View>
             </View>
@@ -186,7 +191,10 @@ export const AuthScreen2 = ({
                   accessibilityRole="button"
                   style={[
                     styles.googleButton,
-                    { borderColor: theme.border, opacity: isBusy ? 0.6 : 1 },
+                    // The card fill and the theme's ink, as R13-Welcome draws
+                    // it: a fixed white fill under theme text was white on
+                    // white in dark mode.
+                    { backgroundColor: theme.card, borderColor: theme.border, opacity: isBusy ? 0.6 : 1 },
                   ]}
                   disabled={isBusy}
                   onPress={onGoogle}

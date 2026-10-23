@@ -239,7 +239,9 @@ export default function AskFinnriScreen() {
             {
               backgroundColor: colors.background,
               borderTopColor: colors.border,
-              paddingBottom: (keyboardInset > 0 ? keyboardInset : insets.bottom) + 12,
+              // Both, with the keyboard up: React Native's keyboard height
+              // leaves out the nav bar, which still sits under the keyboard.
+              paddingBottom: keyboardInset + insets.bottom + 12,
             },
           ]}>
           <View style={[styles.composer, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}>

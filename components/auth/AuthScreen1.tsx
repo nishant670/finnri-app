@@ -1,24 +1,27 @@
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import * as WebBrowser from 'expo-web-browser';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
-  Text,
-  TouchableOpacity,
   useWindowDimensions,
   View,
   type LayoutChangeEvent,
 } from 'react-native';
 
 import { FinnriLogoMark } from '@/components/FinnriLogoMark';
-
+import { MockCard, MockTile, MOCK_TILES, useBubbleFill } from '@/components/onboarding/onboarding-ui';
+import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { EMAIL_LOGIN_ENABLED } from '@/lib/auth';
+import { PRIVACY_URL, TERMS_URL } from '@/lib/legal';
+import { MINUS_SIGN } from '@/lib/money';
+
 import { GoogleGlyph } from './GoogleGlyph';
-import { styles } from './styles';
-import { HERO_BASE_SIZE, welcomeHeroSize } from './welcome-layout';
+import { styles as authStyles } from './styles';
+import { welcomeHeroSize } from './welcome-layout';
 
 type AuthScreen1Props = {
   /** Guest check-in. The primary path: it goes straight to the app. */
@@ -46,17 +49,22 @@ type AuthScreen1Props = {
 const ASSUMED_SYSTEM_CHROME = 90;
 
 /**
- * The Welcome screen. Guest is the primary button because it is the only option
- * here that ends in the user seeing their own money — every other path spends
- * screens before it does anything. Signing in stays one tap away, and the
- * upgrade prompt on Home asks again once there is data worth keeping.
+ * The Welcome screen (R13-Welcome). Guest is the primary button because it is
+ * the only option here that ends in the user seeing their own money — every
+ * other path spends screens before it does anything. Signing in stays one tap
+ * away, and the upgrade prompt on Home asks again once there is data worth
+ * keeping.
  *
- * All three of those paths have to be on screen at once, which is what drives
- * the layout: the illustration is sized from the space actually left over
- * rather than at a fixed 260 (see `welcome-layout`). The `ScrollView` stays
- * behind it as a floor for the cases arithmetic cannot cover — a very large
- * system font, a split-screen window — but on a handset at default settings
- * nothing here needs scrolling to be reached.
+ * All of those paths have to be on screen at once, which is what drives the
+ * layout: the illustration panel takes the height left over rather than a fixed
+ * 210 (see `welcome-layout`). The `ScrollView` stays behind it as a floor for
+ * the cases arithmetic cannot cover — a very large system font, a split-screen
+ * window — but on a handset at default settings nothing here needs scrolling.
+ *
+ * The guest wording is exact on purpose. Guest entries are stored on Finnri's
+ * server under a guest ID this phone keeps (`/v1/auth/guest`), so "your data
+ * stays on this device" was untrue; what is true is that they are reachable
+ * only from this phone until the person signs in.
  */
 export const AuthScreen1 = ({
   onGuest,
@@ -67,9 +75,10 @@ export const AuthScreen1 = ({
   isGuestLoading,
   isGoogleLoading,
 }: AuthScreen1Props) => {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const { colors } = useThemeTokens();
+  const bubble = useBubbleFill();
   const isBusy = !!isGuestLoading || !!isGoogleLoading;
+  const isLink = mode === 'link';
 
   const { height: windowHeight } = useWindowDimensions();
   const [viewportHeight, setViewportHeight] = useState<number | null>(null);
@@ -78,129 +87,100 @@ export const AuthScreen1 = ({
     setViewportHeight((current) => (current === height ? current : height));
   };
 
-  const heroSize = welcomeHeroSize(viewportHeight ?? windowHeight - ASSUMED_SYSTEM_CHROME);
+  const heroHeight = welcomeHeroSize(viewportHeight ?? windowHeight - ASSUMED_SYSTEM_CHROME);
 
   return (
     <ScrollView
       onLayout={handleLayout}
-      contentContainerStyle={[
-        styles.authScrollContent,
-        welcomeStyles.scrollContent,
-        { flexGrow: 1, justifyContent: 'center' },
-      ]}
+      contentContainerStyle={styles.scrollContent}
       keyboardShouldPersistTaps="handled"
-      showsVerticalScrollIndicator={false}
-    >
-      <View style={welcomeStyles.topSection}>
-        <View style={welcomeStyles.logoRow}>
-          <FinnriLogoMark size={36} style={styles.logoMark} />
-          <Text style={[styles.logoText, { color: theme.text }]}>finnri</Text>
-        </View>
+      showsVerticalScrollIndicator={false}>
+      <View style={styles.logoRow}>
+        <FinnriLogoMark size={40} />
+        <ThemedText style={styles.wordmark}>finnri</ThemedText>
+      </View>
 
-        {/* Scaled rather than re-laid-out: the artwork is a stack of circles
-            positioned against each other, and a transform keeps those relations
-            exact at any size where redoing the arithmetic per-element would not. */}
-        {heroSize > 0 ? (
-          <View style={[welcomeStyles.heroFrame, { width: heroSize, height: heroSize }]}>
-            <View
-              style={[styles.imageContainer, { transform: [{ scale: heroSize / HERO_BASE_SIZE }] }]}
-            >
-              <View style={styles.glowCircle} />
-              <View style={[styles.mainCircle, { borderColor: theme.border }]}>
-                <View style={[styles.iconBox, { backgroundColor: theme.accent }]}>
-                  <MaterialCommunityIcons name="wallet" size={30} color={theme.onAccent} />
-                </View>
-                <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#E1BEE7' }]}>
-                  <MaterialCommunityIcons name="star" size={12} color="#9C27B0" />
-                </View>
-                <View style={[styles.smallIcon, styles.pos2, { backgroundColor: '#C8E6C9' }]}>
-                  <MaterialCommunityIcons name="trending-up" size={12} color="#43A047" />
-                </View>
-                <View style={[styles.smallIcon, styles.pos3, { backgroundColor: '#FFCCBC' }]}>
-                  <MaterialCommunityIcons name="emoticon-happy" size={12} color="#E64A19" />
-                </View>
-              </View>
+      {heroHeight > 0 ? (
+        <View
+          testID="welcome-illustration"
+          style={[styles.panel, { height: heroHeight, backgroundColor: colors.track }]}>
+          <View style={styles.illustration}>
+            <View style={[styles.bubble, { backgroundColor: bubble }]}>
+              <ThemedText style={styles.bubbleText}>Spent ₹250 on lunch via UPI</ThemedText>
             </View>
+            <MockCard width={280} style={styles.entry}>
+              <View style={styles.entryRow}>
+                <MockTile {...MOCK_TILES.food} size={36} radius={10} iconSize={18} />
+                <View style={styles.grow}>
+                  <ThemedText style={styles.entryTitle}>Lunch</ThemedText>
+                  <ThemedText tone="muted" style={styles.entryMeta}>
+                    Food & Drinks · UPI
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.entryAmount}>{`${MINUS_SIGN}₹250`}</ThemedText>
+              </View>
+            </MockCard>
           </View>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
 
-      <View style={welcomeStyles.textSection}>
-        <Text style={[styles.title, welcomeStyles.title, { color: theme.text }]}>
-          {mode === 'link' ? 'Save your workspace' : 'Welcome to Finnri'}
-        </Text>
-        <Text style={[styles.subtitle, welcomeStyles.subtitle, { color: theme.text, opacity: 0.6 }]}>
-          {mode === 'link'
-            ? 'Sign in to back up everything you have tracked so far and reach it from any device.'
-            : 'Track your money intelligently — your way.'}
-        </Text>
-      </View>
+      <ThemedText accessibilityRole="header" style={styles.title}>
+        {isLink ? 'Save your workspace' : 'Track money the way you talk'}
+      </ThemedText>
+      <ThemedText tone="muted" style={styles.subtitle}>
+        {isLink
+          ? 'Sign in to back up everything you have tracked so far and reach it from any device.'
+          : 'Say or type what you spent. Finnri does the sorting.'}
+      </ThemedText>
 
-      <View style={styles.buttonSection}>
-        <TouchableOpacity
+      <View style={styles.spacer} />
+
+      <View style={styles.actions}>
+        <PressableView
           accessibilityRole="button"
-          style={[
-            styles.primaryButton,
-            welcomeStyles.actionButton,
-            { backgroundColor: theme.accent, opacity: isBusy ? 0.6 : 1 },
-          ]}
           disabled={isBusy}
           onPress={onGuest}
-        >
+          style={[styles.button, { backgroundColor: colors.accent, opacity: isBusy ? 0.6 : 1 }]}
+          pressedStyle={styles.pressed}>
           {isGuestLoading ? (
-            <ActivityIndicator color={theme.onAccent} />
+            <ActivityIndicator color={colors.onAccent} />
           ) : (
             <>
-              <Text style={[styles.primaryButtonText, { color: theme.onAccent }]}>
-                {mode === 'link' ? 'Keep using guest' : "Start tracking — it's free"}
-              </Text>
-              <MaterialCommunityIcons
-                name="arrow-right"
-                size={20}
-                color={theme.onAccent}
-                style={{ marginLeft: 8 }}
-              />
+              <ThemedText style={[styles.primaryLabel, { color: colors.onAccent }]}>
+                {isLink ? 'Keep using guest' : 'Start for free'}
+              </ThemedText>
+              <MaterialCommunityIcons name="arrow-right" size={20} color={colors.onAccent} />
             </>
           )}
-        </TouchableOpacity>
+        </PressableView>
 
-        {/* The guest terms, stated before the tap rather than on a screen after
-            it. This is what the interstitial used to say. */}
-        <Text style={[styles.helperText, { color: theme.text, opacity: 0.55 }]}>
-          {mode === 'link'
-            ? 'Guest data lives only on this device. Clearing app data or changing phone loses it.'
-            : 'No account needed. Your data stays on this device — sign in any time to back it up.'}
-        </Text>
+        {/* The guest terms, stated before the tap rather than on a screen after it. */}
+        <ThemedText tone="muted" style={styles.note}>
+          {isLink
+            ? 'Your guest entries are linked to this phone. Clearing app data or changing phone loses them.'
+            : 'No sign-up needed. Your entries stay linked to this phone until you sign in.'}
+        </ThemedText>
 
-        <View style={[styles.dividerRow, welcomeStyles.dividerRow]}>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-          <Text style={[styles.dividerText, { color: theme.text, opacity: 0.4 }]}>or</Text>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-        </View>
-
-        <TouchableOpacity
+        <PressableView
+          testID="welcome-google"
           accessibilityRole="button"
-          style={[
-            styles.googleButton,
-            welcomeStyles.actionButton,
-            { borderColor: theme.border, opacity: isBusy ? 0.6 : 1 },
-          ]}
           disabled={isBusy || !onGoogle}
           onPress={onGoogle}
-        >
+          style={[
+            styles.button,
+            styles.google,
+            { backgroundColor: colors.card, borderColor: colors.borderStrong, opacity: isBusy ? 0.6 : 1 },
+          ]}
+          pressedStyle={styles.pressed}>
           {isGoogleLoading ? (
-            <ActivityIndicator color={theme.text} />
+            <ActivityIndicator color={colors.text} />
           ) : (
             <>
-              <View style={styles.googleMark}>
-                <GoogleGlyph size={20} />
-              </View>
-              <Text style={[styles.googleButtonText, { color: theme.text }]}>
-                Continue with Google
-              </Text>
+              <GoogleGlyph size={20} />
+              <ThemedText style={styles.googleLabel}>Continue with Google</ThemedText>
             </>
           )}
-        </TouchableOpacity>
+        </PressableView>
 
         {/*
           Email and mobile sign-in are switched off for launch — Google and
@@ -209,92 +189,221 @@ export const AuthScreen1 = ({
           one screen they cannot get past.
         */}
         {EMAIL_LOGIN_ENABLED ? (
-          <TouchableOpacity
+          <PressableView
             accessibilityRole="button"
-            style={[styles.textButton, welcomeStyles.textButton]}
             disabled={isBusy}
             onPress={onIdentifier}
-          >
-            <Text style={[styles.textButtonText, { color: theme.text, opacity: 0.75 }]}>
+            style={styles.textButton}
+            pressedStyle={styles.pressed}>
+            <ThemedText tone="mutedStrong" style={styles.textButtonLabel}>
               Use email or mobile
-            </Text>
-          </TouchableOpacity>
+            </ThemedText>
+          </PressableView>
         ) : null}
 
         {errorMessage ? (
-          <View style={styles.smartErrorContainer}>
-            <View style={styles.errorIconBox}>
+          <View style={authStyles.smartErrorContainer}>
+            <View style={authStyles.errorIconBox}>
               <MaterialCommunityIcons name="alert-circle" size={18} color="#D32F2F" />
             </View>
-            <Text style={styles.smartErrorText} numberOfLines={2}>
+            <ThemedText style={authStyles.smartErrorText} numberOfLines={2}>
               {errorMessage}
-            </Text>
+            </ThemedText>
           </View>
         ) : null}
 
-        <View style={[styles.trustNote, welcomeStyles.trustNote]}>
-          <MaterialCommunityIcons name="lock" size={12} color={theme.text} style={{ opacity: 0.4 }} />
-          <Text style={[styles.trustNoteText, { color: theme.text, opacity: 0.4 }]}>
-            No bank connection required
-          </Text>
+        <View style={styles.bankNote}>
+          <MaterialCommunityIcons name="lock-outline" size={14} color={colors.muted} />
+          <ThemedText tone="muted" style={styles.noteText}>
+            No bank login needed
+          </ThemedText>
         </View>
+
+        {/* Play's user-generated content policy wants the terms accepted before
+            anyone can create content other members will see — a shared split
+            group is exactly that. The links open in a browser sheet. */}
+        <ThemedText tone="muted" style={styles.legal}>
+          By continuing you agree to the{' '}
+          <ThemedText
+            tone="muted"
+            accessibilityRole="link"
+            style={[styles.legal, styles.link]}
+            onPress={() => void WebBrowser.openBrowserAsync(TERMS_URL)}>
+            Terms
+          </ThemedText>{' '}
+          and{' '}
+          <ThemedText
+            tone="muted"
+            accessibilityRole="link"
+            style={[styles.legal, styles.link]}
+            onPress={() => void WebBrowser.openBrowserAsync(PRIVACY_URL)}>
+            Privacy Policy
+          </ThemedText>
+          .
+        </ThemedText>
       </View>
     </ScrollView>
   );
 };
 
 /**
- * Welcome's own spacing, tighter than the shared auth values it overrides.
- *
- * It is kept here rather than in `styles.ts` because the other auth screens
- * carry a fraction of this one's content — a keypad, an OTP row — and have room
- * to spare. Squeezing them to fit a screen they already fit on would cost
- * legibility for nothing. The numbers below are the ones `CHROME_HEIGHT` in
- * `welcome-layout` is summed from.
+ * R13-Welcome's spacing. The numbers here are the ones `CHROME_HEIGHT` in
+ * `welcome-layout` is summed from; change one and change the other.
  */
-const welcomeStyles = StyleSheet.create({
+const styles = StyleSheet.create({
   scrollContent: {
+    flexGrow: 1,
     paddingTop: 20,
-    paddingBottom: 16,
-  },
-  topSection: {
-    alignItems: 'center',
-    marginBottom: 20,
-    width: '100%',
+    paddingBottom: 24,
   },
   logoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 14,
+    justifyContent: 'center',
+    gap: 10,
   },
-  heroFrame: {
+  wordmark: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  panel: {
+    marginTop: 24,
+    marginHorizontal: 16,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  illustration: {
+    alignItems: 'center',
+    gap: 10,
+  },
+  bubble: {
+    alignSelf: 'flex-end',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 4,
+    borderBottomLeftRadius: 16,
+  },
+  bubbleText: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  entry: {
+    paddingVertical: 12,
+  },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  grow: {
+    flex: 1,
+  },
+  entryTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  entryMeta: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  entryAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  title: {
+    marginTop: 28,
+    marginHorizontal: 24,
+    textAlign: 'center',
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  subtitle: {
+    marginTop: 8,
+    marginHorizontal: 32,
+    textAlign: 'center',
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  spacer: {
+    flexGrow: 1,
+    minHeight: 24,
+  },
+  actions: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+  button: {
+    height: 52,
+    borderRadius: 26,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  primaryLabel: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  note: {
+    marginHorizontal: 8,
+    textAlign: 'center',
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  google: {
+    marginTop: 6,
+    borderWidth: 1,
+    gap: 10,
+  },
+  googleLabel: {
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  textButton: {
+    minHeight: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  textSection: {
+  textButtonLabel: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  bankNote: {
+    marginTop: 6,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    justifyContent: 'center',
+    gap: 6,
   },
-  title: {
-    fontSize: 30,
-    marginBottom: 8,
+  noteText: {
+    fontSize: 12,
+    lineHeight: 17,
   },
-  subtitle: {
-    fontSize: 15,
-    lineHeight: 21,
+  legal: {
+    marginHorizontal: 8,
+    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 16,
   },
-  actionButton: {
-    height: 56,
-    borderRadius: 28,
-    marginBottom: 10,
+  link: {
+    marginHorizontal: 0,
+    textDecorationLine: 'underline',
   },
-  dividerRow: {
-    marginVertical: 12,
-  },
-  textButton: {
-    padding: 9,
-  },
-  trustNote: {
-    marginTop: 10,
+  pressed: {
+    opacity: 0.7,
   },
 });

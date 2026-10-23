@@ -14,6 +14,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useUndoableDelete } from '@/hooks/use-undoable-delete';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { deleteEntry } from '@/lib/entries';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
 
@@ -112,6 +113,7 @@ function UndoDeleteToast({
   const motion = useMotion();
   const reveal = useSharedValue(0);
   const [shown, setShown] = useState<PendingTransactionDelete | null>(null);
+  const toastBottom = useBottomInset(28);
 
   useEffect(() => {
     if (pending) setShown(pending);
@@ -138,8 +140,8 @@ function UndoDeleteToast({
     <Animated.View
       accessibilityLiveRegion="polite"
       pointerEvents={pending ? 'auto' : 'none'}
-      className="absolute bottom-7 left-5 right-5 z-50 flex-row items-center justify-between rounded-2xl px-4 py-3 shadow-md"
-      style={[{ backgroundColor: themeTokens.colors.text }, style]}>
+      className="absolute left-5 right-5 z-50 flex-row items-center justify-between rounded-2xl px-4 py-3 shadow-md"
+      style={[{ backgroundColor: themeTokens.colors.text, bottom: toastBottom }, style]}>
       <View className="flex-1 flex-row items-center gap-2 pr-3">
         <MaterialCommunityIcons
           name="trash-can-outline"

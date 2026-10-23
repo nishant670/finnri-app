@@ -6,6 +6,7 @@ import {
 } from '@/lib/accounts';
 import type { QuickPrompt } from '@/components/home/QuickPrompts';
 import { DEFAULT_CATEGORY } from '@/lib/categories';
+import { captureCreditsFor, creditShortfall, type CaptureKind } from '@/lib/credit-gate';
 import { formatTime } from '@/lib/datetime';
 import { toAmountInputValue } from '@/lib/money';
 import { ParseApiError, type ParseResponse } from '@/lib/parse';
@@ -219,45 +220,47 @@ export const creditActionForParseError = (
   error: unknown,
   {
     isGuestUser,
+    kind,
     dailyCreditsUsed,
     dailyLimit: billedDailyLimit,
   }: {
     isGuestUser: boolean;
+    /** Which capture was refused, so the message can name it and its price. */
+    kind?: CaptureKind;
     dailyCreditsUsed?: number;
     dailyLimit?: number;
   }
 ): (CreditActionState & { reason: BlockedAIReason }) | null => {
-  if (error instanceof ParseApiError) {
-    /*
-     * A guest running out of credits is the one moment they have a reason
-     * to make an account, so the prompt says what signing in buys rather
-     * than just reporting the balance — and it points at sign-in, not at a
-     * plans screen a guest cannot buy from anyway.
-     */
-    if (error.code === 'insufficient_ai_credits') {
-      return {
-        title: isGuestUser ? 'You have used up your guest AI credits' : 'AI credits are low',
-        message: isGuestUser
-          ? `Dear guest, this capture needs ${error.requiredCredits ?? 5} credits and you have ${error.availableCredits ?? 0} left. Sign in to keep going with more AI credits — everything you have added so far comes with you.`
-          : `This capture needs ${error.requiredCredits ?? 5} credits. You have ${error.availableCredits ?? 0} available.`,
-        actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-        action: isGuestUser ? 'login' : 'upgrade',
-        reason: 'out_of_credits',
-      };
-    }
-    if (error.code === 'daily_ai_limit_reached') {
-      const usedToday = error.usedToday ?? dailyCreditsUsed ?? 0;
-      const dailyLimit = error.dailyLimit ?? billedDailyLimit ?? 0;
-      return {
-        title: isGuestUser ? 'You have reached your guest AI limit' : 'Daily AI limit reached',
-        message: isGuestUser
-          ? `Dear guest, you have used all ${dailyLimit} AI credits for today. Sign in to continue enjoying more AI credits — everything you have added so far comes with you.`
-          : `You used ${usedToday} of ${dailyLimit} credits today.`,
-        actionLabel: isGuestUser ? 'Sign in for more credits' : 'View plans',
-        action: isGuestUser ? 'login' : 'upgrade',
-        reason: 'daily_limit',
-      };
-    }
+  if (!(error instanceof ParseApiError)) return null;
+  const required = error.requiredCredits ?? captureCreditsFor(null, kind ?? 'text');
+  /*
+   * A guest running out of credits is the one moment they have a reason to
+   * make an account, so the prompt says what signing in buys rather than just
+   * reporting the balance — and it points at sign-in, not at a plans screen a
+   * guest cannot buy from anyway.
+   */
+  if (error.code === 'insufficient_ai_credits') {
+    return creditShortfall({
+      kind,
+      required,
+      available: error.availableCredits ?? 0,
+      scope: 'balance',
+      isGuest: isGuestUser,
+    });
+  }
+  if (error.code === 'daily_ai_limit_reached') {
+    // The refusal does not mean the day was spent: a 25-credit scan is refused
+    // with 15 left. What is left is the limit less what was used.
+    const dailyLimit = error.dailyLimit ?? billedDailyLimit ?? 0;
+    const usedToday = error.usedToday ?? dailyCreditsUsed ?? dailyLimit;
+    return creditShortfall({
+      kind,
+      required,
+      available: Math.max(0, dailyLimit - usedToday),
+      scope: 'today',
+      dailyLimit,
+      isGuest: isGuestUser,
+    });
   }
   return null;
 };

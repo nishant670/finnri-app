@@ -163,7 +163,7 @@ export default function SecurityScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader title="Security & privacy" onBack={() => router.back()} />
 
       <KeyboardAvoidingScreen showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>

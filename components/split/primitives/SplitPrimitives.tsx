@@ -11,6 +11,7 @@ import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 import { getMonogram } from '@/lib/monogram';
 import type { SplitFriend } from '@/lib/splits';
@@ -163,6 +164,7 @@ export function SplitModal({
   children: ReactNode;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(24);
   return (
     <AnimatedBottomSheet visible={visible} onClose={onClose} avoidKeyboard backdropOpacity={0.3}>
       {/*
@@ -173,7 +175,7 @@ export function SplitModal({
         * until the keyboard leaves it less room, and only then does the list
         * inside start to scroll.
         */}
-      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+      <View style={[styles.sheet, { backgroundColor: theme.background, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
         <View style={styles.sheetHeader}>
           <ThemedText accessibilityRole="header" style={[styles.sheetTitle, { color: theme.text }]}>
@@ -351,13 +353,15 @@ export function PrimaryModalButton({
 
 export function FloatingExpenseButton({ onPress }: { onPress: () => void }) {
   const theme = useThemeTokens().colors;
+  const buttonBottom = useBottomInset(24);
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel="Add split expense"
       onPress={onPress}
-      className="absolute bottom-6 right-6 min-h-14 flex-row items-center gap-3 rounded-full px-6"
+      className="absolute right-6 min-h-14 flex-row items-center gap-3 rounded-full px-6"
       style={{
+        bottom: buttonBottom,
         backgroundColor: theme.accent,
         shadowColor: theme.shadow,
         shadowOffset: { width: 0, height: 6 },
@@ -378,7 +382,6 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,
