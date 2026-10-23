@@ -6,6 +6,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { ThemedText } from '@/components/themed-text';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { Account } from '@/lib/accounts';
 import { CATEGORIES, categoryVisual } from '@/lib/categories';
 import { haptics } from '@/lib/haptics';
@@ -62,6 +63,7 @@ export const AdvancedFilter = ({
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const accent = theme.accent;
+  const footerBottom = useBottomInset(24);
   const accentSurface = theme.secondary;
   const mutedText = themeTokens.mode === 'dark' ? 'rgba(255,255,255,0.5)' : '#90A4AE';
 
@@ -481,8 +483,8 @@ export const AdvancedFilter = ({
       )}
 
       <View
-        className="flex-row items-center gap-4 border-t px-6 pb-6 pt-4"
-        style={{ borderColor: theme.border }}>
+        className="flex-row items-center gap-4 border-t px-6 pt-4"
+        style={{ borderColor: theme.border, paddingBottom: footerBottom }}>
         <Pressable
           testID="filter-clear-all"
           accessibilityRole="button"

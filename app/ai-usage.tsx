@@ -99,7 +99,7 @@ export default function AIUsageScreen() {
   });
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader title="AI usage" onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         <View style={[styles.card, styles.summary, { backgroundColor: colors.card, borderColor: colors.border }]}>

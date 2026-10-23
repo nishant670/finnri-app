@@ -30,6 +30,7 @@ import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
 import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   accountTypeLabels,
   accountVisuals,
@@ -156,6 +157,7 @@ function SectionTitle({ title, action }: { title: string; action?: ReactNode }) 
 
 export default function AccountDetailsScreen() {
   const { id } = useLocalSearchParams<{ id?: string }>();
+  const sheetBottom = useBottomInset(28);
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -474,7 +476,7 @@ export default function AccountDetailsScreen() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: theme.background }}
-        edges={['top', 'left', 'right']}>
+        edges={['top', 'left', 'right', 'bottom']}>
         <ScreenHeader title="Account" onBack={() => router.back()} />
         <AccountDetailSkeleton />
       </SafeAreaView>
@@ -506,7 +508,7 @@ export default function AccountDetailsScreen() {
   const usedNoun = isCreditCard ? 'card' : 'account';
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader
         title={accountTypeLabels[accountType]}
         onBack={() => router.back()}
@@ -766,7 +768,7 @@ export default function AccountDetailsScreen() {
       <AnimatedBottomSheet
         visible={isActionsSheetVisible}
         onClose={() => setIsActionsSheetVisible(false)}
-        sheetStyle={[styles.sheet, { backgroundColor: theme.card }]}>
+        sheetStyle={[styles.sheet, { backgroundColor: theme.card, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
         <View style={styles.sheetHead}>
           <View style={styles.flexText}>
@@ -1137,7 +1139,6 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingBottom: 28,
   },
   handle: {
     width: 36,

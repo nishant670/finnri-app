@@ -29,6 +29,7 @@ import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSk
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { fetchCardEMIPlans } from '@/lib/emi-plans';
 import { fetchSubscriptions } from '@/lib/subscriptions';
@@ -67,6 +68,7 @@ import { updateRefundStatus } from '@/lib/refundables';
 
 export default function TransactionDetailsScreen() {
   const dialog = useAppDialog();
+  const sheetBottom = useBottomInset(40);
   const router = useRouter();
   const params = useLocalSearchParams<{
     id: string;
@@ -949,8 +951,8 @@ export default function TransactionDetailsScreen() {
         onClose={closeDeleteConfirm}
         backdropOpacity={0.45}>
         <View
-          className="rounded-t-[32px] border px-6 pb-10 pt-5"
-          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          className="rounded-t-[32px] border px-6 pt-5"
+          style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
           <View className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-gray-200 dark:bg-gray-700" />
 
           <View className="items-center">

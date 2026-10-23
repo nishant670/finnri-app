@@ -34,6 +34,7 @@ import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { CURRENCY_SYMBOL, DEFAULT_CURRENCY } from '@/constants/Currency';
@@ -520,6 +521,8 @@ export function TransactionFormModal({
   // windows are not reliably resized, so their inset belongs at the end of the
   // scroll content—not inside the mid-list split section.
   const keyboardInset = useKeyboardInset(showModal && Platform.OS === 'android');
+  // Save is pinned to the bottom of a modal that draws under the nav bar.
+  const footerBottom = useBottomInset(16);
   const resolveEntryFormAccount = useCallback(
     (nextForm: EntryForm): EntryForm => {
       if (!personalPayment) return { ...nextForm, accountId: null, account: '' };
@@ -2356,7 +2359,8 @@ export function TransactionFormModal({
 
               {/* Pinned under the scroll: the keypad on the capture path, and
                   Save everywhere, so saving never needs a scroll. */}
-              <View style={[formStyles.footer, { backgroundColor: theme.background }]}>
+              <View
+                style={[formStyles.footer, { backgroundColor: theme.background, paddingBottom: footerBottom }]}>
                 {isKeypadVisible && (
                   <>
                     {quickFills.length > 0 && (
@@ -2841,7 +2845,6 @@ const formStyles = StyleSheet.create({
     gap: 10,
     paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: 16,
   },
   quickFills: {
     gap: 8,

@@ -12,6 +12,7 @@ import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { Fonts } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   StatementApiError,
   StatementDiff,
@@ -67,6 +68,8 @@ export default function StatementReviewScreen() {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const { token } = useAuthStore();
+  const footerBottom = useBottomInset(32);
+  const contentBottom = useBottomInset(120);
 
   const [diff, setDiff] = useState<StatementDiff | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -243,7 +246,7 @@ export default function StatementReviewScreen() {
 
         <KeyboardAvoidingScreen
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}>
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: contentBottom }}>
           {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
 
           {intake && token && (intake.cardUpdates.length > 0 || intake.warnings.length > 0) && (
@@ -538,8 +541,8 @@ export default function StatementReviewScreen() {
 
         {diff && (diff.missing.length > 0 || diff.probable.length > 0) && (
           <View
-            className="absolute inset-x-0 bottom-0 px-6 pb-8 pt-4"
-            style={{ backgroundColor: theme.background }}>
+            className="absolute inset-x-0 bottom-0 px-6 pt-4"
+            style={{ backgroundColor: theme.background, paddingBottom: footerBottom }}>
             <Pressable
               accessibilityRole="button"
               disabled={isBusy || linesToImport.length === 0}

@@ -10,6 +10,7 @@ import { LabelRow } from '@/components/ui/LabelRow';
 import { PickerSheet } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { formatTime, rowTimeLabel, uses24HourClock } from '@/lib/datetime';
 
 type DateSheetProps = {
@@ -222,11 +223,14 @@ export function TransactionCancellationDateSheet({
   onConfirm,
 }: DateSheetProps) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(24);
   const accent = theme.accent;
 
   return (
     <AnimatedBottomSheet visible onClose={onClose} backdropOpacity={0.3}>
-      <View className="rounded-t-3xl px-4 pb-6 pt-4" style={{ backgroundColor: theme.background }}>
+      <View
+        className="rounded-t-3xl px-4 pt-4"
+        style={{ backgroundColor: theme.background, paddingBottom: sheetBottom }}>
         <ThemedText className="text-center text-sm font-bold">
           Cancellation reminder date
         </ThemedText>
@@ -260,11 +264,14 @@ export function TransactionSubscriptionDateSheet({
   onConfirm,
 }: DateSheetProps) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(24);
   const accent = theme.accent;
 
   return (
     <AnimatedBottomSheet visible onClose={onClose} backdropOpacity={0.3}>
-      <View className="rounded-t-3xl px-4 pb-6 pt-4" style={{ backgroundColor: theme.background }}>
+      <View
+        className="rounded-t-3xl px-4 pt-4"
+        style={{ backgroundColor: theme.background, paddingBottom: sheetBottom }}>
         <ThemedText className="text-center text-sm font-bold">Next payment date</ThemedText>
         <DateTimePicker
           value={pendingDate}

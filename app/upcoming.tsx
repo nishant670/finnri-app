@@ -32,7 +32,7 @@ export default function UpcomingScreen() {
   const colors = theme.colors;
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']} style={{ backgroundColor: colors.background }}>
+    <SafeAreaView className="flex-1" edges={['top', 'left', 'right', 'bottom']} style={{ backgroundColor: colors.background }}>
       <AppHeader title="What's next" subtitle="Release notes" onBack={() => router.back()} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 40 }}>

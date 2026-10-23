@@ -133,7 +133,7 @@ export default function SpendingAnalysisScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
-      edges={['top', 'left', 'right']}>
+      edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
         title="Detailed analysis"

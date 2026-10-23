@@ -186,7 +186,7 @@ export default function CategoryDetailScreen() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: theme.background }}
-        edges={['top', 'left', 'right']}>
+        edges={['top', 'left', 'right', 'bottom']}>
         <Stack.Screen options={{ headerShown: false }} />
         <HistoryDetailSkeleton label="Loading category details" />
       </SafeAreaView>
@@ -196,7 +196,7 @@ export default function CategoryDetailScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
-      edges={['top', 'left', 'right']}>
+      edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
       <View className="flex-row items-center justify-between px-5 py-4">
         <TouchableOpacity

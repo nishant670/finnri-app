@@ -18,6 +18,7 @@ import { StateView } from '@/components/ui/StateView';
 import { Colors } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatMoney } from '@/lib/money';
 import { subscribeTransactionsChanged } from '@/lib/transaction-events';
@@ -68,6 +69,8 @@ export default function MerchantHistoryScreen() {
   const label = toParam(params.label);
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  const actionsBottom = useBottomInset(32);
+  const contentBottom = useBottomInset(120);
   const { token } = useAuthStore();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,7 +211,7 @@ export default function MerchantHistoryScreen() {
 
       <KeyboardAvoidingScreen
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 120 }}
+        contentContainerStyle={{ paddingBottom: contentBottom }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -376,7 +379,7 @@ export default function MerchantHistoryScreen() {
         )}
       </KeyboardAvoidingScreen>
 
-      <View className="absolute bottom-8 left-5 right-5 flex-row gap-4">
+      <View className="absolute left-5 right-5 flex-row gap-4" style={{ bottom: actionsBottom }}>
         <TouchableOpacity
           className="flex-1 flex-row items-center justify-center rounded-[24px] py-5 shadow-lg"
           style={{ backgroundColor: theme.accent }}>
