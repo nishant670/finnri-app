@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { categoryTile } from '@/lib/categories';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { AuthOtpSendError, authOtpSend, getFriendlyAuthErrorMessage } from '@/lib/auth';
 import { API_BASE_URL } from '@/lib/transactions';
@@ -42,6 +43,10 @@ export const AuthOTPVerificationScreen = ({
 }: AuthOtpProps) => {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  // The illustration's pastel tiles, dimmed for a dark page the way category
+  // tiles are; the fixed pastels glared there.
+  const tileFill = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).background;
+  const tileInk = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).foreground;
   const [otp, setOtp] = React.useState(['', '', '', '', '', '']);
   const [timer, setTimer] = React.useState(45);
   const [isVerifying, setIsVerifying] = React.useState(false);
@@ -185,14 +190,14 @@ export const AuthOTPVerificationScreen = ({
           <View style={styles.imageContainer}>
             <View style={styles.glowCircle} />
             <View style={[styles.mainCircle, { borderColor: theme.border }]}>
-              <View style={[styles.iconBox, { backgroundColor: '#FFCCBC' }]}>
-                <MaterialCommunityIcons name="email" size={30} color="#E64A19" />
+              <View style={[styles.iconBox, { backgroundColor: tileFill('#E64A19', '#FFCCBC') }]}>
+                <MaterialCommunityIcons name="email" size={30} color={tileInk('#E64A19', '#FFCCBC')} />
               </View>
-              <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#BBDEFB' }]}>
-                <MaterialCommunityIcons name="tag" size={12} color="#1976D2" />
+              <View style={[styles.smallIcon, styles.pos1, { backgroundColor: tileFill('#1976D2', '#BBDEFB'), borderColor: theme.background }]}>
+                <MaterialCommunityIcons name="tag" size={12} color={tileInk('#1976D2', '#BBDEFB')} />
               </View>
-              <View style={[styles.smallIcon, styles.pos2, { backgroundColor: '#C8E6C9' }]}>
-                <MaterialCommunityIcons name="lock-clock" size={12} color="#43A047" />
+              <View style={[styles.smallIcon, styles.pos2, { backgroundColor: tileFill('#43A047', '#C8E6C9'), borderColor: theme.background }]}>
+                <MaterialCommunityIcons name="lock-clock" size={12} color={tileInk('#43A047', '#C8E6C9')} />
               </View>
             </View>
           </View>
@@ -212,7 +217,7 @@ export const AuthOTPVerificationScreen = ({
           {otp.map((digit, index) => (
             <View
               key={index}
-              style={[styles.otpInput, { backgroundColor: 'white', borderColor: theme.border }]}
+              style={[styles.otpInput, { backgroundColor: theme.card, borderColor: theme.border }]}
             >
               <TextInput
                 ref={(ref) => {

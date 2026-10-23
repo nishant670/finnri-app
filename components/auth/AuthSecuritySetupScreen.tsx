@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { categoryTile } from '@/lib/categories';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as LocalAuthentication from 'expo-local-authentication';
@@ -30,6 +31,10 @@ export const AuthSecuritySetupScreen = ({
 }: AuthSecuritySetupProps) => {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  // The illustration's pastel tiles, dimmed for a dark page the way category
+  // tiles are; the fixed pastels glared there.
+  const tileFill = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).background;
+  const tileInk = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).foreground;
   const [biometricsEnabled, setBiometricsEnabled] = React.useState(false);
   const [isCheckingBiometrics, setIsCheckingBiometrics] = React.useState(false);
   const [pinConfigured, setPinConfigured] = React.useState(false);
@@ -116,14 +121,14 @@ export const AuthSecuritySetupScreen = ({
           <View style={styles.imageContainer}>
             <View style={styles.glowCircle} />
             <View style={[styles.mainCircle, { borderColor: theme.border }]}>
-              <View style={[styles.iconBox, { backgroundColor: '#FFCCBC' }]}>
-                <MaterialCommunityIcons name="shield-lock" size={40} color="#E64A19" />
+              <View style={[styles.iconBox, { backgroundColor: tileFill('#E64A19', '#FFCCBC') }]}>
+                <MaterialCommunityIcons name="shield-lock" size={40} color={tileInk('#E64A19', '#FFCCBC')} />
               </View>
-              <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#E1F5FE' }]}>
-                <MaterialCommunityIcons name="fingerprint" size={16} color="#03A9F4" />
+              <View style={[styles.smallIcon, styles.pos1, { backgroundColor: tileFill('#03A9F4', '#E1F5FE'), borderColor: theme.background }]}>
+                <MaterialCommunityIcons name="fingerprint" size={16} color={tileInk('#03A9F4', '#E1F5FE')} />
               </View>
-              <View style={[styles.smallIcon, styles.pos2, { backgroundColor: '#E8F5E9' }]}>
-                <MaterialCommunityIcons name="dialpad" size={16} color="#4CAF50" />
+              <View style={[styles.smallIcon, styles.pos2, { backgroundColor: tileFill('#4CAF50', '#E8F5E9'), borderColor: theme.background }]}>
+                <MaterialCommunityIcons name="dialpad" size={16} color={tileInk('#4CAF50', '#E8F5E9')} />
               </View>
             </View>
           </View>
@@ -139,8 +144,8 @@ export const AuthSecuritySetupScreen = ({
 
         <View style={styles.securityOptionsSection}>
           <View style={[styles.securityCard, { backgroundColor: theme.card }]}>
-            <View style={[styles.securityIconBox, { backgroundColor: '#F3E5F5' }]}>
-              <MaterialCommunityIcons name="face-recognition" size={24} color="#7B1FA2" />
+            <View style={[styles.securityIconBox, { backgroundColor: tileFill('#7B1FA2', '#F3E5F5') }]}>
+              <MaterialCommunityIcons name="face-recognition" size={24} color={tileInk('#7B1FA2', '#F3E5F5')} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.securityTitle, { color: theme.text }]}>Biometrics</Text>
@@ -151,7 +156,7 @@ export const AuthSecuritySetupScreen = ({
             <HapticSwitch
               value={biometricsEnabled}
               onValueChange={handleBiometricsToggle}
-              trackColor={{ false: '#f4f3f4', true: theme.accent }}
+              trackColor={{ false: theme.borderStrong, true: theme.accent }}
               thumbColor="white"
               disabled={isCheckingBiometrics}
             />
@@ -165,11 +170,19 @@ export const AuthSecuritySetupScreen = ({
               setLocalError(null);
             }}
           >
-            <View style={[styles.securityIconBox, { backgroundColor: pinConfigured ? '#E8F5E9' : '#FFEBEE' }]}>
+            <View
+              style={[
+                styles.securityIconBox,
+                {
+                  backgroundColor: pinConfigured
+                    ? tileFill('#2E7D32', '#E8F5E9')
+                    : tileFill('#C62828', '#FFEBEE'),
+                },
+              ]}>
               <MaterialCommunityIcons
                 name={pinConfigured ? "check-circle" : "dialpad"}
                 size={24}
-                color={pinConfigured ? "#2E7D32" : "#C62828"}
+                color={pinConfigured ? tileInk('#2E7D32', '#E8F5E9') : tileInk('#C62828', '#FFEBEE')}
               />
             </View>
             <View style={{ flex: 1 }}>
