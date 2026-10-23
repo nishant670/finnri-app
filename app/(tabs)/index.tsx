@@ -81,7 +81,7 @@ import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
 import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubscriptionOccurrence, syncSubscriptionAutomation, type SubscriptionOccurrence } from '@/lib/subscriptions';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
-import { creditGateFor } from '@/lib/credit-gate';
+import { creditGateFor, type CaptureKind } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
@@ -396,15 +396,18 @@ export default function HomeScreen() {
    * rather than after the clip exists. Returns true when it has taken over,
    * so callers can bail. The decision itself lives in `creditGateFor`.
    */
-  const blockCaptureWithoutCredits = useCallback(() => {
-    const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest });
-    if (!gate) return false;
-    setCreditAction(gate);
-    // The card says what happened; the sheet is the way past it, offered at
-    // the moment it is needed. A guest's card already points at sign-in.
-    if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
-    return true;
-  }, [billingStatus, offerPlansForBlockedAI, user?.is_guest]);
+  const blockCaptureWithoutCredits = useCallback(
+    (kind: CaptureKind) => {
+      const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest, kind });
+      if (!gate) return false;
+      setCreditAction(gate);
+      // The card says what happened; the sheet is the way past it, offered at
+      // the moment it is needed. A guest's card already points at sign-in.
+      if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
+      return true;
+    },
+    [billingStatus, offerPlansForBlockedAI, user?.is_guest]
+  );
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
@@ -746,7 +749,7 @@ export default function HomeScreen() {
       return;
     }
     // Checked before the microphone opens, not after the clip exists.
-    if (blockCaptureWithoutCredits()) return;
+    if (blockCaptureWithoutCredits('voice')) return;
     await startRecording();
   }, [blockCaptureWithoutCredits, isRecording, startRecording, stopRecording]);
 
@@ -1037,9 +1040,10 @@ export default function HomeScreen() {
    * message. True when it took the error, so the caller shows nothing else.
    */
   const showCreditParseError = useCallback(
-    (error: unknown): boolean => {
+    (error: unknown, kind: CaptureKind): boolean => {
       const creditAction = creditActionForParseError(error, {
         isGuestUser: !!user?.is_guest,
+        kind,
         dailyCreditsUsed: billingStatus?.credits.daily_credits_used,
         dailyLimit: billingStatus?.credits.daily_limit,
       });
@@ -1121,7 +1125,7 @@ export default function HomeScreen() {
   const scanReceipt = useCallback(
     async (uri: string) => {
       if (isSubmitting) return;
-      if (blockCaptureWithoutCredits()) {
+      if (blockCaptureWithoutCredits('receipt')) {
         // The credit card lives on Home, behind the sheet.
         setIsEditOpen(false);
         return;
@@ -1157,7 +1161,7 @@ export default function HomeScreen() {
       } catch (error) {
         void fetchCredits(true);
         if (abandoned()) return;
-        if (showCreditParseError(error)) {
+        if (showCreditParseError(error, 'receipt')) {
           setIsEditOpen(false);
           return;
         }
@@ -1187,8 +1191,9 @@ export default function HomeScreen() {
   const [isReceiptSourceOpen, setIsReceiptSourceOpen] = useState(false);
 
   const openReceiptScan = useCallback(() => {
-    // No point taking a photo that cannot be read: say so before the camera opens.
-    if (blockCaptureWithoutCredits()) {
+    // No point taking a photo that cannot be paid for: say so before the
+    // camera opens, and before the photo is chosen.
+    if (blockCaptureWithoutCredits('receipt')) {
       setIsEditOpen(false);
       return;
     }
@@ -1250,8 +1255,9 @@ export default function HomeScreen() {
         return;
       }
       // The same gate as the microphone, for the typed and quick-prompt paths
-      // that never touch it.
-      if (blockCaptureWithoutCredits()) return;
+      // that never touch it. Typed text wins over a recording, as below.
+      const kind: CaptureKind = trimmed ? 'text' : 'voice';
+      if (blockCaptureWithoutCredits(kind)) return;
       setIsSubmitting(true);
       setErrorMessage(null);
       setParseFailure(null);
@@ -1334,7 +1340,7 @@ export default function HomeScreen() {
         // behind it.
         setIsEditOpen(false);
         setPendingQuestion(null);
-        if (showCreditParseError(error)) return;
+        if (showCreditParseError(error, kind)) return;
         setParseFailure(describeParseFailure(error));
       } finally {
         setIsParsing(false);
