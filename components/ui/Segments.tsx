@@ -17,6 +17,11 @@ export type SegmentOption<Key extends string> = {
    * actually clear.
    */
   badge?: boolean;
+  /**
+   * A number in a small ink pill, for a filter rather than a place: R10's
+   * "Unread 2" says how many the filter will show. Hidden at zero.
+   */
+  count?: number;
   testID?: string;
 };
 
@@ -61,7 +66,13 @@ export function Segments<Key extends string>({
             testID={option.testID}
             accessibilityRole="tab"
             accessibilityState={{ selected }}
-            accessibilityLabel={option.badge ? `${option.label}, new items` : option.label}
+            accessibilityLabel={
+              option.count
+                ? `${option.label}, ${option.count}`
+                : option.badge
+                  ? `${option.label}, new items`
+                  : option.label
+            }
             onPress={() => {
               haptics.select();
               onChange(option.key);
@@ -83,6 +94,16 @@ export function Segments<Key extends string>({
               style={[styles.label, { fontSize: labelSize, fontWeight: selected ? '700' : '500' }]}>
               {option.label}
             </ThemedText>
+            {option.count ? (
+              <View
+                accessibilityElementsHidden
+                importantForAccessibility="no"
+                style={[styles.count, { backgroundColor: colors.text }]}>
+                <ThemedText style={[styles.countLabel, { color: colors.background }]}>
+                  {option.count}
+                </ThemedText>
+              </View>
+            ) : null}
             {option.badge ? (
               <View
                 accessibilityElementsHidden
@@ -124,6 +145,20 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 13,
     lineHeight: 18,
+  },
+  count: {
+    minWidth: 18,
+    height: 18,
+    paddingHorizontal: 5,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countLabel: {
+    fontSize: 11,
+    lineHeight: 18,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   badge: {
     width: 8,

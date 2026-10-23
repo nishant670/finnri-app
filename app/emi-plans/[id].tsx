@@ -125,7 +125,7 @@ export default function EMIPlanDetailScreen() {
   const active = plan.status === 'active';
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']}>
+    <SafeAreaView className="flex-1" edges={['top', 'left', 'right', 'bottom']}>
       <View className="flex-1" style={{ backgroundColor: theme.background }}>
         <View className="flex-row items-center justify-between px-6 pb-4 pt-3">
           <Pressable

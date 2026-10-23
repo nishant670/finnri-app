@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
+import { StyleSheet } from 'react-native';
 
 const mockReplace = jest.fn();
 
@@ -31,19 +32,19 @@ describe('onboarding Skip', () => {
     await waitFor(() => expect(mockReplace).toHaveBeenCalledWith('/auth'));
   });
 
-  it('offers Skip beside Next rather than in the header', async () => {
-    // Skip spent four builds in the top-left corner and was dead on a handset
-    // in every one of them, while the footer's buttons — the same handleFinish
-    // reached through "Get started" — always worked. This asserts the
-    // placement, since the reason for it is not visible in the markup.
+  it('keeps Skip out of the slide, which is clipped to its own box', async () => {
+    // Skip spent four builds dead at the top of the screen. The cause was the
+    // animated slide reaching up over the header, invisibly, not where Skip
+    // was drawn. R13 puts it back at the top right, so this pins the fix:
+    // Skip is not inside the slide, and the slide cannot draw outside its box.
     const screen = await render(<OnboardingScreen />);
 
-    const skip = await waitFor(() => screen.getByText('Skip'));
-    const next = screen.getByText('Next');
-    const dots = screen.getByTestId('onboarding-progress');
+    const skip = await waitFor(() => screen.getByTestId('onboarding-skip'));
+    const slideBox = screen.getByTestId('onboarding-slide');
 
-    expect(dots).not.toContainElement(skip);
-    expect(next.parent?.parent?.parent).toContainElement(skip);
+    expect(StyleSheet.flatten(slideBox.props.style).overflow).toBe('hidden');
+    expect(slideBox).not.toContainElement(skip);
+    expect(screen.getByTestId('onboarding-progress')).not.toContainElement(skip);
   });
 
   it('leaves Get started to do it alone on the last slide', async () => {

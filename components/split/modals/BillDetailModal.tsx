@@ -12,6 +12,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { SplitBill, SplitFriend } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -32,6 +33,7 @@ export function BillDetailModal({
   onDelete: (bill: SplitBill) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const listBottom = useBottomInset(44);
   const { token } = useAuthStore();
   const [receiptError, setReceiptError] = useState<string | null>(null);
   const [openingReceipt, setOpeningReceipt] = useState(false);
@@ -100,7 +102,7 @@ export function BillDetailModal({
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 44, paddingTop: 24 }}>
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: listBottom, paddingTop: 24 }}>
           <View className="flex-row items-start gap-5">
             <View
               className="h-20 w-20 items-center justify-center rounded-xl border"

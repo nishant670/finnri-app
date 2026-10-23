@@ -4,6 +4,7 @@ import { ScrollView, TouchableOpacity, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { styles } from './account-form-styles';
 
 type AccountSelectionSheetProps = {
@@ -22,10 +23,11 @@ export function AccountSelectionSheet({
   title,
 }: AccountSelectionSheetProps) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(40);
 
   return (
     <AnimatedBottomSheet visible={visible} onClose={onClose}>
-      <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+      <View style={[styles.modalContent, { backgroundColor: theme.card, paddingBottom: sheetBottom }]}>
         <View style={styles.modalHeader}>
           <ThemedText style={[styles.modalTitle, { color: theme.text }]}>{title}</ThemedText>
           <TouchableOpacity onPress={onClose}>

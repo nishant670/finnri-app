@@ -610,7 +610,7 @@ export default function TransactionsScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
-      edges={['top', 'left', 'right']}>
+      edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
       {/* Header (board R3-List): back, the title, and the screen's two actions. */}
       <View style={styles.header}>

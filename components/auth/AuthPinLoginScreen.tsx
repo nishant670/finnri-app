@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { categoryTile } from '@/lib/categories';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
@@ -20,6 +21,10 @@ export const AuthPinLoginScreen = ({
   const { user } = useAuthStore();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  // The illustration's pastel tiles, dimmed for a dark page the way category
+  // tiles are; the fixed pastels glared there.
+  const tileFill = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).background;
+  const tileInk = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).foreground;
   const [pin, setPin] = React.useState('');
   const [localError, setLocalError] = React.useState<string | null>(null);
 
@@ -93,7 +98,7 @@ export const AuthPinLoginScreen = ({
               styles.pinDot,
               {
                 borderColor: theme.border,
-                backgroundColor: pin.length > index ? theme.accent : 'white',
+                backgroundColor: pin.length > index ? theme.accent : theme.card,
               },
             ]}
           />
@@ -116,8 +121,8 @@ export const AuthPinLoginScreen = ({
           onPress={handleBiometricAuth}
           disabled={isLoading}
         >
-          <View style={[styles.faceIdIconBox, { backgroundColor: '#FFF4F1' }]}>
-            <MaterialCommunityIcons name="face-recognition" size={22} color="#E64A19" />
+          <View style={[styles.faceIdIconBox, { backgroundColor: tileFill('#E64A19', '#FFF4F1') }]}>
+            <MaterialCommunityIcons name="face-recognition" size={22} color={tileInk('#E64A19', '#FFF4F1')} />
           </View>
           <Text style={[styles.faceIdText, { color: theme.text }]}>Login with Biometrics</Text>
         </TouchableOpacity>

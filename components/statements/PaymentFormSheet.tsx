@@ -11,6 +11,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { normalizeAccountType, type Account } from '@/lib/accounts';
 import { fromISODate, parseAmountInput, toISODate } from '@/lib/statement-dates';
 import { formatMoney } from '@/lib/money';
@@ -62,6 +63,7 @@ export function PaymentFormSheet({
   onSubmit: (payload: StatementPaymentPayload) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(32);
 
   const [amount, setAmount] = useState('');
   const [paidOn, setPaidOn] = useState('');
@@ -99,8 +101,8 @@ export function PaymentFormSheet({
          * dimmed screen behind it — the backdrop was doing all the work and the
          * fields read as though they belonged to the page underneath.
          */
-        className="rounded-t-[28px] border px-6 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-6 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-4 flex-row items-center justify-between">
           <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
             {paidOff ? 'Mark card paid off' : 'Record payment'}

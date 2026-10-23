@@ -26,6 +26,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { SplitFriend } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -51,6 +52,7 @@ export function FriendDetailModal({
   onSettlementsChanged?: () => void;
 }) {
   const theme = useThemeTokens().colors;
+  const listBottom = useBottomInset(132);
   const summaryRef = useRef<FriendDetailSummary | null>(liveSummary);
   if (liveSummary) summaryRef.current = liveSummary;
   const summary = summaryRef.current;
@@ -182,7 +184,7 @@ export function FriendDetailModal({
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 132, paddingTop: 30 }}>
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: listBottom, paddingTop: 30 }}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}

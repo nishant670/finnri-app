@@ -10,6 +10,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { Account } from '@/lib/accounts';
 import {
   defaultDueDate,
@@ -76,6 +77,7 @@ export function StatementFormSheet({
 }) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
+  const sheetBottom = useBottomInset(32);
 
   const [statementDate, setStatementDate] = useState('');
   const [dueDate, setDueDate] = useState('');
@@ -262,8 +264,8 @@ export function StatementFormSheet({
          * dimmed screen behind it — the backdrop was doing all the work and the
          * fields read as though they belonged to the page underneath.
          */
-        className="rounded-t-[28px] border px-6 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-6 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-5 flex-row items-center justify-between">
           <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
             {initial ? 'Edit statement' : 'Add statement'}

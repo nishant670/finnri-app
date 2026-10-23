@@ -1,220 +1,117 @@
-import { Colors, Fonts } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { ThemedText } from '@/components/themed-text';
+import { CheckTag } from '@/components/ui/LabelRow';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
+
+import { IllustrationPanel, MockCard, MockTile, MOCK_TILES, SlideText } from './onboarding-ui';
+
+/**
+ * R13-Ob2: the review step, drawn from the real draft form — Title, Category,
+ * Paid via and Paid from rows, the "Check" tag on what the parser was unsure
+ * of, and Save. The categories and modes are ones the app has (Food & Drinks,
+ * UPI), not the "Groceries" and "Visa ****" the old slide invented.
+ */
 export default function Screen2() {
-  const colorScheme = useColorScheme() ?? 'light';
-  const theme = Colors[colorScheme];
+  const { colors } = useThemeTokens();
 
   return (
-    <View style={styles.container}>
-      <View style={styles.content}>
-        <View style={styles.visualContainer}>
-          {/* AI Prompt Card */}
-          <View style={[styles.aiCard, { backgroundColor: theme.card }]}>
-            <View style={styles.aiHeader}>
-              <View style={[styles.aiIconCircle, { backgroundColor: '#F5F5F7' }]}>
-                <MaterialCommunityIcons name="robot" size={16} color={theme.accent} />
-              </View>
-              <View style={styles.aiDots}>
-                <View style={[styles.dot, { backgroundColor: '#E0E0E0' }]} />
-                <View style={[styles.dot, { backgroundColor: '#E0E0E0' }]} />
-                <View style={[styles.dot, { backgroundColor: '#E0E0E0' }]} />
-              </View>
-            </View>
-
-            <View style={styles.transactionItem}>
-              <View style={[styles.amountLabel, { backgroundColor: theme.accent + '20' }]}>
-                <Text style={[styles.labelText, { color: theme.accent }]}>₹ AMOUNT</Text>
-                <Text style={[styles.valueText, { color: theme.text }]}>₹32.50</Text>
-              </View>
-            </View>
-
-            <View style={styles.transactionItem}>
-              <View style={[styles.categoryLabel, { backgroundColor: '#B088FF20' }]}>
-                <Text style={[styles.labelText, { color: '#B088FF' }]}>⬙ CATEGORY</Text>
-                <Text style={[styles.valueText, { color: theme.text }]}>Groceries</Text>
-              </View>
-            </View>
-
-            <View style={styles.transactionItem}>
-              <View style={[styles.accountLabel, { backgroundColor: '#4A90E220' }]}>
-                <Text style={[styles.labelText, { color: '#4A90E2' }]}>💳 ACCOUNT</Text>
-                <Text style={[styles.valueText, { color: theme.text }]}>Visa ****</Text>
-                <MaterialCommunityIcons name="check-circle" size={14} color="#4A90E2" style={{ marginLeft: 4 }} />
-              </View>
-            </View>
-
-            {/* The approval step used to be a whole slide. It is one line on
-                the card it belongs to, next to the fields it governs. */}
-            <View style={[styles.reviewRow, { borderTopColor: theme.border }]}>
-              <MaterialCommunityIcons name="check-decagram" size={14} color={theme.accent} />
-              <Text style={[styles.reviewText, { color: theme.text }]}>Review to save</Text>
-            </View>
+    <View style={styles.slide}>
+      <IllustrationPanel>
+        <MockCard>
+          <ThemedText tone="muted" style={styles.said}>
+            You said “लंच पर UPI से ₹250 खर्च”
+          </ThemedText>
+          <ThemedText style={styles.amount}>₹250</ThemedText>
+          <MockRow label="Title">
+            <ThemedText style={styles.value}>Lunch</ThemedText>
+          </MockRow>
+          <MockRow label="Category">
+            <MockTile {...MOCK_TILES.food} size={22} radius={6} iconSize={13} />
+            <ThemedText style={styles.value}>Food & Drinks</ThemedText>
+          </MockRow>
+          <MockRow label="Paid via">
+            <MockTile {...MOCK_TILES.upi} size={22} radius={6} iconSize={13} />
+            <ThemedText style={styles.value}>UPI</ThemedText>
+          </MockRow>
+          <MockRow label="Paid from">
+            <ThemedText tone="muted" style={[styles.value, styles.grow]}>
+              Which account?
+            </ThemedText>
+            <CheckTag />
+          </MockRow>
+          <View style={[styles.save, { backgroundColor: colors.text }]}>
+            <ThemedText style={[styles.saveLabel, { color: colors.background }]}>Save</ThemedText>
           </View>
+        </MockCard>
+      </IllustrationPanel>
+      <SlideText
+        title="You check it, then it’s saved"
+        body="Finnri fills in the amount, category, payment and date. Anything it isn’t sure about is marked, and nothing is saved until you say so."
+      />
+    </View>
+  );
+}
 
-          {/* Floating AI Bubble */}
-          <View style={[styles.floatingAiHead, { backgroundColor: theme.accent }]}>
-            <MaterialCommunityIcons name="robot" size={24} color={theme.onAccent} />
-            <View style={styles.questionMark}>
-              <Text style={{ color: theme.onAccent, fontSize: 10, fontWeight: 'bold' }}>?</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.textGroup}>
-          <Text style={[styles.title, { color: theme.text, fontFamily: Fonts.title }]}>
-            Finnri understands {('\n')}<Text style={{ color: theme.accent }}>your words</Text>
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.text, opacity: 0.6, fontFamily: Fonts.body }]}>
-            Amount, category, date and account, pulled out for you. Nothing is saved until you have
-            looked at it.
-          </Text>
-        </View>
-      </View>
+function MockRow({ label, children }: { label: string; children: React.ReactNode }) {
+  const { colors } = useThemeTokens();
+  return (
+    <View style={[styles.row, { borderTopColor: colors.border }]}>
+      <ThemedText tone="muted" style={styles.label}>
+        {label}
+      </ThemedText>
+      {children}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  slide: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 40,
   },
-  content: {
-    alignItems: 'center',
-    width: '100%',
-  },
-  visualContainer: {
-    width: '100%',
-    height: 300,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 40,
-  },
-  aiCard: {
-    width: 240,
-    borderRadius: 24,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.08,
-    shadowRadius: 25,
-    elevation: 5,
-  },
-  aiHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  aiIconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  aiDots: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  transactionItem: {
-    marginBottom: 12,
-  },
-  amountLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 10,
-    borderRadius: 12,
-  },
-  categoryLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 10,
-    borderRadius: 12,
-  },
-  accountLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 10,
-    borderRadius: 12,
-  },
-  labelText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  valueText: {
+  said: {
     fontSize: 12,
-    fontWeight: '600',
-    flex: 1,
-    textAlign: 'right',
+    lineHeight: 16,
   },
-  reviewRow: {
+  amount: {
+    marginTop: 6,
+    marginBottom: 10,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  row: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+    height: 40,
+    borderTopWidth: 1,
   },
-  reviewText: {
-    fontSize: 11,
+  label: {
+    width: 76,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  value: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  grow: {
+    flex: 1,
+  },
+  save: {
+    marginTop: 12,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  saveLabel: {
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '700',
-  },
-  floatingAiHead: {
-    position: 'absolute',
-    right: 40,
-    top: 60,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: 'rgba(0,0,0,0.18)',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.3,
-    shadowRadius: 15,
-    elevation: 8,
-  },
-  questionMark: {
-    position: 'absolute',
-    top: -4,
-    right: -4,
-    backgroundColor: '#90A4AE',
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: 'white',
-  },
-  textGroup: {
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 16,
-    lineHeight: 34,
-  },
-  subtitle: {
-    fontSize: 15,
-    textAlign: 'center',
-    lineHeight: 22,
   },
 });

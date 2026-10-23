@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   formatMinor,
   formatPlanPrice,
@@ -91,6 +92,7 @@ export function PlansOfferSheet({
   onClose: () => void;
 }) {
   const theme = useThemeTokens();
+  const sheetBottom = useBottomInset(28);
   const colors = theme.colors;
   const muted = `${colors.text}99`;
   const scrollRef = useRef<ScrollView>(null);
@@ -145,7 +147,7 @@ export function PlansOfferSheet({
         borderTopLeftRadius: 32,
         borderTopRightRadius: 32,
         paddingTop: 22,
-        paddingBottom: 28,
+        paddingBottom: sheetBottom,
       }}>
       <View testID="plans-offer-sheet" style={{ paddingHorizontal: 24 }}>
         <View

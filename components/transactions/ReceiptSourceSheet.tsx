@@ -5,6 +5,7 @@ import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { ReceiptPhotoSource } from '@/lib/receipt-photo';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -42,6 +43,7 @@ export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSource
   const colors = theme.colors;
   const isDark = theme.mode === 'dark';
   const muted = isDark ? 'rgba(255,255,255,0.58)' : '#6B7280';
+  const bottomInset = useBottomInset(28);
 
   return (
     <Modal
@@ -62,7 +64,7 @@ export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSource
           style={[
             styles.sheet,
             theme.shadows.soft,
-            { backgroundColor: colors.card, borderColor: colors.border },
+            { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: bottomInset },
           ]}>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
           <ThemedText style={[styles.title, { color: colors.text }]}>Scan a bill</ThemedText>
@@ -133,7 +135,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 28,
     gap: 6,
   },
   handle: {

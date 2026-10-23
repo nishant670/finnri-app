@@ -9,6 +9,7 @@ import { PickerOptionList } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
@@ -45,6 +46,7 @@ const PRESETS: { key: PeriodPreset; label: string }[] = [
 
 export function PeriodPicker({ visible, onClose, onSelect, currentRange }: PeriodPickerProps) {
   const themeTokens = useThemeTokens();
+  const sheetBottom = useBottomInset(24);
   const theme = themeTokens.colors;
   const [view, setView] = useState<'presets' | 'custom'>('presets');
   const [selectedPreset, setSelectedPreset] = useState<PeriodPreset | undefined>(
@@ -106,7 +108,7 @@ export function PeriodPicker({ visible, onClose, onSelect, currentRange }: Perio
         style={[
           styles.sheet,
           view === 'custom' && styles.sheetTall,
-          { backgroundColor: theme.background },
+          { backgroundColor: theme.background, paddingBottom: sheetBottom },
         ]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
 
@@ -371,7 +373,6 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingBottom: 24,
   },
   sheetTall: {
     height: SCREEN_HEIGHT * 0.85,

@@ -18,6 +18,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 import {
   computeSplitShares,
@@ -275,6 +276,7 @@ export function SplitChoiceScreen({
   onMoreOptions: () => void;
 }) {
   const theme = useThemeTokens().colors;
+  const listBottom = useBottomInset(40);
   const selfPerson = people.find((person) => person.key === selection.selfKey);
   const selfName = selfPerson?.label ?? 'You';
   const others = people.filter((person) => person.key !== selection.selfKey);
@@ -326,7 +328,7 @@ export function SplitChoiceScreen({
         rightNode={<HeaderDoneAction saving={false} onDone={onDone ?? onBack} />}
         style={{ borderBottomColor: theme.border, borderBottomWidth: 1 }}
       />
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: listBottom }}>
         <View className="px-6 pt-5">
           {choices
             .filter((choice) => !payerLocked || choice.payerKey === selection.payerKey)
@@ -468,6 +470,9 @@ export function AdjustSplitScreen({
   onChangeWeight: (key: string, value: string) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const footerBottom = useBottomInset();
+  const listBottom = useBottomInset(110);
+  const sheetBottom = useBottomInset(32);
   const [payerPickerVisible, setPayerPickerVisible] = useState(false);
   const isDefaultVariant = variant === 'default';
   const activeTab = selection.tab;
@@ -553,7 +558,7 @@ export function AdjustSplitScreen({
       <ScrollView
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 110 }}>
+        contentContainerStyle={{ paddingBottom: listBottom }}>
         <View className="flex-row items-center gap-4 px-6 py-5">
           <AvatarCircle label={payerName} size={52} />
           <TText className="flex-1 text-xl" style={{ color: theme.text }}>
@@ -644,7 +649,7 @@ export function AdjustSplitScreen({
 
       <View
         className="absolute bottom-0 left-0 right-0 min-h-[88px] flex-row items-center border-t"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: footerBottom }}>
         <View className="flex-1 items-center px-3">
           <TText
             className="text-center text-lg"
@@ -678,8 +683,8 @@ export function AdjustSplitScreen({
         visible={payerPickerVisible}
         onClose={() => setPayerPickerVisible(false)}>
         <View
-          className="rounded-t-[28px] border px-5 pb-8 pt-5"
-          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          className="rounded-t-[28px] border px-5 pt-5"
+          style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
           <View className="mb-4 flex-row items-center justify-between">
             <TText variant="sectionTitle" style={{ color: theme.text }}>
               Paid by

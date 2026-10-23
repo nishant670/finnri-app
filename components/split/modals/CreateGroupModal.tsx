@@ -14,6 +14,7 @@ import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 import type { GroupKind } from '@/lib/split-preferences';
 import type { SplitFriend } from '@/lib/splits';
@@ -72,6 +73,7 @@ export function CreateGroupModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const sheetBottom = useBottomInset(24);
   const theme = useThemeTokens().colors;
   // The board draws Members as a row; a sheet cannot open over this one, so
   // the row opens the friend chips in place instead.
@@ -93,7 +95,7 @@ export function CreateGroupModal({
       avoidKeyboard
       backdropOpacity={0.3}
       sheetStyle={{ maxHeight: '94%' }}>
-      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+      <View style={[styles.sheet, { backgroundColor: theme.background, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
         <View style={styles.header}>
           <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
@@ -296,7 +298,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,
