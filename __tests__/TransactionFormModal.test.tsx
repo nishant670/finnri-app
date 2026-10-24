@@ -1032,6 +1032,8 @@ describe('TransactionFormModal — closing with unsaved input', () => {
     await fireEvent.press(await edited.findByLabelText('Close'));
     expect(await edited.findByText('Discard your changes?')).toBeTruthy();
     expect(edited.onClose).not.toHaveBeenCalled();
+  });
+});
 
 describe('TransactionFormModal — across midnight', () => {
   afterEach(() => {
