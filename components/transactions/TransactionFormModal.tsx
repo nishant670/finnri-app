@@ -1000,17 +1000,11 @@ export function TransactionFormModal({
   );
   const displayedCategoryVisual = categoryVisual(displayedCategory, form.type);
 
-  const dateChoices = useMemo(() => {
-    const today = new Date();
-    const yesterday = new Date();
-    // setDate rather than subtracting 24h, so the DST day that is 23 hours
-    // long still resolves to yesterday's date.
-    yesterday.setDate(yesterday.getDate() - 1);
-    return [
-      { key: 'today', label: 'Today', value: formatDateLabel(today) },
-      { key: 'yesterday', label: 'Yesterday', value: formatDateLabel(yesterday) },
-    ];
-  }, []);
+  // Worked out on every render, not memoised: the sheet stays mounted for the
+  // life of the screen, and a memo pinned "Today" to the day it first drew.
+  // After midnight, Today and Yesterday each meant a day earlier than they
+  // said, so an entry picked as Yesterday saved two days back.
+  const dateChoices = buildDateChoices(new Date());
   const isCustomDate = !dateChoices.some((choice) => choice.value === form.date);
 
   /**
@@ -2721,6 +2715,18 @@ function DateChip({
 }
 
 /** Boards R2-Entry, R2-Draft, R2-Split and R4-Edit; 1px on a board is 1dp. */
+/** The Today · Yesterday chips, as of `now`. */
+export const buildDateChoices = (now: Date) => {
+  const yesterday = new Date(now);
+  // setDate rather than subtracting 24h, so the DST day that is 23 hours
+  // long still resolves to yesterday's date.
+  yesterday.setDate(yesterday.getDate() - 1);
+  return [
+    { key: 'today', label: 'Today', value: formatDateLabel(now) },
+    { key: 'yesterday', label: 'Yesterday', value: formatDateLabel(yesterday) },
+  ];
+};
+
 const formStyles = StyleSheet.create({
   panel: {
     flex: 1,
