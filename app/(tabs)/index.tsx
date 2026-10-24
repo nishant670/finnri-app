@@ -205,8 +205,6 @@ export default function HomeScreen() {
   const smartSorting = useAppSettingsStore((state) => state.smartSorting);
   const isStealthMode = !!user?.stealth_mode;
 
-  const defaultForm = useMemo<EntryForm>(() => createDefaultEntryForm(), []);
-
   const [accounts, setAccounts] = useState<Account[]>([]);
   // A refund the user said already came back, and whether to record it with the
   // purchase. It travels beside the form because it becomes a second entry.
@@ -261,19 +259,25 @@ export default function HomeScreen() {
   }, [accounts]);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
+  /**
+   * Dated the moment it is called. This used to spread a form built once when
+   * Home mounted, so after midnight every new entry was still dated — and
+   * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
+   * until the app was restarted.
+   */
   const createBlankForm = useCallback(
     (): EntryForm => ({
-      ...defaultForm,
+      ...createDefaultEntryForm(),
       accountId: null,
       account: '',
       merchant: '',
       notes: '',
     }),
-    [defaultForm]
+    []
   );
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [form, setForm] = useState<EntryForm>(defaultForm);
+  const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
   const [inputText, setInputText] = useState('');
   const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);

@@ -5,6 +5,7 @@ import * as Haptics from 'expo-haptics';
 
 import {
   TransactionFormModal,
+  buildDateChoices,
   type EMILink,
   type EntryForm,
   type AiReviewMetadata,
@@ -970,5 +971,31 @@ describe('TransactionFormModal — created-account confirmation', () => {
     await waitFor(() =>
       expect(queryByText('Axis Bank Account created and selected')).toBeNull()
     );
+  });
+});
+
+describe('TransactionFormModal — across midnight', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('works out Today and Yesterday from the moment it is shown', () => {
+    expect(buildDateChoices(new Date(2026, 9, 25, 0, 12))).toEqual([
+      { key: 'today', label: 'Today', value: '25 October 2026' },
+      { key: 'yesterday', label: 'Yesterday', value: '24 October 2026' },
+    ]);
+  });
+
+  it('saves Yesterday as the day before the new day, not the one the sheet was drawn on', async () => {
+    jest.useFakeTimers({ advanceTimers: true, now: new Date(2026, 9, 24, 23, 53) });
+    const ui = await renderModal({ initialData: { ...completeInitialData, date: '24 October 2026' } });
+
+    // Midnight passes with the sheet mounted, then anything redraws it.
+    jest.setSystemTime(new Date(2026, 9, 25, 0, 12));
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Something');
+
+    await fireEvent.press(await ui.findByTestId('entry-date-yesterday'));
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ date: '24 October 2026' }));
   });
 });
