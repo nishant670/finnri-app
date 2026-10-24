@@ -762,10 +762,6 @@ export default function TransactionsScreen() {
         sheetStyle={{ height: '92%', width: '100%' }}>
         <AdvancedFilter
           onClose={() => setIsFilterOpen(false)}
-          // Rows matching the applied filters across the whole set, not the
-          // page — the badge on a filter button that says 100 when there are
-          // 154 is the kind of number that quietly teaches distrust.
-          count={matchCount}
           onApply={(next) => {
             setFilters(next);
             clearRouteParams();
