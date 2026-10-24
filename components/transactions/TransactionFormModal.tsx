@@ -607,6 +607,11 @@ export function TransactionFormModal({
    */
   const [isSystemKeyboardUp, setIsSystemKeyboardUp] = useState(false);
   const titleInputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const splitCardRef = useRef<View>(null);
+  /** Set when the split switch is turned on; the card's next layout scrolls to it. */
+  const revealSplitRef = useRef(false);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
@@ -636,6 +641,10 @@ export function TransactionFormModal({
       Keyboard.addListener('keyboardDidHide', () => {
         setIsSystemKeyboardUp(false);
         setIsTitleFocused(false);
+        // Android's back gesture hides the keyboard but leaves the field
+        // focused, caret and all, while the keypad comes back under it: two
+        // inputs that both look live. Blur it so the amount is the only one.
+        if (visibleRef.current) Keyboard.dismiss();
       }),
     ];
     return () => subscriptions.forEach((subscription) => subscription.remove());
@@ -1073,6 +1082,12 @@ export function TransactionFormModal({
     setForm((prev) => ({ ...prev, amount }));
   }, []);
 
+  /** The title is the stronger clue; the merchant fills in when it has none. */
+  const inferCategory = (title: string, merchant: string, type: string) =>
+    inferTransactionCategory(title, type) ??
+    inferTransactionCategory(merchant, type) ??
+    defaultCategoryForType(type);
+
   const handleTitleChange = (title: string) => {
     const shouldInfer = fastEntry && !categoryChosenRef.current;
     setFormError(null);
@@ -1080,7 +1095,18 @@ export function TransactionFormModal({
       ...previous,
       title,
       category: shouldInfer
-        ? (inferTransactionCategory(title, previous.type) ?? defaultCategoryForType(previous.type))
+        ? inferCategory(title, previous.merchant, previous.type)
+        : previous.category,
+    }));
+  };
+
+  const handleMerchantChange = (merchant: string) => {
+    const shouldInfer = fastEntry && !categoryChosenRef.current;
+    setForm((previous) => ({
+      ...previous,
+      merchant,
+      category: shouldInfer
+        ? inferCategory(previous.title, merchant, previous.type)
         : previous.category,
     }));
   };
@@ -1171,6 +1197,7 @@ export function TransactionFormModal({
    * still ignores `initialData` itself — see the note at the bottom, which is
    * the original reason this is not a plain dependency.
    */
+  const seededFormRef = useRef<EntryForm | null>(null);
   const seedForm = useCallback(() => {
     // Read through the ref, never the closure. `seedForm` is memoized on
     // things that rarely change, so a captured `initialData` would be
@@ -1225,7 +1252,9 @@ export function TransactionFormModal({
     }
     // A quick prompt seeds "120.00"; the keypad would then refuse every
     // further digit because both decimal places are already spent.
-    setForm(fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded);
+    const nextForm = fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded;
+    seededFormRef.current = nextForm;
+    setForm(nextForm);
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
     // genuinely does not close over it. That is the point — reseeding on every
@@ -1656,14 +1685,64 @@ export function TransactionFormModal({
     }));
   };
 
-  const requestClose = useCallback(() => {
+  /**
+   * Switching split on adds its fields under the switch, which sits at the
+   * bottom of the sheet and mostly behind the keypad — so they appeared off
+   * screen and looked like nothing had happened. Once the card has grown,
+   * bring its top up to the top of the scroll area.
+   */
+  const revealSplitCard = useCallback(() => {
+    if (!revealSplitRef.current) return;
+    revealSplitRef.current = false;
+    const scroll = scrollRef.current;
+    const scrollHost = scroll?.getNativeScrollRef();
+    const card = splitCardRef.current;
+    if (!scroll || !scrollHost || !card) return;
+    requestAnimationFrame(() => {
+      scrollHost.measureInWindow((_scrollX, scrollTop) => {
+        card.measureInWindow((_cardX, cardTop) => {
+          const y = Math.max(0, scrollOffsetRef.current + cardTop - scrollTop - 12);
+          scroll.scrollTo({ y, animated: true });
+        });
+      });
+    });
+  }, []);
+
+  /**
+   * Two or more fields typed since the sheet opened — the point the user
+   * chose, where enough work is at stake to be worth a question. The seeded
+   * form is the baseline, so an edit or a draft only counts what has been
+   * changed in it. Picking a category or a date alone is quick to redo and
+   * does not count.
+   */
+  const isFormDirty = () => {
+    const seeded = seededFormRef.current;
+    if (!seeded) return false;
+    const changed = [
+      form.amount !== seeded.amount,
+      form.title.trim() !== seeded.title.trim(),
+      form.merchant.trim() !== seeded.merchant.trim(),
+      form.notes.trim() !== seeded.notes.trim(),
+      form.attachment !== seeded.attachment,
+      form.splitEnabled !== seeded.splitEnabled,
+    ].filter(Boolean).length;
+    return changed >= 2;
+  };
+
+  /**
+   * Every way out — the ×, dragging the sheet down, Android's back gesture —
+   * comes through here. Back is the one that bit: the first swipe closes the
+   * keyboard and the second closed the sheet, taking everything typed with it.
+   * So once two fields have been entered, closing asks first.
+   */
+  const requestClose = () => {
     if (isSaving) return;
-    if (mode !== 'audio') {
+    if (mode !== 'audio' && !isFormDirty()) {
       onClose();
       return;
     }
     setIsDiscardDialogVisible(true);
-  }, [isSaving, mode, onClose]);
+  };
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropAnim.value }));
 
@@ -1677,15 +1756,18 @@ export function TransactionFormModal({
    * is somehow out of place back where it belongs. A draft review asks before
    * discarding, so it springs back and leaves the choice to that dialog.
    */
-  const closeFromDrag = useCallback(() => {
+  const closeFromDragRef = useRef(() => {});
+  closeFromDragRef.current = () => {
     if (splitContext?.onBack) {
       settlePanel();
       splitContext.onBack();
       return;
     }
-    if (isSaving || mode === 'audio') settlePanel();
+    if (isSaving || mode === 'audio' || isFormDirty()) settlePanel();
     requestClose();
-  }, [isSaving, mode, requestClose, settlePanel, splitContext]);
+  };
+  // The gesture is built once; it reaches the current form through the ref.
+  const closeFromDrag = useCallback(() => closeFromDragRef.current(), []);
 
   const dragToClose = useMemo(() => {
     const springBack = motion.enter('base');
@@ -1820,6 +1902,11 @@ export function TransactionFormModal({
               </GestureDetector>
 
               <ScrollView
+                ref={scrollRef}
+                onScroll={(event) => {
+                  scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={32}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 style={{ flex: 1 }}
@@ -1866,7 +1953,7 @@ export function TransactionFormModal({
                           accessibilityLabel="Edit amount"
                           onPress={focusAmountKeypad}
                           style={formStyles.amountTouch}>
-                          <AmountDisplay value={form.amount} />
+                          <AmountDisplay value={form.amount} active={isKeypadVisible} />
                         </Pressable>
                       ) : (
                         <Pressable
@@ -2208,7 +2295,7 @@ export function TransactionFormModal({
                               value={form.merchant}
                               onChangeText={(merchant) => {
                                 markDraftFieldChecked('merchant');
-                                setForm((p) => ({ ...p, merchant }));
+                                handleMerchantChange(merchant);
                               }}
                               placeholder="Shop or service"
                               placeholderTextColor={theme.muted}
@@ -2258,10 +2345,16 @@ export function TransactionFormModal({
                           ) : null}
                         </View>
                         {canSplit ? (
-                          <View style={formStyles.splitCard}>
+                          <View
+                            ref={splitCardRef}
+                            onLayout={revealSplitCard}
+                            style={formStyles.splitCard}>
                             <TransactionSplitFields
                               form={form}
                               setForm={setForm}
+                              onTurnedOn={() => {
+                                revealSplitRef.current = true;
+                              }}
                               friends={splitFriends}
                               groups={splitGroups}
                               shareMode={splitShareMode}
@@ -2549,8 +2642,20 @@ export function TransactionFormModal({
 
         <ThemedDeleteDialog
           visible={isDiscardDialogVisible}
-          title="Discard this draft?"
-          message="What Finnri picked up, and any changes you made, won't be saved."
+          title={
+            mode === 'audio'
+              ? 'Discard this draft?'
+              : isEdit
+                ? 'Discard your changes?'
+                : `Discard this ${form.type === 'Income' ? 'income' : 'expense'}?`
+          }
+          message={
+            mode === 'audio'
+              ? "What Finnri picked up, and any changes you made, won't be saved."
+              : isEdit
+                ? "Your changes won't be saved."
+                : "What you've entered won't be saved."
+          }
           cancelLabel="Keep editing"
           confirmLabel="Discard"
           onCancel={() => setIsDiscardDialogVisible(false)}

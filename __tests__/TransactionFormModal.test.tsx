@@ -601,7 +601,7 @@ describe('TransactionFormModal — amount-first manual entry', () => {
 });
 
 describe('TransactionFormModal — title category suggestions', () => {
-  const unclassified = { ...completeInitialData, title: '', category: 'Misc' };
+  const unclassified = { ...completeInitialData, title: '', merchant: '', category: 'Misc' };
 
   it('follows title corrections and saves the latest inferred category', async () => {
     const ui = await renderModal({ initialData: unclassified });
@@ -621,6 +621,17 @@ describe('TransactionFormModal — title category suggestions', () => {
       await fireEvent.changeText(await ui.findByTestId('entry-title-input'), unknown);
       expect(await ui.findByLabelText('Category Misc')).toBeTruthy();
     }
+  });
+
+  it('falls back to the merchant when the title has no clue', async () => {
+    const ui = await renderModal({ initialData: unclassified });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Team outing');
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+    await fireEvent.changeText(await ui.findByTestId('entry-merchant-input'), 'Zomato');
+    expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    // The title still wins when it has a clue of its own.
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Cab home');
+    expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
   });
 
   it.each(['Shopping', 'Misc'])('preserves an explicit %s selection across title edits and same-type taps', async (category) => {
@@ -970,5 +981,55 @@ describe('TransactionFormModal — created-account confirmation', () => {
     await waitFor(() =>
       expect(queryByText('Axis Bank Account created and selected')).toBeNull()
     );
+  });
+});
+
+describe('TransactionFormModal — closing with unsaved input', () => {
+  const blank = { ...completeInitialData, title: '', amount: '', merchant: '', notes: '' };
+
+  it('closes straight away when nothing has been entered', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this expense?')).toBeNull();
+  });
+
+  it('closes straight away with only one field entered', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await typeAmount(ui.findByTestId, '210');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this expense?')).toBeNull();
+  });
+
+  it('asks before discarding typed input, and keeps it on Keep editing', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await typeAmount(ui.findByTestId, '210');
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Momos');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(await ui.findByText('Discard this expense?')).toBeTruthy();
+    expect(ui.onClose).not.toHaveBeenCalled();
+
+    await fireEvent.press(await ui.findByText('Keep editing'));
+    expect(ui.onClose).not.toHaveBeenCalled();
+    expect((await ui.findByTestId('entry-title-input')).props.value).toBe('Momos');
+
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    await fireEvent.press(await ui.findByText('Discard'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only what an edit changed', async () => {
+    const ui = await renderModal({ isEdit: true });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Something new');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+
+    const edited = await renderModal({ isEdit: true });
+    await fireEvent.changeText(await edited.findByTestId('entry-title-input'), 'Something new');
+    await fireEvent.changeText(await edited.findByTestId('entry-amount-input'), '999');
+    await fireEvent.press(await edited.findByLabelText('Close'));
+    expect(await edited.findByText('Discard your changes?')).toBeTruthy();
+    expect(edited.onClose).not.toHaveBeenCalled();
   });
 });
