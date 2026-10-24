@@ -1709,28 +1709,31 @@ export function TransactionFormModal({
   }, []);
 
   /**
-   * Anything typed since the sheet opened. The seeded form is the baseline, so
-   * an edit or a draft only counts once something in it has been changed.
-   * Picking a category or a date alone is quick to redo and does not count.
+   * Two or more fields typed since the sheet opened — the point the user
+   * chose, where enough work is at stake to be worth a question. The seeded
+   * form is the baseline, so an edit or a draft only counts what has been
+   * changed in it. Picking a category or a date alone is quick to redo and
+   * does not count.
    */
   const isFormDirty = () => {
     const seeded = seededFormRef.current;
     if (!seeded) return false;
-    return (
-      form.amount !== seeded.amount ||
-      form.title.trim() !== seeded.title.trim() ||
-      form.merchant.trim() !== seeded.merchant.trim() ||
-      form.notes.trim() !== seeded.notes.trim() ||
-      form.attachment !== seeded.attachment ||
-      form.splitEnabled !== seeded.splitEnabled
-    );
+    const changed = [
+      form.amount !== seeded.amount,
+      form.title.trim() !== seeded.title.trim(),
+      form.merchant.trim() !== seeded.merchant.trim(),
+      form.notes.trim() !== seeded.notes.trim(),
+      form.attachment !== seeded.attachment,
+      form.splitEnabled !== seeded.splitEnabled,
+    ].filter(Boolean).length;
+    return changed >= 2;
   };
 
   /**
    * Every way out — the ×, dragging the sheet down, Android's back gesture —
    * comes through here. Back is the one that bit: the first swipe closes the
    * keyboard and the second closed the sheet, taking everything typed with it.
-   * So once anything has been entered, closing asks first.
+   * So once two fields have been entered, closing asks first.
    */
   const requestClose = () => {
     if (isSaving) return;

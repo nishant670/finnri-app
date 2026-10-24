@@ -994,6 +994,14 @@ describe('TransactionFormModal — closing with unsaved input', () => {
     expect(ui.queryByText('Discard this expense?')).toBeNull();
   });
 
+  it('closes straight away with only one field entered', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await typeAmount(ui.findByTestId, '210');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this expense?')).toBeNull();
+  });
+
   it('asks before discarding typed input, and keeps it on Keep editing', async () => {
     const ui = await renderModal({ initialData: blank });
     await typeAmount(ui.findByTestId, '210');
@@ -1011,13 +1019,15 @@ describe('TransactionFormModal — closing with unsaved input', () => {
     expect(ui.onClose).toHaveBeenCalledTimes(1);
   });
 
-  it('treats an untouched edit as clean and a changed one as unsaved', async () => {
+  it('counts only what an edit changed', async () => {
     const ui = await renderModal({ isEdit: true });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Something new');
     await fireEvent.press(await ui.findByLabelText('Close'));
     expect(ui.onClose).toHaveBeenCalledTimes(1);
 
     const edited = await renderModal({ isEdit: true });
     await fireEvent.changeText(await edited.findByTestId('entry-title-input'), 'Something new');
+    await fireEvent.changeText(await edited.findByTestId('entry-amount-input'), '999');
     await fireEvent.press(await edited.findByLabelText('Close'));
     expect(await edited.findByText('Discard your changes?')).toBeTruthy();
     expect(edited.onClose).not.toHaveBeenCalled();
