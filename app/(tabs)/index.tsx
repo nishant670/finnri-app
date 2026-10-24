@@ -85,6 +85,7 @@ import { creditGateFor, type CaptureKind } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
+import { requestMicAccess } from '@/lib/microphone-access';
 import {
   applyParsedDraftToForm,
   buildAiReview,
@@ -692,19 +693,30 @@ export default function HomeScreen() {
     isSnoozed: isGuestUpgradeSnoozed,
   });
 
-  const ensureMicPermission = useCallback(async () => {
-    const currentPermission = await getRecordingPermissionsAsync();
-    if (currentPermission.status === 'granted') {
-      return true;
-    }
-    const permission = await requestRecordingPermissionsAsync();
-    return permission.status === 'granted';
-  }, []);
-
   const startRecording = useCallback(async () => {
-    const hasPermission = await ensureMicPermission();
-    if (!hasPermission) {
-      setErrorMessage('Finnri needs microphone access to hear you. You can turn it on in Settings.');
+    const access = await requestMicAccess({
+      get: getRecordingPermissionsAsync,
+      request: requestRecordingPermissionsAsync,
+    });
+    if (access === 'denied') {
+      // The system prompt was just answered no; another tap asks again.
+      setErrorMessage("Finnri can't hear you without the microphone. Tap the mic to allow it, or type instead.");
+      return;
+    }
+    if (access === 'blocked') {
+      // The system will not ask again, so the way back is Settings — the same
+      // offer the camera makes for a bill photo.
+      setErrorMessage(null);
+      const openSettings = await dialog.confirm({
+        title: 'Microphone is off for Finnri',
+        message:
+          Platform.OS === 'ios'
+            ? 'Turn on Microphone for Finnri in Settings to log by voice. You can still type or scan a bill.'
+            : 'In Settings, open Permissions › Microphone and choose "Allow only while using the app" to log by voice. You can still type or scan a bill.',
+        confirmLabel: 'Open Settings',
+        cancelLabel: 'Not now',
+      });
+      if (openSettings) void Linking.openSettings();
       return;
     }
     try {
@@ -723,7 +735,7 @@ export default function HomeScreen() {
       setErrorMessage("Couldn't start recording. Try again.");
       setIsRecording(false);
     }
-  }, [audioRecorder, ensureMicPermission]);
+  }, [audioRecorder, dialog]);
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
