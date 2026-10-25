@@ -83,7 +83,6 @@ import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/t
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { creditGateFor, type CaptureKind } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
-import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import {
   applyParsedDraftToForm,
@@ -521,7 +520,6 @@ export default function HomeScreen() {
       try {
         const dashboard = await fetchDashboard(token);
         setMonthDashboard(dashboard);
-        updateAndroidMonthWidget(dashboard.summary.total_spent, dashboard.period.start);
       } catch {
         setMonthDashboard(null);
       } finally {
@@ -782,6 +780,16 @@ export default function HomeScreen() {
     // card is already where it belongs.
     setTimeout(() => setIsTextInputVisible(true), CAPTURE_EXPAND_MS);
   }, [scrollRef]);
+
+  /**
+   * "Type" on the home-screen widget (board R14-Widget) opens Home with
+   * `compose=type`: the capture card, open, with the cursor in it.
+   */
+  useEffect(() => {
+    if (compose !== 'type') return;
+    router.setParams({ compose: '' });
+    handleExpandCapture();
+  }, [compose, handleExpandCapture, router]);
 
   /** Recording from the pill brings the card back with it, same as expanding. */
   const handlePillMicPress = useCallback(() => {
