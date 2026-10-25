@@ -98,7 +98,7 @@
         {
           "photosPermission": "Allow Finnri to open your photos so it can read a bill you choose.",
           "cameraPermission": "Allow Finnri to use the camera so you can photograph a bill and have it read.",
-          "microphonePermission": false
+          "microphonePermission": "Allow Finnri to access your microphone so you can record transactions."
         }
       ],
       "expo-font",
