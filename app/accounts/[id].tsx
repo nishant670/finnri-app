@@ -27,7 +27,6 @@ import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -802,34 +801,22 @@ export default function AccountDetailsScreen() {
             handleEdit();
           }}
         />
-        <PressableView
-          accessibilityRole="button"
-          accessibilityState={{ disabled: entriesUsingAccount > 0 }}
+        <SettingsRow
+          tone="danger"
+          icon="delete-outline"
+          title="Delete account"
+          divider
           disabled={entriesUsingAccount > 0}
+          subtitle={
+            entriesUsingAccount > 0
+              ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
+              : 'Removes it from Finnri for good'
+          }
           onPress={() => {
             setIsActionsSheetVisible(false);
             setIsDeleteDialogVisible(true);
           }}
-          style={[
-            styles.deleteRow,
-            { borderTopColor: theme.border },
-            entriesUsingAccount > 0 && styles.disabled,
-          ]}
-          pressedStyle={styles.pressed}>
-          <View style={[styles.tile, { backgroundColor: withAlpha(theme.negative, 0.12) }]}>
-            <MaterialCommunityIcons name="delete-outline" size={18} color={theme.negative} />
-          </View>
-          <View style={styles.flexText}>
-            <ThemedText tone="negative" style={styles.rowTitle}>
-              Delete account
-            </ThemedText>
-            <ThemedText tone="muted" style={styles.caption}>
-              {entriesUsingAccount > 0
-                ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
-                : 'Removes it from Finnri for good'}
-            </ThemedText>
-          </View>
-        </PressableView>
+        />
       </AnimatedBottomSheet>
 
         <ThemedDeleteDialog
@@ -1161,19 +1148,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
-  },
-  deleteRow: {
-    minHeight: 60,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-    paddingLeft: 14,
-    paddingRight: 12,
-    borderTopWidth: 1,
-  },
-  disabled: {
-    opacity: 0.6,
   },
   pressed: {
     opacity: 0.7,
