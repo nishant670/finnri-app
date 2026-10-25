@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The 1 × 1 widget: the mic on an orange rounded square. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+  <solid android:color="@color/finnri_accent"/>
+  <corners android:radius="22dp"/>
+</shape>
