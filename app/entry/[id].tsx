@@ -831,7 +831,7 @@ export default function TransactionDetailsScreen() {
               accessibilityRole="button"
               accessibilityLabel={isPdfAttachment(receiptUrl) ? 'Open bill PDF' : 'View bill photo'}
               disabled={!displayReceiptUrl}
-              style={[styles.card, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+              style={[styles.card, styles.receiptCard, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
               pressedStyle={styles.pressed}>
               {isPdfAttachment(receiptUrl) ? (
                 <View style={[styles.receiptThumb, styles.receiptThumbIcon, { borderColor: theme.border, backgroundColor: theme.track }]}>
@@ -842,7 +842,7 @@ export default function TransactionDetailsScreen() {
                   {displayReceiptUrl ? (
                     <Image
                       source={{ uri: displayReceiptUrl }}
-                      style={StyleSheet.absoluteFill}
+                      style={styles.receiptImage}
                       contentFit="cover"
                       contentPosition="top"
                       transition={150}
@@ -1185,10 +1185,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   sectionLabel: {
-    marginBottom: 8,
+    marginTop: 20,
+    marginHorizontal: SCREEN_GUTTER,
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  receiptCard: {
+    marginTop: 8,
   },
   receiptRow: {
     flexDirection: 'row',
@@ -1204,6 +1208,10 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     overflow: 'hidden',
+  },
+  receiptImage: {
+    width: '100%',
+    height: '100%',
   },
   receiptThumbIcon: {
     alignItems: 'center',
