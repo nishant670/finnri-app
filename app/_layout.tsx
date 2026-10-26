@@ -16,6 +16,7 @@ import '../global.css';
 import { FinnriSplashScreen } from '@/components/SplashScreen';
 import { TransactionDeleteProvider } from '@/components/transactions/TransactionDeleteProvider';
 import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
+import { useAppMoodStore } from '@/hooks/use-app-mood-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useMotion } from '@/hooks/use-motion';
@@ -76,6 +77,7 @@ const resolveInitialRoute = async () => {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { setColorScheme } = useNativeWindColorScheme();
+  const appearance = useAppMoodStore((state) => state.appearance);
   const themeTokens = useThemeTokens();
   const motion = useMotion();
   const [isAppReady, setIsAppReady] = useState(false);
@@ -151,9 +153,15 @@ export default function RootLayout() {
     });
   }, [clearAuth, router]);
 
+  /**
+   * NativeWind gets the preference, not the resolved mode. Its setter calls
+   * `Appearance.setColorScheme`, which overrides what React Native reports as
+   * the phone's setting — so handing it `colorScheme` pinned Match phone to
+   * whatever the phone said at launch. `'system'` clears that override.
+   */
   useEffect(() => {
-    setColorScheme(colorScheme);
-  }, [colorScheme, setColorScheme]);
+    setColorScheme(appearance);
+  }, [appearance, setColorScheme]);
 
   useEffect(() => {
     if (!token || Constants.appOwnership === 'expo') return;

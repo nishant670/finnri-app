@@ -21,7 +21,7 @@ import { MINUS_SIGN } from '@/lib/money';
 const flat = (style: unknown) => (StyleSheet.flatten(style as never) ?? {}) as TextStyle & ViewStyle;
 
 afterEach(() => {
-  useAppMoodStore.setState({ nightMode: false, themeColor: 'finnri' });
+  useAppMoodStore.setState({ appearance: 'light', themeColor: 'finnri' });
 });
 
 describe('the transaction row', () => {

@@ -172,15 +172,22 @@ export const ThemeMoods = {
 export type ThemeMoodId = keyof typeof ThemeMoods;
 export type IconStyle = 'whimsical' | 'minimal';
 
+/**
+ * Light, Dark, or Match phone (P39). `'system'` is the default so the very
+ * first screen — onboarding, before anyone could have found App mood — already
+ * follows the phone's dark-mode setting.
+ */
+export type AppearanceMode = 'light' | 'dark' | 'system';
+
 export type AppMoodSettings = {
   themeColor: ThemeMoodId;
-  nightMode: boolean;
+  appearance: AppearanceMode;
   iconStyle: IconStyle;
 };
 
 export const DefaultAppMood: AppMoodSettings = {
   themeColor: 'finnri',
-  nightMode: false,
+  appearance: 'system',
   iconStyle: 'whimsical',
 };
 
@@ -687,9 +694,10 @@ export type TypographyVariant = keyof typeof Typography;
 
 export function resolveThemeMode(
   systemMode: ThemeMode | null | undefined,
-  mood: Pick<AppMoodSettings, 'nightMode'> = DefaultAppMood
+  mood: Pick<AppMoodSettings, 'appearance'> = DefaultAppMood
 ): ThemeMode {
-  return mood.nightMode ? 'dark' : 'light';
+  if (mood.appearance === 'system') return systemMode ?? 'light';
+  return mood.appearance;
 }
 
 export function getMoodColors(themeColor: ThemeMoodId = DefaultAppMood.themeColor) {
