@@ -3,7 +3,12 @@ import type { Href } from 'expo-router';
 
 import { formatDayMonth } from './datetime';
 import { monthFromActionURL } from './monthly-review';
-import { accountIdFromActionURL, isRecurringActionURL, type AppNotification } from './notifications';
+import {
+  accountIdFromActionURL,
+  isBillingActionURL,
+  isRecurringActionURL,
+  type AppNotification,
+} from './notifications';
 
 type GlyphName = keyof typeof MaterialCommunityIcons.glyphMap;
 
@@ -62,6 +67,7 @@ const KINDS: Record<string, NotificationKind> = {
   'split.settlement.recorded': { icon: 'hand-coin-outline', ...HUES.split, action: 'Review in Splits' },
   'split.settlement.confirmed': { icon: 'check', ...HUES.done, action: 'Open Splits' },
   'split.settlement.denied': { icon: 'close-circle-outline', ...HUES.late, action: 'Open Splits' },
+  'billing.pass.gifted': { icon: 'gift-outline', ...HUES.done, action: 'See your pass' },
 };
 
 const FALLBACK: NotificationKind = { icon: 'bell-outline', ...HUES.neutral, action: null };
@@ -112,6 +118,8 @@ export function notificationDestination(notification: AppNotification): Href | n
 
   const reviewMonth = monthFromActionURL(url);
   if (reviewMonth) return { pathname: '/monthly-review', params: { month: reviewMonth } };
+
+  if (isBillingActionURL(url)) return '/billing';
 
   return null;
 }
