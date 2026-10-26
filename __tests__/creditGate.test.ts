@@ -1,5 +1,5 @@
 import type { BillingStatus } from '@/lib/billing';
-import { creditGateFor } from '@/lib/credit-gate';
+import { creditBlockFor, creditBlockLifted, creditGateFor } from '@/lib/credit-gate';
 
 /**
  * The bugs: with a zero balance the microphone still opened, and the refusal
@@ -100,5 +100,42 @@ describe('creditGateFor', () => {
         kind: 'text',
       })
     ).toBeNull();
+  });
+});
+
+/**
+ * The bug: someone out of credits was gifted a pass. The footnote under Home's
+ * "Out of AI credits" card updated to "3600 total credits left", but the card
+ * itself stayed until the app was restarted.
+ */
+describe('creditBlockLifted', () => {
+  const empty = status({ total_credits_remaining: 0, daily_limit: 50, daily_credits_remaining: 0 });
+
+  it('lifts once a gifted pass brings the balance back', () => {
+    const block = creditBlockFor(empty, 5);
+    const gifted = status({ total_credits_remaining: 3600, daily_limit: 250, daily_credits_remaining: 250 });
+    expect(creditBlockLifted(block, gifted)).toBe(true);
+  });
+
+  it('holds while nothing has changed, even if the app thinks it is enough', () => {
+    // A long voice clip: the server wanted 40, the app only knows the 12-credit
+    // shortest-clip price, and the balance has not moved.
+    const thirty = status({ total_credits_remaining: 30, daily_credits_remaining: 30 });
+    expect(creditBlockLifted(creditBlockFor(thirty, 40), thirty)).toBe(false);
+  });
+
+  it('holds when credits came in but still not enough for what was refused', () => {
+    const block = creditBlockFor(empty, 25);
+    expect(creditBlockLifted(block, status({ total_credits_remaining: 20, daily_credits_remaining: 20 }))).toBe(false);
+  });
+
+  it("lifts a daily-limit refusal when tomorrow's allowance arrives", () => {
+    const usedUp = status({ total_credits_remaining: 900, daily_limit: 50, daily_credits_remaining: 0 });
+    const tomorrow = status({ total_credits_remaining: 900, daily_limit: 50, daily_credits_remaining: 50 });
+    expect(creditBlockLifted(creditBlockFor(usedUp, 5), tomorrow)).toBe(true);
+  });
+
+  it('never lifts without a billing status', () => {
+    expect(creditBlockLifted(creditBlockFor(empty, 5), null)).toBe(false);
   });
 });
