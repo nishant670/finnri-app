@@ -23,6 +23,7 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { installApiSessionGuard } from '@/lib/api-session';
 import { initCrashReporting } from '@/lib/crash-reporting';
 import { monthFromActionURL } from '@/lib/monthly-review';
+import { isBillingActionURL } from '@/lib/notifications';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
 
 export const unstable_settings = {
@@ -173,6 +174,11 @@ export default function RootLayout() {
           const month = typeof actionURL === 'string' ? monthFromActionURL(actionURL) : null;
           if (month) {
             router.push({ pathname: '/monthly-review', params: { month } });
+            return;
+          }
+          // A gifted pass: open the pass itself, not the list it sits in.
+          if (typeof actionURL === 'string' && isBillingActionURL(actionURL)) {
+            router.push('/billing');
             return;
           }
           router.push('/notifications');
