@@ -2,6 +2,7 @@ import { View } from 'react-native';
 
 import {
   BalanceFilterButton,
+  SettledHint,
   SplitEmptyCard,
   SplitListCard,
 } from '@/components/split/primitives/SplitChrome';
@@ -17,6 +18,13 @@ type SplitFriendsSectionProps = {
   /** `divider`: the rule above the row — every row in the card but the first. */
   renderFriendRow: (friend: SplitFriend, entranceIndex: number, divider: boolean) => ReactNode;
   onAddFriend: () => void;
+  /**
+   * Friends the default "open" filter hides because nothing is owed. Without
+   * this a settled friend simply vanished from Friends while still showing in
+   * every picker, which read as the list being wrong.
+   */
+  hiddenSettledCount: number;
+  onShowSettled: () => void;
   /** A balance filter other than the default "open" is set. */
   filterActive: boolean;
   onOpenFilter: () => void;
@@ -29,6 +37,8 @@ export function SplitFriendsSection({
   normalizedSearch,
   renderFriendRow,
   onAddFriend,
+  hiddenSettledCount,
+  onShowSettled,
   filterActive,
   onOpenFilter,
 }: SplitFriendsSectionProps) {
@@ -42,9 +52,12 @@ export function SplitFriendsSection({
         />
       ) : null}
       {hasRows ? (
-        <SplitListCard>
-          {visibleFriends.map((friend, index) => renderFriendRow(friend, index, index > 0))}
-        </SplitListCard>
+        <>
+          <SplitListCard>
+            {visibleFriends.map((friend, index) => renderFriendRow(friend, index, index > 0))}
+          </SplitListCard>
+          <SettledHint noun="friend" settledCount={hiddenSettledCount} onShowSettled={onShowSettled} />
+        </>
       ) : (
         <View style={hasAnyFriends ? undefined : { marginTop: 16 }}>
           <SplitEmptyCard
@@ -58,6 +71,7 @@ export function SplitFriendsSection({
             actionLabel={normalizedSearch ? undefined : 'Add friend'}
             onAction={onAddFriend}
           />
+          <SettledHint noun="friend" settledCount={hiddenSettledCount} onShowSettled={onShowSettled} />
         </View>
       )}
     </View>

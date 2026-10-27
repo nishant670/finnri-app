@@ -6,7 +6,6 @@ import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
 import { SplitFriendChip } from '@/components/split/rows/SplitFriendChip';
 import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
 import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
-import { SplitNonGroupRow } from '@/components/split/rows/SplitNonGroupRow';
 import { haptics } from '@/lib/haptics';
 import type { SplitFriend } from '@/lib/splits';
 
@@ -148,41 +147,6 @@ describe('SplitGroupCard', () => {
     const { screen, onOpen } = await setup(summary());
     await fireEvent.press(screen.getByText('Goa'));
     expect(onOpen).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe('SplitNonGroupRow', () => {
-  const nonGroup = (over: Record<string, unknown> = {}) =>
-    ({ billCount: 0, detailLines: [], latestBill: undefined, netBalance: 0, ...over }) as never;
-
-  it('describes personal shared expenses and opens the bill composer', async () => {
-    const onPress = jest.fn();
-    const screen = await render(
-      <SplitNonGroupRow summary={nonGroup()} entranceIndex={0} onPress={onPress} />
-    );
-    expect(screen.getByText('Non-group expenses')).toBeTruthy();
-    expect(screen.getByText('Personal shared expenses')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Non-group expenses'));
-    expect(onPress).toHaveBeenCalledTimes(1);
-  });
-
-  it('prefers the open balances, then the bill count', async () => {
-    const withLines = await render(
-      <SplitNonGroupRow
-        summary={nonGroup({ billCount: 2, detailLines: ['Asha owes you ₹10.00'] })}
-        entranceIndex={0}
-        onPress={jest.fn()}
-      />
-    );
-    expect(withLines.getByText('Asha owes you ₹10.00')).toBeTruthy();
-    const counted = await render(
-      <SplitNonGroupRow
-        summary={nonGroup({ billCount: 1, latestBill: { date: '2026-10-03' } })}
-        entranceIndex={0}
-        onPress={jest.fn()}
-      />
-    );
-    expect(counted.getByText('1 bill • last on 2026-10-03')).toBeTruthy();
   });
 });
 

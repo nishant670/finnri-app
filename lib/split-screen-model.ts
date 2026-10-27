@@ -144,42 +144,6 @@ export const buildFriendDetailSummaries = ({
   });
 };
 
-export const buildNonGroupSummary = (bills: SplitBill[], friendById: Map<number, SplitFriend>) => {
-  const nonGroupBills = bills.filter((bill) => !bill.group_id);
-  const participantBalances = new Map<number, number>();
-
-  nonGroupBills.forEach((bill) => {
-    bill.participants?.forEach((participant) => {
-      const current = participantBalances.get(participant.friend_id) ?? 0;
-      const signedShare =
-        participant.direction === 'friend_owes_user'
-          ? participant.share_amount
-          : -participant.share_amount;
-      participantBalances.set(participant.friend_id, current + signedShare);
-    });
-  });
-
-  const netBalance = [...participantBalances.values()].reduce((sum, value) => sum + value, 0);
-  const detailLines = [...participantBalances.entries()]
-    .map(([friendId, value]) => {
-      const friend = friendById.get(friendId);
-      if (!friend || value === 0) return null;
-      return value > 0
-        ? `${friend.name} owes you ${formatBalance(value)}`
-        : `You owe ${friend.name} ${formatBalance(value)}`;
-    })
-    .filter((line): line is string => Boolean(line))
-    .slice(0, 2);
-  const latestBill = [...nonGroupBills].sort((a, b) => b.date.localeCompare(a.date))[0];
-
-  return {
-    billCount: nonGroupBills.length,
-    detailLines,
-    latestBill,
-    netBalance,
-  };
-};
-
 const localDay = (value: Date) =>
   [
     value.getFullYear(),
