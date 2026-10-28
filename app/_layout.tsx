@@ -287,6 +287,7 @@ export default function RootLayout() {
         <Stack.Screen name="billing" />
         <Stack.Screen name="purchase-history" />
         <Stack.Screen name="ai-usage" />
+        <Stack.Screen name="ai-credits" />
         <Stack.Screen name="ask" />
         <Stack.Screen name="tools" />
         <Stack.Screen name="about-finnri" />

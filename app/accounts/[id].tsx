@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -155,7 +155,9 @@ function SectionTitle({ title, action }: { title: string; action?: ReactNode }) 
 }
 
 export default function AccountDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  // `add=statement` arrives from the card-added screen: open the Add
+  // statement sheet as soon as the card has loaded, once.
+  const { id, add } = useLocalSearchParams<{ id?: string; add?: string }>();
   const sheetBottom = useBottomInset(28);
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
@@ -192,6 +194,7 @@ export default function AccountDetailsScreen() {
    * server is the real gate, and a wrong lock is worse than a late message.
    */
   const [hasPaidPlan, setHasPaidPlan] = useState<boolean | null>(null);
+  const [readPrices, setReadPrices] = useState<{ pdf?: number; screenshots?: number }>();
   useEffect(() => {
     if (!token) return;
     let active = true;
@@ -201,6 +204,10 @@ export default function AccountDetailsScreen() {
           setHasPaidPlan(
             status.subscription_status === 'active' || status.subscription_status === 'cancelled'
           );
+          setReadPrices({
+            pdf: status.credits.capture_credits?.statement_pdf,
+            screenshots: status.credits.capture_credits?.statement_screenshots,
+          });
         }
       })
       .catch(() => undefined);
@@ -271,6 +278,13 @@ export default function AccountDetailsScreen() {
 
   const accountType = account ? normalizeAccountType(account.type) : 'other';
   const isCreditCard = accountType === 'credit_card';
+  const openedFromAdd = useRef(false);
+  useEffect(() => {
+    if (add !== 'statement' || !isCreditCard || openedFromAdd.current) return;
+    openedFromAdd.current = true;
+    setStatementError(null);
+    setIsStatementSheetVisible(true);
+  }, [add, isCreditCard]);
   const dueLabel = account ? getCreditDueLabel(account.due_day) : null;
   const reminderLabel = account ? getCreditReminderLabel(account) : null;
   // The hero was labelled "Balance"/"Total Due" over a number that was neither:
@@ -863,6 +877,7 @@ export default function AccountDetailsScreen() {
                 return readStatementFile(token, account.id, source, password);
               }}
               screenshotsLocked={hasPaidPlan === false}
+              prices={readPrices}
               onSeePlans={() => {
                 setIsStatementSheetVisible(false);
                 router.push('/billing');

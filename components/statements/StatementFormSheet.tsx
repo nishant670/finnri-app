@@ -52,6 +52,7 @@ export function StatementFormSheet({
   screenshotsLocked = false,
   onSeePlans,
   onReadSource,
+  prices,
 }: {
   visible: boolean;
   card: Account;
@@ -74,6 +75,8 @@ export function StatementFormSheet({
   /** Reading screenshots needs a paid plan; PDFs never do. */
   screenshotsLocked?: boolean;
   onSeePlans?: () => void;
+  /** AI credits each read costs, from billing status; unknown hides the price. */
+  prices?: { pdf?: number; screenshots?: number };
 }) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -87,6 +90,8 @@ export function StatementFormSheet({
   const [picker, setPicker] = useState<'statement' | 'due' | null>(null);
   const [source, setSource] = useState<StatementUploadSource | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
+  // A refusal for credits, which the See plans link below the error answers.
+  const [creditBlocked, setCreditBlocked] = useState(false);
   const [showScreenshotsLock, setShowScreenshotsLock] = useState(false);
   const [read, setRead] = useState<StatementRead | null>(null);
   const [isReading, setIsReading] = useState(false);
@@ -103,6 +108,7 @@ export function StatementFormSheet({
     setDueDateTouched(Boolean(initial));
     setSource(null);
     setSourceError(null);
+    setCreditBlocked(false);
     setShowScreenshotsLock(false);
     setRead(null);
     setIsReading(false);
@@ -141,6 +147,7 @@ export function StatementFormSheet({
     if (!onReadSource) return;
     setIsReading(true);
     setSourceError(null);
+    setCreditBlocked(false);
     try {
       const result = await onReadSource(picked, filePassword);
       setRead(result);
@@ -162,7 +169,12 @@ export function StatementFormSheet({
       setNeedsPassword(
         code === 'statement_password_required' || code === 'statement_password_incorrect'
       );
-      setSourceError(statementUploadErrorMessage(code));
+      setCreditBlocked(
+        code === 'insufficient_ai_credits' ||
+          code === 'daily_ai_limit_reached' ||
+          code === 'feature_locked'
+      );
+      setSourceError(statementUploadErrorMessage(code, picked.kind));
     } finally {
       setIsReading(false);
     }
@@ -415,11 +427,21 @@ export function StatementFormSheet({
                 (isReading
                   ? 'Reading your statement…'
                   : read
-                    ? prefilled.length > 0
-                      ? `Filled in the ${prefilled.join(', ')} from your statement. Check them before saving.`
-                      : `Found ${read.lines.length} transaction${read.lines.length === 1 ? '' : 's'}. Enter the total from your statement.`
-                    : 'Upload the bank’s PDF and Finnri fills this in, then checks every row against your entries. Statement text is read by an AI service; the file and any password are never stored.')}
+                    ? describeRead(read, prefilled)
+                    : `Upload the bank’s PDF and Finnri fills this in, then checks every row against your entries. Statement text is read by an AI service${priceNote(prices)}; the file and any password are never stored.`)}
             </TText>
+            {sourceError && creditBlocked && onSeePlans ? (
+              <Pressable
+                testID="statement-credits-see-plans"
+                accessibilityRole="link"
+                onPress={onSeePlans}
+                hitSlop={6}
+                className="mt-1 self-start">
+                <TText className="text-[11px]" style={{ fontFamily: Fonts.title, color: theme.accent }}>
+                  See plans
+                </TText>
+              </Pressable>
+            ) : null}
           </>
         )}
 
@@ -611,4 +633,31 @@ function UploadChoice({
       </TText>
     </Pressable>
   );
+}
+
+/** ` (PDF 50 credits, screenshots 100)`, or nothing while prices are unknown. */
+function priceNote(prices?: { pdf?: number; screenshots?: number }): string {
+  const parts = [
+    prices?.pdf ? `PDF ${prices.pdf} credits` : null,
+    prices?.screenshots ? `screenshots ${prices.screenshots}` : null,
+  ].filter(Boolean);
+  return parts.length > 0 ? ` (${parts.join(', ')})` : '';
+}
+
+/**
+ * What a finished read says. The transactions are said out loud either way:
+ * a summary that prefilled while no rows came back used to read as success,
+ * and the check after saving then asked for the same file again.
+ */
+function describeRead(read: StatementRead, prefilled: (string | false | undefined)[]): string {
+  const filled =
+    prefilled.length > 0
+      ? `Filled in the ${prefilled.join(', ')} from your statement. Check them before saving.`
+      : 'Enter the total from your statement.';
+  const rows =
+    read.lines.length > 0
+      ? `Found ${read.lines.length} transaction${read.lines.length === 1 ? '' : 's'}; after saving, Finnri adds only the ones you haven't logged.`
+      : 'No transactions could be read from this file. Screenshots of the transaction pages may work.';
+  const credits = read.credits_charged ? ` Used ${read.credits_charged} AI credits.` : '';
+  return `${filled} ${rows}${credits}`;
 }

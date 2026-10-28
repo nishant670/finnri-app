@@ -26,6 +26,7 @@ import {
   uploadStatementPDF,
   uploadStatementScreenshots,
 } from '@/lib/statements';
+import { fetchBillingStatus, type CaptureCredits } from '@/lib/billing';
 import { formatMoney } from '@/lib/money';
 import {
   type ProbableDecision,
@@ -111,7 +112,7 @@ export default function StatementReviewScreen() {
         if (code === 'statement_password_required' || code === 'statement_password_incorrect') {
           setNeedsPassword(true);
         }
-        setError(statementUploadErrorMessage(code));
+        setError(statementUploadErrorMessage(code, 'pdf'));
       } finally {
         setIsBusy(false);
       }
@@ -144,7 +145,7 @@ export default function StatementReviewScreen() {
         applyDiff(await uploadStatementScreenshots(token, statementId, files));
       } catch (uploadError) {
         const code = uploadError instanceof StatementApiError ? uploadError.code : undefined;
-        setError(statementUploadErrorMessage(code));
+        setError(statementUploadErrorMessage(code, 'screenshots'));
       } finally {
         setIsBusy(false);
       }
@@ -179,6 +180,22 @@ export default function StatementReviewScreen() {
    * charge) and offer the card updates the statement suggested. Taken once.
    */
   const [intake, setIntake] = useState<StatementIntake | null>(null);
+  // The file read while adding the bill had a summary but no rows. Said
+  // plainly, so the upload card below is not mistaken for a step that failed.
+  const [noRowsFromIntake, setNoRowsFromIntake] = useState(false);
+  const [prices, setPrices] = useState<CaptureCredits | null>(null);
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    fetchBillingStatus(token)
+      .then((status) => {
+        if (active) setPrices(status.credits.capture_credits ?? null);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [token]);
   const tookIntake = useRef(false);
   useEffect(() => {
     if (tookIntake.current || !token || !Number.isFinite(statementId)) return;
@@ -186,7 +203,10 @@ export default function StatementReviewScreen() {
     const taken = takeStatementIntake(intakeKey);
     if (!taken) return;
     setIntake(taken);
-    if (taken.lines.length === 0) return;
+    if (taken.lines.length === 0) {
+      setNoRowsFromIntake(true);
+      return;
+    }
     setIsBusy(true);
     diffStatementLines(token, statementId, taken.lines)
       .then(applyDiff)
@@ -269,9 +289,26 @@ export default function StatementReviewScreen() {
                 Read your card statement
               </TText>
               <TText className="mt-2 text-sm" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-                Use the bank&apos;s PDF, or choose cropped screenshots. Either route shows what
-                Finnri already has before you add anything.
+                {noRowsFromIntake
+                  ? "The bill is saved, but no transactions could be read from that file. Try the PDF again, or screenshots of the transaction pages. Finnri adds only the ones you haven't logged."
+                  : "Use the bank's PDF, or choose cropped screenshots. Either way, Finnri shows what you've already logged and adds only the rest."}
               </TText>
+              {prices?.statement_pdf || prices?.statement_screenshots ? (
+                <TText
+                  testID="statement-check-prices"
+                  className="mt-2 text-[11px]"
+                  style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+                  {[
+                    prices.statement_pdf ? `A PDF uses ${prices.statement_pdf} AI credits` : null,
+                    prices.statement_screenshots
+                      ? `screenshots use ${prices.statement_screenshots}`
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join('; ')}
+                  . A read that finds nothing is free.
+                </TText>
+              ) : null}
 
               {/* Users are right to hesitate here, and the honest answer is
                   short. */}
