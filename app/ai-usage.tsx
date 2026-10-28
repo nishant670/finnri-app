@@ -24,11 +24,15 @@ const actionLabels: Record<string, string> = {
   transaction_parse_voice_short: 'Short voice capture',
   transaction_parse_voice_medium: 'Voice capture',
   transaction_parse_voice_long: 'Long voice capture',
+  statement_pdf_read: 'Statement PDF read',
+  future_ai_statement_import: 'Statement screenshots read',
 };
 
 const statusLabels: Record<string, string> = {
   succeeded: 'Charged',
-  failed_after_provider: 'Charged after provider attempt',
+  // Bill scans and statement reads are refunded when they fail; other reads
+  // still carry what the provider attempt cost.
+  failed_after_provider: 'Not read',
   failed_before_provider: 'Refunded',
   cancelled: 'Cancelled',
   reserved: 'Processing',
@@ -37,6 +41,8 @@ const statusLabels: Record<string, string> = {
 /** Each kind of action's glyph and hue, so a scan and a typed note are told apart at a glance. */
 const actionVisual = (event: AIUsageEvent): { icon: keyof typeof MaterialCommunityIcons.glyphMap; hue: string } => {
   if (event.action_code.includes('receipt')) return { icon: 'receipt-text-outline', hue: '#6A4BBC' };
+  if (event.action_code === 'statement_pdf_read') return { icon: 'file-pdf-box', hue: '#C2410C' };
+  if (event.action_code === 'future_ai_statement_import') return { icon: 'image-multiple-outline', hue: '#B45309' };
   if (event.input_kind === 'voice' || event.action_code.includes('voice')) return { icon: 'microphone-outline', hue: '#16825D' };
   return { icon: 'keyboard-outline', hue: '#1E6FB8' };
 };
