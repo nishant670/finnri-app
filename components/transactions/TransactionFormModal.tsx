@@ -69,6 +69,7 @@ import { categoryTypeOf, useUserCategories } from '@/lib/user-categories';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
+import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
 import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
@@ -1593,6 +1594,10 @@ export function TransactionFormModal({
       // Saving an entry with a split hits an entitlement-gated path. A 402
       // there is an offer, not a validation failure.
       if (captureEntitlement(error)) {
+        return;
+      }
+      // Backed out at the duplicate warning: a choice, not a failure.
+      if (error instanceof DuplicateSaveCancelled) {
         return;
       }
       rejectSave(
