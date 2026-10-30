@@ -5,7 +5,6 @@ import {
   buildFriendById,
   buildFriendDetailSummaries,
   buildGroupSummaries,
-  buildNonGroupSummary,
   activityDateLabel,
   activityDayTitle,
   buildActivityListItems,
@@ -198,70 +197,6 @@ describe('buildFriendDetailSummaries', () => {
     });
     expect(result[0].groups).toHaveLength(1);
     expect(result[1].groups).toHaveLength(0);
-  });
-});
-
-describe('buildNonGroupSummary', () => {
-  const friendById = new Map([
-    [1, asha],
-    [2, ravi],
-  ]);
-  const participants = (rows: [number, number, 'friend_owes_user' | 'user_owes_friend'][]) =>
-    rows.map(([friend_id, share_amount, direction]) => ({ friend_id, share_amount, direction }));
-
-  it('nets what each friend owes across bills that belong to no group', () => {
-    const summary = buildNonGroupSummary(
-      [
-        bill({ id: 1, participants: participants([[1, 100, 'friend_owes_user']]) as never }),
-        bill({
-          id: 2,
-          participants: participants([
-            [1, 30, 'user_owes_friend'],
-            [2, 50, 'user_owes_friend'],
-          ]) as never,
-        }),
-        bill({
-          id: 3,
-          group_id: 4,
-          participants: participants([[1, 999, 'friend_owes_user']]) as never,
-        }),
-      ],
-      friendById
-    );
-    expect(summary.billCount).toBe(2);
-    expect(summary.netBalance).toBe(20);
-    expect(summary.detailLines).toEqual([
-      `Asha owes you ${formatBalance(70)}`,
-      `You owe Ravi ${formatBalance(-50)}`,
-    ]);
-  });
-
-  it('leaves out settled-to-zero friends, caps the lines at two and finds the latest bill', () => {
-    const many = [1, 2, 3, 4].map((id) => friend(id, `F${id}`));
-    const summary = buildNonGroupSummary(
-      [
-        bill({
-          id: 1,
-          date: '2026-10-02',
-          participants: participants([
-            [1, 10, 'friend_owes_user'],
-            [2, 10, 'friend_owes_user'],
-            [3, 10, 'friend_owes_user'],
-          ]) as never,
-        }),
-        bill({
-          id: 2,
-          date: '2026-10-09',
-          participants: participants([
-            [4, 5, 'friend_owes_user'],
-            [4, 5, 'user_owes_friend'],
-          ]) as never,
-        }),
-      ],
-      new Map(many.map((f) => [f.id, f]))
-    );
-    expect(summary.detailLines).toHaveLength(2);
-    expect(summary.latestBill?.id).toBe(2);
   });
 });
 
