@@ -36,7 +36,11 @@ export const formatMonthYear = (value: string) => {
 
 export const getFirstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
-const normalizePhone = (value?: string) => value?.replace(/\D/g, '') ?? '';
+/**
+ * The last ten digits: a phone book writes "+91 98718 01518" where a friend
+ * was saved as "9871801518", and comparing every digit never matched the two.
+ */
+const normalizePhone = (value?: string) => (value?.replace(/\D/g, '') ?? '').slice(-10);
 
 const normalizeEmail = (value?: string) => value?.trim().toLowerCase() ?? '';
 

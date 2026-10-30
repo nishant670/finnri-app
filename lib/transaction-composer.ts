@@ -6,7 +6,15 @@ import { createEntry, type EntryMutationPayload } from './entries';
 import { createCardEMIPlan } from './emi-plans';
 import { refundReminderAtNineAM } from './refundables';
 import { createSubscription } from './subscriptions';
-import { formatApiDate, formatDateLabel, parseDateLabel, type ApiEntry } from './transactions';
+import { formatMoney } from './money';
+import {
+  formatApiDate,
+  formatDateLabel,
+  loadTransactionPage,
+  parseDateLabel,
+  type ApiEntry,
+} from './transactions';
+import type { Transaction } from '@/types/transaction';
 import { resolveAttachmentForSave } from './uploads';
 
 /**
@@ -83,7 +91,78 @@ export type TransactionSaveProgress = {
   emiCreated?: boolean;
   subscriptionCreated?: boolean;
   refundCreated?: boolean;
+  /** The user saw the likely-duplicate warning and chose to save anyway. */
+  duplicateConfirmed?: boolean;
 };
+
+/**
+ * Thrown when the user backs out at the likely-duplicate warning. Nothing went
+ * wrong, so the form stays open with no error on it.
+ */
+export class DuplicateSaveCancelled extends Error {
+  constructor() {
+    super('Not saved: it looks like a duplicate.');
+    this.name = 'DuplicateSaveCancelled';
+  }
+}
+
+const sameText = (a?: string | null, b?: string | null) => {
+  const left = (a ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  return left !== '' && left === (b ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+};
+
+/**
+ * An already-logged transaction the form is most likely repeating: the same
+ * day, the same direction and the same amount, and also the same title or
+ * merchant, or the same account. A bill logged by hand and then again from its
+ * receipt rarely shares a title, but it does share the account it was paid from.
+ *
+ * Returns null when the check itself fails — a lookup that did not load is no
+ * reason to stop a save.
+ */
+export async function findLikelyDuplicate(
+  token: string,
+  form: EntryForm,
+  accountId: number | null
+): Promise<Transaction | null> {
+  const parsedDate = parseDateLabel(form.date);
+  const amount = Number(form.amount.replace(/,/g, '').trim());
+  if (!parsedDate || !Number.isFinite(amount) || amount <= 0) return null;
+  const date = formatApiDate(parsedDate);
+  try {
+    const { transactions } = await loadTransactionPage(token, {
+      type: form.type.toLowerCase(),
+      start_date: date,
+      end_date: date,
+      min_amount: amount,
+      max_amount: amount,
+      page_size: 20,
+    });
+    return (
+      transactions.find(
+        (candidate) =>
+          sameText(candidate.title, form.title) ||
+          sameText(candidate.merchant, form.merchant) ||
+          (accountId != null && candidate.accountId === accountId)
+      ) ?? null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** The warning's wording, shared so every save path asks the same question. */
+export function describeLikelyDuplicate(match: Transaction) {
+  const where = match.accountName ? ` from ${match.accountName}` : '';
+  const when = match.dateLabel ? ` on ${match.dateLabel}` : '';
+  return {
+    title: 'Similar transaction found',
+    message: `"${match.name}" for ${formatMoney(Math.abs(match.amount), { sign: 'never' })}${where}${when} is already logged. Is this a duplicate, or do you still want to save it?`,
+    confirmLabel: 'Save anyway',
+    cancelLabel: 'Go back',
+    iconName: 'content-duplicate' as const,
+  };
+}
 
 /** A refund already received for the purchase being saved. */
 export type ReceivedRefund = { amount: number; date?: string | null };
@@ -131,6 +210,7 @@ export async function saveNewTransaction({
   sourceText = '',
   progress = {},
   refund = null,
+  confirmDuplicate,
 }: {
   token: string;
   form: EntryForm;
@@ -140,8 +220,20 @@ export async function saveNewTransaction({
   sourceText?: string;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
+  /**
+   * Asked when the form looks like a transaction already logged. Resolve true
+   * to save it anyway; false stops the save with {@link DuplicateSaveCancelled}.
+   */
+  confirmDuplicate?: (match: Transaction) => Promise<boolean>;
 }) {
   const parsedDate = parseDateLabel(form.date);
+  if (confirmDuplicate && !progress.entry && !progress.duplicateConfirmed) {
+    const match = await findLikelyDuplicate(token, form, account?.id ?? null);
+    if (match) {
+      if (!(await confirmDuplicate(match))) throw new DuplicateSaveCancelled();
+      progress.duplicateConfirmed = true;
+    }
+  }
   const fingerprint = JSON.stringify({
     form,
     accountId: account?.id ?? null,

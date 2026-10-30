@@ -55,7 +55,11 @@ import {
   type SplitFriend,
   type SplitGroup,
 } from '@/lib/splits';
-import { saveNewTransaction, type TransactionSaveProgress } from '@/lib/transaction-composer';
+import {
+  describeLikelyDuplicate,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { buildTransactionListItems, type TransactionListItem } from '@/lib/transaction-list';
 import { isAmountSort } from '@/lib/transactions';
@@ -462,6 +466,7 @@ export default function TransactionsScreen() {
         account: resolveAccountForEntry(accounts, formData),
         idempotencyKey: addIdempotencyKey.current,
         progress: addSaveProgress.current,
+        confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
       });
       addIdempotencyKey.current = null;
       addSaveProgress.current = {};
@@ -479,7 +484,7 @@ export default function TransactionsScreen() {
         void offerBudgetAlert(budgetNotificationIds);
       }
     },
-    [accounts, filters.sort, offerBudgetAlert, token]
+    [accounts, dialog, filters.sort, offerBudgetAlert, token]
   );
 
   /**
@@ -576,6 +581,7 @@ export default function TransactionsScreen() {
       }
       actionLabel={hasActiveConstraints ? 'Clear filters' : 'Add transaction'}
       onAction={hasActiveConstraints ? clearFilters : openAdd}
+      style={styles.emptyState}
     />
   );
 
@@ -1053,6 +1059,12 @@ const styles = StyleSheet.create({
     height: 9,
     borderRadius: 5,
     borderWidth: 1.5,
+  },
+  // On the search row's gutter, and clear of it: the card used to sit flush
+  // under the search box and 8pt narrower on each side than it.
+  emptyState: {
+    marginHorizontal: SCREEN_GUTTER,
+    marginTop: 16,
   },
   chipScroll: {
     flexGrow: 0,

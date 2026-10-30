@@ -22,7 +22,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { installApiSessionGuard } from '@/lib/api-session';
-import { initCrashReporting } from '@/lib/crash-reporting';
+import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { monthFromActionURL } from '@/lib/monthly-review';
 import { isBillingActionURL } from '@/lib/notifications';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
@@ -171,7 +171,13 @@ export default function RootLayout() {
     void Promise.all([import('expo-notifications'), import('@/lib/push-notifications')])
       .then(([Notifications, { registerForPushNotifications }]) => {
         if (cancelled) return;
-        void registerForPushNotifications(token).catch(() => undefined);
+        // A phone that can't register gets no push at all, so a failure here is
+        // reported rather than dropped. On Android it was silent for months:
+        // without a Firebase config Expo can't issue a push token.
+        void registerForPushNotifications(token).catch((error: unknown) => {
+          console.warn('Push registration failed', error);
+          reportHandledError(error, { where: 'registerForPushNotifications' });
+        });
         responseSubscription = Notifications.addNotificationResponseReceivedListener((event) => {
           // Tapping a push has always landed on the notification list, which is
           // right when there is nothing more specific to open and wrong for the
