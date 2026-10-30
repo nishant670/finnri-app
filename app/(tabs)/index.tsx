@@ -65,6 +65,7 @@ import {
 } from '@/lib/guest-upgrade';
 import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, suggestAccountFromTransaction, saveAccount, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
 import {
+  describeLikelyDuplicate,
   saveNewTransaction,
   type ReceivedRefund,
   type TransactionSaveProgress,
@@ -1068,6 +1069,7 @@ export default function HomeScreen() {
           sourceText: modalMode === 'audio' ? aiSourceText : '',
           progress: createSaveProgress.current,
           refund: modalMode === 'audio' && recordRefund ? refundReceived : null,
+          confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
         });
         if (convertedToEMI) {
           setTransactions((current) =>
@@ -1123,6 +1125,7 @@ export default function HomeScreen() {
       aiSourceText,
       considerPlansPrompt,
       createBlankForm,
+      dialog,
       ensureAccountForEntry,
       fetchSplitOptions,
       modalMode,

@@ -30,6 +30,7 @@ import {
 } from '@/lib/split-composer';
 import {
   buildTransactionPayload,
+  describeLikelyDuplicate,
   entryToComposerForm,
   saveNewTransaction,
   type TransactionSaveProgress,
@@ -1270,6 +1271,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             account,
             idempotencyKey: billSaveKey.current,
             progress: billSaveProgress.current,
+            confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
           });
         }
         notifyTransactionsChanged();
