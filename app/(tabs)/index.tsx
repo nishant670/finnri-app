@@ -5,16 +5,18 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
+import Constants from 'expo-constants';
 import { File } from 'expo-file-system';
 import { useRouter, useFocusEffect, useLocalSearchParams, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated as RNAnimated, Easing, Linking, Platform, View } from 'react-native';
+import { AppState, Animated as RNAnimated, Easing, Linking, Platform, View } from 'react-native';
 import Animated, {
   useAnimatedRef,
   useAnimatedScrollHandler,
   useSharedValue,
 } from 'react-native-reanimated';
 
+import { GiftPassModal } from '@/components/billing/GiftPassModal';
 import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
 import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
 import { CreditActionCard } from '@/components/home/CreditActionCard';
@@ -34,6 +36,7 @@ import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
+import { useGiftPassAnnouncement } from '@/hooks/use-gift-pass-announcement';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Screen } from '@/components/ui/theme-primitives';
@@ -41,6 +44,7 @@ import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
+  isBillingActionURL,
   fetchNotifications,
   fetchNewUnreadBudgetNotification,
   fetchUnreadBudgetNotificationIds,
@@ -67,7 +71,7 @@ import {
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formToQuickPromptPayload } from '@/lib/quick-prompts';
-import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
+import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, ParseApiError, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import { pickReceiptPhoto, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
 import { ReceiptSourceSheet } from '@/components/transactions/ReceiptSourceSheet';
 import {
@@ -81,7 +85,14 @@ import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
 import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubscriptionOccurrence, syncSubscriptionAutomation, type SubscriptionOccurrence } from '@/lib/subscriptions';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
-import { creditGateFor, type CaptureKind } from '@/lib/credit-gate';
+import {
+  captureCreditsFor,
+  creditBlockFor,
+  creditBlockLifted,
+  creditGateFor,
+  type CaptureKind,
+  type CreditBlock,
+} from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import { requestMicAccess } from '@/lib/microphone-access';
@@ -350,7 +361,10 @@ export default function HomeScreen() {
   const [newTransactionId, setNewTransactionId] = useState<string | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [isBillingLoading, setIsBillingLoading] = useState(false);
-  const [creditAction, setCreditAction] = useState<CreditActionState | null>(null);
+  // `block` is what lets the card step aside once credits come back.
+  const [creditAction, setCreditAction] = useState<(CreditActionState & { block?: CreditBlock }) | null>(
+    null
+  );
   const [aiSourceText, setAiSourceText] = useState('');
   const [aiInputSource, setAiInputSource] = useState<'text' | 'voice' | 'receipt'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
@@ -404,7 +418,7 @@ export default function HomeScreen() {
     (kind: CaptureKind) => {
       const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest, kind });
       if (!gate) return false;
-      setCreditAction(gate);
+      setCreditAction({ ...gate, block: creditBlockFor(billingStatus, captureCreditsFor(billingStatus, kind)) });
       // The card says what happened; the sheet is the way past it, offered at
       // the moment it is needed. A guest's card already points at sign-in.
       if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
@@ -588,6 +602,65 @@ export default function HomeScreen() {
     setUnreadNotifications(count);
   }, [token]);
 
+  // A refusal's card steps aside once fresh billing data shows the credits are
+  // back — a gifted pass, a purchase, tomorrow's allowance — rather than
+  // waiting for the next capture or a restart.
+  useEffect(() => {
+    if (creditAction?.block && creditBlockLifted(creditAction.block, billingStatus)) {
+      setCreditAction(null);
+    }
+  }, [billingStatus, creditAction]);
+
+  // The gift pop-up waits for the entry sheet, the prompt editor and the plans
+  // sheet. Unlike the plans prompt it does not wait for the credit card: that
+  // card is often exactly what the gift answers.
+  const giftBlockedRef = useRef(false);
+  giftBlockedRef.current = isEditOpen || isPromptModalOpen || plansPrompt.sheet.visible;
+  const giftAnnouncement = useGiftPassAnnouncement({
+    token,
+    enabled: !user?.is_guest,
+    canInterrupt: useCallback(() => !giftBlockedRef.current, []),
+    onAnnounce: useCallback(() => {
+      void fetchCredits(true);
+    }, [fetchCredits]),
+  });
+  const checkForGift = giftAnnouncement.check;
+
+  // Coming back to the app is when news arrives: a gift given while it was in
+  // the background, or credits bought on the web. Focus alone misses it,
+  // because Home never lost focus.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void fetchCredits(true);
+      void fetchNotificationCount();
+      void checkForGift();
+    });
+    return () => subscription.remove();
+  }, [checkForGift, fetchCredits, fetchNotificationCount]);
+
+  // A gift's push, arriving while the app is open, opens the pop-up straight
+  // away. Expo Go has no push, which is why this is imported, not required.
+  useEffect(() => {
+    if (!token || Constants.appOwnership === 'expo') return;
+    let subscription: { remove: () => void } | undefined;
+    let cancelled = false;
+    void import('expo-notifications')
+      .then((Notifications) => {
+        if (cancelled) return;
+        subscription = Notifications.addNotificationReceivedListener((event) => {
+          if (isBillingActionURL(event?.request?.content?.data?.action_url as string | undefined)) {
+            void checkForGift();
+          }
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [checkForGift, token]);
+
   const showNewBudgetAlert = useCallback(
     async (previousBudgetNotificationIds: Set<number>) => {
       if (!token) return;
@@ -629,6 +702,7 @@ export default function HomeScreen() {
       void fetchSplitOptions();
       void fetchCredits();
       void fetchNotificationCount();
+      void checkForGift();
       void isGuestUpgradePromptSnoozed().then(setIsGuestUpgradeSnoozed);
       if (token) {
         void syncSubscriptionAutomation(token)
@@ -637,6 +711,7 @@ export default function HomeScreen() {
           .catch(() => undefined);
       }
     }, [
+      checkForGift,
       fetchAccountOptions,
       fetchCredits,
       fetchEntries,
@@ -1072,7 +1147,10 @@ export default function HomeScreen() {
         dailyLimit: billingStatus?.credits.daily_limit,
       });
       if (creditAction) {
-        setCreditAction(creditAction);
+        const required =
+          (error instanceof ParseApiError ? error.requiredCredits : undefined) ??
+          captureCreditsFor(billingStatus, kind);
+        setCreditAction({ ...creditAction, block: creditBlockFor(billingStatus, required) });
         if (!user?.is_guest) void offerPlansForBlockedAI(creditAction.reason);
         void fetchCredits(true);
         return true;
@@ -1080,8 +1158,7 @@ export default function HomeScreen() {
       return false;
     },
     [
-      billingStatus?.credits.daily_credits_used,
-      billingStatus?.credits.daily_limit,
+      billingStatus,
       fetchCredits,
       offerPlansForBlockedAI,
       user?.is_guest,
@@ -1762,6 +1839,18 @@ export default function HomeScreen() {
         onClose={() => setIsReceiptSourceOpen(false)}
       />
       <PlansOfferSheet {...plansPrompt.sheet} />
+      <GiftPassModal
+        visible={giftAnnouncement.gift !== null}
+        title={giftAnnouncement.gift?.title ?? ''}
+        body={giftAnnouncement.gift?.body ?? ''}
+        onSeePass={() => {
+          void giftAnnouncement.close().then(fetchNotificationCount);
+          router.push('/billing');
+        }}
+        onClose={() => {
+          void giftAnnouncement.close().then(fetchNotificationCount);
+        }}
+      />
       <TransactionFormModal
         visible={isPromptModalOpen}
         onClose={() => setIsPromptModalOpen(false)}
