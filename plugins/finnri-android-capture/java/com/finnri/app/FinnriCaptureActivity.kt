@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaRecorder
@@ -45,6 +46,8 @@ class FinnriCaptureActivity : Activity() {
   private val bars = mutableListOf<View>()
   private val handler = Handler(Looper.getMainLooper())
   private val density by lazy { resources.displayMetrics.density }
+  /** The app's mood, by the phone's dark mode unless the user picked Light or Dark. */
+  private val palette by lazy { FinnriPalette.current(this) }
 
   /** Bar heights at rest, as the board draws them. */
   private val restHeights = intArrayOf(8, 16, 26, 14, 30, 20, 10, 24, 12, 6)
@@ -72,6 +75,7 @@ class FinnriCaptureActivity : Activity() {
       window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
     }
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    window.navigationBarColor = palette.background
     renderSheet()
 
     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -105,7 +109,7 @@ class FinnriCaptureActivity : Activity() {
       orientation = LinearLayout.VERTICAL
       setPadding(dp(16), dp(8), dp(16), dp(28))
       background = GradientDrawable().apply {
-        setColor(getColor(R.color.finnri_background))
+        setColor(palette.background)
         val r = 28 * density
         cornerRadii = floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
       }
@@ -113,7 +117,7 @@ class FinnriCaptureActivity : Activity() {
       isClickable = true
     }
 
-    val handle = View(this).apply { background = rounded(getColor(R.color.finnri_border_strong), 2f) }
+    val handle = View(this).apply { background = rounded(palette.borderStrong, 2f) }
     sheet.addView(handle, LinearLayout.LayoutParams(dp(36), dp(4)).apply {
       gravity = Gravity.CENTER_HORIZONTAL
       bottomMargin = dp(10)
@@ -129,8 +133,8 @@ class FinnriCaptureActivity : Activity() {
       textSize = 15f
       gravity = Gravity.CENTER
       setTypeface(typeface, Typeface.BOLD)
-      setTextColor(getColor(R.color.finnri_logo_ink))
-      background = rounded(getColor(R.color.finnri_logo_fill), 9f)
+      setTextColor(palette.logoInk)
+      background = rounded(palette.logoFill, 9f)
       importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
     header.addView(mark, LinearLayout.LayoutParams(dp(28), dp(28)))
@@ -138,14 +142,15 @@ class FinnriCaptureActivity : Activity() {
       text = "Quick capture"
       textSize = 15f
       setTypeface(typeface, Typeface.BOLD)
-      setTextColor(getColor(R.color.finnri_text))
+      setTextColor(palette.text)
     }
     header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
       marginStart = dp(10)
     })
     val close = ImageButton(this).apply {
       setImageResource(R.drawable.ic_close_ink)
-      background = oval(getColor(R.color.finnri_track))
+      imageTintList = ColorStateList.valueOf(palette.text)
+      background = oval(palette.track)
       setPadding(dp(9), dp(9), dp(9), dp(9))
       scaleType = ImageView.ScaleType.FIT_CENTER
       contentDescription = "Close"
@@ -159,10 +164,11 @@ class FinnriCaptureActivity : Activity() {
       orientation = LinearLayout.VERTICAL
       gravity = Gravity.CENTER_HORIZONTAL
     }
-    val ring = FrameLayout(this).apply { background = oval(getColor(R.color.finnri_tint)) }
+    val ring = FrameLayout(this).apply { background = oval(palette.selectedFill) }
     val mic = ImageView(this).apply {
       setImageResource(R.drawable.ic_mic_ink)
-      background = oval(getColor(R.color.finnri_accent))
+      imageTintList = ColorStateList.valueOf(palette.onAccent)
+      background = oval(palette.accent)
       setPadding(dp(18), dp(18), dp(18), dp(18))
       importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
     }
@@ -175,7 +181,7 @@ class FinnriCaptureActivity : Activity() {
       importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
     }
     restHeights.forEachIndexed { index, height ->
-      val bar = View(this).apply { background = rounded(getColor(R.color.finnri_accent), 2f) }
+      val bar = View(this).apply { background = rounded(palette.accent, 2f) }
       bars.add(bar)
       meterRow.addView(bar, LinearLayout.LayoutParams(dp(4), dp(height)).apply {
         if (index > 0) marginStart = dp(4)
@@ -190,7 +196,7 @@ class FinnriCaptureActivity : Activity() {
       textSize = 20f
       gravity = Gravity.CENTER
       setTypeface(typeface, Typeface.BOLD)
-      setTextColor(getColor(R.color.finnri_text))
+      setTextColor(palette.text)
       accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
     }
     centre.addView(status, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
@@ -200,7 +206,7 @@ class FinnriCaptureActivity : Activity() {
       text = "Say it like “Petrol 500 by UPI”"
       textSize = 15f
       gravity = Gravity.CENTER
-      setTextColor(getColor(R.color.finnri_text_muted))
+      setTextColor(palette.textMuted)
     }
     centre.addView(hint, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
       topMargin = dp(14)
@@ -216,10 +222,11 @@ class FinnriCaptureActivity : Activity() {
       textSize = 15f
       isAllCaps = false
       setTypeface(typeface, Typeface.BOLD)
-      setTextColor(getColor(R.color.finnri_text))
-      background = rounded(getColor(R.color.finnri_card), 25f, getColor(R.color.finnri_border_strong))
+      setTextColor(palette.text)
+      background = rounded(palette.card, 25f, palette.borderStrong)
       stateListAnimator = null
       setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_keyboard_ink, 0, 0, 0)
+      compoundDrawableTintList = ColorStateList.valueOf(palette.text)
       compoundDrawablePadding = dp(8)
       setPadding(dp(18), 0, dp(18), 0)
       setOnClickListener { typeInstead() }
@@ -230,9 +237,9 @@ class FinnriCaptureActivity : Activity() {
       textSize = 16f
       isAllCaps = false
       setTypeface(typeface, Typeface.BOLD)
-      setTextColor(getColor(R.color.finnri_on_accent))
+      setTextColor(palette.onAccent)
       // A drawable rather than setBackgroundColor: every primary action in the app is a pill.
-      background = rounded(getColor(R.color.finnri_accent), 25f)
+      background = rounded(palette.accent, 25f)
       // The platform button lifts a shadow off its square bounds, not the pill.
       stateListAnimator = null
     }
@@ -245,8 +252,10 @@ class FinnriCaptureActivity : Activity() {
       text = "Capture only. Balances stay behind your lock screen."
       textSize = 12f
       gravity = Gravity.CENTER
-      setTextColor(getColor(R.color.finnri_text_muted))
+      setTextColor(palette.textMuted)
       setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_lock_muted, 0, 0, 0)
+      // Full ink: the vector's own strokes already carry the caption's 75%.
+      compoundDrawableTintList = ColorStateList.valueOf(palette.text)
       compoundDrawablePadding = dp(6)
     }
     // Shrink the 24dp vector to the caption's size.
