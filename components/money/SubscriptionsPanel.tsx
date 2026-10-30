@@ -5,7 +5,16 @@ import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 're
 
 import { recurringVisuals } from '@/components/money/money-visuals';
 import { PanelActionRow } from '@/components/money/PanelActionRow';
-import { CardEMIRow, RecurringOverviewCard } from '@/components/money/RecurringParts';
+import {
+  CancelledRow,
+  CardEMIRow,
+  RecurringActionsSheet,
+  RecurringKindChips,
+  RecurringRow,
+  RecurringSection,
+  RecurringSummaryCard,
+  recurringKindTotal,
+} from '@/components/money/RecurringList';
 import { RecurringCandidatesCard } from '@/components/money/RecurringCandidatesCard';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
@@ -52,7 +61,6 @@ import {
 import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, looksLikeCardBill, defaultSubscriptionCategory, formatDueDateLabel, intervalOptions, nextMonthISO, parseAmount, reminderLabel, sanitizeAmount, statusOptions, toApiDateOnly, toParam, todayISO, buildRecurringPayload, buildSummaryLine, countDueSoon, projectMonthlyTotal, suggestLoanFigures, validateRecurringForm } from '@/lib/subscription-form';
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
-import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
 import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
@@ -144,6 +152,10 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const [formSession, setFormSession] = useState(0);
   /** The item "Mark paid" was tapped on; kept after closing for the exit slide. */
   const [payingFor, setPayingFor] = useState<Subscription | null>(null);
+  /** The row whose actions sheet is open (board R5-RecurringActions). */
+  const [actionsFor, setActionsFor] = useState<Subscription | null>(null);
+  const [isActionsVisible, setIsActionsVisible] = useState(false);
+  const [showCancelled, setShowCancelled] = useState(false);
   const [isMarkPaidVisible, setIsMarkPaidVisible] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
   const [markPaidError, setMarkPaidError] = useState<string | null>(null);
@@ -675,12 +687,30 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     .join(' · ');
 
   const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
+  const hasOverview = !loading && Boolean(overview && overview.active_count > 0);
+  // Board R5-RecurringList: a card per kind, cancelled items folded below.
+  const liveItems = visibleItems.filter((item) => item.status !== 'cancelled');
+  const cancelledItems = visibleItems.filter((item) => item.status === 'cancelled');
+  const sections = recurringKinds
+    .filter((kind) => filter === 'all' || filter === kind)
+    .map((kind) => ({
+      kind,
+      emis: kind === 'loan' ? visibleCardEMIs : [],
+      items: liveItems.filter((item) => kindOf(item) === kind),
+    }))
+    .filter((section) => section.emis.length > 0 || section.items.length > 0);
+  const openActions = (item: Subscription) => {
+    haptics.select();
+    setActionsFor(item);
+    setIsActionsVisible(true);
+  };
   const isEmptyAll =
     !loading && !listError && filter === 'all' && visibleItems.length === 0 && visibleCardEMIs.length === 0;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
-      {embedded ? (
+      {/* The summary card says it, with Add, once there is anything active. */}
+      {embedded && hasOverview ? null : embedded ? (
         <PanelActionRow
           subtitle={summaryLine}
           actionLabel={loading || isEmptyAll ? undefined : 'Add'}
@@ -691,7 +721,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
       ) : (
         <AppHeader
           title="Recurring"
-          subtitle={summaryLine}
+          subtitle={hasOverview ? undefined : summaryLine}
           onBack={() => router.back()}
           rightIcon={loading ? undefined : 'plus'}
           onRightPress={() => openCreateForm()}
@@ -715,8 +745,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
           </View>
         )}
 
-        {!loading && overview && overview.active_count > 0 ? (
-          <RecurringOverviewCard summary={overview} filter={filter} onFilter={setFilter} />
+        {hasOverview && overview ? (
+          <View>
+            <RecurringSummaryCard summary={overview} onAdd={() => openCreateForm()} />
+            <RecurringKindChips filter={filter} onFilter={setFilter} />
+          </View>
         ) : null}
 
         {listError && (
@@ -737,29 +770,50 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
             </SkeletonFrame>
           </View>
         ) : visibleItems.length > 0 || visibleCardEMIs.length > 0 ? (
-          <View style={cardStyle}>
-            {visibleCardEMIs.map((emi, index) => (
-              <CardEMIRow
-                key={`card-emi-${emi.plan_id}`}
-                emi={emi}
-                divider={index > 0}
-                onPress={() =>
-                  router.push({ pathname: '/emi-plans/[id]', params: { id: String(emi.plan_id) } })
-                }
-              />
+          <View style={styles.sections}>
+            {sections.map((section) => (
+              <RecurringSection
+                key={section.kind}
+                title={recurringKindMeta[section.kind].plural}
+                total={
+                  overview && recurringKindTotal(overview, section.kind) > 0
+                    ? `${formatMoney(recurringKindTotal(overview, section.kind))} a month`
+                    : undefined
+                }>
+                {section.emis.map((emi, index) => (
+                  <CardEMIRow
+                    key={`card-emi-${emi.plan_id}`}
+                    emi={emi}
+                    divider={index > 0}
+                    onPress={() =>
+                      router.push({ pathname: '/emi-plans/[id]', params: { id: String(emi.plan_id) } })
+                    }
+                  />
+                ))}
+                {section.items.map((item, index) => (
+                  <RecurringRow
+                    key={item.id}
+                    item={item}
+                    divider={section.emis.length + index > 0}
+                    onPress={() => openActions(item)}
+                  />
+                ))}
+              </RecurringSection>
             ))}
-            {visibleItems.map((subscription, index) => (
-              <SubscriptionCard
-                key={subscription.id}
-                subscription={subscription}
-                colors={colors}
-                divider={visibleCardEMIs.length + index > 0}
-                onPress={() => editSubscription(subscription)}
-                onMarkPaid={() => openMarkPaid(subscription)}
-                onCancelNow={() => void cancelNow(subscription)}
-                onDelete={() => void confirmDelete(subscription)}
+            {cancelledItems.length > 0 ? (
+              <CancelledRow
+                items={cancelledItems}
+                expanded={showCancelled}
+                onToggle={() => setShowCancelled((open) => !open)}
               />
-            ))}
+            ) : null}
+            {showCancelled && cancelledItems.length > 0 ? (
+              <RecurringSection title="Cancelled">
+                {cancelledItems.map((item, index) => (
+                  <RecurringRow key={item.id} item={item} divider={index > 0} onPress={() => openActions(item)} />
+                ))}
+              </RecurringSection>
+            ) : null}
           </View>
         ) : isEmptyAll ? (
           // Board R5-Recurring: one card that says what belongs here, with a
@@ -1079,6 +1133,16 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         />
       </PickerSheet>
 
+      <RecurringActionsSheet
+        item={actionsFor}
+        visible={isActionsVisible}
+        onClose={() => setIsActionsVisible(false)}
+        onMarkPaid={openMarkPaid}
+        onEdit={editSubscription}
+        onCancel={(item) => void cancelNow(item)}
+        onDelete={(item) => void confirmDelete(item)}
+      />
+
       <MarkPaidSheet
         key={payingFor?.id ?? 'none'}
         visible={isMarkPaidVisible}
@@ -1256,6 +1320,9 @@ const styles = StyleSheet.create({
   },
   fold: {
     marginBottom: 10,
+  },
+  sections: {
+    gap: 12,
   },
   block: {
     marginBottom: 12,

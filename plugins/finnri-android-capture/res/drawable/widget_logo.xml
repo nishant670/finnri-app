@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The f mark's tile on the widget and the capture sheet. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+  <solid android:color="@color/finnri_logo_fill"/>
+  <corners android:radius="11dp"/>
+</shape>

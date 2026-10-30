@@ -83,8 +83,8 @@ import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/t
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { creditGateFor, type CaptureKind } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
-import { updateAndroidMonthWidget } from '@/lib/android-widget';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
+import { requestMicAccess } from '@/lib/microphone-access';
 import {
   applyParsedDraftToForm,
   buildAiReview,
@@ -205,8 +205,6 @@ export default function HomeScreen() {
   const smartSorting = useAppSettingsStore((state) => state.smartSorting);
   const isStealthMode = !!user?.stealth_mode;
 
-  const defaultForm = useMemo<EntryForm>(() => createDefaultEntryForm(), []);
-
   const [accounts, setAccounts] = useState<Account[]>([]);
   // A refund the user said already came back, and whether to record it with the
   // purchase. It travels beside the form because it becomes a second entry.
@@ -261,19 +259,25 @@ export default function HomeScreen() {
   }, [accounts]);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
+  /**
+   * Dated the moment it is called. This used to spread a form built once when
+   * Home mounted, so after midnight every new entry was still dated — and
+   * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
+   * until the app was restarted.
+   */
   const createBlankForm = useCallback(
     (): EntryForm => ({
-      ...defaultForm,
+      ...createDefaultEntryForm(),
       accountId: null,
       account: '',
       merchant: '',
       notes: '',
     }),
-    [defaultForm]
+    []
   );
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [form, setForm] = useState<EntryForm>(defaultForm);
+  const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
   const [inputText, setInputText] = useState('');
   const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
@@ -521,7 +525,6 @@ export default function HomeScreen() {
       try {
         const dashboard = await fetchDashboard(token);
         setMonthDashboard(dashboard);
-        updateAndroidMonthWidget(dashboard.summary.total_spent, dashboard.period.start);
       } catch {
         setMonthDashboard(null);
       } finally {
@@ -692,19 +695,30 @@ export default function HomeScreen() {
     isSnoozed: isGuestUpgradeSnoozed,
   });
 
-  const ensureMicPermission = useCallback(async () => {
-    const currentPermission = await getRecordingPermissionsAsync();
-    if (currentPermission.status === 'granted') {
-      return true;
-    }
-    const permission = await requestRecordingPermissionsAsync();
-    return permission.status === 'granted';
-  }, []);
-
   const startRecording = useCallback(async () => {
-    const hasPermission = await ensureMicPermission();
-    if (!hasPermission) {
-      setErrorMessage('Finnri needs microphone access to hear you. You can turn it on in Settings.');
+    const access = await requestMicAccess({
+      get: getRecordingPermissionsAsync,
+      request: requestRecordingPermissionsAsync,
+    });
+    if (access === 'denied') {
+      // The system prompt was just answered no; another tap asks again.
+      setErrorMessage("Finnri can't hear you without the microphone. Tap the mic to allow it, or type instead.");
+      return;
+    }
+    if (access === 'blocked') {
+      // The system will not ask again, so the way back is Settings — the same
+      // offer the camera makes for a bill photo.
+      setErrorMessage(null);
+      const openSettings = await dialog.confirm({
+        title: 'Microphone is off for Finnri',
+        message:
+          Platform.OS === 'ios'
+            ? 'Turn on Microphone for Finnri in Settings to log by voice. You can still type or scan a bill.'
+            : 'In Settings, open Permissions › Microphone and choose "Allow only while using the app" to log by voice. You can still type or scan a bill.',
+        confirmLabel: 'Open Settings',
+        cancelLabel: 'Not now',
+      });
+      if (openSettings) void Linking.openSettings();
       return;
     }
     try {
@@ -723,7 +737,7 @@ export default function HomeScreen() {
       setErrorMessage("Couldn't start recording. Try again.");
       setIsRecording(false);
     }
-  }, [audioRecorder, ensureMicPermission]);
+  }, [audioRecorder, dialog]);
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
@@ -782,6 +796,16 @@ export default function HomeScreen() {
     // card is already where it belongs.
     setTimeout(() => setIsTextInputVisible(true), CAPTURE_EXPAND_MS);
   }, [scrollRef]);
+
+  /**
+   * "Type" on the home-screen widget (board R14-Widget) opens Home with
+   * `compose=type`: the capture card, open, with the cursor in it.
+   */
+  useEffect(() => {
+    if (compose !== 'type') return;
+    router.setParams({ compose: '' });
+    handleExpandCapture();
+  }, [compose, handleExpandCapture, router]);
 
   /** Recording from the pill brings the card back with it, same as expanding. */
   const handlePillMicPress = useCallback(() => {

@@ -50,6 +50,7 @@ describe('notification kinds (R10-Kinds)', () => {
     expect(notificationKind('card_statement.overdue').icon).toBe('calendar-alert');
     expect(notificationKind('split.settlement.recorded').action).toBe('Review in Splits');
     expect(notificationKind('something.new').icon).toBe('bell-outline');
+    expect(notificationKind('billing.pass.gifted')).toMatchObject({ icon: 'gift-outline', action: 'See your pass' });
   });
 
   it('colours late things red and close things amber', () => {
@@ -84,6 +85,13 @@ describe('where a notification opens', () => {
     expect(
       notificationDestination(notification({ type: 'subscription.autopay', action_url: '/subscription-occurrences/3' }))
     ).toBeNull();
+  });
+
+  it('opens Billing for a gifted pass', () => {
+    expect(notificationDestination(notification({ type: 'billing.pass.gifted', action_url: '/billing' }))).toBe(
+      '/billing'
+    );
+    expect(notificationDestination(notification({ type: 'billing.pass.gifted', action_url: '/billing/x' }))).toBeNull();
   });
 });
 

@@ -1,17 +1,17 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React from 'react';
-import { BackHandler, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { BackHandler, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
-import { SettingsRow } from '@/components/profile/SettingsRow';
 import { ThemedText } from '@/components/themed-text';
-import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { PressableView } from '@/components/ui/PressableView';
+import { Segments, type SegmentOption } from '@/components/ui/Segments';
 import {
   ThemeMoods,
   getMoodIconName,
+  type AppearanceMode,
   type IconStyle,
   type ThemeMoodId,
 } from '@/constants/theme';
@@ -21,6 +21,13 @@ import { categoryTile, categoryVisual } from '@/lib/categories';
 import { haptics } from '@/lib/haptics';
 import { MINUS_SIGN } from '@/lib/money';
 
+const appearanceOptions: readonly SegmentOption<AppearanceMode>[] = [
+  { key: 'light', label: 'Light' },
+  { key: 'dark', label: 'Dark' },
+  { key: 'system', label: 'Match phone' },
+];
+
+const phoneName = Platform.OS === 'ios' ? 'iPhone' : 'Android';
 
 const iconStyleOptions: {
   id: IconStyle;
@@ -37,10 +44,10 @@ export default function AppMoodScreen() {
   const themeTokens = useThemeTokens();
   const colors = themeTokens.colors;
   const themeColor = useAppMoodStore((state) => state.themeColor);
-  const nightMode = useAppMoodStore((state) => state.nightMode);
+  const appearance = useAppMoodStore((state) => state.appearance);
   const iconStyle = useAppMoodStore((state) => state.iconStyle);
   const setThemeColor = useAppMoodStore((state) => state.setThemeColor);
-  const setNightMode = useAppMoodStore((state) => state.setNightMode);
+  const setAppearance = useAppMoodStore((state) => state.setAppearance);
   const setIconStyle = useAppMoodStore((state) => state.setIconStyle);
   const resetMood = useAppMoodStore((state) => state.resetMood);
   const selected = ThemeMoods[themeColor] ?? ThemeMoods.finnri;
@@ -157,14 +164,10 @@ export default function AppMoodScreen() {
         <ThemedText accessibilityRole="header" style={[styles.sectionTitle, { color: colors.text }]}>
           Appearance
         </ThemedText>
-        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <SettingsRow
-            icon="weather-night"
-            title="Night owl mode"
-            subtitle="Use the dark theme everywhere"
-            accessory={<HapticSwitch accessibilityLabel="Night owl mode" value={nightMode} onValueChange={setNightMode} />}
-          />
-        </View>
+        <Segments active={appearance} options={appearanceOptions} onChange={setAppearance} />
+        <ThemedText tone="muted" style={styles.caption}>
+          Match phone follows your {phoneName} dark-mode setting.
+        </ThemedText>
 
         <ThemedText accessibilityRole="header" style={[styles.sectionTitle, { color: colors.text }]}>
           Icon style
@@ -352,11 +355,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 13,
     lineHeight: 18,
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: 16,
-    overflow: 'hidden',
   },
   iconStyles: {
     flexDirection: 'row',

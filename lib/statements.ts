@@ -676,9 +676,13 @@ export const statementLineKindLabels: Record<StatementLineKind, string> = {
 
 /**
  * Maps the server's upload error codes to something a person can act on.
- * `statement_password_required` is a prompt, not a failure.
+ * `statement_password_required` is a prompt, not a failure. Both a PDF and
+ * screenshots are AI reads now, so a credit refusal names which one it was.
  */
-export const statementUploadErrorMessage = (code?: string): string => {
+export const statementUploadErrorMessage = (
+  code?: string,
+  kind: 'pdf' | 'screenshots' = 'pdf'
+): string => {
   switch (code) {
     case 'statement_password_required':
       return 'This statement is password protected. Enter its password to open it.';
@@ -687,7 +691,11 @@ export const statementUploadErrorMessage = (code?: string): string => {
     case 'invalid_statement_pdf':
       return 'That file is not a PDF Finnri can read.';
     case 'no_transactions_found':
-      return "Finnri couldn't find any transactions in that file. You can still add them by hand.";
+      return kind === 'pdf'
+        ? "Finnri couldn't read any transactions from that PDF, and no credits were used. Try screenshots of the transaction pages, or add them by hand."
+        : "Finnri couldn't read any transactions from those screenshots, and no credits were used. Try tighter crops, or add them by hand.";
+    case 'statement_read_failed':
+      return "The AI service couldn't read that statement just now, and no credits were used. Please try again.";
     case 'statement_unreadable':
       return 'That statement could not be read. It may be a scan rather than a text PDF.';
     case 'unsupported_statement_image':
@@ -700,8 +708,15 @@ export const statementUploadErrorMessage = (code?: string): string => {
     case 'statement_image_parse_failed':
       return 'The AI service could not read those screenshots. Try clearer, tightly cropped images.';
     case 'feature_locked':
+      return kind === 'pdf'
+        ? 'Reading a statement uses AI credits, and this account cannot use them right now.'
+        : 'Reading screenshots needs a plan. A PDF works on every plan.';
+    case 'daily_ai_limit_reached':
+      return "You've reached today's AI limit. Statement reading is available again tomorrow.";
     case 'insufficient_ai_credits':
-      return 'Screenshot reading needs an eligible AI plan and enough credits. PDF reading remains available.';
+      return kind === 'pdf'
+        ? "You don't have enough AI credits left to read this statement."
+        : "You don't have enough AI credits left to read these screenshots.";
     default:
       return 'Unable to read that statement right now.';
   }

@@ -259,6 +259,14 @@ export function TransactionItem({
   const collapse = useSharedValue(1);
   const measuredHeight = useSharedValue(0);
   /**
+   * `hasCollapsed`, readable from the UI thread. The collapse style reads this
+   * rather than taking `hasCollapsed` as a dependency: a dependency rebuilds
+   * the animated style mid-delete, and on Android the rebuilt style can land a
+   * frame late — the row reappeared at full height, still swiped open, for a
+   * blink before it faded out.
+   */
+  const collapsing = useSharedValue(false);
+  /**
    * Whether the row needs its clip. See the note on `TransactionItem`: this
    * exists so a resting list keeps its shadows, and it flips on touch-down
    * rather than on movement so no frame of the pull escapes the box.
@@ -268,10 +276,12 @@ export function TransactionItem({
   // Open state is the list's, so the row follows the prop rather than its own
   // gesture — which is also what closes this row when another one opens.
   useEffect(() => {
-    if (!swipeable) return;
+    // A row on its way out keeps its actions showing until it has gone; the
+    // collapse puts it back shut once nobody can see it.
+    if (!swipeable || collapsed) return;
     swipe.value = motion.springTo(swipeOpen ? -swipeOpenDistance : 0);
     if (!swipeOpen) setEngaged(false);
-  }, [motion, swipe, swipeOpen, swipeOpenDistance, swipeable]);
+  }, [collapsed, motion, swipe, swipeOpen, swipeOpenDistance, swipeable]);
 
   /**
    * Latched on the first collapse and never unset, because it is what decides
@@ -287,23 +297,42 @@ export function TransactionItem({
    */
   const [hasCollapsed, setHasCollapsed] = useState(false);
 
-  useEffect(() => {
-    if (!collapsed) return;
-    setHasCollapsed(true);
-    // The row is on its way out and the Undo window has opened. Not `saved` —
-    // nothing has been written yet — and not `rejected`, which would say the
-    // app turned the delete down.
-    haptics.removed();
-  }, [collapsed]);
+  // The list's open row is this one until it is told otherwise; read through a
+  // ref so the collapse runs once per delete rather than on every re-render.
+  const swipeOpenRef = useRef(swipeOpen);
+  swipeOpenRef.current = swipeOpen;
+  const onSwipeOpenChangeRef = useRef(onSwipeOpenChange);
+  onSwipeOpenChangeRef.current = onSwipeOpenChange;
 
   useEffect(() => {
-    if (!hasCollapsed) return;
-    // Out on the exit curve, back on the entry one — the row leaving is faster
-    // than the row returning, which is C1's rule and the reason `exit` exists.
-    collapse.value = collapsed
-      ? withTiming(0, motion.exit('base'))
-      : withTiming(1, motion.enter('base'));
-  }, [collapse, collapsed, hasCollapsed, motion]);
+    if (collapsed) {
+      setHasCollapsed(true);
+      // The row is on its way out and the Undo window has opened. Not `saved` —
+      // nothing has been written yet — and not `rejected`, which would say the
+      // app turned the delete down.
+      haptics.removed();
+      // One frame, both values: the style switches to its measured height and
+      // starts shrinking together, with no rebuilt style in between.
+      collapsing.value = true;
+      // Out on the exit curve, back on the entry one — the row leaving is
+      // faster than the row returning, which is C1's rule and the reason `exit`
+      // exists. Once it is out of sight it is shut again, so an Undo brings
+      // back the row, not the actions it was deleted from.
+      collapse.value = withTiming(0, motion.exit('base'), (finished) => {
+        'worklet';
+        if (finished) swipe.value = 0;
+      });
+      // The list still thinks this row is open; it is not, and an Undo must
+      // not reopen it.
+      if (swipeOpenRef.current) onSwipeOpenChangeRef.current?.(false);
+      return;
+    }
+    if (!collapsing.value) return;
+    // Undone. Shut first, in case the Undo beat the collapse to its end.
+    swipe.value = 0;
+    setEngaged(false);
+    collapse.value = withTiming(1, motion.enter('base'));
+  }, [collapse, collapsed, collapsing, motion, swipe]);
 
   const measure = useCallback(
     (event: LayoutChangeEvent) => {
@@ -356,12 +385,10 @@ export function TransactionItem({
       if (!open) runOnJS(setEngaged)(false);
     });
 
-  const collapseStyle = useAnimatedStyle(
-    () =>
-      hasCollapsed
-        ? { height: measuredHeight.value * collapse.value, opacity: collapse.value }
-        : {},
-    [hasCollapsed]
+  const collapseStyle = useAnimatedStyle(() =>
+    collapsing.value
+      ? { height: measuredHeight.value * collapse.value, opacity: collapse.value }
+      : {}
   );
 
   const entranceStyle = useAnimatedStyle(() => ({

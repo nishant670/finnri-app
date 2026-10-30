@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The Finnri palette, for the two native surfaces that cannot read
-  `constants/theme.ts` — the quick-capture activity and the home-screen widget.
+  `constants/theme.ts` — the quick-capture sheet and the home-screen widget
+  (board R14). Light here; `values-night/finnri_capture_colors.xml` holds the
+  dark set under the same names, so both surfaces follow the phone's theme.
 
-  These are the Finnri mood's **dark** tokens, because both surfaces are always
-  dark: the capture screen is a lock-screen surface, and a widget sits on a
-  wallpaper it cannot measure. Values are copied from `constants/theme.ts` and
-  have to be updated with it; there is no build step that checks them, so the
-  names below are deliberately the same names the TypeScript uses.
+  Values are copied from the Finnri mood in `constants/theme.ts` and have to be
+  updated with it; there is no build step that checks them. Android writes
+  alpha first (#AARRGGBB), CSS last.
 
   NOT named `colors.xml` on purpose. The plugin's `copyTree` overwrites by
   filename, and Expo generates its own `res/values/colors.xml` for the splash
@@ -15,24 +15,25 @@
   file in `values/`, so a distinct filename adds these without clobbering.
 -->
 <resources>
-  <!-- palette.accent — the Finnri orange -->
+  <!-- palette.accent — the Finnri orange; its ink is dark, never white. -->
   <color name="finnri_accent">#FF8865</color>
-  <!-- onAccent, from createColors() -->
-  <color name="finnri_on_accent">#FFFFFF</color>
-  <!-- palette.backgroundDark -->
-  <color name="finnri_background">#1A1A1A</color>
-  <!-- ThemeMoods.finnri.dark.card -->
-  <color name="finnri_card">#242424</color>
-  <!-- palette.borderDark -->
-  <color name="finnri_border">#3C3C3C</color>
-  <!-- palette.textDark -->
-  <color name="finnri_text">#FAFAFA</color>
-  <!-- ThemeMoods.finnri.dark.neutral -->
-  <color name="finnri_text_muted">#A3A3A3</color>
-  <!--
-    The app's muted convention is `${colors.text}99` — text at 60% alpha. Note
-    the channel order differs: CSS writes #RRGGBBAA, Android writes #AARRGGBB,
-    so the alpha moves to the front rather than the end.
-  -->
-  <color name="finnri_text_dim">#99FAFAFA</color>
+  <color name="finnri_on_accent">#2D2D2D</color>
+  <color name="finnri_background">#FDF5F7</color>
+  <color name="finnri_card">#FFFFFF</color>
+  <color name="finnri_border">#F0E5E7</color>
+  <color name="finnri_border_strong">#E6D3D8</color>
+  <color name="finnri_track">#F3E6E9</color>
+  <!-- selectedFill: the accent's tint, behind the capture mic. -->
+  <color name="finnri_tint">#FFE8E5</color>
+  <color name="finnri_text">#2D2D2D</color>
+  <!-- Captions: text at 75%. -->
+  <color name="finnri_text_muted">#BF2D2D2D</color>
+  <color name="finnri_scrim">#73000000</color>
+
+  <!-- The widget: a 92% pill on the wallpaper, the f mark in ink. -->
+  <color name="finnri_widget_surface">#EBFFFFFF</color>
+  <color name="finnri_widget_hint">#B32D2D2D</color>
+  <color name="finnri_widget_circle">#F3E6E9</color>
+  <color name="finnri_logo_fill">#2D2D2D</color>
+  <color name="finnri_logo_ink">#FFFFFF</color>
 </resources>

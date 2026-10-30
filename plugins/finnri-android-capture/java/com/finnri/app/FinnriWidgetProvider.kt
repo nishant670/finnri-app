@@ -3,47 +3,105 @@ package com.finnri.app
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.util.SizeF
 import android.widget.RemoteViews
 
+/**
+ * The home-screen widget (board R14-Widget): capture only, in three sizes.
+ *
+ * It used to show the month's spend on the home screen, for anyone holding the
+ * phone to read, while the capture screen promised that balances stay behind
+ * the lock screen. It now shows no figure at all: Type opens the app on the
+ * capture field, the mic opens the lock-screen-safe recorder.
+ */
 class FinnriWidgetProvider : AppWidgetProvider() {
   override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
     super.onUpdate(context, manager, ids)
-    updateAll(context, manager, ids)
+    forgetStoredSpend(context)
+    for (id in ids) update(context, manager, id)
+  }
+
+  override fun onAppWidgetOptionsChanged(
+    context: Context,
+    manager: AppWidgetManager,
+    id: Int,
+    options: Bundle
+  ) {
+    super.onAppWidgetOptionsChanged(context, manager, id, options)
+    update(context, manager, id)
   }
 
   companion object {
-    private const val PREFS = "finnri_widget"
+    /** Where the old widget kept the month's spend; cleared so it does not linger. */
+    private const val LEGACY_PREFS = "finnri_widget"
 
-    fun refresh(context: Context) {
-      val manager = AppWidgetManager.getInstance(context)
-      val component = ComponentName(context, FinnriWidgetProvider::class.java)
-      updateAll(context, manager, manager.getAppWidgetIds(component))
+    private fun forgetStoredSpend(context: Context) {
+      context.getSharedPreferences(LEGACY_PREFS, Context.MODE_PRIVATE).edit().clear().apply()
     }
 
-    private fun updateAll(context: Context, manager: AppWidgetManager, ids: IntArray) {
-      val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-      val amount = prefs.getString("amount", context.getString(R.string.widget_amount_default))
-      val month = prefs.getString("month", context.getString(R.string.widget_month_default))
-      for (id in ids) {
-        val views = RemoteViews(context.packageName, R.layout.widget_finnri)
-        views.setTextViewText(R.id.widget_month, month)
-        views.setTextViewText(R.id.widget_amount, amount)
-
-        val openIntent = Intent(context, MainActivity::class.java)
-        views.setOnClickPendingIntent(
-          R.id.widget_summary,
-          PendingIntent.getActivity(context, 4201, openIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun update(context: Context, manager: AppWidgetManager, id: Int) {
+      val views = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        // The launcher picks whichever fits as the widget is resized.
+        RemoteViews(
+          mapOf(
+            SizeF(40f, 40f) to build(context, R.layout.widget_finnri_small),
+            SizeF(110f, 40f) to build(context, R.layout.widget_finnri_medium),
+            SizeF(250f, 40f) to build(context, R.layout.widget_finnri)
+          )
         )
-        val captureIntent = Intent(context, FinnriCaptureActivity::class.java)
-        views.setOnClickPendingIntent(
-          R.id.widget_capture,
-          PendingIntent.getActivity(context, 4202, captureIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        )
-        manager.updateAppWidget(id, views)
+      } else {
+        val width = manager.getAppWidgetOptions(id).getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 250)
+        build(context, layoutForWidth(width))
       }
+      manager.updateAppWidget(id, views)
     }
+
+    private fun layoutForWidth(widthDp: Int) = when {
+      widthDp < 110 -> R.layout.widget_finnri_small
+      widthDp < 250 -> R.layout.widget_finnri_medium
+      else -> R.layout.widget_finnri
+    }
+
+    private fun build(context: Context, layout: Int): RemoteViews {
+      val views = RemoteViews(context.packageName, layout)
+      val speak = PendingIntent.getActivity(
+        context,
+        4202,
+        Intent(context, FinnriCaptureActivity::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      views.setOnClickPendingIntent(R.id.widget_capture, speak)
+      if (layout == R.layout.widget_finnri_small) {
+        views.setOnClickPendingIntent(R.id.widget_root, speak)
+        return views
+      }
+      val type = PendingIntent.getActivity(
+        context,
+        4201,
+        typeIntent(context),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      views.setOnClickPendingIntent(R.id.widget_type, type)
+      // The rest of the pill ("Log an expense") types too.
+      views.setOnClickPendingIntent(R.id.widget_root, type)
+      return views
+    }
+
+    /**
+     * Opens Home with the capture field focused (`compose=type`). The app's own
+     * package name is one of its URL schemes in every variant, so the Preview
+     * build opens itself rather than the Play copy.
+     */
+    fun typeIntent(context: Context): Intent =
+      Intent(context, MainActivity::class.java).apply {
+        action = Intent.ACTION_VIEW
+        data = Uri.parse("${context.packageName}://?compose=type")
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+      }
   }
 }

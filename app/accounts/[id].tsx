@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,7 +27,6 @@ import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -156,7 +155,9 @@ function SectionTitle({ title, action }: { title: string; action?: ReactNode }) 
 }
 
 export default function AccountDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  // `add=statement` arrives from the card-added screen: open the Add
+  // statement sheet as soon as the card has loaded, once.
+  const { id, add } = useLocalSearchParams<{ id?: string; add?: string }>();
   const sheetBottom = useBottomInset(28);
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
@@ -193,6 +194,7 @@ export default function AccountDetailsScreen() {
    * server is the real gate, and a wrong lock is worse than a late message.
    */
   const [hasPaidPlan, setHasPaidPlan] = useState<boolean | null>(null);
+  const [readPrices, setReadPrices] = useState<{ pdf?: number; screenshots?: number }>();
   useEffect(() => {
     if (!token) return;
     let active = true;
@@ -202,6 +204,10 @@ export default function AccountDetailsScreen() {
           setHasPaidPlan(
             status.subscription_status === 'active' || status.subscription_status === 'cancelled'
           );
+          setReadPrices({
+            pdf: status.credits.capture_credits?.statement_pdf,
+            screenshots: status.credits.capture_credits?.statement_screenshots,
+          });
         }
       })
       .catch(() => undefined);
@@ -272,6 +278,13 @@ export default function AccountDetailsScreen() {
 
   const accountType = account ? normalizeAccountType(account.type) : 'other';
   const isCreditCard = accountType === 'credit_card';
+  const openedFromAdd = useRef(false);
+  useEffect(() => {
+    if (add !== 'statement' || !isCreditCard || openedFromAdd.current) return;
+    openedFromAdd.current = true;
+    setStatementError(null);
+    setIsStatementSheetVisible(true);
+  }, [add, isCreditCard]);
   const dueLabel = account ? getCreditDueLabel(account.due_day) : null;
   const reminderLabel = account ? getCreditReminderLabel(account) : null;
   // The hero was labelled "Balance"/"Total Due" over a number that was neither:
@@ -802,34 +815,22 @@ export default function AccountDetailsScreen() {
             handleEdit();
           }}
         />
-        <PressableView
-          accessibilityRole="button"
-          accessibilityState={{ disabled: entriesUsingAccount > 0 }}
+        <SettingsRow
+          tone="danger"
+          icon="delete-outline"
+          title="Delete account"
+          divider
           disabled={entriesUsingAccount > 0}
+          subtitle={
+            entriesUsingAccount > 0
+              ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
+              : 'Removes it from Finnri for good'
+          }
           onPress={() => {
             setIsActionsSheetVisible(false);
             setIsDeleteDialogVisible(true);
           }}
-          style={[
-            styles.deleteRow,
-            { borderTopColor: theme.border },
-            entriesUsingAccount > 0 && styles.disabled,
-          ]}
-          pressedStyle={styles.pressed}>
-          <View style={[styles.tile, { backgroundColor: withAlpha(theme.negative, 0.12) }]}>
-            <MaterialCommunityIcons name="delete-outline" size={18} color={theme.negative} />
-          </View>
-          <View style={styles.flexText}>
-            <ThemedText tone="negative" style={styles.rowTitle}>
-              Delete account
-            </ThemedText>
-            <ThemedText tone="muted" style={styles.caption}>
-              {entriesUsingAccount > 0
-                ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
-                : 'Removes it from Finnri for good'}
-            </ThemedText>
-          </View>
-        </PressableView>
+        />
       </AnimatedBottomSheet>
 
         <ThemedDeleteDialog
@@ -876,6 +877,7 @@ export default function AccountDetailsScreen() {
                 return readStatementFile(token, account.id, source, password);
               }}
               screenshotsLocked={hasPaidPlan === false}
+              prices={readPrices}
               onSeePlans={() => {
                 setIsStatementSheetVisible(false);
                 router.push('/billing');
@@ -1161,19 +1163,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
-  },
-  deleteRow: {
-    minHeight: 60,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-    paddingLeft: 14,
-    paddingRight: 12,
-    borderTopWidth: 1,
-  },
-  disabled: {
-    opacity: 0.6,
   },
   pressed: {
     opacity: 0.7,

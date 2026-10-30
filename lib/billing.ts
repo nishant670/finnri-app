@@ -18,8 +18,21 @@ export type CreditSummary = {
   reset_at: string;
   trial_expires_at?: string | null;
   grants?: CreditGrant[];
-  /** What each capture costs; absent from an API older than the field. */
-  capture_credits?: { text: number; voice: number; receipt: number };
+  /** What each AI read costs; absent from an API older than the field. */
+  capture_credits?: CaptureCredits;
+};
+
+/**
+ * The price of every AI read, from the server's own action registry. The
+ * statement and voice-range fields arrived later than the first three.
+ */
+export type CaptureCredits = {
+  text: number;
+  voice: number;
+  voice_max?: number;
+  receipt: number;
+  statement_pdf?: number;
+  statement_screenshots?: number;
 };
 
 export type LifetimeEligibility = {

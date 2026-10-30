@@ -80,7 +80,12 @@ const CARET_BLINK_MS = 560;
  * the affordance standing in for the missing system keyboard, saying where
  * the next digit lands.
  */
-export function AmountDisplay({ value }: { value: string }) {
+/**
+ * `active` is false while a text field has the system keyboard. The caret then
+ * stops blinking and hides, so the amount no longer reads as a second focused
+ * field beside the one being typed in.
+ */
+export function AmountDisplay({ value, active = true }: { value: string; active?: boolean }) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const reducedMotion = useReducedMotion();
@@ -88,6 +93,10 @@ export function AmountDisplay({ value }: { value: string }) {
   const isEmpty = value.trim().length === 0;
 
   useEffect(() => {
+    if (!active) {
+      caretOpacity.setValue(0);
+      return;
+    }
     if (reducedMotion) {
       // A caret that never stops moving is exactly what this setting is for.
       caretOpacity.setValue(1);
@@ -110,7 +119,7 @@ export function AmountDisplay({ value }: { value: string }) {
     );
     blink.start();
     return () => blink.stop();
-  }, [caretOpacity, reducedMotion]);
+  }, [active, caretOpacity, reducedMotion]);
 
   const display = formatAmountEntry(value);
   // The symbol is drawn smaller and muted beside the figure (board R2-Entry).

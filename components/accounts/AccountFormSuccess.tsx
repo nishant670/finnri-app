@@ -78,6 +78,26 @@ export function AccountFormSuccess({
           </ThemedText>
         </View>
 
+        {/* A card's statement fills in what the form left blank — limit,
+            statement day, due day — and its rows are checked against what is
+            already logged, so this is the quickest way to finish the setup. */}
+        {createdAccount && accountType === 'credit_card' ? (
+          <View style={[styles.card, styles.block, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <SettingsRow
+              testID="account-success-add-statement"
+              icon="file-document-outline"
+              title="Add your latest statement"
+              subtitle="Fills in the limit and dates, then adds only the transactions you haven't logged"
+              onPress={() =>
+                router.replace({
+                  pathname: '/accounts/[id]',
+                  params: { id: String(createdAccount.id), add: 'statement' },
+                })
+              }
+            />
+          </View>
+        ) : null}
+
         {createdAccount && missing > 0 ? (
           <SetupChecklist
             title={`${COUNT_WORDS[missing] ?? missing} detail${missing === 1 ? '' : 's'} left`}
@@ -88,7 +108,7 @@ export function AccountFormSuccess({
                 params: { id: String(createdAccount.id), focus: 'details' },
               })
             }
-            style={styles.block}
+            style={accountType === 'credit_card' ? styles.gap : styles.block}
           />
         ) : null}
 
