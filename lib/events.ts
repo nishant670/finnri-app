@@ -25,9 +25,12 @@ export type FinnriEvent = {
   updated_at?: string;
 };
 
+/** `owed_back` and `net_cost` mean what they do on {@link EventSummary}. */
 export type EventListItem = FinnriEvent & {
   entry_count: number;
   total_paid: number;
+  owed_back: number;
+  net_cost: number;
 };
 
 /**
@@ -93,11 +96,18 @@ const readEvent = (raw: Record<string, unknown>): FinnriEvent => ({
   updated_at: typeof raw.updated_at === 'string' ? raw.updated_at : undefined,
 });
 
-const readListItem = (raw: Record<string, unknown>): EventListItem => ({
-  ...readEvent(raw),
-  entry_count: toNumber(raw.entry_count),
-  total_paid: toNumber(raw.total_paid),
-});
+const readListItem = (raw: Record<string, unknown>): EventListItem => {
+  const totalPaid = toNumber(raw.total_paid);
+  const owedBack = toNumber(raw.owed_back);
+  return {
+    ...readEvent(raw),
+    entry_count: toNumber(raw.entry_count),
+    total_paid: totalPaid,
+    owed_back: owedBack,
+    // An API from before net_cost was listed sends paid only.
+    net_cost: raw.net_cost == null ? totalPaid - owedBack : toNumber(raw.net_cost),
+  };
+};
 
 const readSummary = (raw: Record<string, unknown> | null | undefined): EventSummary => ({
   entry_count: toNumber(raw?.entry_count),
@@ -208,6 +218,38 @@ export const removeEntriesFromEvent = async (token: string, id: number, entryIds
   return { removed: toNumber(result.removed) };
 };
 
+/**
+ * The note shown after transactions go into or out of an event. `moved` is
+ * how many of them the API took out of another event on the way in.
+ */
+export const describeEventGrouping = (
+  action: 'add' | 'remove',
+  event: Pick<FinnriEvent, 'name' | 'emoji'>,
+  count: number,
+  moved = 0
+) => {
+  const one = count === 1;
+  const rows = one ? '1 transaction' : `${count} transactions`;
+  if (action === 'remove') {
+    return {
+      title: `Removed from ${event.name}`,
+      message: one
+        ? `${rows} no longer counts towards ${eventLabel(event)}. It is still in your transactions.`
+        : `${rows} no longer count towards ${eventLabel(event)}. They are still in your transactions.`,
+    };
+  }
+  const movedNote =
+    moved <= 0
+      ? ''
+      : moved === 1 && one
+        ? ' It left the event it was in.'
+        : ` ${moved} left another event.`;
+  return {
+    title: `Added to ${event.name}`,
+    message: `${rows} now ${one ? 'counts' : 'count'} towards ${eventLabel(event)}.${movedNote}`,
+  };
+};
+
 export type EventCategoryShare = {
   label: string;
   amount: number;
@@ -270,7 +312,10 @@ export const eventLabel = (event: Pick<FinnriEvent, 'name' | 'emoji'>) =>
   event.emoji ? `${event.emoji} ${event.name}` : event.name;
 
 /** True when `day` (`YYYY-MM-DD`) falls inside the event's dates. */
-export const eventCoversDay = (event: Pick<FinnriEvent, 'start_date' | 'end_date'>, day: string) => {
+export const eventCoversDay = (
+  event: Pick<FinnriEvent, 'start_date' | 'end_date'>,
+  day: string
+) => {
   if (!event.start_date && !event.end_date) return false;
   if (event.start_date && day < event.start_date) return false;
   if (event.end_date && day > event.end_date) return false;
@@ -291,7 +336,10 @@ export const orderEventsForDay = <T extends FinnriEvent>(events: T[], day: strin
  * The date a new transaction added from an event starts on: today if the event
  * is happening now, else its first day, else today.
  */
-export const defaultDayForEvent = (event: Pick<FinnriEvent, 'start_date' | 'end_date'>, today: string) => {
+export const defaultDayForEvent = (
+  event: Pick<FinnriEvent, 'start_date' | 'end_date'>,
+  today: string
+) => {
   if (eventCoversDay(event, today) || !event.start_date) return today;
   return event.start_date;
 };
@@ -340,7 +388,10 @@ export const useEvents = create<EventsState>()((set, get) => ({
     const { event } = await createEvent(token, input);
     if (get().loadedFor === token) {
       set((state) => ({
-        events: [{ ...event, entry_count: 0, total_paid: 0 }, ...state.events],
+        events: [
+          { ...event, entry_count: 0, total_paid: 0, owed_back: 0, net_cost: 0 },
+          ...state.events,
+        ],
       }));
     }
     return event;

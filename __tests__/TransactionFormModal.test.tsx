@@ -599,6 +599,8 @@ describe('TransactionFormModal — amount-first manual entry', () => {
       notes: '',
       entry_count: 0,
       total_paid: 0,
+      owed_back: 0,
+      net_cost: 0,
     };
 
     beforeEach(() => {
@@ -631,6 +633,16 @@ describe('TransactionFormModal — amount-first manual entry', () => {
 
       await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
       expect(ui.onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ eventId: null }));
+    });
+
+    it('titles a new entry after its event, and drops the title with the event', async () => {
+      const ui = await renderModal({ initialData: { ...completeInitialData, eventId: 7 } });
+
+      expect(await ui.findByText('Add to Diwali party')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-none'));
+
+      await waitFor(() => expect(ui.queryByText('Add to Diwali party')).toBeNull());
     });
 
     it('has no event on a quick prompt', async () => {

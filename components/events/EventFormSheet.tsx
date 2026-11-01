@@ -1,12 +1,14 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, TextInput, View } from 'react-native';
+import { Platform, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
 import { PickerSheet } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatApiDate } from '@/lib/datetime';
@@ -27,6 +29,10 @@ type EventFormSheetProps = {
   onSave: (input: EventInput) => Promise<void>;
 };
 
+/** The sheet's handle, title row and bottom padding, around the body. */
+const SHEET_CHROME = 140;
+const MAX_BODY = 600;
+
 const dayToDate = (value: string | null) => {
   if (!value) return new Date();
   const parsed = new Date(`${value}T12:00:00`);
@@ -40,6 +46,15 @@ const dayToDate = (value: string | null) => {
  */
 export function EventFormSheet({ visible, event, onClose, onSave }: EventFormSheetProps) {
   const { colors } = useThemeTokens();
+  const { height: windowHeight } = useWindowDimensions();
+  const { top: safeTop } = useSafeAreaInsets();
+  const keyboardInset = useKeyboardInset(visible);
+  // The sheet rises with the keyboard; a body taller than the room left would
+  // push its title under the status bar, so the body scrolls instead.
+  const bodyHeight = Math.max(
+    200,
+    Math.min(MAX_BODY, windowHeight - keyboardInset - safeTop - SHEET_CHROME)
+  );
   const [name, setName] = useState('');
   const [emoji, setEmoji] = useState(DEFAULT_EVENT_EMOJI);
   const [startDate, setStartDate] = useState<string | null>(null);
@@ -136,7 +151,7 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
       title={event ? 'Edit event' : 'New event'}
       onClose={onClose}
       avoidKeyboard
-      maxBodyHeight={600}>
+      maxBodyHeight={bodyHeight}>
       <View style={styles.body}>
         <TextInput
           testID="event-form-name"
@@ -147,10 +162,16 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
           placeholder="Diwali party, Goa trip…"
           placeholderTextColor={colors.muted}
           selectionColor={colors.accent}
-          style={[styles.input, { color: colors.text, borderColor: colors.borderStrong, backgroundColor: colors.card }]}
+          style={[
+            styles.input,
+            { color: colors.text, borderColor: colors.borderStrong, backgroundColor: colors.card },
+          ]}
         />
 
-        <View style={styles.emojiRow} accessibilityRole="radiogroup" accessibilityLabel="Event emoji">
+        <View
+          style={styles.emojiRow}
+          accessibilityRole="radiogroup"
+          accessibilityLabel="Event emoji">
           {EVENT_EMOJI_CHOICES.map((choice) => {
             const selected = choice === emoji;
             return (
@@ -195,7 +216,10 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
           placeholder="Budget (optional)"
           placeholderTextColor={colors.muted}
           selectionColor={colors.accent}
-          style={[styles.input, { color: colors.text, borderColor: colors.borderStrong, backgroundColor: colors.card }]}
+          style={[
+            styles.input,
+            { color: colors.text, borderColor: colors.borderStrong, backgroundColor: colors.card },
+          ]}
         />
         <TextInput
           testID="event-form-notes"

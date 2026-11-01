@@ -1834,7 +1834,10 @@ export function TransactionFormModal({
         : 'New quick prompt'
       : splitContext
         ? 'New split expense'
-        : null);
+        : // Follows the picker, so choosing "No event" drops the title too.
+          !isEdit && eventsApply && selectedEvent
+          ? `Add to ${selectedEvent.name}`
+          : null);
   const canSplit = !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
   const canAttach = mode !== 'quick-prompt';
   const modeVisual = paymentModeVisual(form.mode);
@@ -2376,7 +2379,9 @@ export function TransactionFormModal({
                                     ? 'Event'
                                     : 'None'
                               }
-                              icon="party-popper"
+                              // The event's own emoji leads its name, so the
+                              // generic icon is only for "None".
+                              icon={selectedEvent?.emoji ? undefined : 'party-popper'}
                               iconColor={theme.text}
                               divider
                               onPress={() => setIsEventPickerVisible(true)}

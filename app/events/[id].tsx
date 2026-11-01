@@ -219,7 +219,9 @@ export default function EventScreen() {
       message:
         count === 0
           ? 'The event goes. Nothing else changes.'
-          : `Its ${count === 1 ? 'transaction stays' : `${count} transactions stay`} in your list — they just won’t be grouped any more.`,
+          : count === 1
+            ? 'Its transaction stays in your list — it just won’t be grouped any more.'
+            : `Its ${count} transactions stay in your list — they just won’t be grouped any more.`,
       confirmLabel: 'Delete event',
       destructive: true,
     });
@@ -513,7 +515,6 @@ export default function EventScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
-        heading={event ? `Add to ${event.name}` : undefined}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}

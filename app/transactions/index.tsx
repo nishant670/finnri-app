@@ -77,6 +77,7 @@ import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   EVENT_ENTRIES_PER_CALL,
   addEntriesToEvent,
+  describeEventGrouping,
   eventLabel,
   removeEntriesFromEvent,
   useEvents,
@@ -635,9 +636,10 @@ export default function TransactionsScreen() {
       setIsEventPickerOpen(false);
       setIsGrouping(true);
       try {
+        let moved = 0;
         for (let start = 0; start < ids.length; start += EVENT_ENTRIES_PER_CALL) {
           const chunk = ids.slice(start, start + EVENT_ENTRIES_PER_CALL);
-          if (action === 'add') await addEntriesToEvent(token, event.id, chunk);
+          if (action === 'add') moved += (await addEntriesToEvent(token, event.id, chunk)).moved;
           else await removeEntriesFromEvent(token, event.id, chunk);
         }
         haptics.saved();
@@ -649,13 +651,8 @@ export default function TransactionsScreen() {
           router.back();
           return;
         }
-        const count = ids.length === 1 ? '1 transaction' : `${ids.length} transactions`;
         await dialog.alert({
-          title: action === 'add' ? `Added to ${event.name}` : `Removed from ${event.name}`,
-          message:
-            action === 'add'
-              ? `${count} now count towards ${eventLabel(event)}.`
-              : `${count} no longer count towards ${eventLabel(event)}. They are still in your transactions.`,
+          ...describeEventGrouping(action, event, ids.length, moved),
           tone: 'success',
           iconName: 'party-popper',
         });

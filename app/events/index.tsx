@@ -84,14 +84,26 @@ export default function EventsScreen() {
             <SkeletonRows count={3} showAmount lines={2} />
           </SkeletonFrame>
         ) : error && events.length === 0 ? (
-          <View style={[styles.card, styles.message, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.card,
+              styles.message,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}>
             <ThemedText style={[styles.body, { color: colors.text }]}>{error}</ThemedText>
             <Button variant="outline" height={40} label="Try again" onPress={() => void load()} />
           </View>
         ) : events.length === 0 ? (
-          <View style={[styles.card, styles.message, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View
+            style={[
+              styles.card,
+              styles.message,
+              { backgroundColor: colors.card, borderColor: colors.border },
+            ]}>
             <ThemedText style={styles.bigEmoji}>{DEFAULT_EVENT_EMOJI}</ThemedText>
-            <ThemedText style={[styles.emptyTitle, { color: colors.text }]}>No events yet</ThemedText>
+            <ThemedText style={[styles.emptyTitle, { color: colors.text }]}>
+              No events yet
+            </ThemedText>
             <ThemedText tone="muted" style={[styles.body, styles.center]}>
               Hosting, travelling, a wedding? Group what it cost — split with friends or not — and
               see the total in one place.
@@ -120,7 +132,11 @@ export default function EventsScreen() {
         )}
       </ScrollView>
 
-      <EventFormSheet visible={isFormOpen} onClose={() => setIsFormOpen(false)} onSave={handleCreate} />
+      <EventFormSheet
+        visible={isFormOpen}
+        onClose={() => setIsFormOpen(false)}
+        onSave={handleCreate}
+      />
     </SafeAreaView>
   );
 }
@@ -136,13 +152,12 @@ function EventRow({
 }) {
   const { colors } = useThemeTokens();
   const dates = describeEventDates(event);
-  const count =
-    event.entry_count === 1 ? '1 transaction' : `${event.entry_count} transactions`;
+  const count = event.entry_count === 1 ? '1 transaction' : `${event.entry_count} transactions`;
   return (
     <PressableView
       testID={`event-row-${event.id}`}
       accessibilityRole="button"
-      accessibilityLabel={`${event.name}, ${formatMoney(event.total_paid)}, ${count}`}
+      accessibilityLabel={`${event.name}, cost ${formatMoney(event.net_cost)}, ${count}`}
       onPress={onPress}
       style={[styles.row, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}
       pressedStyle={styles.pressed}>
@@ -158,7 +173,7 @@ function EventRow({
         </ThemedText>
       </View>
       <ThemedText style={[styles.amount, { color: colors.text }]}>
-        {formatMoney(event.total_paid)}
+        {formatMoney(event.net_cost)}
       </ThemedText>
       <MaterialCommunityIcons name="chevron-right" size={18} color={colors.muted} />
     </PressableView>
