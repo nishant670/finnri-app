@@ -32,6 +32,8 @@ import {
 } from '@/lib/transaction-filters';
 
 import { AccountFilterPicker } from './AccountFilterPicker';
+import { EventPickerSheet } from '@/components/events/EventPickerSheet';
+import { eventLabel, useEvents } from '@/lib/events';
 
 interface AdvancedFilterProps {
   onClose: () => void;
@@ -120,6 +122,7 @@ export const activeFilterCount = (state: TransactionFilterState) =>
     state.category !== null || state.uncategorised,
     state.mode !== null,
     state.accountId !== null,
+    state.eventId !== null,
   ].filter(Boolean).length;
 
 type FilterChipProps = {
@@ -217,6 +220,8 @@ export const AdvancedFilter = ({
   const [draft, setDraft] = useState<TransactionFilterState>(currentFilters);
   const [showPicker, setShowPicker] = useState<'start' | 'end' | null>(null);
   const [isAccountPickerOpen, setIsAccountPickerOpen] = useState(false);
+  const [isEventPickerOpen, setIsEventPickerOpen] = useState(false);
+  const events = useEvents((state) => state.events);
   const now = useMemo(() => new Date(), []);
   const appliedDatePreset = DATE_PRESETS.find((preset) => isPresetApplied(preset, draft, now));
   const hasDates = draft.startDate !== null || draft.endDate !== null;
@@ -243,6 +248,7 @@ export const AdvancedFilter = ({
 
   const selectedAccount = accounts.find((account) => account.id === draft.accountId);
   const selectedAccountVisual = selectedAccount ? getAccountVisual(selectedAccount) : null;
+  const selectedEvent = events.find((event) => event.id === draft.eventId);
   const filterCount = activeFilterCount(draft);
 
   const onDateChange = (selected?: Date) => {
@@ -482,6 +488,21 @@ export const AdvancedFilter = ({
           </ThemedText>
           <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
         </PressableView>
+
+        <SectionHeading label="Event" />
+        <PressableView
+          testID="filter-event-row"
+          accessibilityRole="button"
+          accessibilityLabel={`Event, ${selectedEvent?.name ?? 'any event'}`}
+          onPress={() => setIsEventPickerOpen(true)}
+          style={[styles.accountRow, { backgroundColor: colors.card, borderColor: colors.border }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="party-popper" size={20} color={colors.muted} />
+          <ThemedText numberOfLines={1} style={[styles.accountLabel, { color: colors.text }]}>
+            {selectedEvent ? eventLabel(selectedEvent) : draft.eventId !== null ? 'Event' : 'Any event'}
+          </ThemedText>
+          <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
+        </PressableView>
       </KeyboardAvoidingScreen>
 
       {showPicker && (
@@ -533,6 +554,19 @@ export const AdvancedFilter = ({
           setIsAccountPickerOpen(false);
         }}
         onClose={() => setIsAccountPickerOpen(false)}
+      />
+
+      <EventPickerSheet
+        visible={isEventPickerOpen}
+        title="Event"
+        selectedId={draft.eventId}
+        noneLabel="Any event"
+        allowCreate={false}
+        onSelect={(event) => {
+          selectPatch({ eventId: event?.id ?? null });
+          setIsEventPickerOpen(false);
+        }}
+        onClose={() => setIsEventPickerOpen(false)}
       />
     </View>
   );

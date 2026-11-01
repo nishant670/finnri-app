@@ -129,6 +129,30 @@ it('does not create a transaction if the receipt upload fails', async () => {
   expect(createEntry).not.toHaveBeenCalled();
 });
 
+describe('event', () => {
+  it('leaves the entry\'s event alone when the form never knew it', async () => {
+    // A surface that does not show the field must not take an entry out of
+    // its event by saving it.
+    const payload = await buildTransactionPayload('token', form());
+    expect(payload).not.toHaveProperty('event_id');
+  });
+
+  it('sends the chosen event on an expense, and null to take it out', async () => {
+    expect((await buildTransactionPayload('token', form({ eventId: 7 }))).event_id).toBe(7);
+    expect((await buildTransactionPayload('token', form({ eventId: null }))).event_id).toBeNull();
+  });
+
+  it('never sends an event on income', async () => {
+    const payload = await buildTransactionPayload('token', form({ type: 'Income', eventId: 7 }));
+    expect(payload.event_id).toBeNull();
+  });
+
+  it('reads the event back into the edit form', () => {
+    expect(entryToComposerForm({ id: 1, type: 'expense', event_id: 7 }).eventId).toBe(7);
+    expect(entryToComposerForm({ id: 1, type: 'expense' }).eventId).toBeNull();
+  });
+});
+
 it('preserves Income and does not send split allocations for an income', async () => {
   const payload = await buildTransactionPayload('token', form({ type: 'Income' }));
   expect(payload.type).toBe('income');

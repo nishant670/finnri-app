@@ -56,6 +56,7 @@ import {
   type SplitGroup,
 } from '@/lib/splits';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
+import { eventLabel, useEvents } from '@/lib/events';
 import {
   normalizeDateLabel,
   formatDateLabel,
@@ -93,6 +94,8 @@ export default function TransactionDetailsScreen() {
   }>();
 
   const { token } = useAuthStore();
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
   const [transaction, setTransaction] = useState<any>(null); // Using any to be flexible with API response initially
   const [isLoading, setIsLoading] = useState(true);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -294,6 +297,12 @@ export default function TransactionDetailsScreen() {
 
   const meta = resolveCategoryMetadata(displayData.category, displayData.type);
   const isIncomeEntry = String(displayData.type ?? '').toLowerCase() === 'income';
+  const entryEventId = displayData.event_id ?? null;
+  useEffect(() => {
+    if (token && entryEventId != null) void loadEvents(token);
+  }, [entryEventId, loadEvents, token]);
+  const entryEvent =
+    entryEventId != null ? (events.find((event) => event.id === entryEventId) ?? null) : null;
   const icon = meta.icon;
   const iconColor = meta.color;
   const bgColor = meta.bgColor;
@@ -560,6 +569,7 @@ export default function TransactionDetailsScreen() {
       accounts.find((account) => account.id === displayData.account_id)?.name ||
       '',
     merchant: displayData.merchant || '',
+    eventId: displayData.event_id ?? null,
     attachment: displayData.attachment || null,
     splitEnabled: Boolean(splitBill),
     splitGroupId: splitBill?.group_id ?? null,
@@ -758,6 +768,19 @@ export default function TransactionDetailsScreen() {
           {/* Not on income: every tag but General is about money going out. */}
           {!isIncomeEntry && displayData.tag ? (
             <LabelRow label="Tag" value={displayData.tag} divider />
+          ) : null}
+          {!isIncomeEntry && entryEvent ? (
+            <LabelRow
+              testID="entry-event-row"
+              label="Event"
+              value={eventLabel(entryEvent)}
+              icon="party-popper"
+              iconColor={theme.text}
+              divider
+              onPress={() =>
+                router.push({ pathname: '/events/[id]', params: { id: String(entryEvent.id) } })
+              }
+            />
           ) : null}
           {displayData.notes ? (
             <LabelRow label="Note" divider>

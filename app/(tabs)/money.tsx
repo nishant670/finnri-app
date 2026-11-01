@@ -137,6 +137,11 @@ export default function MoneyScreen() {
         title="Money"
         actions={[
           {
+            icon: 'party-popper',
+            accessibilityLabel: 'Events',
+            onPress: () => router.push('/events'),
+          },
+          {
             icon: 'calculator-variant-outline',
             accessibilityLabel: 'Calculators',
             onPress: () => router.push('/tools'),

@@ -92,6 +92,8 @@ import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
 import { TransactionTagPicker, tagIcon } from './TransactionTagPicker';
+import { EventPickerSheet } from '@/components/events/EventPickerSheet';
+import { eventLabel, useEvents } from '@/lib/events';
 import {
   shareFromPercent,
   TransactionSplitFields,
@@ -136,6 +138,12 @@ export type EntryForm = {
   accountId: number | null;
   account: string;
   merchant: string;
+  /**
+   * The event (occasion) this expense belongs to. `undefined` means the form
+   * never knew it — a surface that does not show the field — and the save
+   * leaves it alone; `null` takes the entry out of its event.
+   */
+  eventId?: number | null;
   attachment: string | null;
   splitEnabled: boolean;
   splitGroupId: number | null;
@@ -598,6 +606,7 @@ export function TransactionFormModal({
    */
   const [moreDetailsToggled, setMoreDetailsToggled] = useState<boolean | null>(null);
   const [isTagPickerVisible, setIsTagPickerVisible] = useState(false);
+  const [isEventPickerVisible, setIsEventPickerVisible] = useState(false);
   const [isSubscriptionOptionsOpen, setIsSubscriptionOptionsOpen] = useState(false);
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   /**
@@ -959,6 +968,16 @@ export function TransactionFormModal({
   useEffect(() => {
     if (visible && sessionToken) void loadCustomCategories(sessionToken);
   }, [loadCustomCategories, sessionToken, visible]);
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
+  // Loaded with the sheet so an edit's event has a name to show at once.
+  useEffect(() => {
+    if (visible && sessionToken && form.eventId != null) void loadEvents(sessionToken);
+  }, [form.eventId, loadEvents, sessionToken, visible]);
+  const selectedEvent = useMemo(
+    () => (form.eventId != null ? (events.find((event) => event.id === form.eventId) ?? null) : null),
+    [events, form.eventId]
+  );
   const selectableCategoryOptions = useMemo(
     () => mergeCategoryOptions(form.category, form.type, customCategories),
     [customCategories, form.category, form.type]
@@ -1372,11 +1391,22 @@ export function TransactionFormModal({
     }
   };
 
+  /**
+   * Events hold expenses only, like tags. A quick prompt is a template rather
+   * than one occasion's spending, so it has none either.
+   */
+  const eventsApply = tagsApply && mode !== 'quick-prompt';
+  const eventDay = (() => {
+    const parsed = parseDateLabel(form.date);
+    return parsed ? formatApiDate(parsed) : null;
+  })();
+
   /** Whether anything folded under More details holds a value. */
   const detailsHaveValues =
     form.merchant.trim().length > 0 ||
     form.notes.trim().length > 0 ||
     (tagsApply && form.tag.trim().length > 0 && form.tag !== 'General') ||
+    (eventsApply && form.eventId != null) ||
     Boolean(form.attachment) ||
     (form.splitEnabled && !splitContext);
   const isMoreDetailsOpen = moreDetailsToggled ?? detailsHaveValues;
@@ -1817,6 +1847,7 @@ export function TransactionFormModal({
     form.merchant.trim(),
     form.notes.trim() ? 'Note' : '',
     tagsApply && form.tag && form.tag !== 'General' ? form.tag : '',
+    eventsApply && selectedEvent ? eventLabel(selectedEvent) : eventsApply && form.eventId != null ? 'Event' : '',
     form.attachment ? 'Receipt' : '',
     canSplit && form.splitEnabled ? 'Split' : '',
   ].filter(Boolean);
@@ -1824,6 +1855,7 @@ export function TransactionFormModal({
     'Merchant',
     'note',
     tagsApply ? 'tag' : '',
+    eventsApply ? 'event' : '',
     canAttach ? 'receipt' : '',
     canSplit ? 'split' : '',
   ]
@@ -2333,6 +2365,23 @@ export function TransactionFormModal({
                               }}
                             />
                           ) : null}
+                          {eventsApply ? (
+                            <LabelRow
+                              testID="entry-event-picker"
+                              label="Event"
+                              value={
+                                selectedEvent
+                                  ? eventLabel(selectedEvent)
+                                  : form.eventId != null
+                                    ? 'Event'
+                                    : 'None'
+                              }
+                              icon="party-popper"
+                              iconColor={theme.text}
+                              divider
+                              onPress={() => setIsEventPickerVisible(true)}
+                            />
+                          ) : null}
                           {canAttach ? (
                             <TransactionReceiptField
                               attachment={form.attachment}
@@ -2636,6 +2685,18 @@ export function TransactionFormModal({
             haptics.select();
             setForm((p) => ({ ...p, tag }));
             setIsTagPickerVisible(false);
+          }}
+        />
+
+        <EventPickerSheet
+          visible={isEventPickerVisible}
+          selectedId={form.eventId}
+          day={eventDay}
+          onClose={() => setIsEventPickerVisible(false)}
+          onSelect={(event) => {
+            haptics.select();
+            setForm((p) => ({ ...p, eventId: event?.id ?? null }));
+            setIsEventPickerVisible(false);
           }}
         />
 

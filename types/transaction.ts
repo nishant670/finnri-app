@@ -15,6 +15,7 @@ export type Transaction = {
   mode?: string | null;
   accountId?: number | null;
   accountName?: string | null;
+  eventId?: number | null;
   notes?: string | null;
   merchant?: string | null;
   timeLabel?: string | null;
