@@ -4,7 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FlatList, Share, StyleSheet, View, type ListRenderItem } from 'react-native';
+import { FlatList, Keyboard, Share, StyleSheet, View, type ListRenderItem } from 'react-native';
 
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import {
@@ -370,6 +370,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [settlementPaymentMode, setSettlementPaymentMode] = useState<SettlementPaymentMode | null>(
     null
   );
+  // Set when Save was pressed with no payment method. Shown at the chips
+  // themselves rather than in the banner, which sits above a scrolled form.
+  const [settlementPaymentModeMissing, setSettlementPaymentModeMissing] = useState(false);
 
   const {
     entitlement,
@@ -860,6 +863,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setSettlementDirection('friend_paid_user');
     setSettlementNotes('');
     setSettlementPaymentMode(null);
+    setSettlementPaymentModeMissing(false);
   };
 
   const resetGroupInviteForm = () => {
@@ -1316,7 +1320,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       return;
     }
     if (!settlementPaymentMode) {
-      setError('Choose how it was paid, so the other person can check it.');
+      // Dropping the keyboard gives the sheet its full height back, so the
+      // chips the message points at are on screen.
+      Keyboard.dismiss();
+      haptics.rejected();
+      setError(null);
+      setSettlementPaymentModeMissing(true);
       return;
     }
     setSaving(true);
@@ -2716,7 +2725,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           errorMessage={modal === 'settlement' ? error : null}
           onChangeFriend={setSettlementFriendId}
           onChangeDirection={setSettlementDirection}
-          onChangePaymentMode={setSettlementPaymentMode}
+          paymentModeMissing={settlementPaymentModeMissing}
+          onChangePaymentMode={(mode) => {
+            setSettlementPaymentMode(mode);
+            setSettlementPaymentModeMissing(false);
+          }}
           onChangeAmount={setSettlementAmount}
           onChangeDate={setSettlementDate}
           onChangeNotes={setSettlementNotes}

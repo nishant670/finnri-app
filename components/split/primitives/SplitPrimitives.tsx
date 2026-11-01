@@ -303,6 +303,7 @@ export function DirectionChip({
   selected,
   onPress,
   fill = true,
+  invalid = false,
 }: {
   label: string;
   selected: boolean;
@@ -313,6 +314,8 @@ export function DirectionChip({
    * until "Cash" breaks across two lines.
    */
   fill?: boolean;
+  /** A required choice left empty: the outline turns to the error colour. */
+  invalid?: boolean;
 }) {
   const theme = useThemeTokens().colors;
   return (
@@ -326,7 +329,7 @@ export function DirectionChip({
       className={fill ? 'flex-1 rounded-2xl px-3 py-3' : 'rounded-2xl px-4 py-2'}
       style={{
         backgroundColor: selected ? theme.accent : 'transparent',
-        borderColor: selected ? 'transparent' : theme.border,
+        borderColor: selected ? 'transparent' : invalid ? theme.negative : theme.border,
         borderWidth: 1,
       }}>
       <TText
