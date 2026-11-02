@@ -25,6 +25,7 @@ describe('toTransactionFilters', () => {
       category: undefined,
       mode: undefined,
       account_id: undefined,
+      event_id: undefined,
       min_amount: undefined,
       max_amount: undefined,
       start_date: undefined,
@@ -116,6 +117,16 @@ describe('presets', () => {
 describe('describeFilters', () => {
   it('says nothing when nothing is applied', () => {
     expect(describeFilters(emptyFilterState)).toEqual([]);
+  });
+
+  it('names the event filter and clears only it', () => {
+    const state = { ...emptyFilterState, eventId: 7 };
+    expect(isFilterActive(state)).toBe(true);
+    expect(toTransactionFilters(state).event_id).toBe(7);
+    expect(describeFilters(state, undefined, (id) => (id === 7 ? '🪔 Diwali party' : undefined))).toEqual([
+      expect.objectContaining({ key: 'eventId', label: '🪔 Diwali party', clears: ['eventId'] }),
+    ]);
+    expect(clearFilterFields(state, ['eventId'])).toEqual(emptyFilterState);
   });
 
   it('collapses the amount range into one removable chip', () => {

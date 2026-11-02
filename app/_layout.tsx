@@ -278,6 +278,8 @@ export default function RootLayout() {
         <Stack.Screen name="emi-plans/[id]" />
         <Stack.Screen name="auth" options={{ gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="transactions/index" />
+        <Stack.Screen name="events/index" />
+        <Stack.Screen name="events/[id]" />
         <Stack.Screen name="lock" options={{ gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="security" />

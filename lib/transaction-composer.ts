@@ -54,6 +54,10 @@ export async function buildTransactionPayload(
     date: date ? formatApiDate(date) : form.date,
     time: toApiTime(form.time) ?? '',
     attachment,
+    // Events hold expenses only; the server drops an income edit's event too.
+    ...(form.eventId !== undefined
+      ? { event_id: form.type === 'Expense' ? form.eventId : null }
+      : {}),
     ...(options.source ? { source: options.source, source_text: options.sourceText ?? '' } : {}),
     ...(tag === 'Refundable'
       ? {
@@ -353,6 +357,7 @@ export function entryToComposerForm(entry: ApiEntry): Partial<EntryForm> {
     tag: entry.tag || 'General',
     accountId: entry.account_id ?? null,
     account: entry.account?.name ?? '',
+    eventId: entry.event_id ?? null,
     attachment: entry.attachment ?? null,
     currency: entry.currency || DEFAULT_CURRENCY,
     refundableAmount: String(entry.refundable_amount ?? ''),

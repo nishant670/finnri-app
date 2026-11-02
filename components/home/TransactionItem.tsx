@@ -183,6 +183,15 @@ interface TransactionItemProps {
   collapsed?: boolean;
   /** Account-less entries stay saveable, but remain visibly recoverable. */
   unlinked?: boolean;
+  /** List rows only: a long press, which starts selecting on the transactions screen. */
+  onLongPress?: () => void;
+  /**
+   * List rows only, while the screen is selecting: ticked in place of the
+   * category icon. Undefined outside selection, so nothing changes there.
+   */
+  selected?: boolean;
+  /** List rows only: shown but not selectable, like income when grouping expenses. */
+  dimmed?: boolean;
 }
 
 export function TransactionItem({
@@ -208,6 +217,9 @@ export function TransactionItem({
   onSwipeOpenChange,
   collapsed = false,
   unlinked = false,
+  onLongPress,
+  selected,
+  dimmed = false,
 }: TransactionItemProps) {
   const theme = useThemeTokens();
   const motion = useMotion();
@@ -492,18 +504,32 @@ export function TransactionItem({
             // deciding, and navigating away from that decision is the wrong
             // answer to "never mind".
             onPress={swipeOpen ? () => onSwipeOpenChange?.(false) : handlePress}
-            style={styles.row}>
+            onLongPress={onLongPress}
+            testID="transaction-row"
+            accessibilityState={selected === undefined ? undefined : { selected, disabled: dimmed }}
+            style={[
+              styles.row,
+              selected && { backgroundColor: theme.colors.selectedFill },
+              dimmed && styles.dimmed,
+            ]}>
             <View
               ref={iconRef}
               // Android flattens a plain container view out of the hierarchy,
               // and a flattened view has nothing to measure — the same prop, and
               // the same reason, as the collapse host C5 had to add.
               collapsable={false}
-              style={[styles.tile, { backgroundColor: tile.background }]}>
+              style={[
+                styles.tile,
+                { backgroundColor: selected ? theme.colors.text : tile.background },
+              ]}>
               <MaterialCommunityIcons
-                name={getMoodIconName(icon, theme.mood.iconStyle) as any}
+                name={
+                  selected
+                    ? 'check'
+                    : (getMoodIconName(icon, theme.mood.iconStyle) as any)
+                }
                 size={18}
-                color={tile.foreground}
+                color={selected ? theme.colors.background : tile.foreground}
               />
             </View>
             <View style={styles.rowText}>
@@ -728,6 +754,9 @@ function SwipeAction({
 }
 
 const styles = StyleSheet.create({
+  dimmed: {
+    opacity: 0.45,
+  },
   clipped: {
     overflow: 'hidden',
   },

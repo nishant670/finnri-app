@@ -12,6 +12,7 @@ import {
 } from '@/components/transactions/TransactionFormModal';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
+import { useEvents } from '@/lib/events';
 import type { Transaction } from '@/types/transaction';
 
 const recentEntry = (overrides: Partial<Transaction>): Transaction => ({
@@ -549,7 +550,7 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
 
-    expect(await ui.findByText('Merchant, note, tag, receipt, split')).toBeTruthy();
+    expect(await ui.findByText('Merchant, note, tag, event, receipt, split')).toBeTruthy();
     expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
     expect(ui.queryByText('Split this expense')).toBeNull();
 
@@ -583,7 +584,73 @@ describe('TransactionFormModal — amount-first manual entry', () => {
 
     expect(ui.queryByText('Split this expense')).toBeNull();
     expect(ui.queryByTestId('entry-tag-picker')).toBeNull();
+    expect(ui.queryByTestId('entry-event-picker')).toBeNull();
     expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
+  });
+
+  describe('event', () => {
+    const party = {
+      id: 7,
+      name: 'Diwali party',
+      emoji: '🪔',
+      start_date: '2026-10-31',
+      end_date: '2026-11-01',
+      budget: null,
+      notes: '',
+      entry_count: 0,
+      total_paid: 0,
+      owed_back: 0,
+      net_cost: 0,
+    };
+
+    beforeEach(() => {
+      useEvents.setState({ events: [party], loadedFor: null, loadedAt: 0 });
+    });
+
+    afterEach(() => {
+      useEvents.setState({ events: [], loadedFor: null, loadedAt: 0 });
+    });
+
+    it('puts an expense in an event from More details', async () => {
+      // A merchant is set, so More details is already open.
+      const ui = await renderModal({ isEdit: true });
+
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-7'));
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
+      expect(ui.onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ eventId: 7 }));
+    });
+
+    it('shows the event an edit already has, and can take it out', async () => {
+      const ui = await renderModal({ isEdit: true, initialData: { ...completeInitialData, eventId: 7 } });
+
+      expect(await ui.findByText('🪔 Diwali party')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-none'));
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
+      expect(ui.onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ eventId: null }));
+    });
+
+    it('titles a new entry after its event, and drops the title with the event', async () => {
+      const ui = await renderModal({ initialData: { ...completeInitialData, eventId: 7 } });
+
+      expect(await ui.findByText('Add to Diwali party')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-none'));
+
+      await waitFor(() => expect(ui.queryByText('Add to Diwali party')).toBeNull());
+    });
+
+    it('has no event on a quick prompt', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', isEdit: true });
+
+      expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
+      expect(ui.queryByTestId('entry-event-picker')).toBeNull();
+    });
   });
 
   it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
