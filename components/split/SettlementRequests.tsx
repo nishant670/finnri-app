@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
-import { ActivityIndicator, Pressable, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 
 import { formatBalance } from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
@@ -98,8 +98,8 @@ export function SettlementRequests({
                 accessibilityLabel="Deny this settlement"
                 disabled={busy}
                 onPress={() => onDecide(settlement, 'deny')}
-                className="min-h-13 flex-1 flex-row items-center justify-center gap-2 rounded-full border"
-                style={{ borderColor: theme.border, opacity: busy ? 0.6 : 1 }}>
+                className="flex-1 flex-row items-center justify-center gap-2 rounded-full border px-4"
+                style={[styles.decision, { borderColor: theme.border, opacity: busy ? 0.6 : 1 }]}>
                 <MaterialCommunityIcons name="close-circle-outline" size={19} color={theme.negative} />
                 <TText className="text-sm" style={{ color: theme.negative, fontFamily: Fonts.title }}>
                   Deny
@@ -110,8 +110,11 @@ export function SettlementRequests({
                 accessibilityLabel="Confirm this settlement"
                 disabled={busy}
                 onPress={() => onDecide(settlement, 'confirm')}
-                className="min-h-13 flex-1 flex-row items-center justify-center gap-2 rounded-full"
-                style={{ backgroundColor: theme.accent, opacity: busy ? 0.6 : 1 }}>
+                className="flex-1 flex-row items-center justify-center gap-2 rounded-full border px-4"
+                style={[
+                  styles.decision,
+                  { backgroundColor: theme.accent, borderColor: theme.accent, opacity: busy ? 0.6 : 1 },
+                ]}>
                 {busy ? (
                   <ActivityIndicator color={theme.onAccent} />
                 ) : (
@@ -136,3 +139,10 @@ export function SettlementRequests({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  // A plain style, not a class: `min-h-13` is not a step in this Tailwind
+  // scale, so it was dropped and both buttons shrank to the height of their
+  // text.
+  decision: { minHeight: 48, paddingVertical: 12 },
+});

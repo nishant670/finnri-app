@@ -343,16 +343,21 @@ describe('SplitSettlementModal', () => {
     expect(onChangeDirection).toHaveBeenCalledWith('friend_paid_user');
   });
 
-  it('asks how it was paid, and shows why it cannot save', async () => {
-    const { screen, onChangePaymentMode } = await setup({
-      errorMessage: 'Choose how it was paid, so the other person can check it.',
-    });
+  it('asks how it was paid, and says so at the chips when it is missing', async () => {
+    const { screen, onChangePaymentMode } = await setup({ paymentModeMissing: true });
     expect(screen.getByText('How was it paid?')).toBeTruthy();
+    expect(
+      screen.getByText('Select a payment method (UPI, Cash, …) to save this settlement.')
+    ).toBeTruthy();
     await fireEvent.press(screen.getByText('Bank transfer'));
     expect(onChangePaymentMode).toHaveBeenCalledWith('bank_transfer');
+  });
+
+  it('shows no payment-method error before Save is pressed', async () => {
+    const { screen } = await setup();
     expect(
-      screen.getByText('Choose how it was paid, so the other person can check it.')
-    ).toBeTruthy();
+      screen.queryByText('Select a payment method (UPI, Cash, …) to save this settlement.')
+    ).toBeNull();
   });
 
   it('edits the amount and saves', async () => {
