@@ -152,6 +152,20 @@ describe('saveNewTransaction with confirmDuplicate', () => {
     expect(mockedCreate).toHaveBeenCalledTimes(2);
   });
 
+  it('does not warn on a retry after the first send, which may have saved the entry it would find', async () => {
+    serve();
+    const confirm = jest.fn(async () => true);
+    const progress = {};
+    mockedCreate.mockRejectedValueOnce(new Error('timeout'));
+    await expect(save(confirm, progress)).rejects.toThrow('timeout');
+    // The server did save it; the retry's lookup would now find it.
+    serve(logged());
+    await save(confirm, progress);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(mockedLoad).toHaveBeenCalledTimes(1);
+    expect(mockedCreate).toHaveBeenCalledTimes(2);
+  });
+
   it('saves without asking when nothing matches', async () => {
     serve();
     const confirm = jest.fn(async () => true);

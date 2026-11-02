@@ -3,6 +3,7 @@ import { create } from 'zustand';
 import { readApiError } from './api-error';
 import { subscribeTransactionsChanged } from './transaction-events';
 import { API_BASE_URL } from './transactions';
+import type { Transaction } from '@/types/transaction';
 
 /**
  * Events group a user's own expenses by occasion — a party they hosted, a
@@ -307,8 +308,16 @@ export const describeEventDates = (event: Pick<FinnriEvent, 'start_date' | 'end_
   return '';
 };
 
+/**
+ * Whether a listed transaction can go in an event: expenses only, and never a
+ * card bill payment, whose purchases already count where they were made. The
+ * API refuses the rest, and refuses a whole selection that holds one.
+ */
+export const canJoinEvent = (transaction: Pick<Transaction, 'entryType' | 'purposeType'>) =>
+  transaction.entryType !== 'income' && transaction.purposeType !== 'card_payment';
+
 /** The event's name with its emoji, for pills and pickers. */
-export const eventLabel = (event: Pick<FinnriEvent, 'name' | 'emoji'>) =>
+export const eventLabel =(event: Pick<FinnriEvent, 'name' | 'emoji'>) =>
   event.emoji ? `${event.emoji} ${event.name}` : event.name;
 
 /** True when `day` (`YYYY-MM-DD`) falls inside the event's dates. */
