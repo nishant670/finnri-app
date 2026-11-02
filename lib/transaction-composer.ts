@@ -97,6 +97,12 @@ export type TransactionSaveProgress = {
   refundCreated?: boolean;
   /** The user saw the likely-duplicate warning and chose to save anyway. */
   duplicateConfirmed?: boolean;
+  /**
+   * The create request went out. Its answer may have been lost after the
+   * server saved the entry, so a retry's duplicate check would find that very
+   * entry; the check ran before the first send and is not repeated.
+   */
+  createSent?: boolean;
 };
 
 /**
@@ -231,7 +237,7 @@ export async function saveNewTransaction({
   confirmDuplicate?: (match: Transaction) => Promise<boolean>;
 }) {
   const parsedDate = parseDateLabel(form.date);
-  if (confirmDuplicate && !progress.entry && !progress.duplicateConfirmed) {
+  if (confirmDuplicate && !progress.entry && !progress.duplicateConfirmed && !progress.createSent) {
     const match = await findLikelyDuplicate(token, form, account?.id ?? null);
     if (match) {
       if (!(await confirmDuplicate(match))) throw new DuplicateSaveCancelled();
@@ -250,6 +256,7 @@ export async function saveNewTransaction({
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'
     );
   }
+  if (!progress.entry) progress.createSent = true;
   const entry =
     progress.entry ??
     (await createEntry(

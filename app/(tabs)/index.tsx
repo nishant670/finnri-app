@@ -175,6 +175,8 @@ const RECORDING_OPTIONS = {
  * harder to read rather than calmer.
  */
 const SAVE_TOAST_DWELL_MS = 2200;
+/** How often a return to the foreground refreshes credits, notifications and gifts. */
+const FOREGROUND_REFRESH_INTERVAL_MS = 60_000;
 
 /** Legacy `Animated` needs the curve as a plain function; see AnimatedBottomSheet. */
 const TOAST_IN_EASING = Easing.bezier(...Motion.ease.standard);
@@ -629,10 +631,16 @@ export default function HomeScreen() {
 
   // Coming back to the app is when news arrives: a gift given while it was in
   // the background, or credits bought on the web. Focus alone misses it,
-  // because Home never lost focus.
+  // because Home never lost focus. At most once a minute: the camera, the
+  // gallery and permission prompts all leave and re-enter the app too, and a
+  // bill scan should not share the connection with three refreshes each time.
+  const lastForegroundRefreshRef = useRef(0);
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
       if (state !== 'active') return;
+      const now = Date.now();
+      if (now - lastForegroundRefreshRef.current < FOREGROUND_REFRESH_INTERVAL_MS) return;
+      lastForegroundRefreshRef.current = now;
       void fetchCredits(true);
       void fetchNotificationCount();
       void checkForGift();

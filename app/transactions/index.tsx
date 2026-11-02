@@ -3,6 +3,7 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Pressable,
   ScrollView,
@@ -77,6 +78,7 @@ import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   EVENT_ENTRIES_PER_CALL,
   addEntriesToEvent,
+  canJoinEvent,
   describeEventGrouping,
   eventLabel,
   removeEntriesFromEvent,
@@ -300,7 +302,7 @@ export default function TransactionsScreen() {
   const [isGrouping, setIsGrouping] = useState(false);
 
   const startSelecting = useCallback((item: Transaction) => {
-    if (item.entryType === 'income') return;
+    if (!canJoinEvent(item)) return;
     haptics.select();
     setOpenSwipeId(null);
     setIsSelecting(true);
@@ -308,7 +310,7 @@ export default function TransactionsScreen() {
   }, []);
 
   const toggleSelected = useCallback((item: Transaction) => {
-    if (item.entryType === 'income') return;
+    if (!canJoinEvent(item)) return;
     haptics.select();
     setSelectedIds((current) => {
       const next = new Set(current);
@@ -322,6 +324,18 @@ export default function TransactionsScreen() {
     setIsSelecting(false);
     setSelectedIds(new Set());
   }, []);
+
+  // Android's back ends a selection the way the header's ✕ does, rather than
+  // leaving the screen with its filters. Arriving to pick for an event, the
+  // selection is the screen, so back leaves as usual.
+  useEffect(() => {
+    if (!isSelecting || pickForEventId !== null) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      stopSelecting();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isSelecting, pickForEventId, stopSelecting]);
 
   /**
    * The delete is held, not sent — see `useUndoableDelete` for why a reversal
@@ -624,9 +638,10 @@ export default function TransactionsScreen() {
   );
 
   /**
-   * Puts the selection in an event, a request per 200 rows. Every row is an
-   * expense the screen let the user pick, so a refusal here is a stale list,
-   * and the error says so rather than half-applying.
+   * Puts the selection in an event, a request per 200 rows. Each request is
+   * all or nothing, but the requests are not: when one fails part-way, the
+   * rows already sent stay done. The list and the event show them, they leave
+   * the selection, and the rest stay selected for another try.
    */
   const groupSelection = useCallback(
     async (event: FinnriEvent, action: 'add' | 'remove') => {
@@ -635,18 +650,23 @@ export default function TransactionsScreen() {
       if (ids.length === 0) return;
       setIsEventPickerOpen(false);
       setIsGrouping(true);
+      let done = 0;
+      const showChanges = () => {
+        invalidateEvents();
+        notifyTransactionsChanged();
+        void refresh();
+      };
       try {
         let moved = 0;
         for (let start = 0; start < ids.length; start += EVENT_ENTRIES_PER_CALL) {
           const chunk = ids.slice(start, start + EVENT_ENTRIES_PER_CALL);
           if (action === 'add') moved += (await addEntriesToEvent(token, event.id, chunk)).moved;
           else await removeEntriesFromEvent(token, event.id, chunk);
+          done += chunk.length;
         }
         haptics.saved();
-        invalidateEvents();
         stopSelecting();
-        notifyTransactionsChanged();
-        void refresh();
+        showChanges();
         if (pickForEventId !== null) {
           router.back();
           return;
@@ -658,9 +678,17 @@ export default function TransactionsScreen() {
         });
       } catch (err) {
         haptics.rejected();
+        if (done > 0) {
+          const applied = new Set(ids.slice(0, done).map(String));
+          setSelectedIds((current) => new Set([...current].filter((id) => !applied.has(id))));
+          showChanges();
+        }
         await dialog.alert({
           title: 'Could not update the event',
-          message: getFriendlyErrorMessage(err, 'Try again in a moment.'),
+          message:
+            done > 0
+              ? `${done} of ${ids.length} went through before it stopped. The other ${ids.length - done} are still selected, so you can try again.`
+              : getFriendlyErrorMessage(err, 'Try again in a moment.'),
           tone: 'danger',
         });
       } finally {
@@ -940,7 +968,7 @@ export default function TransactionsScreen() {
           ]}>
           {selectedIds.size === 0 ? (
             <ThemedText tone="muted" style={[styles.caption, styles.selectionHint]}>
-              Tap the expenses that belong together. Income can’t go in an event.
+              Tap the expenses that belong together. Income and card bill payments can’t go in an event.
             </ThemedText>
           ) : pickForEventId !== null ? (
             <Button
@@ -1141,7 +1169,7 @@ const TransactionRow = memo(function TransactionRow({
   onToggleSelected: (item: Transaction) => void;
 }) {
   const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
-  const isExpense = transaction.entryType !== 'income';
+  const joinsEvents = canJoinEvent(transaction);
   const theme = useThemeTokens().colors;
 
   // Each row draws its slice of the day's card, so the list stays one flat,
@@ -1183,9 +1211,9 @@ const TransactionRow = memo(function TransactionRow({
         onPress={(origin) =>
           selecting ? onToggleSelected(transaction) : onOpen(transaction, undefined, origin)
         }
-        onLongPress={!selecting && isExpense ? () => onStartSelecting(transaction) : undefined}
+        onLongPress={!selecting && joinsEvents ? () => onStartSelecting(transaction) : undefined}
         selected={selecting ? selected : undefined}
-        dimmed={selecting && !isExpense}
+        dimmed={selecting && !joinsEvents}
       />
     </View>
   );

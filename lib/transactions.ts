@@ -9,6 +9,8 @@ export type ApiEntry = {
   id?: string | number;
   account_id?: number | null;
   event_id?: number | null;
+  /** `card_payment` for a credit-card bill payment; such an entry is never in an event. */
+  purpose_type?: string | null;
   account?: {
     id: number;
     name: string;
@@ -272,6 +274,7 @@ export const mapEntryToTransaction = (entry: ApiEntry): Transaction => {
     accountId: entry.account_id ?? null,
     accountName: entry.account?.name ?? null,
     eventId: entry.event_id ?? null,
+    purposeType: entry.purpose_type ?? null,
     notes: entry.notes ?? null,
     merchant: entry.merchant ?? null,
     timeLabel,

@@ -1,5 +1,6 @@
 import {
   addEntriesToEvent,
+  canJoinEvent,
   defaultDayForEvent,
   describeEventGrouping,
   describeEventDates,
@@ -60,6 +61,15 @@ describe('event dates', () => {
     expect(defaultDayForEvent(party, '2026-11-01')).toBe('2026-11-01');
     expect(defaultDayForEvent(trip, '2026-11-01')).toBe('2026-12-20');
     expect(defaultDayForEvent(move, '2026-11-01')).toBe('2026-11-01');
+  });
+});
+
+describe('canJoinEvent', () => {
+  it('takes expenses, never income or a card bill payment', () => {
+    expect(canJoinEvent({ entryType: 'expense', purposeType: 'normal_spend' })).toBe(true);
+    expect(canJoinEvent({ entryType: 'expense' })).toBe(true);
+    expect(canJoinEvent({ entryType: 'income' })).toBe(false);
+    expect(canJoinEvent({ entryType: 'expense', purposeType: 'card_payment' })).toBe(false);
   });
 });
 
