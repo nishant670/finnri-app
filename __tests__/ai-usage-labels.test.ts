@@ -17,6 +17,7 @@ describe('AI usage labels', () => {
     expect(aiUsageLabel({ action_code: 'transaction_parse_text' })).toBe('Text capture');
     expect(aiUsageLabel({ action_code: 'transaction_parse_text', intent: '' })).toBe('Text capture');
     expect(aiUsageLabel({ action_code: 'transaction_parse_voice_medium' })).toBe('Voice capture');
+    expect(aiUsageLabel({ action_code: 'transaction_parse_receipt' })).toBe('Bill scan');
   });
 
   it('falls back to a readable action code for actions it has no label for', () => {

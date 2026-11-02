@@ -208,3 +208,106 @@ export const getCreditReminderLabel = (account: Account) => {
     ? 'Reminder active for this bill'
     : 'Reminder active · bill overdue';
 };
+
+/* ------------------------------------------------------------------ *
+ * Setup
+ *
+ * The details that make an account easy to tell apart and to track, as one
+ * list both the account page and the "account added" screen draw (boards
+ * R5-AcctCard, R5-AcctBank, R5-AcctAdded). A done item says what was entered;
+ * a missing one says what adding it gets you.
+ * ------------------------------------------------------------------ */
+
+export type AccountSetupKey = 'provider' | 'identifier' | 'limit' | 'due' | 'balance';
+
+export type AccountSetupItem = {
+  key: AccountSetupKey;
+  label: string;
+  complete: boolean;
+  /** The value when done; what it is for when missing. */
+  detail: string;
+};
+
+const ordinal = (day: number) => {
+  const tens = day % 100;
+  if (tens >= 11 && tens <= 13) return `${day}th`;
+  return `${day}${['th', 'st', 'nd', 'rd'][day % 10] ?? 'th'}`;
+};
+
+export const getAccountSetupItems = (account: Account): AccountSetupItem[] => {
+  const accountType = normalizeAccountType(account.type);
+  const provider = account.provider?.trim() ?? '';
+  const lastDigits = account.last4?.trim();
+  const identifier =
+    (lastDigits ? `•••• ${lastDigits}` : '') ||
+    account.upi_handle?.trim() ||
+    account.wallet_nickname?.trim() ||
+    account.identifier?.trim() ||
+    '';
+  const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
+  const balanceItem = (label: string): AccountSetupItem => ({
+    key: 'balance',
+    label,
+    complete: hasBalance,
+    detail: hasBalance ? formatMoney(account.balance ?? 0) : 'Start a running balance for this account',
+  });
+
+  if (accountType === 'credit_card') {
+    const limit = account.credit_limit ?? 0;
+    const dueDay = account.due_day ?? 0;
+    const hasDueDay = dueDay >= 1 && dueDay <= 31;
+    return [
+      {
+        key: 'provider',
+        label: 'Card issuer',
+        complete: Boolean(provider),
+        detail: provider || 'The bank behind the card',
+      },
+      {
+        key: 'identifier',
+        label: 'Last 4 digits',
+        complete: Boolean(identifier),
+        detail: identifier || 'Tell it apart from your other cards',
+      },
+      {
+        key: 'limit',
+        label: 'Credit limit',
+        complete: limit > 0,
+        detail: limit > 0 ? formatMoney(limit) : 'See how much of your limit is free',
+      },
+      {
+        key: 'due',
+        label: 'Due date',
+        complete: hasDueDay,
+        detail: hasDueDay ? `The ${ordinal(dueDay)} of each month` : 'Get a reminder before each bill',
+      },
+    ];
+  }
+
+  if (accountType === 'cash') return [balanceItem('Opening cash balance')];
+
+  const providerLabel =
+    accountType === 'upi' ? 'UPI app' : accountType === 'wallet' ? 'Wallet' : accountType === 'other' ? 'Provider' : 'Bank';
+  const identifierLabel =
+    accountType === 'upi'
+      ? 'UPI handle or nickname'
+      : accountType === 'wallet'
+        ? 'Wallet nickname'
+        : 'Last 4 digits';
+
+  return [
+    {
+      key: 'provider',
+      label: providerLabel,
+      complete: Boolean(provider),
+      detail: provider || (accountType === 'upi' ? 'GPay, PhonePe, Paytm' : 'Where the money is held'),
+    },
+    {
+      key: 'identifier',
+      label: identifierLabel,
+      complete: Boolean(identifier),
+      detail: identifier || 'Tell it apart from your other accounts',
+    },
+    balanceItem('Opening balance'),
+  ];
+};

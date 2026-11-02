@@ -1,8 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { ActivityIndicator, ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PrimaryButton } from '@/components/ui/Button';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
@@ -113,7 +114,7 @@ export function AccountFormStepTwo({
     return (
       <View style={{ flex: 1 }}>
         <ScreenHeader
-          subtitle="STEP 2 OF 2"
+          subtitle="Step 2 of 2"
           onBack={() => setStep(1)}
           rightText={isSaving ? 'Saving' : 'Save now'}
           onRightPress={handleSave}
@@ -125,7 +126,6 @@ export function AccountFormStepTwo({
               18pt black over a cartoon face, and it was the loudest thing on
               a screen whose fields are all optional. */}
           <View style={styles.stepIntro}>
-            <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Card details</ThemedText>
             <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
               {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
             </ThemedText>
@@ -152,15 +152,16 @@ export function AccountFormStepTwo({
                   style={[
                     styles.providerChip,
                     { backgroundColor: theme.card },
-                    isActive && { borderColor: theme.accent, backgroundColor: '#F4F1FE' },
+                    { borderColor: isActive ? theme.selectedBorder : theme.border },
+                    isActive && { backgroundColor: theme.selectedFill },
                   ]}>
                   <MaterialCommunityIcons
                     name={provider.icon}
                     size={16}
-                    color={isActive ? theme.accent : '#64748B'}
+                    color={theme.text}
                   />
                   <ThemedText
-                    style={[styles.providerChipText, isActive && { color: theme.accent }]}>
+                    style={[styles.providerChipText, { color: theme.text }, isActive && { fontWeight: '700' }]}>
                     {provider.name}
                   </ThemedText>
                 </TouchableOpacity>
@@ -282,7 +283,6 @@ export function AccountFormStepTwo({
             <FormDisclosure
               testID="card-reminder-options"
               label="Due-date reminder"
-              icon={reminderEnabled ? 'bell-ring-outline' : 'bell-off-outline'}
               summary={
                 reminderEnabled
                   ? `On · ${Number(reminderDaysBefore || 0)} day${Number(reminderDaysBefore) === 1 ? '' : 's'} before the due date`
@@ -346,7 +346,6 @@ export function AccountFormStepTwo({
             <FormDisclosure
               testID="card-annual-fee-options"
               label="Annual fee"
-              icon="cash-clock"
               summary={
                 annualFee
                   ? [
@@ -434,7 +433,7 @@ export function AccountFormStepTwo({
         </KeyboardAvoidingScreen>
 
         {/* Footer Step 2 */}
-        <View style={[styles.footer, { backgroundColor: theme.background }]}>
+        <View style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
           {saveError ? (
             <View style={styles.errorContainer}>
               <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
@@ -443,20 +442,15 @@ export function AccountFormStepTwo({
           ) : null}
           <View style={styles.footerActions}>
             <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
-              <ThemedText style={styles.cancelText}>Back</ThemedText>
+              <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
             </TouchableOpacity>
-            <TouchableOpacity
+            <PrimaryButton
+              label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+              icon={isSaving ? undefined : 'check'}
+              loading={isSaving}
               onPress={handleSave}
-              style={[
-                styles.saveButton,
-                { backgroundColor: theme.accent, shadowColor: theme.accent },
-              ]}
-              disabled={isSaving}>
-              <ThemedText style={styles.saveButtonText}>
-                {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
-              </ThemedText>
-              {isSaving && <ActivityIndicator size="small" color="white" className="ml-2" />}
-            </TouchableOpacity>
+              style={styles.saveButton}
+            />
           </View>
         </View>
 
@@ -486,7 +480,7 @@ export function AccountFormStepTwo({
   return (
     <>
       <ScreenHeader
-        subtitle="STEP 2 OF 2"
+        subtitle="Step 2 of 2"
         onBack={() => setStep(1)}
         rightText={isSaving ? 'Saving' : 'Save now'}
         onRightPress={handleSave}
@@ -498,7 +492,6 @@ export function AccountFormStepTwo({
             18pt black over a cartoon face, and it was the loudest thing on
             a screen whose fields are all optional. */}
         <View style={styles.stepIntro}>
-          <ThemedText style={[styles.stepEyebrow, { color: theme.accent }]}>Details</ThemedText>
           <ThemedText style={[styles.stepTitle, { color: theme.text }]} numberOfLines={2}>
             {name.trim() || DEFAULT_ACCOUNT_NAMES[selectedType]}
           </ThemedText>
@@ -527,15 +520,16 @@ export function AccountFormStepTwo({
                         styles.providerChip,
                         { backgroundColor: theme.card },
                         { backgroundColor: theme.card },
-                        isActive && { borderColor: theme.accent, backgroundColor: '#F4F1FE' },
+                        { borderColor: isActive ? theme.selectedBorder : theme.border },
+                    isActive && { backgroundColor: theme.selectedFill },
                       ]}>
                       <MaterialCommunityIcons
                         name={provider.icon}
                         size={16}
-                        color={isActive ? theme.accent : '#64748B'}
+                        color={theme.text}
                       />
                       <ThemedText
-                        style={[styles.providerChipText, isActive && { color: theme.accent }]}>
+                        style={[styles.providerChipText, { color: theme.text }, isActive && { fontWeight: '700' }]}>
                         {provider.name}
                       </ThemedText>
                     </TouchableOpacity>
@@ -650,7 +644,7 @@ export function AccountFormStepTwo({
         )}
       </KeyboardAvoidingScreen>
 
-      <View style={[styles.footer, { backgroundColor: theme.background }]}>
+      <View style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
         {saveError ? (
           <View style={styles.errorContainer}>
             <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#D32F2F" />
@@ -659,24 +653,15 @@ export function AccountFormStepTwo({
         ) : null}
         <View style={styles.footerActions}>
           <TouchableOpacity onPress={() => setStep(1)} style={styles.cancelButton}>
-            <ThemedText style={styles.cancelText}>Back</ThemedText>
+            <ThemedText style={[styles.cancelText, { color: theme.text }]}>Back</ThemedText>
           </TouchableOpacity>
-          <TouchableOpacity
+          <PrimaryButton
+            label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+            icon={isSaving ? undefined : 'check'}
+            loading={isSaving}
             onPress={handleSave}
-            style={[
-              styles.saveButton,
-              { backgroundColor: theme.accent, shadowColor: theme.accent },
-            ]}
-            disabled={isSaving}>
-            <ThemedText style={styles.saveButtonText}>
-              {isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
-            </ThemedText>
-            {isSaving ? (
-              <ActivityIndicator size="small" color="white" />
-            ) : (
-              <MaterialCommunityIcons name="check-all" size={20} color="white" />
-            )}
-          </TouchableOpacity>
+            style={styles.saveButton}
+          />
         </View>
       </View>
     </>

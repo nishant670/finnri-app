@@ -3,6 +3,7 @@ import { cssInterop } from 'nativewind';
 import { Pressable, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
@@ -43,36 +44,52 @@ export function EMIPlansSection({
   const active = plans.filter((plan) => plan.status === 'active');
 
   return (
-    <View className="mt-8">
-      <View className="flex-row items-center justify-between">
-        <TText className="text-lg" style={{ fontFamily: Fonts.title, color: theme.text }}>
+    <View>
+      {/* Board R5-AcctCard: the section title with an outlined Add. */}
+      <View className="mb-2 mt-6 min-h-8 flex-row items-center justify-between">
+        <TText accessibilityRole="header" style={{ fontSize: 15, lineHeight: 20, fontWeight: '700', color: theme.text }}>
           EMI plans
         </TText>
-        <Pressable accessibilityRole="button" onPress={onAdd}>
-          <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.accent }}>
-            Add plan
-          </TText>
-        </Pressable>
+        <PressableView
+          accessibilityRole="button"
+          accessibilityLabel="Add EMI plan"
+          onPress={onAdd}
+          style={{
+            height: 32,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 4,
+            paddingLeft: 8,
+            paddingRight: 12,
+            borderWidth: 1,
+            borderRadius: 16,
+            backgroundColor: theme.card,
+            borderColor: theme.borderStrong,
+          }}
+          pressedStyle={{ opacity: 0.7 }}>
+          <MaterialCommunityIcons name="plus" size={16} color={theme.text} />
+          <TText style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: theme.text }}>Add</TText>
+        </PressableView>
       </View>
 
       {active.length === 0 ? (
-        <TText className="mt-2 text-xs" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
-          Split a big purchase into instalments and Finnri will track how much of your limit it
-          holds, and give that back as you pay.
+        <TText style={{ fontSize: 13, lineHeight: 18, color: theme.muted }}>
+          None yet. Split a big purchase into instalments and Finnri shows how much of your limit
+          it holds.
         </TText>
       ) : (
         <>
           {blockedPrincipal > 0 && (
-            <View className="mt-2 flex-row items-center gap-2">
+            <View className="flex-row items-center gap-2">
               <View className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: '#8B5CF6' }} />
-              <TText className="text-xs" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+              <TText className="text-xs" style={{ fontFamily: Fonts.body, color: theme.muted }}>
                 {formatMoney(blockedPrincipal)} of your limit is held for instalments still to be
                 billed
               </TText>
             </View>
           )}
 
-          <View className="mt-4 gap-3">
+          <View className="mt-3 gap-2">
             {active.map((plan) => (
               <EMIPlanRow key={plan.id} plan={plan} onPress={() => onOpenPlan(plan)} />
             ))}
@@ -97,7 +114,7 @@ function EMIPlanRow({ plan, onPress }: { plan: EMIPlan; onPress: () => void }) {
       accessibilityRole="button"
       accessibilityLabel={`EMI plan for ${plan.title}`}
       onPress={onPress}
-      className="rounded-[24px] border px-5 py-4"
+      className="rounded-2xl border px-4 py-4"
       style={{ backgroundColor: theme.card, borderColor: theme.border }}>
       <View className="flex-row items-start justify-between gap-3">
         <View className="min-w-0 flex-1">
@@ -110,12 +127,12 @@ function EMIPlanRow({ plan, onPress }: { plan: EMIPlan; onPress: () => void }) {
           <TText
             className="mt-1 text-xs"
             numberOfLines={1}
-            style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+            style={{ fontFamily: Fonts.body, color: theme.muted }}>
             {formatMoney(plan.monthly_amount)}/mo · {formatEMIProgress(progress)}
             {isNoCostEMI(plan) ? ' · No cost' : ` · ${plan.annual_rate_pct}%`}
           </TText>
         </View>
-        <MaterialCommunityIcons name="chevron-right" size={20} color="#94A3B8" />
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.muted} />
       </View>
 
       <View
@@ -133,11 +150,11 @@ function EMIPlanRow({ plan, onPress }: { plan: EMIPlan; onPress: () => void }) {
       </View>
 
       <View className="mt-3 flex-row items-center justify-between">
-        <TText className="text-[11px]" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+        <TText className="text-[11px]" style={{ fontFamily: Fonts.body, color: theme.muted }}>
           {formatMoney(progress.principal_remaining)} left of {formatMoney(plan.principal)}
         </TText>
         {progress.next_due_date && (
-          <TText className="text-[11px]" style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+          <TText className="text-[11px]" style={{ fontFamily: Fonts.body, color: theme.muted }}>
             Next {formatDay(progress.next_due_date)}
           </TText>
         )}

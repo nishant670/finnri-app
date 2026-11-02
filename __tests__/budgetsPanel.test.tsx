@@ -68,7 +68,7 @@ describe('Budgets panel', () => {
     expect(await ui.findByText('Food budget')).toBeTruthy();
     expect(ui.queryByTestId('budget-form')).toBeNull();
 
-    await fireEvent.press(await ui.findByText('New budget'));
+    await fireEvent.press(await ui.findByText('Add'));
 
     expect(await ui.findByTestId('budget-form')).toBeTruthy();
   });
@@ -77,7 +77,7 @@ describe('Budgets panel', () => {
     jest.spyOn(budgets, 'fetchBudgets').mockResolvedValue([groceries]);
     const ui = await render(<BudgetsPanel embedded />);
 
-    await fireEvent.press(await ui.findByText('New budget'));
+    await fireEvent.press(await ui.findByText('Add'));
     await fireEvent.press(await ui.findByTestId('budget-category-Food & Drinks'));
     await fireEvent.press(await ui.findByText(/You've spent ₹6,240 on Food & Drinks/));
 

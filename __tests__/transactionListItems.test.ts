@@ -28,6 +28,10 @@ describe('buildTransactionListItems', () => {
       '  3',
     ]);
     expect(items[0]).toMatchObject({ kind: 'day', first: true });
+    // Each day's rows share one card: the first draws its top, the last its bottom.
+    expect(items[1]).toMatchObject({ kind: 'row', groupFirst: true, groupLast: false });
+    expect(items[2]).toMatchObject({ kind: 'row', groupFirst: false, groupLast: true });
+    expect(items[4]).toMatchObject({ kind: 'row', groupFirst: true, groupLast: true });
     expect(items[3]).toMatchObject({ kind: 'day', first: false });
     // Rows count down the whole list, so the stagger does not restart per day.
     expect(items[4]).toMatchObject({ kind: 'row', position: 2 });

@@ -1,10 +1,12 @@
 import { router } from 'expo-router';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
 import { DashboardResponse } from '@/lib/insights';
+import { InsightCard, ProgressBar, Tag, insightText } from './insight-ui';
 import { PillButton } from './PillButton';
 import { SectionHeader } from './SectionHeader';
 
@@ -22,73 +24,67 @@ export function BudgetWatchSection({
 
   return (
     <SectionHeader title="Budgets">
-      <View className="gap-3">
-        {visible.map((budget) => (
+      <InsightCard flush>
+        {visible.map((budget, index) => (
           <BudgetWatchCard
             key={budget.budget_id}
+            divider={index > 0}
             budget={budget}
             periodStart={dashboard.period.start}
             periodEnd={dashboard.period.end}
             rangeLabel={rangeLabel}
           />
         ))}
-      </View>
+      </InsightCard>
     </SectionHeader>
   );
 }
 function BudgetWatchCard({
+  divider,
   budget,
   periodStart,
   periodEnd,
   rangeLabel,
 }: {
+  divider: boolean;
   budget: DashboardResponse['budget_statuses'][number];
   periodStart: string;
   periodEnd: string;
   rangeLabel: string;
 }) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
   const exceeded = budget.status === 'exceeded';
-  const color = exceeded ? '#FF6680' : '#FFB020';
+  const color = exceeded ? colors.negative : colors.warning;
   const label = budget.category || budget.name;
   const kind = exceeded ? 'budget_exceeded' : 'budget_watch';
   const title = exceeded ? `${label} budget exceeded` : `${label} budget nearing limit`;
   const body = `${formatMoney(budget.spent_amount)} of ${formatMoney(budget.limit_amount)} used with ${budget.days_left} day${budget.days_left === 1 ? '' : 's'} left.`;
 
   return (
-    <View
-      className="rounded-[24px] border p-5 shadow-sm"
-      style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-      <View className="flex-row items-start justify-between gap-4">
-        <View className="flex-1">
-          <View className="flex-row items-center gap-2">
-            <View className="rounded-full px-2.5 py-1" style={{ backgroundColor: `${color}1A` }}>
-              <ThemedText className="text-[10px] font-black uppercase" style={{ color }}>
-                {exceeded ? 'Exceeded' : 'Watch'}
-              </ThemedText>
-            </View>
-            <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">
+    <View style={[styles.row, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+      <View style={styles.head}>
+        <View style={styles.text}>
+          <View style={styles.tags}>
+            <Tag
+              label={exceeded ? 'Exceeded' : 'Watch'}
+              color={color}
+              background={exceeded ? withAlpha(colors.negative, 0.12) : colors.warningSurface}
+            />
+            <ThemedText tone="muted" style={insightText.caption}>
               {budget.days_left} day{budget.days_left === 1 ? '' : 's'} left
             </ThemedText>
           </View>
-          <ThemedText className="mt-3 text-base font-black">{label}</ThemedText>
-          <ThemedText tone="muted" className="mt-1 text-xs leading-5">
+          <ThemedText style={[styles.label, { color: colors.text }]}>{label}</ThemedText>
+          <ThemedText tone="muted" style={insightText.caption}>
             {formatMoney(budget.spent_amount)} of {formatMoney(budget.limit_amount)} used
           </ThemedText>
         </View>
-        <ThemedText className="text-xl font-black" style={{ color }}>
-          {Math.round(budget.percentage)}%
-        </ThemedText>
+        <ThemedText style={[styles.percent, { color }]}>{Math.round(budget.percentage)}%</ThemedText>
       </View>
 
-      <View className="mt-4 h-2 overflow-hidden rounded-full bg-gray-100">
-        <View
-          className="h-full rounded-full"
-          style={{ width: `${Math.min(100, budget.percentage)}%`, backgroundColor: color }}
-        />
-      </View>
+      <ProgressBar fraction={budget.percentage / 100} color={color} style={styles.bar} />
 
-      <View className="mt-4 flex-row gap-2">
+      <View style={styles.actions}>
         <PillButton
           label="Review"
           muted
@@ -135,3 +131,44 @@ function BudgetWatchCard({
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  row: {
+    padding: 16,
+  },
+  head: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  text: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  tags: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
+  },
+  label: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  percent: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  bar: {
+    marginTop: 12,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+  },
+});

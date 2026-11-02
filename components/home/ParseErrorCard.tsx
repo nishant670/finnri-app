@@ -86,7 +86,7 @@ export function ParseErrorCard({
       accessibilityRole="alert"
       style={[
         {
-          borderRadius: theme.radius.xxl,
+          borderRadius: 16,
           borderWidth: 1,
           borderColor: dangerBorder,
           backgroundColor: dangerSurface,
@@ -203,11 +203,11 @@ export function ParseErrorCard({
                 backgroundColor: theme.colors.accent,
               }}>
               {isRetrying ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={theme.colors.onAccent} />
               ) : (
                 <>
-                  <MaterialCommunityIcons name="refresh" size={15} color="#FFFFFF" />
-                  <ThemedText style={{ fontSize: 13, fontWeight: '700', color: '#FFFFFF' }}>
+                  <MaterialCommunityIcons name="refresh" size={15} color={theme.colors.onAccent} />
+                  <ThemedText style={{ fontSize: 13, fontWeight: '700', color: theme.colors.onAccent }}>
                     Try again
                   </ThemedText>
                 </>

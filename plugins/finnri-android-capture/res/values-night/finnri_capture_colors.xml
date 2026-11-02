@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dark set of `values/finnri_capture_colors.xml` (board R14-Widget-Dark). Same names. -->
+<resources>
+  <color name="finnri_accent">#FF8865</color>
+  <color name="finnri_on_accent">#2D2D2D</color>
+  <color name="finnri_background">#1A1A1A</color>
+  <color name="finnri_card">#242424</color>
+  <color name="finnri_border">#3C3C3C</color>
+  <color name="finnri_border_strong">#4A4A4A</color>
+  <color name="finnri_track">#2C2C2C</color>
+  <color name="finnri_tint">#40FF8865</color>
+  <color name="finnri_text">#FAFAFA</color>
+  <color name="finnri_text_muted">#BFFAFAFA</color>
+  <color name="finnri_scrim">#99000000</color>
+
+  <color name="finnri_widget_surface">#EB242424</color>
+  <color name="finnri_widget_hint">#B3FAFAFA</color>
+  <color name="finnri_widget_circle">#2C2C2C</color>
+  <color name="finnri_logo_fill">#FAFAFA</color>
+  <color name="finnri_logo_ink">#1A1A1A</color>
+</resources>

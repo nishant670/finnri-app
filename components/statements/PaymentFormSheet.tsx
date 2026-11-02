@@ -11,6 +11,7 @@ import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { normalizeAccountType, type Account } from '@/lib/accounts';
 import { fromISODate, parseAmountInput, toISODate } from '@/lib/statement-dates';
 import { formatMoney } from '@/lib/money';
@@ -62,6 +63,7 @@ export function PaymentFormSheet({
   onSubmit: (payload: StatementPaymentPayload) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(32);
 
   const [amount, setAmount] = useState('');
   const [paidOn, setPaidOn] = useState('');
@@ -99,8 +101,8 @@ export function PaymentFormSheet({
          * dimmed screen behind it — the backdrop was doing all the work and the
          * fields read as though they belonged to the page underneath.
          */
-        className="rounded-t-[28px] border px-6 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-6 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-4 flex-row items-center justify-between">
           <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
             {paidOff ? 'Mark card paid off' : 'Record payment'}
@@ -194,7 +196,6 @@ export function PaymentFormSheet({
           <FormDisclosure
             testID="payment-source-options"
             label="Paid from"
-            icon="bank-transfer-out"
             summary={
               [sourceName, method].filter(Boolean).join(' · ') ||
               (paidOff
@@ -259,11 +260,11 @@ export function PaymentFormSheet({
           className="mt-6 h-14 items-center justify-center rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <TText
               className="text-base"
-              style={{ fontFamily: Fonts.title, color: canSubmit ? '#FFFFFF' : '#94A3B8' }}>
+              style={{ fontFamily: Fonts.title, color: canSubmit ? theme.onAccent : '#94A3B8' }}>
               {paidOff ? 'Mark paid off' : 'Record payment'}
             </TText>
           )}
@@ -311,7 +312,7 @@ function Chip({
       <TText
         className="text-xs"
         numberOfLines={1}
-        style={{ fontFamily: Fonts.title, color: selected ? '#FFFFFF' : theme.text }}>
+        style={{ fontFamily: Fonts.title, color: selected ? theme.onAccent : theme.text }}>
         {label}
       </TText>
     </Pressable>

@@ -22,6 +22,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { StateView } from '@/components/ui/StateView';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { roundToPaise, toAmountString } from '@/lib/money';
 import type { SplitFriend } from '@/lib/splits';
 
@@ -51,6 +52,7 @@ export function GroupActionModal({
   onShareExport: (summary: SplitGroupSummary) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const listBottom = useBottomInset(44);
   const presentationRef = useRef<{
     summary: SplitGroupSummary;
     mode: GroupActionMode;
@@ -101,7 +103,7 @@ export function GroupActionModal({
           </Pressable>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingBottom: 44 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 24, paddingBottom: listBottom }}>
           {mode === 'settle' ? (
             <View>
               <TText variant="screenTitle" style={{ color: theme.text }}>

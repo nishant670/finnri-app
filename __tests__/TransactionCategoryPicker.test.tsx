@@ -28,7 +28,7 @@ const setup = async (
 describe('TransactionCategoryPicker', () => {
   it('lists the options and reports the tapped one', async () => {
     const { screen, onSelect } = await setup();
-    expect(screen.getByText('Choose a category')).toBeTruthy();
+    expect(screen.getByText('Category')).toBeTruthy();
     await fireEvent.press(screen.getByText('Travel'));
     expect(onSelect).toHaveBeenCalledWith('Travel');
   });
@@ -53,6 +53,6 @@ describe('TransactionCategoryPicker', () => {
   });
 
   it('renders nothing while hidden', async () => {
-    expect((await setup({ visible: false })).screen.queryByText('Choose a category')).toBeNull();
+    expect((await setup({ visible: false })).screen.queryByText('Category')).toBeNull();
   });
 });

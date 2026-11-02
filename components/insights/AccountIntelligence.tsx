@@ -1,74 +1,65 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
 import { DashboardResponse } from '@/lib/insights';
+import { InsightCard, MetricStrip, ProgressBar } from './insight-ui';
 import { SectionHeader } from './SectionHeader';
 
+/** Which accounts the period's money went through, with two figures under them. */
 export function AccountIntelligence({ dashboard }: { dashboard: DashboardResponse }) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
   const topCategory = dashboard.top_categories[0]?.category ?? 'Not enough data';
   return (
     <SectionHeader title="Accounts">
-      <View
-        className="rounded-[24px] border p-5 shadow-sm"
-        style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-        {dashboard.account_spending.slice(0, 3).map((account) => (
-          <View key={account.account_id ?? account.account_name} className="mb-4">
-            <View className="mb-2 flex-row items-center justify-between">
-              <ThemedText className="text-sm">{account.account_name}</ThemedText>
-              <ThemedText tone="muted" className="text-xs">
-                {formatMoney(account.amount)} spent
+      <InsightCard>
+        {dashboard.account_spending.slice(0, 3).map((account, index) => (
+          <View key={account.account_id ?? account.account_name} style={index > 0 && styles.gap}>
+            <View style={styles.line}>
+              <ThemedText numberOfLines={1} style={[styles.name, { color: colors.text }]}>
+                {account.account_name}
+              </ThemedText>
+              <ThemedText style={[styles.amount, { color: colors.text }]}>
+                {formatMoney(account.amount)}
               </ThemedText>
             </View>
-            <View className="h-2 overflow-hidden rounded-full bg-gray-100">
-              <View
-                className="h-full rounded-full"
-                style={{
-                  width: `${Math.min(account.percentage, 100)}%`,
-                  backgroundColor: theme.colors.accent,
-                }}
-              />
-            </View>
+            <ProgressBar fraction={account.percentage / 100} color={colors.accent} style={styles.bar} />
           </View>
         ))}
 
-        <View className="mt-2 flex-row gap-3">
-          <MiniMetric
-            icon="calendar-blank-outline"
-            label="Daily average"
-            value={formatMoney(dashboard.summary.daily_average)}
-          />
-          <MiniMetric icon="chart-bar" label="Top category" value={topCategory} />
-        </View>
-      </View>
+        <MetricStrip
+          items={[
+            { label: 'Daily average', value: formatMoney(dashboard.summary.daily_average) },
+            { label: 'Top category', value: topCategory },
+          ]}
+        />
+      </InsightCard>
     </SectionHeader>
   );
 }
-function MiniMetric({
-  icon,
-  label,
-  value,
-}: {
-  icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  label: string;
-  value: string;
-}) {
-  const theme = useThemeTokens();
 
-  return (
-    <View
-      className="flex-1 rounded-2xl border p-4"
-      style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-      <MaterialCommunityIcons name={icon} size={20} color={theme.colors.accent} />
-      <ThemedText tone="muted" className="mt-3 text-[11px]">
-        {label}
-      </ThemedText>
-      <ThemedText className="mt-1 text-sm font-black" numberOfLines={1}>
-        {value}
-      </ThemedText>
-    </View>
-  );
-}
+const styles = StyleSheet.create({
+  gap: {
+    marginTop: 14,
+  },
+  line: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 12,
+  },
+  name: {
+    flex: 1,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  amount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  bar: {
+    marginTop: 8,
+  },
+});

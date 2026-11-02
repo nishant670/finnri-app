@@ -1,4 +1,4 @@
-import { MaterialCommunityIcons, Ionicons } from '@expo/vector-icons';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -6,9 +6,9 @@ import {
   FlatList,
   Pressable,
   ScrollView,
+  StyleSheet,
   TextInput,
   View,
-  TouchableOpacity,
   type ListRenderItem,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +28,10 @@ import {
 import { Colors } from '@/constants/theme';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { Button } from '@/components/ui/Button';
+import { PickerSheet } from '@/components/ui/PickerSheet';
+import { PressableView } from '@/components/ui/PressableView';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { encodeFrame } from '@/hooks/use-shared-element';
 import { StateView } from '@/components/ui/StateView';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
@@ -51,7 +55,11 @@ import {
   type SplitFriend,
   type SplitGroup,
 } from '@/lib/splits';
-import { saveNewTransaction, type TransactionSaveProgress } from '@/lib/transaction-composer';
+import {
+  describeLikelyDuplicate,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { buildTransactionListItems, type TransactionListItem } from '@/lib/transaction-list';
 import { isAmountSort } from '@/lib/transactions';
@@ -64,6 +72,17 @@ import {
   type TransactionFilterState,
 } from '@/lib/transaction-filters';
 import { Transaction } from '@/types/transaction';
+import { EventPickerSheet } from '@/components/events/EventPickerSheet';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
+import {
+  EVENT_ENTRIES_PER_CALL,
+  addEntriesToEvent,
+  describeEventGrouping,
+  eventLabel,
+  removeEntriesFromEvent,
+  useEvents,
+  type FinnriEvent,
+} from '@/lib/events';
 
 const needsTransactionReview = (transaction: Transaction) => {
   const category = String(transaction.category ?? '').trim().toLowerCase();
@@ -92,6 +111,8 @@ export default function TransactionsScreen() {
     type: routeType,
     q: routeSearch,
     mode: routeMode,
+    event_id: routeEventIdParam,
+    pickFor: pickForParam,
   } = useLocalSearchParams<{
     accountId?: string;
     review?: string;
@@ -101,7 +122,16 @@ export default function TransactionsScreen() {
     type?: string;
     q?: string;
     mode?: string;
+    /** Only this event's expenses. */
+    event_id?: string;
+    /**
+     * Opened from an event's "Add existing": the screen starts selecting, and
+     * the one action puts the selection in that event.
+     */
+    pickFor?: string;
   }>();
+  const routeEventId = routeEventIdParam ? Number(routeEventIdParam) : null;
+  const pickForEventId = pickForParam ? Number(pickForParam) || null : null;
   const routeAccountId = accountIdParam ? Number(accountIdParam) : null;
   const reviewMode = review === '1';
   // The Insights charts plot expenses, so they arrive asking for expenses. An
@@ -126,6 +156,7 @@ export default function TransactionsScreen() {
     category: routeCategory ?? null,
     mode: routeMode ?? null,
     accountId: Number.isFinite(routeAccountId) && routeAccountId ? routeAccountId : null,
+    eventId: Number.isFinite(routeEventId) && routeEventId ? routeEventId : null,
     startDate: routeStartDate ?? null,
     endDate: routeEndDate ?? null,
   }));
@@ -258,6 +289,41 @@ export default function TransactionsScreen() {
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
   /**
+   * Selecting, to put several expenses in an event at once — the way to group
+   * an occasion's transactions after they were logged. A long press on an
+   * expense starts it; arriving from an event's "Add existing" starts it empty.
+   * Only expenses can be chosen, because only expenses belong to events.
+   */
+  const [isSelecting, setIsSelecting] = useState(pickForEventId !== null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isEventPickerOpen, setIsEventPickerOpen] = useState(false);
+  const [isGrouping, setIsGrouping] = useState(false);
+
+  const startSelecting = useCallback((item: Transaction) => {
+    if (item.entryType === 'income') return;
+    haptics.select();
+    setOpenSwipeId(null);
+    setIsSelecting(true);
+    setSelectedIds(new Set([item.id]));
+  }, []);
+
+  const toggleSelected = useCallback((item: Transaction) => {
+    if (item.entryType === 'income') return;
+    haptics.select();
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }, []);
+
+  const stopSelecting = useCallback(() => {
+    setIsSelecting(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  /**
    * The delete is held, not sent — see `useUndoableDelete` for why a reversal
    * would not be one against a hard-deleting endpoint. This screen only supplies
    * what happens when the window closes.
@@ -271,6 +337,20 @@ export default function TransactionsScreen() {
     [accounts]
   );
 
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
+  const invalidateEvents = useEvents((state) => state.invalidate);
+  useEffect(() => {
+    if (token) void loadEvents(token);
+  }, [loadEvents, token]);
+  const eventNameFor = useCallback(
+    (id: number) => {
+      const event = events.find((candidate) => candidate.id === id);
+      return event ? eventLabel(event) : undefined;
+    },
+    [events]
+  );
+
   /**
    * Every applied filter, as a removable chip.
    *
@@ -280,8 +360,8 @@ export default function TransactionsScreen() {
    * screen said so.
    */
   const appliedChips = useMemo(
-    () => (reviewMode ? [] : describeFilters(filters, accountNameFor)),
-    [accountNameFor, filters, reviewMode]
+    () => (reviewMode ? [] : describeFilters(filters, accountNameFor, eventNameFor)),
+    [accountNameFor, eventNameFor, filters, reviewMode]
   );
 
   const clearRouteParams = useCallback(() => {
@@ -458,6 +538,7 @@ export default function TransactionsScreen() {
         account: resolveAccountForEntry(accounts, formData),
         idempotencyKey: addIdempotencyKey.current,
         progress: addSaveProgress.current,
+        confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
       });
       addIdempotencyKey.current = null;
       addSaveProgress.current = {};
@@ -475,7 +556,7 @@ export default function TransactionsScreen() {
         void offerBudgetAlert(budgetNotificationIds);
       }
     },
-    [accounts, filters.sort, offerBudgetAlert, token]
+    [accounts, dialog, filters.sort, offerBudgetAlert, token]
   );
 
   /**
@@ -501,10 +582,12 @@ export default function TransactionsScreen() {
       if (item.kind === 'day') {
         return <DayHeading title={item.title} total={item.total} first={item.first} />;
       }
-      const { transaction, position } = item;
+      const { transaction, position, groupFirst, groupLast } = item;
       return (
         <TransactionRow
           transaction={transaction}
+          groupFirst={groupFirst}
+          groupLast={groupLast}
           // A flat, amount-ranked list has no section heading to date it, so the
           // row has to carry its own.
           showDate={isRankedByAmount}
@@ -512,10 +595,14 @@ export default function TransactionsScreen() {
           swipeOpen={openSwipeId === transaction.id}
           collapsed={pendingDelete?.id === transaction.id}
           isNew={newTransactionId === transaction.id}
+          selecting={isSelecting}
+          selected={selectedIds.has(transaction.id)}
           onOpen={openDetail}
           onSwipeAction={openFromSwipe}
           onSwipeOpenChange={changeSwipeOpen}
           onDelete={requestDelete}
+          onStartSelecting={startSelecting}
+          onToggleSelected={toggleSelected}
         />
       );
     },
@@ -523,14 +610,71 @@ export default function TransactionsScreen() {
       changeSwipeOpen,
       entranceSpent,
       isRankedByAmount,
+      isSelecting,
       newTransactionId,
       openDetail,
       openFromSwipe,
       openSwipeId,
       pendingDelete?.id,
       requestDelete,
+      selectedIds,
+      startSelecting,
+      toggleSelected,
     ]
   );
+
+  /**
+   * Puts the selection in an event, a request per 200 rows. Every row is an
+   * expense the screen let the user pick, so a refusal here is a stale list,
+   * and the error says so rather than half-applying.
+   */
+  const groupSelection = useCallback(
+    async (event: FinnriEvent, action: 'add' | 'remove') => {
+      if (!token || isGrouping) return;
+      const ids = Array.from(selectedIds, Number).filter((id) => Number.isFinite(id));
+      if (ids.length === 0) return;
+      setIsEventPickerOpen(false);
+      setIsGrouping(true);
+      try {
+        let moved = 0;
+        for (let start = 0; start < ids.length; start += EVENT_ENTRIES_PER_CALL) {
+          const chunk = ids.slice(start, start + EVENT_ENTRIES_PER_CALL);
+          if (action === 'add') moved += (await addEntriesToEvent(token, event.id, chunk)).moved;
+          else await removeEntriesFromEvent(token, event.id, chunk);
+        }
+        haptics.saved();
+        invalidateEvents();
+        stopSelecting();
+        notifyTransactionsChanged();
+        void refresh();
+        if (pickForEventId !== null) {
+          router.back();
+          return;
+        }
+        await dialog.alert({
+          ...describeEventGrouping(action, event, ids.length, moved),
+          tone: 'success',
+          iconName: 'party-popper',
+        });
+      } catch (err) {
+        haptics.rejected();
+        await dialog.alert({
+          title: 'Could not update the event',
+          message: getFriendlyErrorMessage(err, 'Try again in a moment.'),
+          tone: 'danger',
+        });
+      } finally {
+        setIsGrouping(false);
+      }
+    },
+    [dialog, invalidateEvents, isGrouping, pickForEventId, refresh, selectedIds, stopSelecting, token]
+  );
+  const pickForEvent = pickForEventId
+    ? (events.find((event) => event.id === pickForEventId) ?? null)
+    : null;
+  const filteredEvent =
+    filters.eventId !== null ? (events.find((event) => event.id === filters.eventId) ?? null) : null;
+  const selectionBarBottom = useBottomInset(12);
 
   const listHeader = (
     <>
@@ -538,15 +682,11 @@ export default function TransactionsScreen() {
         <ErrorBanner
           message={error}
           onRetry={() => void refresh()}
-          style={{ marginHorizontal: 24, marginBottom: 16 }}
+          style={{ marginHorizontal: SCREEN_GUTTER, marginTop: 12 }}
         />
       )}
       {isRankedByAmount && transactions.length > 0 && (
-        <View className="mb-3 px-6">
-          <ThemedText tone="muted" className="text-xs font-bold uppercase tracking-widest">
-            {filters.sort === 'highest' ? 'Highest first' : 'Lowest first'}
-          </ThemedText>
-        </View>
+        <GroupHeader label={filters.sort === 'highest' ? 'Highest first' : 'Lowest first'} />
       )}
     </>
   );
@@ -574,6 +714,7 @@ export default function TransactionsScreen() {
       }
       actionLabel={hasActiveConstraints ? 'Clear filters' : 'Add transaction'}
       onAction={hasActiveConstraints ? clearFilters : openAdd}
+      style={styles.emptyState}
     />
   );
 
@@ -581,30 +722,25 @@ export default function TransactionsScreen() {
   // calling them "everything" would contradict it.
   const listFooter =
     transactions.length === 0 || error ? null : loadMoreError ? (
-      <View className="items-center gap-3 py-8">
-        <ThemedText tone="muted" className="px-6 text-center text-xs">
+      <View style={styles.footer}>
+        <ThemedText tone="muted" style={[styles.caption, styles.centered]}>
           {loadMoreError}
         </ThemedText>
-        <TouchableOpacity
-          accessibilityRole="button"
+        <Button
+          label="Try again"
+          variant="outline"
+          height={36}
           onPress={() => void retryLoadMore()}
-          className="rounded-full px-4 py-2"
-          style={{ backgroundColor: theme.secondary }}>
-          <ThemedText className="text-xs font-bold" style={{ color: theme.accent }}>
-            Try again
-          </ThemedText>
-        </TouchableOpacity>
+        />
       </View>
     ) : hasMore || isLoadingMore ? (
-      <View className="items-center py-8">
-        <ActivityIndicator color={theme.accent} />
+      <View style={styles.footer}>
+        <ActivityIndicator color={theme.muted} />
       </View>
     ) : (
-      <View className="items-center py-8 gap-3 opacity-50">
-        <View className="h-10 w-10 rounded-full bg-gray-200 dark:bg-gray-700 items-center justify-center">
-          <MaterialCommunityIcons name="history" size={20} color={theme.text} />
-        </View>
-        <ThemedText className="text-xs" style={{ color: theme.text }}>
+      <View style={styles.footer}>
+        <MaterialCommunityIcons name="history" size={20} color={theme.muted} />
+        <ThemedText tone="muted" style={styles.caption}>
           That’s everything for now.
         </ThemedText>
       </View>
@@ -613,24 +749,49 @@ export default function TransactionsScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: theme.background }}
-      edges={['top', 'left', 'right']}>
+      edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* Header */}
-      <View className="flex-row items-center justify-between px-6 py-4">
-        {/* Centred on the screen, not between the buttons: there are two on the
-            right and one on the left. */}
-        <View pointerEvents="none" className="absolute inset-0 items-center justify-center">
-          <ThemedText className="text-base font-bold" style={{ color: theme.text }}>
-            &nbsp; {reviewMode ? 'Needs review' : 'Transactions'}&nbsp;
+      {/* Header (board R3-List): back, the title, and the screen's two actions.
+          While selecting, it says how many are chosen and how to stop. */}
+      {isSelecting ? (
+        <View style={styles.header}>
+          <Pressable
+            testID="transactions-selection-cancel"
+            accessibilityRole="button"
+            accessibilityLabel="Stop selecting"
+            onPress={() => (pickForEventId !== null ? router.back() : stopSelecting())}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="close" size={24} color={theme.text} />
+          </Pressable>
+          <ThemedText
+            accessibilityRole="header"
+            accessibilityLiveRegion="polite"
+            numberOfLines={1}
+            style={[styles.title, { color: theme.text }]}>
+            {selectedIds.size === 0
+              ? pickForEvent
+                ? `Add to ${pickForEvent.name}`
+                : 'Select expenses'
+              : `${selectedIds.size} selected`}
           </ThemedText>
+          <View style={styles.headerActions} />
         </View>
+      ) : (
+      <View style={styles.header}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={() => router.back()}
-          className="h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-gray-800 shadow-sm">
+          style={styles.headerButton}>
           <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
         </Pressable>
-
-        <View className="flex-row items-center gap-2">
+        <ThemedText
+          accessibilityRole="header"
+          numberOfLines={1}
+          style={[styles.title, { color: theme.text }]}>
+          {reviewMode ? 'Needs review' : 'Transactions'}
+        </ThemedText>
+        <View style={styles.headerActions}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Export transactions"
@@ -639,103 +800,111 @@ export default function TransactionsScreen() {
               setExportError(null);
               setIsExportOpen(true);
             }}
-            className="h-10 w-10 items-center justify-center rounded-full bg-white shadow-sm dark:bg-gray-800">
-            <MaterialCommunityIcons name="tray-arrow-up" size={21} color={theme.text} />
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="tray-arrow-up" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
+            testID="transactions-events"
+            accessibilityRole="button"
+            accessibilityLabel="Events"
+            onPress={() => {
+              haptics.select();
+              router.push('/events');
+            }}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="party-popper" size={22} color={theme.text} />
           </Pressable>
           <Pressable
             testID="transactions-add"
             accessibilityRole="button"
             accessibilityLabel="Add transaction"
             onPress={openAdd}
-            className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-            style={{ backgroundColor: theme.accent }}>
-            <MaterialCommunityIcons name="plus" size={24} color="white" />
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="plus" size={26} color={theme.text} />
           </Pressable>
         </View>
       </View>
+      )}
 
-      {/* Header and Search */}
-      <View className="px-5 mb-4">
-        <View className="flex-row items-center gap-3">
-          <View className="flex-1 flex-row items-center bg-white border border-gray-100 rounded-2xl px-4 py-3 shadow-sm">
-            <Ionicons name="search" size={20} color="#9CA3AF" />
-            <TextInput
-              placeholder="Search transactions…"
-              placeholderTextColor="#9CA3AF"
-              className="flex-1 ml-3 text-sm text-gray-900 font-medium"
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-          <TouchableOpacity
-            onPress={() => setIsFilterOpen(true)}
-            className="h-12 w-12 items-center justify-center rounded-2xl border shadow-sm"
-            style={{
-              backgroundColor: isFilterActive ? theme.secondary : theme.card,
-              borderColor: isFilterActive ? theme.accent : theme.border,
-            }}>
-            <View>
-              <Ionicons
-                name="options-outline"
-                size={22}
-                color={isFilterActive ? theme.accent : '#6B7280'}
-              />
-              {isFilterActive && (
-                <View
-                  className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-white"
-                  style={{ backgroundColor: theme.accent }}
-                />
-              )}
-            </View>
-          </TouchableOpacity>
+      <View style={styles.searchRow}>
+        <View style={[styles.search, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <MaterialCommunityIcons name="magnify" size={20} color={theme.muted} />
+          <TextInput
+            accessibilityLabel="Search transactions"
+            placeholder="Search transactions"
+            placeholderTextColor={theme.muted}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            style={[styles.searchInput, { color: theme.text }]}
+          />
         </View>
-
-        {/* Every applied filter, however it was set — by the sheet, by a preset,
-            or by a tap on an Insights chart — with its own ×. Filter state that
-            is real but invisible reads as a broken list. */}
-        {appliedChips.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            className="mt-3"
-            contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
-            {appliedChips.map((chip) => (
-              <TouchableOpacity
-                key={chip.key}
-                testID={`applied-filter-${chip.key}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Remove filter ${chip.label}`}
-                onPress={() => {
-                  haptics.select();
-                  setFilters((prev) => clearFilterFields(prev, chip.clears));
-                  clearRouteParams();
-                }}
-                className="flex-row items-center gap-1.5 rounded-full border px-3 py-2"
-                style={{ backgroundColor: theme.secondary, borderColor: theme.accent }}>
-                <ThemedText className="text-xs font-black" style={{ color: theme.accent }}>
-                  {chip.label}
-                </ThemedText>
-                <Ionicons name="close" size={13} color={theme.accent} />
-              </TouchableOpacity>
-            ))}
-            {appliedChips.length > 1 && (
-              <TouchableOpacity
-                testID="applied-filter-clear-all"
-                accessibilityRole="button"
-                onPress={() => {
-                  haptics.select();
-                  clearFilters();
-                }}
-                className="flex-row items-center rounded-full px-3 py-2">
-                <ThemedText className="text-xs font-bold" style={{ color: '#9CA3AF' }}>
-                  Clear all
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-          </ScrollView>
-        )}
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={isFilterActive ? 'Filters, some applied' : 'Filters'}
+          onPress={() => setIsFilterOpen(true)}
+          style={[
+            styles.filterButton,
+            {
+              backgroundColor: isFilterActive ? theme.selectedFill : theme.card,
+              borderColor: isFilterActive ? theme.selectedBorder : theme.border,
+            },
+          ]}>
+          <MaterialCommunityIcons name="tune-variant" size={20} color={theme.text} />
+          {isFilterActive && (
+            <View
+              style={[styles.filterDot, { backgroundColor: theme.accent, borderColor: theme.card }]}
+            />
+          )}
+        </Pressable>
       </View>
+
+      {/* Every applied filter, however it was set — by the sheet, by a preset,
+          or by a tap on an Insights chart — with its own ×. Filter state that
+          is real but invisible reads as a broken list. */}
+      {appliedChips.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chips}>
+          {appliedChips.map((chip) => (
+            <PressableView
+              key={chip.key}
+              testID={`applied-filter-${chip.key}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove filter ${chip.label}`}
+              onPress={() => {
+                haptics.select();
+                setFilters((prev) => clearFilterFields(prev, chip.clears));
+                clearRouteParams();
+              }}
+              style={[
+                styles.chip,
+                { backgroundColor: theme.selectedFill, borderColor: theme.selectedBorder },
+              ]}
+              pressedStyle={styles.pressed}>
+              <ThemedText style={[styles.chipLabel, { color: theme.text }]}>{chip.label}</ThemedText>
+              <MaterialCommunityIcons name="close" size={14} color={theme.text} />
+            </PressableView>
+          ))}
+          {appliedChips.length > 1 && (
+            <PressableView
+              testID="applied-filter-clear-all"
+              accessibilityRole="button"
+              onPress={() => {
+                haptics.select();
+                clearFilters();
+              }}
+              style={styles.clearAll}
+              pressedStyle={styles.pressed}>
+              <ThemedText tone="muted" style={styles.chipLabel}>
+                Clear all
+              </ThemedText>
+            </PressableView>
+          )}
+        </ScrollView>
+      )}
       <FlatList
         ref={listRef}
         data={listItems}
@@ -754,12 +923,76 @@ export default function TransactionsScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
+        contentContainerStyle={{ paddingBottom: isSelecting ? 120 : 40 }}
         // Applying a filter leaves the previous rows on screen until the new
         // ones arrive — the full-screen loader only covers the empty case.
         // Without this the list spends a beat showing results that contradict
         // the chip above it, which reads as the filter being broken.
         style={{ opacity: isLoading && transactions.length > 0 ? 0.4 : 1 }}
+      />
+
+      {isSelecting && (
+        <View
+          testID="transactions-selection-bar"
+          style={[
+            styles.selectionBar,
+            { backgroundColor: theme.card, borderTopColor: theme.border, paddingBottom: selectionBarBottom },
+          ]}>
+          {selectedIds.size === 0 ? (
+            <ThemedText tone="muted" style={[styles.caption, styles.selectionHint]}>
+              Tap the expenses that belong together. Income can’t go in an event.
+            </ThemedText>
+          ) : pickForEventId !== null ? (
+            <Button
+              testID="transactions-selection-add-here"
+              label={pickForEvent ? `Add to ${pickForEvent.name}` : 'Add to event'}
+              icon="party-popper"
+              height={48}
+              loading={isGrouping}
+              style={styles.selectionButton}
+              onPress={() =>
+                void groupSelection(
+                  pickForEvent ?? ({ id: pickForEventId, name: 'the event', emoji: '' } as FinnriEvent),
+                  'add'
+                )
+              }
+            />
+          ) : (
+            <>
+              {filteredEvent ? (
+                <Button
+                  testID="transactions-selection-remove"
+                  label="Remove from event"
+                  variant="outline"
+                  height={48}
+                  disabled={isGrouping}
+                  style={styles.selectionButton}
+                  onPress={() => void groupSelection(filteredEvent, 'remove')}
+                />
+              ) : null}
+              <Button
+                testID="transactions-selection-add"
+                label="Add to event"
+                icon="party-popper"
+                height={48}
+                loading={isGrouping}
+                style={styles.selectionButton}
+                onPress={() => setIsEventPickerOpen(true)}
+              />
+            </>
+          )}
+        </View>
+      )}
+
+      <EventPickerSheet
+        visible={isEventPickerOpen}
+        title="Add to event"
+        selectedId={null}
+        allowNone={false}
+        onClose={() => setIsEventPickerOpen(false)}
+        onSelect={(event) => {
+          if (event) void groupSelection(event, 'add');
+        }}
       />
 
       {/* Advanced Filters Bottom Sheet */}
@@ -769,10 +1002,6 @@ export default function TransactionsScreen() {
         sheetStyle={{ height: '92%', width: '100%' }}>
         <AdvancedFilter
           onClose={() => setIsFilterOpen(false)}
-          // Rows matching the applied filters across the whole set, not the
-          // page — the badge on a filter button that says 100 when there are
-          // 154 is the kind of number that quietly teaches distrust.
-          count={matchCount}
           onApply={(next) => {
             setFilters(next);
             clearRouteParams();
@@ -784,49 +1013,46 @@ export default function TransactionsScreen() {
         />
       </AnimatedBottomSheet>
 
-      <AnimatedBottomSheet
-        visible={isExportOpen}
-        onClose={() => setIsExportOpen(false)}
-        sheetStyle={{ backgroundColor: theme.card, borderTopLeftRadius: 28, borderTopRightRadius: 28 }}>
-        <View className="p-6" style={{ gap: 12 }}>
-          <ThemedText className="text-lg font-black" style={{ color: theme.text }}>
-            Export
-          </ThemedText>
+      <PickerSheet visible={isExportOpen} title="Export" onClose={() => setIsExportOpen(false)}>
+        <View style={styles.exportBody}>
           {/* The count is the scope, stated before the choice rather than
               discovered in the file. */}
-          <ThemedText className="text-xs leading-5" style={{ color: `${theme.text}99` }}>
+          <ThemedText tone="muted" style={styles.exportScope}>
             {matchCount === 1
               ? '1 transaction matches what you are looking at.'
               : `${matchCount} transactions match what you are looking at.`}
             {isFilterActive || debouncedSearchQuery ? ' Your filters are included.' : ''}
           </ThemedText>
 
-          <ExportOption
-            icon="file-delimited-outline"
-            title="Spreadsheet (CSV)"
-            subtitle="Every column, for Excel or Sheets"
-            busy={exportingFormat === 'csv'}
-            disabled={exportingFormat !== null}
-            onPress={() => void runExport('csv')}
-            theme={theme}
-          />
-          <ExportOption
-            icon="file-document-outline"
-            title="Statement (PDF)"
-            subtitle="Totals and the transaction table, ready to print"
-            busy={exportingFormat === 'pdf'}
-            disabled={exportingFormat !== null}
-            onPress={() => void runExport('pdf')}
-            theme={theme}
-          />
+          <View style={[styles.exportCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ExportOption
+              icon="file-delimited-outline"
+              title="Spreadsheet (CSV)"
+              subtitle="Every column, for Excel or Sheets"
+              busy={exportingFormat === 'csv'}
+              disabled={exportingFormat !== null}
+              onPress={() => void runExport('csv')}
+              theme={theme}
+            />
+            <ExportOption
+              icon="file-document-outline"
+              title="Statement (PDF)"
+              subtitle="Totals and the transaction table, ready to print"
+              busy={exportingFormat === 'pdf'}
+              disabled={exportingFormat !== null}
+              onPress={() => void runExport('pdf')}
+              theme={theme}
+              divider
+            />
+          </View>
 
           {exportError && (
-            <ThemedText className="text-xs font-bold" style={{ color: '#D32F2F' }}>
+            <ThemedText tone="negative" style={styles.caption}>
               {exportError}
             </ThemedText>
           )}
         </View>
-      </AnimatedBottomSheet>
+      </PickerSheet>
 
       <TransactionFormModal
         visible={isAddOpen}
@@ -855,32 +1081,20 @@ export default function TransactionsScreen() {
   );
 }
 
+/** A day over its card (board R3-List): the label, and the day's total when it is complete. */
 function DayHeading({
   title,
   total,
-  first,
 }: {
   title: string;
   total: number | null;
   first: boolean;
 }) {
   return (
-    <View
-      className="flex-row justify-between items-center px-6 mb-3"
-      style={{ marginTop: first ? 0 : 24 }}>
-      <ThemedText tone="muted" className="text-xs font-bold uppercase tracking-widest">
-        {title.toUpperCase()}
-      </ThemedText>
-      {total !== null && (
-        <View className="bg-white dark:bg-gray-800 px-2 py-1 rounded-lg">
-          <ThemedText
-            className="text-xs font-bold"
-            style={{ color: total >= 0 ? '#27AE60' : '#808080' }}>
-            {formatMoney(total, { sign: 'always' })}
-          </ThemedText>
-        </View>
-      )}
-    </View>
+    <GroupHeader
+      label={title}
+      total={total !== null ? formatMoney(total, { sign: total > 0 ? 'always' : 'auto' }) : undefined}
+    />
   );
 }
 
@@ -893,51 +1107,85 @@ function DayHeading({
  */
 const TransactionRow = memo(function TransactionRow({
   transaction,
+  groupFirst,
+  groupLast,
   showDate,
   entranceIndex,
   swipeOpen,
   collapsed,
   isNew,
+  selecting,
+  selected,
   onOpen,
   onSwipeAction,
   onSwipeOpenChange,
   onDelete,
+  onStartSelecting,
+  onToggleSelected,
 }: {
   transaction: Transaction;
+  groupFirst: boolean;
+  groupLast: boolean;
   showDate: boolean;
   entranceIndex?: number;
   swipeOpen: boolean;
   collapsed: boolean;
   isNew: boolean;
+  selecting: boolean;
+  selected: boolean;
   onOpen: (item: Transaction, intent?: 'edit' | 'repeat', origin?: RowOrigin) => void;
   onSwipeAction: (item: Transaction, intent: 'edit' | 'repeat') => void;
   onSwipeOpenChange: (id: string, open: boolean) => void;
   onDelete: (item: Transaction) => void;
+  onStartSelecting: (item: Transaction) => void;
+  onToggleSelected: (item: Transaction) => void;
 }) {
   const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
+  const isExpense = transaction.entryType !== 'income';
+  const theme = useThemeTokens().colors;
 
+  // Each row draws its slice of the day's card, so the list stays one flat,
+  // virtualised list while it reads as a card per day.
   return (
-    <View className="px-6">
+    <View
+      style={[
+        styles.rowSlice,
+        { backgroundColor: theme.card, borderColor: theme.border },
+        groupFirst && styles.sliceFirst,
+        groupLast && styles.sliceLast,
+      ]}>
       <TransactionItem
         icon={transaction.icon as any}
         title={transaction.name}
         category={transaction.category}
         subtitle={transaction.accountName ?? transaction.mode ?? ''}
         amount={Math.abs(transaction.amount)}
-        date={showDate ? (transaction.section ?? transaction.dateLabel ?? '') : ''}
+        date={
+          showDate
+            ? (transaction.section ?? transaction.dateLabel ?? '')
+            : (transaction.timeLabel ?? '')
+        }
         color={transaction.color}
         bgColor={transaction.bgColor}
         isIncome={isIncome}
         unlinked={transaction.accountId == null}
+        variant="list"
+        showDivider={!groupLast}
         isNew={isNew}
         entranceIndex={entranceIndex}
-        onEdit={() => onSwipeAction(transaction, 'edit')}
-        onDelete={() => onDelete(transaction)}
-        onRepeat={() => onSwipeAction(transaction, 'repeat')}
-        swipeOpen={swipeOpen}
+        // No swipe while selecting: a row's tap and drag both mean "choose".
+        onEdit={selecting ? undefined : () => onSwipeAction(transaction, 'edit')}
+        onDelete={selecting ? undefined : () => onDelete(transaction)}
+        onRepeat={selecting ? undefined : () => onSwipeAction(transaction, 'repeat')}
+        swipeOpen={selecting ? false : swipeOpen}
         onSwipeOpenChange={(open) => onSwipeOpenChange(transaction.id, open)}
         collapsed={collapsed}
-        onPress={(origin) => onOpen(transaction, undefined, origin)}
+        onPress={(origin) =>
+          selecting ? onToggleSelected(transaction) : onOpen(transaction, undefined, origin)
+        }
+        onLongPress={!selecting && isExpense ? () => onStartSelecting(transaction) : undefined}
+        selected={selecting ? selected : undefined}
+        dimmed={selecting && !isExpense}
       />
     </View>
   );
@@ -951,6 +1199,7 @@ function ExportOption({
   disabled,
   onPress,
   theme,
+  divider = false,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   title: string;
@@ -959,38 +1208,225 @@ function ExportOption({
   disabled: boolean;
   onPress: () => void;
   theme: ReturnType<typeof useThemeTokens>['colors'];
+  divider?: boolean;
 }) {
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled, busy }}
       disabled={disabled}
       onPress={onPress}
-      className="min-h-16 flex-row items-center gap-3 rounded-2xl border p-4"
-      style={{
-        backgroundColor: theme.background,
-        borderColor: theme.border,
-        opacity: disabled && !busy ? 0.5 : 1,
-      }}>
-      <View
-        className="h-10 w-10 items-center justify-center rounded-xl"
-        style={{ backgroundColor: theme.secondary }}>
+      style={[
+        styles.exportOption,
+        divider && { borderTopWidth: 1, borderTopColor: theme.border },
+        { opacity: disabled && !busy ? 0.5 : 1 },
+      ]}
+      pressedStyle={styles.pressed}>
+      <View style={[styles.exportTile, { backgroundColor: theme.selectedFill }]}>
         {busy ? (
-          <ActivityIndicator color={theme.accent} />
+          <ActivityIndicator color={theme.text} />
         ) : (
-          <MaterialCommunityIcons name={icon} size={21} color={theme.accent} />
+          <MaterialCommunityIcons name={icon} size={20} color={theme.text} />
         )}
       </View>
-      <View className="flex-1">
-        <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-          {title}
-        </ThemedText>
-        <ThemedText className="mt-0.5 text-xs" style={{ color: `${theme.text}99` }}>
+      <View style={styles.exportText}>
+        <ThemedText style={[styles.exportTitle, { color: theme.text }]}>{title}</ThemedText>
+        <ThemedText tone="muted" style={styles.caption}>
           {subtitle}
         </ThemedText>
       </View>
-      <MaterialCommunityIcons name="chevron-right" size={20} color={`${theme.text}66`} />
-    </Pressable>
+      <MaterialCommunityIcons name="chevron-right" size={18} color={theme.muted} />
+    </PressableView>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActions: {
+    width: 88,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  // Centred between equal sides: the back button's 44 is padded to the
+  // actions' 88 so the title sits in the middle of the screen.
+  title: {
+    flex: 1,
+    marginLeft: 44,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 4,
+    marginHorizontal: SCREEN_GUTTER,
+  },
+  search: {
+    flex: 1,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    padding: 0,
+    fontSize: 15,
+  },
+  filterButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  filterDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 9,
+    height: 9,
+    borderRadius: 5,
+    borderWidth: 1.5,
+  },
+  // On the search row's gutter, and clear of it: the card used to sit flush
+  // under the search box and 8pt narrower on each side than it.
+  emptyState: {
+    marginHorizontal: SCREEN_GUTTER,
+    marginTop: 16,
+  },
+  chipScroll: {
+    flexGrow: 0,
+    marginTop: 10,
+  },
+  chips: {
+    gap: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  chip: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  chipLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  clearAll: {
+    height: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  rowSlice: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    overflow: 'hidden',
+  },
+  sliceFirst: {
+    borderTopWidth: 1,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  sliceLast: {
+    borderBottomWidth: 1,
+    borderBottomLeftRadius: 16,
+    borderBottomRightRadius: 16,
+  },
+  footer: {
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 28,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  centered: {
+    textAlign: 'center',
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  exportBody: {
+    gap: 12,
+  },
+  exportScope: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  exportCard: {
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  exportOption: {
+    minHeight: 64,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  exportTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  exportText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  exportTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  selectionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+  },
+  selectionButton: {
+    flex: 1,
+  },
+  selectionHint: {
+    flex: 1,
+    textAlign: 'center',
+    paddingVertical: 14,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

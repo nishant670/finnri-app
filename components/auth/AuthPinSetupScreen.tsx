@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getSecurityPinValidationError } from '@/lib/security';
 
@@ -18,6 +19,11 @@ export const AuthPinSetupScreen = ({
     errorMessage,
 }: AuthPinSetupScreenProps) => {
     const theme = useThemeTokens();
+    const { colors } = theme;
+    // The two soft glows are tints of the page in light mode; on a dark page
+    // the same pastels glare, so they become faint washes of the accent.
+    const glowTop = theme.mode === 'dark' ? withAlpha(colors.accent, 0.08) : '#FCE4EC';
+    const glowBottom = theme.mode === 'dark' ? withAlpha(colors.text, 0.04) : '#E3F2FD';
     const [step, setStep] = useState<'create' | 'confirm'>('create');
     const [pin, setPin] = useState('');
     const [confirmPin, setConfirmPin] = useState('');
@@ -77,19 +83,19 @@ export const AuthPinSetupScreen = ({
         : "Just one more time to make sure it's correct.";
 
     return (
-        <View style={localStyles.container}>
+        <View style={[localStyles.container, { backgroundColor: colors.background }]}>
             {/* Back Button */}
             <TouchableOpacity onPress={onCancel} style={localStyles.backButton}>
-                <MaterialCommunityIcons name="arrow-left" size={28} color="#4A4E69" />
+                <MaterialCommunityIcons name="arrow-left" size={28} color={colors.text} />
             </TouchableOpacity>
 
             {/* Background Glows (Simulated) */}
-            <View style={localStyles.glowTop} />
-            <View style={localStyles.glowBottom} />
+            <View style={[localStyles.glowTop, { backgroundColor: glowTop }]} />
+            <View style={[localStyles.glowBottom, { backgroundColor: glowBottom }]} />
 
             <View style={localStyles.headerSection}>
-                <Text style={localStyles.title}>{title}</Text>
-                <Text style={localStyles.subtitle}>{subtitle}</Text>
+                <Text style={[localStyles.title, { color: colors.text }]}>{title}</Text>
+                <Text style={[localStyles.subtitle, { color: colors.muted }]}>{subtitle}</Text>
             </View>
 
             <View style={localStyles.dotsContainer}>
@@ -101,13 +107,14 @@ export const AuthPinSetupScreen = ({
                             key={index}
                             style={[
                                 localStyles.dotWrapper,
+                                { backgroundColor: colors.card, borderColor: colors.border },
                                 isActive && [localStyles.dotActive, { borderColor: theme.colors.accent }]
                             ]}
                         >
                             <View
                                 style={[
                                     localStyles.dotInner,
-                                    isFilled && localStyles.dotInnerFilled,
+                                    { backgroundColor: colors.borderStrong },
                                     isFilled && { backgroundColor: theme.colors.accent },
                                     isFilled && { width: 12, height: 12, borderRadius: 6 }
                                 ]}
@@ -119,7 +126,7 @@ export const AuthPinSetupScreen = ({
 
             {error || errorMessage ? (
                 <View style={localStyles.errorContainer}>
-                    <Text style={localStyles.errorText}>{error || errorMessage}</Text>
+                    <Text style={[localStyles.errorText, { color: colors.negative }]}>{error || errorMessage}</Text>
                 </View>
             ) : null}
 
@@ -131,30 +138,31 @@ export const AuthPinSetupScreen = ({
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
                     <TouchableOpacity
                         key={digit}
-                        style={localStyles.keyPadButton}
+                        style={[localStyles.keyPadButton, { backgroundColor: colors.card, borderColor: colors.border }]}
                         onPress={() => handleDigitPress(digit)}
                         disabled={isLoading}
                     >
-                        <Text style={localStyles.keyPadText}>{digit}</Text>
+                        <Text style={[localStyles.keyPadText, { color: colors.text }]}>{digit}</Text>
                     </TouchableOpacity>
                 ))}
                 {/* Placeholder for alignment if needed, but screenshot shows 0 in middle */}
                 <View style={localStyles.emptyKey} />
 
                 <TouchableOpacity
-                    style={localStyles.keyPadButton}
+                    style={[localStyles.keyPadButton, { backgroundColor: colors.card, borderColor: colors.border }]}
                     onPress={() => handleDigitPress('0')}
                     disabled={isLoading}
                 >
-                    <Text style={localStyles.keyPadText}>0</Text>
+                    <Text style={[localStyles.keyPadText, { color: colors.text }]}>0</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                    style={[localStyles.keyPadButton, { backgroundColor: 'transparent', shadowOpacity: 0, elevation: 0 }]}
+                    accessibilityLabel="Delete last digit"
+                    style={[localStyles.keyPadButton, { backgroundColor: 'transparent', borderWidth: 0, shadowOpacity: 0, elevation: 0 }]}
                     onPress={handleBackspace}
                     disabled={isLoading}
                 >
-                    <MaterialCommunityIcons name="backspace-outline" size={28} color="#9E9EBA" />
+                    <MaterialCommunityIcons name="backspace-outline" size={28} color={colors.muted} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -164,7 +172,6 @@ export const AuthPinSetupScreen = ({
 const localStyles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#FDFBFF',
         paddingTop: 20,
     },
     backButton: {
@@ -178,7 +185,6 @@ const localStyles = StyleSheet.create({
         width: 250,
         height: 250,
         borderRadius: 125,
-        backgroundColor: '#FCE4EC',
         opacity: 0.5,
         zIndex: 0,
     },
@@ -189,7 +195,6 @@ const localStyles = StyleSheet.create({
         width: 200,
         height: 200,
         borderRadius: 100,
-        backgroundColor: '#E3F2FD',
         opacity: 0.3,
         zIndex: 0,
     },
@@ -202,17 +207,14 @@ const localStyles = StyleSheet.create({
     title: {
         fontSize: 32,
         fontWeight: '800',
-        color: '#1A1C3D',
         textAlign: 'center',
         marginBottom: 16,
         letterSpacing: -0.5,
     },
     subtitle: {
         fontSize: 18,
-        color: '#6B6D8E',
         textAlign: 'center',
         lineHeight: 26,
-        opacity: 0.8,
     },
     dotsContainer: {
         flexDirection: 'row',
@@ -226,11 +228,9 @@ const localStyles = StyleSheet.create({
         width: 68,
         height: 72,
         borderRadius: 22,
-        backgroundColor: '#FFFFFF',
         justifyContent: 'center',
         alignItems: 'center',
         borderWidth: 2,
-        borderColor: 'transparent',
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.04,
@@ -238,17 +238,12 @@ const localStyles = StyleSheet.create({
         elevation: 3,
     },
     dotActive: {
-        borderColor: '#90A4AE',
         borderWidth: 2.5,
     },
     dotInner: {
         width: 10,
         height: 10,
         borderRadius: 5,
-        backgroundColor: '#E0E0EF',
-    },
-    dotInnerFilled: {
-        backgroundColor: '#90A4AE',
     },
     errorContainer: {
         paddingHorizontal: 40,
@@ -256,7 +251,6 @@ const localStyles = StyleSheet.create({
         alignItems: 'center',
     },
     errorText: {
-        color: '#E53935',
         fontSize: 14,
         fontWeight: '600',
     },
@@ -274,7 +268,7 @@ const localStyles = StyleSheet.create({
         alignItems: 'center',
         marginBottom: 16,
         borderRadius: 24,
-        backgroundColor: '#FFFFFF',
+        borderWidth: 1,
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.03,
@@ -284,7 +278,6 @@ const localStyles = StyleSheet.create({
     keyPadText: {
         fontSize: 28,
         fontWeight: '700',
-        color: '#1A1C3D',
     },
     emptyKey: {
         width: '30%',

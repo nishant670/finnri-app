@@ -138,9 +138,9 @@ export function TransactionSubscriptionFields({
   );
 
   return (
-    <View className="px-5 mb-6">
+    <View className="px-4 mt-2">
       <View
-        className="rounded-[24px] border p-3"
+        className="rounded-2xl border p-3"
         style={{ backgroundColor: theme.card, borderColor: theme.border }}>
         <View className="flex-row items-center justify-between">
           <View className="flex-1 flex-row items-center gap-3 pr-3">
@@ -258,7 +258,7 @@ export function TransactionSubscriptionFields({
                 <View className="rounded-2xl px-4 py-3" style={{ backgroundColor: accentSurface }}>
                   <ThemedText
                     className="text-[10px] font-black uppercase tracking-widest"
-                    style={{ color: accent }}>
+                    style={{ color: theme.text }}>
                     Automatic schedule
                   </ThemedText>
                   <ThemedText className="mt-1 text-xs font-bold" style={{ color: theme.text }}>

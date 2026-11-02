@@ -5,9 +5,9 @@ import { useAppMoodStore } from '@/hooks/use-app-mood-store';
 
 export function useColorScheme() {
   const systemColorScheme = useRNColorScheme();
-  const nightMode = useAppMoodStore((state) => state.nightMode);
+  const appearance = useAppMoodStore((state) => state.appearance);
   useAppMoodStore((state) => state.themeColor);
   useAppMoodStore((state) => state.iconStyle);
 
-  return resolveThemeMode(systemColorScheme === 'unspecified' ? null : systemColorScheme, { nightMode });
+  return resolveThemeMode(systemColorScheme === 'unspecified' ? null : systemColorScheme, { appearance });
 }

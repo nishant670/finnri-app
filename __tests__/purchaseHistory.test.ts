@@ -99,4 +99,17 @@ describe('describePayment', () => {
     expect(row.details[0]).toMatch(/^Tried 16 Sept? 2026/);
     expect(row.details[1]).toBe('Payment was declined by the bank');
   });
+
+  it('calls a checkout the server closed for a newer one "Not completed", not a failure', () => {
+    const row = describePayment(
+      payment({
+        status: 'failed',
+        failure_reason: 'superseded by a newer launch-offer checkout',
+        captured_at: null,
+      })
+    );
+    expect(row.badge).toEqual({ label: 'Not completed', tone: 'neutral' });
+    expect(row.details).toContain('Closed when you started a newer checkout.');
+    expect(row.details.join(' ')).not.toMatch(/superseded/);
+  });
 });

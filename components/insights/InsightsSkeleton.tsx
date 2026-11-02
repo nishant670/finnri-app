@@ -31,11 +31,11 @@ export function InsightsSkeleton() {
     <SkeletonFrame
       label="Loading insights"
       testID="insights-skeleton"
-      style={{ paddingHorizontal: 16, paddingTop: 6, gap: 20 }}>
+      style={{ paddingHorizontal: 16, paddingTop: 4, gap: 16 }}>
       <SkeletonTextCard index={0} lines={2} />
       <SkeletonTextCard index={1} lines={1} />
 
-      <SkeletonCard radius={28} padding={20}>
+      <SkeletonCard radius={16} padding={16}>
         <Shimmer width="46%" height={14} index={8} />
         <View style={{ marginTop: 20, alignItems: 'center' }}>
           <View

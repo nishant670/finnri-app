@@ -73,19 +73,13 @@ import { useMotion } from '@/hooks/use-motion';
  * is*, keyed by its route name — the one thing it actually knows first-hand.
  */
 
-/** The pill itself — the same 18×3 the five static ones were. */
-export const MARKER_WIDTH = 18;
-const MARKER_HEIGHT = 3;
-
 /**
- * The strip at the top of a tab's icon stack that the pill travels along.
- *
- * The pill used to live *in* the stack and take up room in it, so the space it
- * occupied has to stay behind now that it has moved out — otherwise every icon
- * in the bar shifts up by half of it. The stack reserves the lane; the pill is
- * drawn into it from the other side.
+ * The marker itself: a 28×3 bar hanging from the tab bar's top edge, rounded
+ * only on its lower corners so it reads as attached to that edge (board
+ * R3-Home). It used to be an 18×3 pill floating over the icon.
  */
-export const MARKER_LANE = MARKER_HEIGHT + 2;
+export const MARKER_WIDTH = 28;
+const MARKER_HEIGHT = 3;
 
 /** A frame in window coordinates. Only `x`, `y` and `width` are ever used. */
 export type Frame = { x: number; y: number; width: number };
@@ -97,11 +91,14 @@ export type Frame = { x: number; y: number; width: number };
  * bar — so the subtraction is what turns them into a position inside the bar.
  * It is pulled out here because it is the whole of the geometry, and the rest
  * of this file is plumbing that a test cannot reach.
+ *
+ * Only the horizontal half depends on the tab. The marker hangs from the bar's
+ * top edge whatever the icon's height, so `y` is always the top of the bar.
  */
 export function markerOffset(tab: Frame, bar: Frame) {
   return {
     x: tab.x - bar.x + tab.width / 2 - MARKER_WIDTH / 2,
-    y: tab.y - bar.y,
+    y: 0,
   };
 }
 
@@ -263,8 +260,8 @@ export function TabMarkerProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Attaches a tab's icon stack to the marker: spread the result onto the view
- * whose top edge the pill should sit on, and pass the tab's route name.
+ * Attaches a tab's icon to the marker: spread the result onto the view the
+ * marker should centre over, and pass the tab's route name.
  *
  * Every tab measures itself, focused or not, so the frame is already known when
  * focus arrives and the pill leaves on the same frame as the tap. It reports
@@ -347,6 +344,7 @@ const styles = StyleSheet.create({
     left: 0,
     width: MARKER_WIDTH,
     height: MARKER_HEIGHT,
-    borderRadius: MARKER_HEIGHT,
+    borderBottomLeftRadius: MARKER_HEIGHT,
+    borderBottomRightRadius: MARKER_HEIGHT,
   },
 });

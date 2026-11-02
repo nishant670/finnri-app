@@ -37,9 +37,9 @@ export function TransactionRefundFields({
     themeTokens.mode === 'dark' ? 'rgba(255,255,255,0.45)' : '#9CA3AF';
 
   return (
-    <View className="px-5 mb-6">
+    <View className="px-4 mt-2">
       <View
-        className="rounded-[24px] border p-4"
+        className="rounded-2xl border p-4"
         style={{ backgroundColor: theme.card, borderColor: theme.border }}>
         <View className="flex-row items-center gap-3">
           <View

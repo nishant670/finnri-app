@@ -9,7 +9,7 @@ import { useAppMoodStore } from '@/hooks/use-app-mood-store';
  */
 export function useColorScheme() {
   const [hasHydrated, setHasHydrated] = useState(false);
-  const nightMode = useAppMoodStore((state) => state.nightMode);
+  const appearance = useAppMoodStore((state) => state.appearance);
   useAppMoodStore((state) => state.themeColor);
   useAppMoodStore((state) => state.iconStyle);
 
@@ -20,8 +20,8 @@ export function useColorScheme() {
   const colorScheme = useRNColorScheme();
 
   if (hasHydrated) {
-    return resolveThemeMode(colorScheme === 'unspecified' ? null : colorScheme, { nightMode });
+    return resolveThemeMode(colorScheme === 'unspecified' ? null : colorScheme, { appearance });
   }
 
-  return resolveThemeMode('light', { nightMode });
+  return resolveThemeMode('light', { appearance });
 }

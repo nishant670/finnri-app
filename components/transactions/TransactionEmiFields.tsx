@@ -77,9 +77,9 @@ export function TransactionEmiFields({
     themeTokens.mode === 'dark' ? 'rgba(255,255,255,0.45)' : '#9CA3AF';
 
   return (
-    <View className="px-5 mb-6">
+    <View className="px-4 mt-2">
       <View
-        className="rounded-[24px] border p-4"
+        className="rounded-2xl border p-4"
         style={{ backgroundColor: theme.card, borderColor: theme.border }}>
         <View className="flex-row items-start gap-3">
           <View
@@ -128,8 +128,8 @@ export function TransactionEmiFields({
               accessibilityRole="button"
               onPress={emiLink.onOpen}
               className="mt-1 self-start rounded-full border px-4 py-2"
-              style={{ borderColor: accent }}>
-              <ThemedText className="text-xs font-black" style={{ color: accent }}>
+              style={{ borderColor: theme.borderStrong }}>
+              <ThemedText className="text-xs font-black" style={{ color: theme.text }}>
                 View full schedule
               </ThemedText>
             </Pressable>
@@ -244,7 +244,7 @@ export function TransactionEmiFields({
                       <ThemedText
                         className="text-xs font-black"
                         style={{
-                          color: tenureMonths === String(months) ? '#FFFFFF' : theme.text,
+                          color: tenureMonths === String(months) ? theme.onAccent : theme.text,
                         }}>
                         {months} mo
                       </ThemedText>

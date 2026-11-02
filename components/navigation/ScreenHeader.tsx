@@ -1,7 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '../themed-text';
-import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 interface ScreenHeaderProps {
@@ -11,8 +10,14 @@ interface ScreenHeaderProps {
   rightIcon?: keyof typeof MaterialCommunityIcons.glyphMap;
   rightText?: string;
   onRightPress?: () => void;
+  /** What the right icon does, for a screen reader: "Account actions". */
+  rightAccessibilityLabel?: string;
 }
 
+/**
+ * A pushed flow's header (board R5-Account1): a plain back chevron, the step
+ * or title centred in quiet ink, and an optional plain icon on the right.
+ */
 export function ScreenHeader({
   title,
   subtitle,
@@ -20,30 +25,31 @@ export function ScreenHeader({
   rightIcon,
   rightText,
   onRightPress,
+  rightAccessibilityLabel,
 }: ScreenHeaderProps) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
 
   return (
-    <View className="flex-row items-center justify-between mb-8 px-6 pt-4">
+    <View style={styles.header}>
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Back"
         onPress={onBack}
-        className="h-10 w-10 items-center justify-center rounded-full shadow-sm"
-        style={{ backgroundColor: theme.colors.card }}>
-        <MaterialCommunityIcons name="arrow-left" size={24} color={theme.colors.text} />
+        style={styles.button}>
+        <MaterialCommunityIcons name="chevron-left" size={28} color={colors.text} />
       </Pressable>
 
-      <View className="items-center flex-1">
+      <View style={styles.center}>
         {subtitle && (
           <ThemedText
-            className="text-[10px] font-black uppercase tracking-[2px] mb-1"
-            style={{ color: theme.colors.accent }}>
+            tone="muted"
+            numberOfLines={1}
+            style={title ? styles.eyebrow : styles.subtitle}>
             {subtitle}
           </ThemedText>
         )}
         {title && (
-          <ThemedText
-            className="text-base font-black"
-            style={{ fontFamily: Fonts.title, color: theme.colors.text }}>
+          <ThemedText numberOfLines={1} style={[styles.title, { color: colors.text }]}>
             {title}
           </ThemedText>
         )}
@@ -51,19 +57,62 @@ export function ScreenHeader({
 
       {rightIcon || rightText ? (
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={rightAccessibilityLabel ?? rightText}
           onPress={onRightPress}
-          className={`h-10 items-center justify-center rounded-full bg-white/50 ${rightText ? 'px-4' : 'w-10'}`}>
+          style={[styles.button, rightText ? styles.textButton : null]}>
           {rightIcon ? (
-            <MaterialCommunityIcons name={rightIcon} size={24} color="#AAB7C6" />
+            <MaterialCommunityIcons name={rightIcon} size={24} color={colors.text} />
           ) : (
-            <ThemedText className="text-sm font-black" style={{ color: '#AAB7C6' }}>
-              {rightText}
-            </ThemedText>
+            <ThemedText style={[styles.rightText, { color: colors.text }]}>{rightText}</ThemedText>
           )}
         </Pressable>
       ) : (
-        <View style={{ width: 40 }} />
+        <View style={styles.button} />
       )}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  button: {
+    minWidth: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textButton: {
+    paddingHorizontal: 8,
+  },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  subtitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  // Above a title the subtitle is a caption, not the header's main line.
+  eyebrow: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  title: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  rightText: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+});

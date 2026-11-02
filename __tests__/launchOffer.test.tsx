@@ -138,6 +138,24 @@ describe('Plans screen with the launch offer', () => {
     await findByText('Continue to pay ₹37');
   });
 
+  it('pays for the pass picked in the list, from the one button at the foot', async () => {
+    const checkout = jest.spyOn(billing, 'createBillingCheckout').mockResolvedValue({
+      provider: 'razorpay',
+      order_id: 'order_2',
+      key_id: 'rzp',
+      amount_minor: 19900,
+      currency: 'INR',
+      plan_code: 'yearly',
+      plan_name: 'Yearly',
+      payment_id: 2,
+    });
+    const { findByTestId, findByText } = await render(<BillingScreen />);
+    await fireEvent.press(await findByTestId('plan-row-yearly'));
+    await findByText('Continue to pay ₹199');
+    await fireEvent.press(await findByTestId('plans-continue'));
+    await waitFor(() => expect(checkout).toHaveBeenCalledWith('test-token', 'yearly'));
+  });
+
   it('starts checkout for the plan chosen in the Home pop-up', async () => {
     mockParams = { checkout: 'monthly' };
     const checkout = jest.spyOn(billing, 'createBillingCheckout').mockResolvedValue({

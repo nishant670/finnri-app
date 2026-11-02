@@ -1,11 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
+import { Button } from '@/components/ui/Button';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { DashboardOverview, DashboardOverviewMonth } from '@/lib/insights';
 import { formatMoney } from '@/lib/money';
+import { Eyebrow, HueTile, InsightCard, insightText } from './insight-ui';
 
 /**
  * What the tab says when the selected period holds nothing but the account
@@ -44,30 +46,18 @@ export function EmptyPeriodCard({
   const canClaimTypical = (overview.baseline_months ?? 0) >= 3 && typical > 0;
 
   return (
-    <View
-      className="rounded-3xl border p-5"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-center gap-3">
-        <View
-          className="h-11 w-11 items-center justify-center rounded-2xl"
-          style={{ backgroundColor: theme.secondary }}>
-          <MaterialCommunityIcons name="calendar-blank-outline" size={20} color={theme.accent} />
-        </View>
-        <View className="flex-1">
-          <ThemedText
-            className="text-xs uppercase"
-            style={{ color: theme.mutedStrong, fontFamily: Fonts.title, letterSpacing: 0.6 }}>
-            Nothing yet
-          </ThemedText>
-          <ThemedText
-            className="mt-1 text-lg"
-            style={{ color: theme.text, fontFamily: Fonts.title }}>
+    <InsightCard>
+      <View style={styles.head}>
+        <HueTile icon="calendar-blank-outline" hue={theme.accent} size={44} />
+        <View style={styles.text}>
+          <Eyebrow>Nothing yet</Eyebrow>
+          <ThemedText style={[insightText.title, { color: theme.text }]}>
             No transactions in {rangeLabel}
           </ThemedText>
         </View>
       </View>
 
-      <ThemedText className="mt-3 text-sm leading-5" style={{ color: theme.muted }}>
+      <ThemedText tone="muted" style={[insightText.body, styles.body]}>
         {canClaimTypical
           ? `Your history is intact — a typical month runs about ${formatMoney(
               typical
@@ -76,37 +66,70 @@ export function EmptyPeriodCard({
       </ThemedText>
 
       {lastActive ? (
-        <Pressable
+        <PressableView
           accessibilityRole="button"
           accessibilityLabel={`Show ${lastActive.label}, ${formatMoney(lastActive.spent)} spent`}
           onPress={() => onOpenMonth(lastActive)}
-          className="mt-4 flex-row items-center justify-between rounded-2xl px-4 py-3"
-          style={{ backgroundColor: theme.secondary }}>
-          <View className="flex-1 pr-3">
-            <ThemedText
-              className="text-sm"
-              style={{ color: theme.accent, fontFamily: Fonts.title }}>
+          style={[styles.jump, { borderColor: theme.border }]}
+          pressedStyle={styles.pressed}>
+          <View style={styles.text}>
+            <ThemedText style={[styles.jumpTitle, { color: theme.text }]}>
               Jump to {lastActive.label}
             </ThemedText>
-            <ThemedText className="mt-1 text-xs" style={{ color: theme.muted }} numberOfLines={1}>
+            <ThemedText tone="muted" style={insightText.caption} numberOfLines={1}>
               {formatMoney(lastActive.spent)} across {lastActive.count} transaction
               {lastActive.count === 1 ? '' : 's'}
             </ThemedText>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={20} color={theme.accent} />
-        </Pressable>
+          <MaterialCommunityIcons name="chevron-right" size={20} color={theme.muted} />
+        </PressableView>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
+      <Button
+        variant="outline"
+        height={44}
+        icon="plus"
+        label="Add a transaction"
         onPress={onAddTransaction}
-        className="mt-3 flex-row items-center gap-2 self-start"
-        hitSlop={8}>
-        <MaterialCommunityIcons name="plus-circle-outline" size={16} color={theme.accent} />
-        <ThemedText className="text-sm" style={{ color: theme.accent, fontFamily: Fonts.title }}>
-          Add a transaction
-        </ThemedText>
-      </Pressable>
-    </View>
+        style={styles.add}
+      />
+    </InsightCard>
   );
 }
+
+const styles = StyleSheet.create({
+  head: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  text: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  body: {
+    marginTop: 12,
+  },
+  jump: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  jumpTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  add: {
+    marginTop: 12,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

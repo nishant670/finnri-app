@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type AutopayReviewCardProps = {
@@ -14,10 +15,10 @@ export function AutopayReviewCard({ onConfirm, onRevert }: AutopayReviewCardProp
 
   return (
     <View
-      className="mx-6 mb-4 rounded-3xl border p-4"
+      className="mx-4 mb-3 rounded-2xl border p-4"
       style={{
         backgroundColor: themeTokens.colors.card,
-        borderColor: themeTokens.colors.accent,
+        borderColor: themeTokens.colors.border,
       }}>
       <View className="flex-row items-start gap-3">
         <MaterialCommunityIcons name="bank-check" size={24} color={themeTokens.colors.accent} />
@@ -27,24 +28,8 @@ export function AutopayReviewCard({ onConfirm, onRevert }: AutopayReviewCardProp
             Review the recurring payment. It is already in your transaction list.
           </ThemedText>
           <View className="mt-3 flex-row gap-2">
-            <Pressable
-              className="rounded-xl px-4 py-2"
-              style={{ backgroundColor: themeTokens.colors.accent }}
-              onPress={onConfirm}>
-              <ThemedText tone="onAccent" className="text-xs font-black">
-                Confirm
-              </ThemedText>
-            </Pressable>
-            <Pressable
-              className="rounded-xl border px-4 py-2"
-              style={{ borderColor: themeTokens.colors.accent }}
-              onPress={onRevert}>
-              <ThemedText
-                className="text-xs font-black"
-                style={{ color: themeTokens.colors.accent }}>
-                Fix it
-              </ThemedText>
-            </Pressable>
+            <Button label="Confirm" height={36} onPress={onConfirm} />
+            <Button label="Fix it" variant="outline" height={36} onPress={onRevert} />
           </View>
         </View>
       </View>

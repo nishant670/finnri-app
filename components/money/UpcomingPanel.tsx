@@ -1,14 +1,15 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
+import { cardVisual, recurringVisuals, refundVisual } from '@/components/money/money-visuals';
 import type { MoneySegment } from '@/components/money/MoneySegments';
-import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { ThemedText } from '@/components/themed-text';
+import { ListRow, type ListRowTone } from '@/components/ui/ListRow';
 import { StateView } from '@/components/ui/StateView';
-import { Fonts } from '@/constants/theme';
+import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { kindOf } from '@/lib/recurring';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { fetchAccounts, type Account } from '@/lib/accounts';
 import { formatMoney } from '@/lib/money';
@@ -43,9 +44,7 @@ export function UpcomingPanel({
   prefetchedSubscriptions,
 }: UpcomingPanelProps) {
   const router = useRouter();
-  const theme = useThemeTokens();
-  const colors = theme.colors;
-  const muted = `${colors.text}99`;
+  const colors = useThemeTokens().colors;
   const { token } = useAuthStore();
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
@@ -104,12 +103,10 @@ export function UpcomingPanel({
   );
 
   const overdue = useMemo(() => dues.filter((due) => due.state === 'overdue'), [dues]);
-  const thisWeek = useMemo(
-    () => dues.filter((due) => due.state === 'today' || due.state === 'soon'),
-    [dues]
-  );
-  const later = useMemo(() => dues.filter((due) => due.state === 'scheduled'), [dues]);
+  const upcoming = useMemo(() => dues.filter((due) => due.state !== 'overdue'), [dues]);
   const total = useMemo(() => totalUpcomingAmount(dues), [dues]);
+  const overdueTotal = useMemo(() => totalUpcomingAmount(overdue), [overdue]);
+  const upcomingTotal = useMemo(() => totalUpcomingAmount(upcoming), [upcoming]);
   const refundCount = dues.filter((due) => due.kind === 'refund').length;
 
   const openDue = (due: UpcomingDue) => {
@@ -124,29 +121,61 @@ export function UpcomingPanel({
     onSelectSegment('subscriptions');
   };
 
-  return (
-    <View className="flex-1" style={{ backgroundColor: colors.background }}>
-      <PanelActionRow
-        subtitle={
-          loading
-            ? 'Checking renewals and card due dates'
-            : dues.length === 0
-              ? `Nothing due in the next ${HORIZON_DAYS} days`
-              : `${formatMoney(total)} due out${refundCount > 0 ? ` · ${refundCount} refund${refundCount === 1 ? '' : 's'} expected` : ''}`
-        }
-        colors={colors}
-      />
+  const visualFor = (due: UpcomingDue) => {
+    if (due.kind === 'card') return cardVisual;
+    if (due.kind === 'refund') return refundVisual;
+    const item = subscriptions.find((subscription) => subscription.id === due.sourceID);
+    return recurringVisuals[item ? kindOf(item) : 'subscription'];
+  };
 
-      <ScrollView
-        ref={scrollRef}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: 24,
-          paddingTop: 12,
-          paddingBottom: 120,
-          gap: 20,
-        }}>
-        {!loading && dues.length === 0 ? (
+  // Red once it is late, amber when it wants doing this week, quiet otherwise.
+  const statusTone = (due: UpcomingDue): ListRowTone =>
+    due.state === 'overdue' ? 'negative' : due.state === 'scheduled' ? 'muted' : 'warning';
+
+  const renderGroup = (group: UpcomingDue[]) => (
+    <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+      {group.map((due, index) => {
+        const visual = visualFor(due);
+        const isRefund = due.kind === 'refund';
+        return (
+          <ListRow
+            key={due.key}
+            icon={visual.icon}
+            hue={visual.hue}
+            title={due.title}
+            meta={due.subtitle}
+            amount={
+              due.amount === null
+                ? '—'
+                : isRefund
+                  ? formatMoney(due.amount, { sign: 'always' })
+                  : formatMoney(due.amount)
+            }
+            amountTone={isRefund ? 'positive' : 'default'}
+            status={formatDueLabel(due)}
+            statusTone={statusTone(due)}
+            divider={index > 0}
+            accessibilityLabel={`${due.title}, ${formatDueLabel(due)}`}
+            onPress={() => openDue(due)}
+          />
+        );
+      })}
+    </View>
+  );
+
+  const summaryLine = [
+    overdueTotal > 0 ? 'overdue' : null,
+    refundCount > 0 ? `${refundCount} refund${refundCount === 1 ? '' : 's'} expected` : null,
+  ].filter(Boolean);
+
+  return (
+    <ScrollView
+      ref={scrollRef}
+      showsVerticalScrollIndicator={false}
+      style={{ flex: 1, backgroundColor: colors.background }}
+      contentContainerStyle={styles.content}>
+      {!loading && dues.length === 0 ? (
+        <View style={styles.empty}>
           <StateView
             icon="calendar-check"
             title="Nothing due yet"
@@ -154,110 +183,99 @@ export function UpcomingPanel({
             actionLabel="Add a subscription"
             onAction={() => onSelectSegment('subscriptions')}
           />
-        ) : (
-          <>
-            <DueGroup
-              title="Overdue"
-              tone="#DC2626"
-              dues={overdue}
-              muted={muted}
-              onPress={openDue}
-            />
-            <DueGroup
-              title="Next 7 days"
-              tone={colors.accent}
-              dues={thisWeek}
-              muted={muted}
-              onPress={openDue}
-            />
-            <DueGroup
-              title={`Rest of the next ${HORIZON_DAYS} days`}
-              tone="#64748B"
-              dues={later}
-              muted={muted}
-              onPress={openDue}
-            />
-          </>
-        )}
-      </ScrollView>
-    </View>
-  );
-}
+        </View>
+      ) : (
+        <>
+          {/* Board R5-Upcoming: what is due, as one figure, before the list of it. */}
+          <View style={[styles.summary, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <ThemedText tone="muted" style={styles.eyebrow}>
+              {`Due in the next ${HORIZON_DAYS} days`}
+            </ThemedText>
+            <ThemedText style={[styles.total, { color: colors.text }]}>
+              {loading ? '…' : formatMoney(total)}
+            </ThemedText>
+            <ThemedText tone="muted" style={styles.caption}>
+              {loading ? (
+                'Checking renewals and card due dates'
+              ) : summaryLine.length > 0 ? (
+                <>
+                  {overdueTotal > 0 ? 'Includes ' : ''}
+                  {overdueTotal > 0 ? (
+                    <ThemedText style={[styles.caption, styles.strong, { color: colors.negative }]}>
+                      {`${formatMoney(overdueTotal)} overdue`}
+                    </ThemedText>
+                  ) : null}
+                  {overdueTotal > 0 && refundCount > 0 ? ' · ' : ''}
+                  {refundCount > 0
+                    ? `${refundCount} refund${refundCount === 1 ? '' : 's'} expected`
+                    : ''}
+                </>
+              ) : (
+                'Nothing overdue'
+              )}
+            </ThemedText>
+          </View>
 
-type DueGroupProps = {
-  title: string;
-  tone: string;
-  dues: UpcomingDue[];
-  muted: string;
-  onPress: (due: UpcomingDue) => void;
-};
-
-function DueGroup({ title, tone, dues, muted, onPress }: DueGroupProps) {
-  const colors = useThemeTokens().colors;
-  if (dues.length === 0) return null;
-
-  return (
-    <View className="gap-3">
-      <ThemedText
-        className="text-xs uppercase"
-        style={{ fontFamily: Fonts.title, color: tone, letterSpacing: 0.8 }}>
-        {title}
-      </ThemedText>
-      <View className="gap-3">
-        {dues.map((due) => (
-          <Pressable
-            key={due.key}
-            accessibilityRole="button"
-            accessibilityLabel={`${due.title}, ${formatDueLabel(due)}`}
-            onPress={() => onPress(due)}
-            className="min-h-[72px] flex-row items-center rounded-[26px] px-4 py-4"
-            style={{ backgroundColor: colors.card }}>
-            <View
-              className="mr-4 h-11 w-11 items-center justify-center rounded-full"
-              style={{ backgroundColor: `${tone}1F` }}>
-              <MaterialCommunityIcons
-                name={
-                  due.kind === 'card'
-                    ? 'credit-card-clock-outline'
-                    : due.kind === 'refund'
-                      ? 'cash-refund'
-                      : 'calendar-sync-outline'
-                }
-                size={21}
-                color={tone}
+          {overdue.length > 0 ? (
+            <>
+              <GroupHeader label="Overdue" tone="negative" />
+              {renderGroup(overdue)}
+            </>
+          ) : null}
+          {upcoming.length > 0 ? (
+            <>
+              <GroupHeader
+                label={`Next ${HORIZON_DAYS} days`}
+                total={upcomingTotal > 0 ? formatMoney(upcomingTotal) : undefined}
               />
-            </View>
-            <View className="min-w-0 flex-1 pr-3">
-              <ThemedText
-                numberOfLines={1}
-                className="text-base"
-                style={{ fontFamily: Fonts.title, color: colors.text }}>
-                {due.title}
-              </ThemedText>
-              <ThemedText
-                numberOfLines={1}
-                className="mt-1 text-xs"
-                style={{ fontFamily: Fonts.body, color: muted }}>
-                {due.subtitle}
-              </ThemedText>
-            </View>
-            <View className="items-end">
-              <ThemedText
-                numberOfLines={1}
-                className="text-base"
-                style={{ fontFamily: Fonts.title, color: colors.text }}>
-                {due.amount === null ? '—' : formatMoney(due.amount)}
-              </ThemedText>
-              <ThemedText
-                numberOfLines={1}
-                className="mt-1 text-[11px]"
-                style={{ fontFamily: Fonts.body, color: tone }}>
-                {formatDueLabel(due)}
-              </ThemedText>
-            </View>
-          </Pressable>
-        ))}
-      </View>
-    </View>
+              {renderGroup(upcoming)}
+            </>
+          ) : null}
+        </>
+      )}
+    </ScrollView>
   );
 }
+
+const styles = StyleSheet.create({
+  content: {
+    paddingTop: 12,
+    paddingBottom: 40,
+  },
+  empty: {
+    marginTop: 24,
+  },
+  summary: {
+    gap: 2,
+    marginHorizontal: SCREEN_GUTTER,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  eyebrow: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  total: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+  caption: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  strong: {
+    fontWeight: '600',
+  },
+  card: {
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+});

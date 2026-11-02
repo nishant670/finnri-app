@@ -14,8 +14,12 @@
  * it needs, and what is left over after that is what the artwork gets.
  */
 
-/** The size the illustration is drawn at, and the most it is ever shown at. */
-export const HERO_BASE_SIZE = 260;
+/**
+ * The illustration panel's height as R13-Welcome draws it, and the most it is
+ * ever shown at. It is a height now, not a side: the panel spans the screen's
+ * width and only its height gives.
+ */
+export const HERO_BASE_SIZE = 210;
 
 /**
  * Below this the artwork reads as a smudge rather than an illustration, so it
@@ -35,14 +39,16 @@ const HERO_MIN_SIZE = 120;
  */
 const CHROME_HEIGHT =
   20 + // top padding
-  50 + // wordmark row, including the gap under it
-  20 + // gap between the illustration and the copy
-  108 + // title + subtitle, including the gap under them
-  274 + // guest button, terms, divider, Google, email/mobile link, trust note
-  16; // bottom padding
+  40 + // wordmark row
+  24 + // gap between the wordmark and the illustration
+  96 + // title (two lines) and the gap above it
+  52 + // subtitle (two lines) and the gap above it
+  24 + // the least room left between the copy and the actions
+  223 + // Start for free, its note, Google, the bank note and the terms line
+  24; // bottom padding
 
 /**
- * The illustration's side length for a screen with `available` dp of usable
+ * The illustration's height for a screen with `available` dp of usable
  * height — that is, the window less the status bar and whatever the system
  * takes at the bottom. `0` means there is no room for it and it should not be
  * drawn at all.

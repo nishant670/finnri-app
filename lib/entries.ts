@@ -3,6 +3,7 @@ import { API_BASE_URL, type ApiEntry } from './transactions';
 
 const entryFieldLabels: Record<string, string> = {
   account_id: 'Account',
+  event_id: 'Event',
   // A transaction can carry a split, and the server reports its problems under
   // `split.*` paths. Without these the composer surfaced raw field paths —
   // "Split.Participants[0].Friend must belong to the current user" — which
@@ -39,6 +40,7 @@ export type EntryMutationPayload = {
   source?: 'manual' | 'text' | 'voice' | 'receipt';
   source_text?: string;
   attachment?: string | null;
+  event_id?: number | null;
   refundable_amount?: string | number | null;
   refund_expected_on?: string | null;
   refund_reminder_at?: string | null;

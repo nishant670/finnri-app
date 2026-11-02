@@ -4,7 +4,6 @@ import { Text } from 'react-native';
 import {
   SplitActivityEmpty,
   SplitActivityFooter,
-  SplitActivityHeading,
 } from '@/components/split/SplitActivitySection';
 import { SplitFriendFormModal } from '@/components/split/SplitFriendFormModal';
 import { SplitFriendsSection } from '@/components/split/SplitFriendsSection';
@@ -67,29 +66,42 @@ describe('SplitHeader', () => {
 });
 
 describe('SplitOverallBalance', () => {
-  it('shows the overall figure and opens the filter', async () => {
-    const onOpenFilter = jest.fn();
+  it('shows the overall figure and carries Add expense', async () => {
+    const onAddExpense = jest.fn();
     const screen = await render(
-      <SplitOverallBalance value={0} color="#000" hasActivity onOpenFilter={onOpenFilter} />
+      <SplitOverallBalance value={0} color="#000" hasActivity onAddExpense={onAddExpense} />
     );
     expect(screen.getByText('Overall, settled up')).toBeTruthy();
-    await fireEvent.press(screen.getByLabelText('Filter split balances'));
-    expect(onOpenFilter).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('Add expense'));
+    expect(onAddExpense).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing is on the ledger yet, and hides Add expense with no friend to split with', async () => {
+    const screen = await render(<SplitOverallBalance value={0} color="#000" hasActivity={false} />);
+    expect(screen.getByText('Nothing to settle yet')).toBeTruthy();
+    expect(screen.getByText('Balances with friends and groups show here.')).toBeTruthy();
+    expect(screen.queryByText('Add expense')).toBeNull();
+  });
+
+  it('words a balance from the user’s side', async () => {
+    const owed = await render(<SplitOverallBalance value={500} color="#000" hasActivity />);
+    expect(owed.getByText('Overall, you’re owed')).toBeTruthy();
+    const owing = await render(<SplitOverallBalance value={-500} color="#000" hasActivity />);
+    expect(owing.getByText('Overall, you owe')).toBeTruthy();
   });
 });
 
 describe('SplitGroupsSection', () => {
   const group = (id: number) => ({ group: { id, name: `G${id}` } }) as unknown as SplitGroupSummary;
   const setup = async (over: Partial<React.ComponentProps<typeof SplitGroupsSection>> = {}) => {
-    const h = { onShowSettled: jest.fn(), onNewGroup: jest.fn() };
+    const h = { onShowSettled: jest.fn(), onNewGroup: jest.fn(), onOpenFilter: jest.fn() };
     const screen = await render(
       <SplitGroupsSection
         groups={[group(1), group(2)]}
-        showNonGroupSummary={false}
         hiddenSettledCount={0}
         normalizedSearch=""
         renderGroupCard={(s) => <Text key={s.group.id}>{`card ${s.group.name}`}</Text>}
-        renderNonGroupRow={(index) => <Text>{`non-group at ${index}`}</Text>}
+        filterActive={false}
         {...h}
         {...over}
       />
@@ -97,11 +109,29 @@ describe('SplitGroupsSection', () => {
     return { screen, ...h };
   };
 
-  it('renders a card per group and puts the non-group row after them', async () => {
-    const { screen } = await setup({ showNonGroupSummary: true });
+  it('renders a card per group, and nothing for expenses outside a group', async () => {
+    const { screen } = await setup();
     expect(screen.getByText('card G1')).toBeTruthy();
     expect(screen.getByText('card G2')).toBeTruthy();
-    expect(screen.getByText('non-group at 2')).toBeTruthy();
+    expect(screen.queryByText(/non-group/i)).toBeNull();
+  });
+
+  it('heads the card with the count and opens the balance filter', async () => {
+    const { screen, onOpenFilter } = await setup();
+    expect(screen.getByText('Groups · 2')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Filter split balances'));
+    expect(onOpenFilter).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws a divider above every row but the first', async () => {
+    const dividers: boolean[] = [];
+    await setup({
+      renderGroupCard: (s, _index, divider) => {
+        dividers.push(divider);
+        return <Text key={s.group.id}>{s.group.name}</Text>;
+      },
+    });
+    expect(dividers).toEqual([false, true]);
   });
 
   it('invites the user to create a first group when there are none', async () => {
@@ -117,11 +147,6 @@ describe('SplitGroupsSection', () => {
     expect(screen.queryByText('New group')).toBeNull();
   });
 
-  it('still shows the list when only the non-group row is visible', async () => {
-    const { screen } = await setup({ groups: [], showNonGroupSummary: true });
-    expect(screen.getByText('non-group at 0')).toBeTruthy();
-    expect(screen.queryByText('Create your first group')).toBeNull();
-  });
 });
 
 describe('SplitFriendsSection', () => {
@@ -134,6 +159,10 @@ describe('SplitFriendsSection', () => {
         normalizedSearch=""
         renderFriendRow={(f) => <Text key={f.id}>{`row ${f.name}`}</Text>}
         onAddFriend={onAddFriend}
+        hiddenSettledCount={0}
+        onShowSettled={jest.fn()}
+        filterActive={false}
+        onOpenFilter={jest.fn()}
         {...over}
       />
     ).then((screen) => ({ screen, onAddFriend }));
@@ -143,6 +172,7 @@ describe('SplitFriendsSection', () => {
     const { screen } = await setup();
     expect(screen.getByText('row Asha')).toBeTruthy();
     expect(screen.getByText('row Ravi')).toBeTruthy();
+    expect(screen.getByText('Friends · 2')).toBeTruthy();
   });
 
   it('invites adding the first friend, and offers the action', async () => {
@@ -150,6 +180,14 @@ describe('SplitFriendsSection', () => {
     expect(screen.getByText('Add friends to split bills')).toBeTruthy();
     await fireEvent.press(screen.getByText('Add friend'));
     expect(onAddFriend).toHaveBeenCalledTimes(1);
+  });
+
+  it('says when settled friends are hidden, and shows them on request', async () => {
+    const onShowSettled = jest.fn();
+    const { screen } = await setup({ hiddenSettledCount: 1, onShowSettled });
+    expect(screen.getByText("Hiding friends you're settled up with.")).toBeTruthy();
+    await fireEvent.press(screen.getByText('Show 1 settled-up friend'));
+    expect(onShowSettled).toHaveBeenCalledTimes(1);
   });
 
   it('says nothing matched when a search or filter hides every friend', async () => {
@@ -160,11 +198,6 @@ describe('SplitFriendsSection', () => {
 });
 
 describe('the Activity section', () => {
-  it('heads the feed', async () => {
-    const screen = await render(<SplitActivityHeading />);
-    expect(screen.getByText('Recent activity')).toBeTruthy();
-  });
-
   it('words the empty state for no activity versus no match, and waits while loading', async () => {
     const none = await render(<SplitActivityEmpty loading={false} normalizedSearch="" />);
     expect(none.getByText('No activity yet')).toBeTruthy();
@@ -216,10 +249,10 @@ describe('SplitFriendFormModal', () => {
 
   it('titles and labels itself for adding or editing', async () => {
     const add = await setup();
-    expect(add.screen.getByText('Add Friend')).toBeTruthy();
+    expect(add.screen.getByText('Add friend')).toBeTruthy();
     expect(add.screen.getByText('Save friend')).toBeTruthy();
     const edit = await setup({ isEditing: true });
-    expect(edit.screen.getByText('Edit Friend')).toBeTruthy();
+    expect(edit.screen.getByText('Edit friend')).toBeTruthy();
     expect(edit.screen.getByText('Update friend')).toBeTruthy();
   });
 

@@ -7,7 +7,9 @@ import { SubscriptionLoanFields } from '@/components/money/subscriptions/Subscri
 import type { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Account } from '@/lib/accounts';
 
-jest.mock('@/lib/haptics', () => ({ haptics: { select: jest.fn(), saved: jest.fn() } }));
+jest.mock('@/lib/haptics', () => ({
+  haptics: { select: jest.fn(), saved: jest.fn(), toggle: jest.fn() },
+}));
 
 const colors = {
   text: '#111',
@@ -48,8 +50,6 @@ describe('SubscriptionLoanFields', () => {
         startDate=""
         loanSuggestion={{}}
         name=""
-        colors={colors}
-        muted="#999"
         {...h}
         {...over}
       />
@@ -66,13 +66,18 @@ describe('SubscriptionLoanFields', () => {
     expect(setPrincipal).toHaveBeenCalled();
   });
 
-  it('toggles the loan type off when the selected one is pressed again', async () => {
+  it('picks a loan type from its row, and clears it when the chosen one is picked again', async () => {
     const { screen, setLoanType } = await setup({ loanType: 'home' });
-    const pills = screen.getAllByRole('button');
-    const selected = pills.find((p) => p.props.accessibilityState?.selected);
+    await fireEvent.press(screen.getByTestId('recurring-loan-type'));
+    const options = screen.getAllByRole('radio');
+    const selected = options.find((option) => option.props.accessibilityState?.selected);
     expect(selected).toBeTruthy();
     await fireEvent.press(selected!);
     expect(setLoanType).toHaveBeenCalledWith('');
+
+    await fireEvent.press(screen.getByTestId('recurring-loan-type'));
+    await fireEvent.press(screen.getByText('Car'));
+    expect(setLoanType).toHaveBeenLastCalledWith('car');
   });
 
   it('shows no suggestion until one exists', async () => {
@@ -116,8 +121,6 @@ describe('SubscriptionInvestmentFields', () => {
         platform=""
         startDate=""
         stepUpPct=""
-        colors={colors}
-        muted="#999"
         {...h}
       />
     );
@@ -167,8 +170,6 @@ describe('SubscriptionAdvancedFields', () => {
         paymentMode="UPI"
         reminderDays={3}
         status="active"
-        colors={colors}
-        muted="#999"
         {...h}
         {...over}
       />
@@ -190,6 +191,7 @@ describe('SubscriptionAdvancedFields', () => {
 
   it('picks a reminder lead time', async () => {
     const { screen, setReminderDays } = await setup();
+    await fireEvent.press(screen.getByTestId('recurring-reminder'));
     await fireEvent.press(screen.getByText('7 days before'));
     expect(setReminderDays).toHaveBeenCalledWith(7);
   });
@@ -199,8 +201,11 @@ describe('SubscriptionAdvancedFields', () => {
     expect(off.screen.queryByText('Pay from')).toBeNull();
     const on = await setup({ autopay: true });
     expect(on.screen.getByText('Pay from')).toBeTruthy();
-    await fireEvent.press(on.screen.getByLabelText('Pay from GPay'));
+    await fireEvent.press(on.screen.getByText('Pay from'));
+    await fireEvent.press(on.screen.getByText('GPay'));
     expect(on.setAccountID).toHaveBeenCalledWith(1);
+    // The row; the closing sheet's title may still be mounted while it slides away.
+    await fireEvent.press(on.screen.getAllByText('Pay from')[0]);
     await fireEvent.press(on.screen.getByText('Add a UPI account'));
     expect(on.onAddAccount).toHaveBeenCalledTimes(1);
   });
@@ -211,11 +216,14 @@ describe('SubscriptionAdvancedFields', () => {
     const bank = { id: 2, type: 'bank', name: 'Bank Account' } as Account;
     const hdfc = { id: 3, type: 'bank', name: 'HDFC', is_default: true } as Account;
     const on = await setup({ autopay: true, accounts: [upi, bank, hdfc] });
+    await fireEvent.press(on.screen.getByText('Pay via'));
     await fireEvent.press(on.screen.getByText('Bank Account'));
     expect(on.setPaymentMode).toHaveBeenCalledWith('Bank Account');
     expect(on.setAccountID).toHaveBeenLastCalledWith(3);
 
     const none = await setup({ autopay: true, paymentMode: 'Credit Card' });
+    expect(none.screen.getByText('No credit card yet')).toBeTruthy();
+    await fireEvent.press(none.screen.getByText('Pay from'));
     expect(none.screen.getByText('No credit card added yet.')).toBeTruthy();
   });
 
@@ -228,10 +236,10 @@ describe('SubscriptionAdvancedFields', () => {
   // "What are these categories about?" — asked of a PPF instalment.
   it('asks an investment for no spending category and no cancel reminder', async () => {
     const subscription = await setup();
-    expect(subscription.screen.getByText('Spending category')).toBeTruthy();
+    expect(subscription.screen.getByText('Category')).toBeTruthy();
     expect(subscription.screen.getByText('Remind me to cancel')).toBeTruthy();
     const investment = await setup({ formKind: 'investment', merchant: 'PPF' });
-    expect(investment.screen.queryByText('Spending category')).toBeNull();
+    expect(investment.screen.queryByText('Category')).toBeNull();
     expect(investment.screen.queryByText('Food & Drinks')).toBeNull();
     expect(investment.screen.queryByText('Remind me to cancel')).toBeNull();
     expect(investment.screen.getByPlaceholderText('Folio number, goal, nominee')).toBeTruthy();
@@ -241,9 +249,9 @@ describe('SubscriptionAdvancedFields', () => {
   });
 
   it('opens the cancellation date only when reminders are on', async () => {
-    expect((await setup()).screen.queryByText('Cancellation reminder date')).toBeNull();
+    expect((await setup()).screen.queryByLabelText('Cancellation reminder date')).toBeNull();
     const on = await setup({ cancelBeforeDue: true });
-    await fireEvent.press(on.screen.getByText('Cancellation reminder date'));
+    await fireEvent.press(on.screen.getByLabelText('Cancellation reminder date'));
     expect(on.openCancellationDatePicker).toHaveBeenCalledTimes(1);
   });
 

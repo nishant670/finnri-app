@@ -22,7 +22,7 @@ describe('Scan a bill on the add sheet', () => {
     const onRequestReceiptScan = jest.fn();
     const { findByTestId, getByText } = await renderSheet({ onRequestReceiptScan });
 
-    expect(getByText('Scan a bill instead')).toBeTruthy();
+    expect(getByText('Scan a bill')).toBeTruthy();
     await fireEvent.press(await findByTestId('scan-receipt'));
 
     expect(onRequestReceiptScan).toHaveBeenCalledTimes(1);

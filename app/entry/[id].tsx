@@ -3,13 +3,19 @@ import { Image } from 'expo-image';
 import { Stack, useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Pressable, ScrollView, View, TouchableOpacity } from 'react-native';
+import { BackHandler, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { Colors } from '@/constants/theme';
+import { Button, PrimaryButton } from '@/components/ui/Button';
+import { LabelRow } from '@/components/ui/LabelRow';
+import { PressableView } from '@/components/ui/PressableView';
+import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
+import { categoryTile } from '@/lib/categories';
+import { paymentModeVisual } from '@/lib/payment-modes';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
@@ -20,9 +26,11 @@ import {
 } from '@/components/transactions/TransactionFormModal';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSkeleton';
+import { ReceiptViewer } from '@/components/transactions/ReceiptViewer';
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { fetchCardEMIPlans } from '@/lib/emi-plans';
 import { fetchSubscriptions } from '@/lib/subscriptions';
@@ -48,18 +56,21 @@ import {
   type SplitGroup,
 } from '@/lib/splits';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
+import { eventLabel, useEvents } from '@/lib/events';
 import {
   normalizeDateLabel,
   formatDateLabel,
+  parseDateLabel,
   toTitleCase,
   resolveCategoryMetadata,
 } from '@/lib/transactions';
-import { formatTime } from '@/lib/datetime';
+import { formatTime, rowTimeLabel } from '@/lib/datetime';
 import { formatMoney, toAmountInputValue } from '@/lib/money';
 import { updateRefundStatus } from '@/lib/refundables';
 
 export default function TransactionDetailsScreen() {
   const dialog = useAppDialog();
+  const sheetBottom = useBottomInset(40);
   const router = useRouter();
   const params = useLocalSearchParams<{
     id: string;
@@ -83,6 +94,8 @@ export default function TransactionDetailsScreen() {
   }>();
 
   const { token } = useAuthStore();
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
   const [transaction, setTransaction] = useState<any>(null); // Using any to be flexible with API response initially
   const [isLoading, setIsLoading] = useState(true);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -102,7 +115,6 @@ export default function TransactionDetailsScreen() {
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
 
-  const [isExpanded, setIsExpanded] = useState(true);
 
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -285,12 +297,19 @@ export default function TransactionDetailsScreen() {
 
   const meta = resolveCategoryMetadata(displayData.category, displayData.type);
   const isIncomeEntry = String(displayData.type ?? '').toLowerCase() === 'income';
+  const entryEventId = displayData.event_id ?? null;
+  useEffect(() => {
+    if (token && entryEventId != null) void loadEvents(token);
+  }, [entryEventId, loadEvents, token]);
+  const entryEvent =
+    entryEventId != null ? (events.find((event) => event.id === entryEventId) ?? null) : null;
   const icon = meta.icon;
   const iconColor = meta.color;
   const bgColor = meta.bgColor;
 
   const receiptUrl = displayData.attachment || null;
   const [displayReceiptUrl, setDisplayReceiptUrl] = useState<string | null>(null);
+  const [isReceiptViewerOpen, setIsReceiptViewerOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -311,8 +330,16 @@ export default function TransactionDetailsScreen() {
     };
   }, [receiptUrl, token]);
 
+  /**
+   * A photo opens in the app's own viewer (board R4-ReceiptViewer). A PDF still
+   * goes to the system's viewer: there is no PDF renderer in the app.
+   */
   const handleOpenReceipt = async () => {
     if (!displayReceiptUrl) return;
+    if (!isPdfAttachment(receiptUrl)) {
+      setIsReceiptViewerOpen(true);
+      return;
+    }
     try {
       await WebBrowser.openBrowserAsync(displayReceiptUrl);
     } catch {
@@ -542,6 +569,7 @@ export default function TransactionDetailsScreen() {
       accounts.find((account) => account.id === displayData.account_id)?.name ||
       '',
     merchant: displayData.merchant || '',
+    eventId: displayData.event_id ?? null,
     attachment: displayData.attachment || null,
     splitEnabled: Boolean(splitBill),
     splitGroupId: splitBill?.group_id ?? null,
@@ -632,6 +660,26 @@ export default function TransactionDetailsScreen() {
    */
   const hasPreview = Boolean(params.name || params.amount);
 
+  const tile = categoryTile({ color: iconColor, bgColor }, colorScheme);
+  const accountName =
+    displayData.account?.name ||
+    accounts.find((account) => account.id === displayData.account_id)?.name ||
+    '';
+  /** "Expense · Sun, 11 Oct 2026, 8:53 pm" (board R4-Detail). */
+  const heroCaption = (() => {
+    const day = parseDateLabel(displayData.date);
+    const date = day
+      ? day.toLocaleDateString('en-GB', {
+          weekday: 'short',
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric',
+        })
+      : displayData.date || 'No date';
+    const time = displayData.time ? rowTimeLabel(displayData.time) : '';
+    return [isIncomeEntry ? 'Income' : 'Expense', [date, time].filter(Boolean).join(', ')].join(' · ');
+  })();
+
   if (isLoading && !transaction && !hasPreview) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
@@ -645,38 +693,30 @@ export default function TransactionDetailsScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: theme.background }}>
       <Stack.Screen options={{ headerShown: false }} />
 
-      {/* Custom Header */}
-      <View className="flex-row items-center px-6 py-4">
+      {/* Header (board R4-Detail): back, and the title centred. */}
+      <View style={styles.header}>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back"
           onPress={dismiss}
-          className="h-10 w-10 items-center justify-center rounded-full bg-white dark:bg-gray-800">
+          style={styles.headerButton}>
           <MaterialCommunityIcons name="chevron-left" size={28} color={theme.text} />
         </Pressable>
-        <ThemedText
-          className="text-base font-bold ml-4 flex-1 text-center pr-10"
-          style={{ color: theme.text }}>
+        <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
           Transaction
         </ThemedText>
+        <View style={styles.headerButton} />
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: 24, paddingBottom: 100 }}>
-        {/* HERO SECTION */}
-        <View className="items-center mb-10">
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {/* HERO: icon, amount, title, one caption. */}
+        <View style={styles.hero}>
           <Animated.View
             ref={heroIconRef}
             collapsable={false}
             onLayout={iconTravel.onLayout}
-            className="h-28 w-28 rounded-[32px] items-center justify-center shadow-lg mb-6"
-            style={[
-              {
-                shadowColor: theme.accent,
-                shadowOpacity: 0.1,
-                shadowRadius: 15,
-                backgroundColor: bgColor || 'white',
-              },
-              iconTravel.style,
-            ]}>
-            <MaterialCommunityIcons name={icon as any} size={52} color={iconColor} />
+            style={[styles.heroIcon, { backgroundColor: tile.background }, iconTravel.style]}>
+            <MaterialCommunityIcons name={icon as any} size={24} color={tile.foreground} />
           </Animated.View>
 
           <Animated.View
@@ -685,391 +725,236 @@ export default function TransactionDetailsScreen() {
             onLayout={amountTravel.onLayout}
             style={amountTravel.style}>
             <ThemedText
-              className="text-4xl font-black mb-2 tracking-tight"
               numberOfLines={1}
               adjustsFontSizeToFit
-              style={{ color: theme.text }}>
-              {formatMoney(amountValue, { sign: 'never' })}
+              style={[styles.amount, { color: isIncomeEntry ? theme.positive : theme.text }]}>
+              {formatMoney(isIncomeEntry ? amountValue : -amountValue, { sign: 'always' })}
             </ThemedText>
           </Animated.View>
 
-          <ThemedText className="text-lg font-black mb-3" style={{ color: theme.text }}>
+          <ThemedText style={[styles.heroTitle, { color: theme.text }]}>
             {displayData.title || 'Untitled transaction'}
           </ThemedText>
-
-          {hasMerchant && (
-            <View
-              className="flex-row items-center rounded-full px-4 py-1.5 shadow-sm border"
-              style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-              <ThemedText tone="mutedStrong" className="text-sm font-bold mr-2">
-                {displayData.merchant}
-              </ThemedText>
-              <MaterialCommunityIcons name="check-circle" size={16} color="#10B981" />
-            </View>
-          )}
+          <ThemedText tone="muted" style={styles.heroCaption}>
+            {heroCaption}
+          </ThemedText>
         </View>
 
-        {/* DETAILS CARD */}
-        <View className="bg-white dark:bg-gray-800 rounded-[40px] p-8 shadow-sm mb-8">
-          {/* Date */}
-          <View className="flex-row gap-5 mb-8">
-            <View
-              className="h-12 w-12 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.secondary }}>
-              <MaterialCommunityIcons name="calendar-blank" size={24} color={theme.accent} />
-            </View>
-            <View>
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                DATE &amp; TIME
-              </ThemedText>
-              <ThemedText className="text-base font-black">
-                {displayData.date || 'No date'}
-              </ThemedText>
-              {displayData.time ? (
-                <ThemedText tone="muted" className="text-xs font-bold">
-                  At {displayData.time}
-                </ThemedText>
-              ) : null}
-            </View>
-          </View>
-
-          {/* Category */}
-          <View className="flex-row gap-5 mb-8">
-            <View
-              className="h-12 w-12 rounded-full items-center justify-center"
-              style={{ backgroundColor: bgColor || theme.accent }}>
-              <MaterialCommunityIcons name={icon as any} size={24} color={iconColor} />
-            </View>
-            <View>
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                CATEGORY
-              </ThemedText>
-              <ThemedText className="text-base font-black">
-                {displayData.category || 'Uncategorised'}
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Separator */}
-          <View className="h-[1px] bg-gray-50 mb-8 border-b border-dashed border-gray-100" />
-
-          {/* More Details Header - Collapsible */}
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => setIsExpanded(!isExpanded)}
-            className="flex-row items-center justify-between mb-6">
-            <ThemedText
-              className="text-[10px] uppercase font-black tracking-widest"
-              style={{ color: theme.accent }}>
-              MORE DETAILS
-            </ThemedText>
-            <MaterialCommunityIcons
-              name={isExpanded ? 'chevron-up' : 'chevron-down'}
-              size={18}
-              color={theme.accent}
+        {/* DETAILS: read-only rows; an empty field has no row. */}
+        <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <LabelRow
+            label="Category"
+            value={displayData.category || 'Uncategorised'}
+            icon={icon as any}
+            iconColor={tile.foreground}
+          />
+          <LabelRow
+            label={isIncomeEntry ? 'Received via' : 'Paid with'}
+            value={displayData.mode || 'Not set'}
+            icon={paymentModeVisual(displayData.mode).icon}
+            iconColor={theme.text}
+            detail={`· ${accountName || 'no account linked'}`}
+            divider
+          />
+          {hasMerchant ? (
+            <LabelRow
+              label="Merchant"
+              value={displayData.merchant}
+              icon="storefront-outline"
+              iconColor={theme.text}
+              divider
             />
-          </TouchableOpacity>
-
-          {isExpanded && (
-            <View>
-              <View className="flex-row mb-8">
-                {/* Payment Method */}
-                <View className="flex-1 flex-row items-center gap-3">
-                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                    <MaterialCommunityIcons name="wallet-outline" size={20} color="#64748B" />
-                  </View>
-                  <View>
-                    <ThemedText tone="muted" className="text-[9px] uppercase font-black">
-                      PAID VIA
-                    </ThemedText>
-                    <ThemedText className="text-sm font-black">
-                      {displayData.mode || 'Not set'}
-                    </ThemedText>
-                  </View>
-                </View>
-
-                {/* Account */}
-                <View className="flex-1 flex-row items-center gap-3">
-                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                    <MaterialCommunityIcons name="bank-outline" size={20} color="#64748B" />
-                  </View>
-                  <View>
-                    <ThemedText tone="muted" className="text-[9px] uppercase font-black">
-                      ACCOUNT
-                    </ThemedText>
-                    <ThemedText className="text-sm font-black">
-                      {displayData.account?.name || 'Not linked'}
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
-
-              {/* Tags. Not on income: every tag but General is about money
-                  going out, and the form no longer offers one for income. */}
-              {!isIncomeEntry && (
-                <View className="flex-row items-start gap-3 mb-8">
-                  <View className="h-10 w-10 rounded-xl bg-gray-50 items-center justify-center border border-gray-100">
-                    <MaterialCommunityIcons name="tag-outline" size={20} color="#64748B" />
-                  </View>
-                  <View className="flex-1">
-                    <ThemedText tone="muted" className="text-[9px] uppercase font-black mb-2">
-                      TAG
-                    </ThemedText>
-                    {/* An untagged entry showed a "Personal" chip that looked like a
-                        real tag but was never stored and was not in the tag picker. */}
-                    <View className="flex-row gap-2">
-                      {displayData.tag ? (
-                        <View
-                          className="rounded-full border px-3 py-1"
-                          style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-                          <ThemedText
-                            className="text-[10px] font-black"
-                            style={{ color: theme.accent }}>
-                            {displayData.tag}
-                          </ThemedText>
-                        </View>
-                      ) : (
-                        <ThemedText className="text-[11px]" style={{ color: `${theme.text}66` }}>
-                          No tag
-                        </ThemedText>
-                      )}
-                    </View>
-                  </View>
-                </View>
-              )}
-            </View>
-          )}
-
-          {/* Separator */}
-          <View className="h-[1px] bg-gray-50 mb-8 border-b border-dashed border-gray-100" />
-
-          {/* Notes Inside Card */}
-          <View className="flex-row gap-5">
-            <View
-              className="h-12 w-12 items-center justify-center rounded-full"
-              style={{ backgroundColor: theme.secondary }}>
-              <MaterialCommunityIcons name="comment-text-outline" size={24} color={theme.accent} />
-            </View>
-            <View className="flex-1">
-              <ThemedText
-                tone="muted"
-                className="text-[10px] uppercase font-black tracking-widest mb-1">
-                NOTES
-              </ThemedText>
-              {/* The quotation marks belong to the user's own words. Wrapping
-                  the empty state in them too put "No notes added." on the
-                  screen as though somebody had written it. */}
-              {displayData.notes ? (
-                <ThemedText tone="muted" className="text-sm font-bold italic leading-relaxed">
-                  {`"${displayData.notes}"`}
-                </ThemedText>
-              ) : (
-                <ThemedText tone="muted" className="text-sm font-bold leading-relaxed">
-                  No notes
-                </ThemedText>
-              )}
-            </View>
-          </View>
+          ) : null}
+          {/* Not on income: every tag but General is about money going out. */}
+          {!isIncomeEntry && displayData.tag ? (
+            <LabelRow label="Tag" value={displayData.tag} divider />
+          ) : null}
+          {!isIncomeEntry && entryEvent ? (
+            <LabelRow
+              testID="entry-event-row"
+              label="Event"
+              value={eventLabel(entryEvent)}
+              icon="party-popper"
+              iconColor={theme.text}
+              divider
+              onPress={() =>
+                router.push({ pathname: '/events/[id]', params: { id: String(entryEvent.id) } })
+              }
+            />
+          ) : null}
+          {displayData.notes ? (
+            <LabelRow label="Note" divider>
+              <ThemedText style={[styles.note, { color: theme.text }]}>{displayData.notes}</ThemedText>
+            </LabelRow>
+          ) : null}
         </View>
 
         {splitBill && (
-          <View className="bg-white dark:bg-gray-800 rounded-[32px] p-6 shadow-sm mb-8">
-            <View className="mb-5 flex-row items-center justify-between">
-              <View className="flex-row items-center gap-3">
-                <View
-                  className="h-11 w-11 items-center justify-center rounded-2xl"
-                  style={{ backgroundColor: theme.secondary }}>
-                  <MaterialCommunityIcons
-                    name="account-multiple-outline"
-                    size={22}
-                    color={theme.accent}
-                  />
-                </View>
-                <View>
-                  <ThemedText
-                    tone="muted"
-                    className="text-[10px] uppercase font-black tracking-widest">
-                    SPLIT WITH
-                  </ThemedText>
-                  <ThemedText className="text-base font-black">
-                    {splitBill.group?.name || 'Friends'}
-                  </ThemedText>
-                </View>
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.splitHeader}>
+              <View style={[styles.splitTile, { backgroundColor: theme.selectedFill }]}>
+                <MaterialCommunityIcons name="account-multiple-outline" size={20} color={theme.text} />
               </View>
-              <ThemedText className="text-sm font-black" style={{ color: theme.accent }}>
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Split with
+                </ThemedText>
+                <ThemedText style={[styles.rowTitle, { color: theme.text }]}>
+                  {splitBill.group?.name || 'Friends'}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.rowAmount, { color: theme.text }]}>
                 {formatMoney(splitBill.total_amount || amountValue, { sign: 'never' })}
               </ThemedText>
             </View>
-
-            <View className="gap-3">
-              {splitParticipants.map((participant) => (
-                <View
-                  key={`${participant.friend_id}-${participant.direction}`}
-                  className="flex-row items-center justify-between rounded-2xl bg-gray-50 px-4 py-3 dark:bg-gray-900">
-                  <View className="flex-1 pr-3">
-                    <ThemedText className="text-sm font-black">
-                      {participant.friend?.name || 'Friend'}
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs font-bold">
-                      {participant.direction === 'friend_owes_user' ? 'Owes you' : 'You owe'}
-                    </ThemedText>
-                  </View>
-                  <ThemedText className="text-sm font-black">
-                    {formatMoney(participant.share_amount, { sign: 'never' })}
-                  </ThemedText>
-                </View>
-              ))}
-            </View>
-
-            <View className="mt-5 flex-row gap-3">
-              <View className="flex-1 rounded-2xl bg-emerald-50 p-4">
-                <ThemedText tone="positive" className="text-[10px] uppercase font-black">
-                  OWED TO YOU
+            {splitParticipants.map((participant) => (
+              <LabelRow
+                key={`${participant.friend_id}-${participant.direction}`}
+                label={participant.direction === 'friend_owes_user' ? 'Owes you' : 'You owe'}
+                divider>
+                <ThemedText numberOfLines={1} style={[styles.flex, styles.rowValue, { color: theme.text }]}>
+                  {participant.friend?.name || 'Friend'}
                 </ThemedText>
-                <ThemedText tone="positive" className="mt-1 text-base font-black">
+                <ThemedText style={[styles.rowValue, { color: theme.text }]}>
+                  {formatMoney(participant.share_amount, { sign: 'never' })}
+                </ThemedText>
+              </LabelRow>
+            ))}
+            <View style={[styles.splitTotals, { borderTopColor: theme.border }]}>
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Owed to you
+                </ThemedText>
+                <ThemedText tone="positive" style={styles.rowAmount}>
                   {formatMoney(splitExpectedBack, { sign: 'never' })}
                 </ThemedText>
               </View>
-              <View className="flex-1 rounded-2xl bg-rose-50 p-4">
-                <ThemedText tone="negative" className="text-[10px] uppercase font-black">
-                  YOU OWE
+              <View style={styles.flex}>
+                <ThemedText tone="muted" style={styles.caption}>
+                  You owe
                 </ThemedText>
-                <ThemedText tone="negative" className="mt-1 text-base font-black">
+                <ThemedText tone="negative" style={styles.rowAmount}>
                   {formatMoney(splitYouOwe, { sign: 'never' })}
                 </ThemedText>
               </View>
             </View>
           </View>
         )}
-        {/* PAPER TRAIL */}
+
+        {/* PAPER TRAIL (board R4-Receipt): a labelled row with the whole bill as
+            a thumbnail, instead of a 220px crop that cut its top and bottom. */}
         {receiptUrl ? (
-          <View className="mb-8">
-            <ThemedText
-              tone="muted"
-              className="text-[10px] font-black uppercase tracking-[2px] mb-4 ml-6">
-              RECEIPT
+          <View>
+            <ThemedText tone="muted" accessibilityRole="header" style={styles.sectionLabel}>
+              Receipt
             </ThemedText>
-            {isPdfAttachment(receiptUrl) ? (
-              <Pressable
-                onPress={handleOpenReceipt}
-                accessibilityRole="button"
-                accessibilityLabel="Open receipt PDF"
-                className="rounded-[32px] p-6 flex-row items-center justify-between border"
-                style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-                <View className="flex-row items-center gap-4">
-                  <View className="h-14 w-14 rounded-full items-center justify-center bg-rose-50">
-                    <MaterialCommunityIcons name="file-pdf-box" size={28} color="#E11D48" />
-                  </View>
-                  <View>
-                    <ThemedText className="text-base font-black" style={{ color: theme.text }}>
-                      Receipt PDF
-                    </ThemedText>
-                    <ThemedText tone="muted" className="text-xs font-bold">
-                      Tap to open
-                    </ThemedText>
-                  </View>
+            <PressableView
+              testID="entry-receipt"
+              onPress={handleOpenReceipt}
+              accessibilityRole="button"
+              accessibilityLabel={isPdfAttachment(receiptUrl) ? 'Open bill PDF' : 'View bill photo'}
+              disabled={!displayReceiptUrl}
+              style={[styles.card, styles.receiptCard, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+              pressedStyle={styles.pressed}>
+              {isPdfAttachment(receiptUrl) ? (
+                <View style={[styles.receiptThumb, styles.receiptThumbIcon, { borderColor: theme.border, backgroundColor: theme.track }]}>
+                  <MaterialCommunityIcons name="file-pdf-box" size={26} color={theme.text} />
                 </View>
-                <MaterialCommunityIcons name="open-in-new" size={22} color={theme.accent} />
-              </Pressable>
-            ) : (
-              <Pressable
-                onPress={handleOpenReceipt}
-                accessibilityRole="imagebutton"
-                accessibilityLabel="Open receipt image"
-                className="rounded-[32px] overflow-hidden border"
-                style={{ borderColor: theme.border }}>
-                <Image
-                  source={{ uri: displayReceiptUrl ?? undefined }}
-                  style={{ width: '100%', height: 220 }}
-                  contentFit="cover"
-                  transition={150}
-                />
-              </Pressable>
-            )}
+              ) : (
+                <View style={[styles.receiptThumb, { borderColor: theme.border, backgroundColor: '#FFFFFF' }]}>
+                  {displayReceiptUrl ? (
+                    <Image
+                      source={{ uri: displayReceiptUrl }}
+                      style={styles.receiptImage}
+                      contentFit="cover"
+                      contentPosition="top"
+                      transition={150}
+                    />
+                  ) : null}
+                </View>
+              )}
+              <View style={styles.flex}>
+                <ThemedText style={[styles.receiptTitle, { color: theme.text }]}>
+                  {isPdfAttachment(receiptUrl) ? 'Bill PDF' : 'Bill photo'}
+                </ThemedText>
+                <ThemedText tone="muted" style={styles.caption}>
+                  {displayReceiptUrl ? (isPdfAttachment(receiptUrl) ? 'Tap to open' : 'Tap to view') : 'Loading…'}
+                </ThemedText>
+              </View>
+              <MaterialCommunityIcons
+                name={isPdfAttachment(receiptUrl) ? 'open-in-new' : 'chevron-right'}
+                size={16}
+                color={theme.muted}
+              />
+            </PressableView>
           </View>
         ) : null}
 
-        {/* ACTIONS */}
         {displayData.refundable_amount && displayData.refund_status === 'pending' ? (
-          <View
-            className="mb-6 rounded-[28px] border p-5"
-            style={{ backgroundColor: theme.card, borderColor: theme.accent }}>
-            <ThemedText className="text-base font-black" style={{ color: theme.text }}>
+          <View style={[styles.card, styles.refund, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <ThemedText style={[styles.rowTitle, { color: theme.text }]}>
               {formatMoney(Number(displayData.refundable_amount))} expected back
             </ThemedText>
-            <ThemedText tone="muted" className="mt-1 text-xs">
+            <ThemedText tone="muted" style={styles.caption}>
               Expected{' '}
               {displayData.refund_expected_on
                 ? normalizeDateLabel(displayData.refund_expected_on)
                 : 'date not set'}
             </ThemedText>
-            <View className="mt-4 flex-row gap-3">
-              <Pressable
-                accessibilityRole="button"
+            <View style={styles.refundActions}>
+              <Button
+                label="Mark received"
+                variant="outline"
+                height={40}
+                style={styles.flex}
                 onPress={() => void handleRefundStatus('received')}
-                className="flex-1 items-center rounded-full py-3"
-                style={{ backgroundColor: theme.accent }}>
-                <ThemedText tone="onAccent" className="text-xs font-black">
-                  Mark received
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                accessibilityRole="button"
+              />
+              <Button
+                label="Write off"
+                variant="outline"
+                height={40}
+                style={styles.flex}
                 onPress={() => void handleRefundStatus('written_off')}
-                className="flex-1 items-center rounded-full border py-3"
-                style={{ borderColor: theme.border }}>
-                <ThemedText className="text-xs font-black" style={{ color: theme.text }}>
-                  Write off
-                </ThemedText>
-              </Pressable>
+              />
             </View>
           </View>
         ) : null}
 
-        <Pressable
-          onPress={handleEdit}
-          className="w-full py-5 rounded-full items-center justify-center shadow-xl mb-4 active:opacity-90"
-          style={{ backgroundColor: theme.accent }}>
-          <View className="flex-row items-center gap-3">
-            <MaterialCommunityIcons name="pencil-outline" size={24} color="#FFF" />
-            <ThemedText tone="onAccent" className="font-black text-lg">
-              Edit
-            </ThemedText>
-          </View>
-        </Pressable>
-
-        <Pressable
-          testID="entry-repeat-button"
+        {/* Delete stays out of the bottom bar, on a card of its own. */}
+        <PressableView
           accessibilityRole="button"
-          accessibilityHint="Opens a copy of this transaction dated today"
-          accessibilityState={{ disabled: !repeatReady }}
-          onPress={openRepeat}
-          disabled={!repeatReady}
-          className="w-full py-4 rounded-full items-center justify-center border mb-6 active:opacity-70"
-          style={{
-            backgroundColor: theme.card,
-            borderColor: theme.border,
-            opacity: repeatReady ? 1 : 0.5,
-          }}>
-          <View className="flex-row items-center gap-3">
-            <MaterialCommunityIcons name="repeat" size={22} color={theme.accent} />
-            <ThemedText className="font-black text-base" style={{ color: theme.text }}>
-              Repeat for today
-            </ThemedText>
-          </View>
-        </Pressable>
-
-        <Pressable onPress={handleDelete} className="items-center py-2 mb-10 active:opacity-50">
-          <View className="flex-row items-center gap-2">
-            <MaterialCommunityIcons name="trash-can-outline" size={18} color="#FF6B6B" />
-            <ThemedText className="font-bold text-[#FF6B6B]">Delete</ThemedText>
-          </View>
-        </Pressable>
+          onPress={handleDelete}
+          style={[styles.card, styles.deleteRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="trash-can-outline" size={20} color={theme.negative} />
+          <ThemedText tone="negative" style={styles.deleteLabel}>
+            Delete transaction
+          </ThemedText>
+        </PressableView>
       </ScrollView>
+
+      {/* The bar: an outlined secondary beside the screen's one orange action. */}
+      <View
+        style={[styles.bar, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+        <Button
+          testID="entry-repeat-button"
+          label="Repeat for today"
+          variant="outline"
+          icon="repeat"
+          height={48}
+          accessibilityHint="Opens a copy of this transaction dated today"
+          disabled={!repeatReady}
+          onPress={openRepeat}
+          style={styles.flex}
+        />
+        <PrimaryButton
+          label="Edit"
+          icon="pencil-outline"
+          height={48}
+          onPress={handleEdit}
+          style={styles.flex}
+        />
+      </View>
 
       <TransactionFormModal
         visible={isEditModalVisible}
@@ -1114,8 +999,8 @@ export default function TransactionDetailsScreen() {
         onClose={closeDeleteConfirm}
         backdropOpacity={0.45}>
         <View
-          className="rounded-t-[32px] border px-6 pb-10 pt-5"
-          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          className="rounded-t-[32px] border px-6 pt-5"
+          style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
           <View className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-gray-200 dark:bg-gray-700" />
 
           <View className="items-center">
@@ -1164,10 +1049,10 @@ export default function TransactionDetailsScreen() {
               accessibilityRole="button"
               onPress={confirmDelete}
               className="h-14 items-center justify-center rounded-full"
-              style={{ backgroundColor: '#FF6B6B' }}>
+              style={{ backgroundColor: theme.negative }}>
               <View className="flex-row items-center gap-2">
-                <MaterialCommunityIcons name="trash-can-outline" size={19} color="#FFFFFF" />
-                <ThemedText tone="onAccent" className="text-base font-black">
+                <MaterialCommunityIcons name="trash-can-outline" size={19} color={theme.onNegative} />
+                <ThemedText className="text-base font-black" style={{ color: theme.onNegative }}>
                   Delete
                 </ThemedText>
               </View>
@@ -1187,6 +1072,209 @@ export default function TransactionDetailsScreen() {
           </View>
         </View>
       </AnimatedBottomSheet>
+      <ReceiptViewer
+        visible={isReceiptViewerOpen}
+        uri={displayReceiptUrl}
+        subtitle={[
+          displayData.title || 'Transaction',
+          formatMoney(amountValue, { sign: 'never' }),
+        ].join(' · ')}
+        onClose={() => setIsReceiptViewerOpen(false)}
+        onShareError={() =>
+          void dialog.alert({
+            title: 'Could not share',
+            message: 'The bill photo could not be shared right now.',
+            tone: 'danger',
+          })
+        }
+      />
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  title: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  scroll: {
+    paddingBottom: 32,
+  },
+  hero: {
+    alignItems: 'center',
+    paddingTop: 8,
+    paddingHorizontal: SCREEN_GUTTER,
+  },
+  heroIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amount: {
+    marginTop: 12,
+    fontSize: 36,
+    lineHeight: 44,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+  heroTitle: {
+    marginTop: 2,
+    textAlign: 'center',
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '500',
+  },
+  heroCaption: {
+    marginTop: 4,
+    textAlign: 'center',
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  card: {
+    marginTop: 12,
+    marginHorizontal: SCREEN_GUTTER,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  note: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  flex: {
+    flex: 1,
+    minWidth: 0,
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  rowTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
+  rowValue: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+    fontVariant: ['tabular-nums'],
+  },
+  rowAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  splitHeader: {
+    minHeight: 60,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+  },
+  splitTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  splitTotals: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  sectionLabel: {
+    marginTop: 20,
+    marginHorizontal: SCREEN_GUTTER,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  receiptCard: {
+    marginTop: 8,
+  },
+  receiptRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 10,
+    paddingLeft: 10,
+    paddingRight: 12,
+  },
+  receiptThumb: {
+    width: 56,
+    height: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  receiptImage: {
+    width: '100%',
+    height: '100%',
+  },
+  receiptThumbIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  refund: {
+    gap: 4,
+    padding: 14,
+  },
+  refundActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 8,
+  },
+  deleteRow: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+  },
+  deleteLabel: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  bar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    paddingHorizontal: SCREEN_GUTTER,
+    paddingBottom: 20,
+    borderTopWidth: 1,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

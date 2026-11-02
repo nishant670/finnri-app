@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+
 /**
  * Android packaging, which depends on what the build is *for*.
  *
@@ -52,6 +55,30 @@ const crashReportingEnabled = () => Boolean(process.env.EXPO_PUBLIC_SENTRY_DSN);
 const isPreviewVariant = () => process.env.APP_VARIANT === 'preview';
 const PREVIEW_PACKAGE = 'com.finnri.app.preview';
 
+/**
+ * Firebase's Android config, which Expo needs before it can hand the app a push
+ * token. Without it `getExpoPushTokenAsync` throws on Android, no phone is ever
+ * registered, and no push is ever delivered — which is how pushes went missing
+ * on every Android build until this was noticed.
+ *
+ * EAS supplies it as a file environment variable (`GOOGLE_SERVICES_JSON`,
+ * type "file"), so the file itself never needs to live in git; a local build
+ * picks up `./google-services.json` if it is there. One file covers both the
+ * Play package and the preview one, as long as Firebase has an Android app
+ * registered for each. With neither, the build is exactly what it was before.
+ */
+const googleServicesFile = () => {
+  if (process.env.GOOGLE_SERVICES_JSON) return process.env.GOOGLE_SERVICES_JSON;
+  // Expo evaluates this file from the project root.
+  const local = path.join(process.cwd(), 'google-services.json');
+  return fs.existsSync(local) ? './google-services.json' : undefined;
+};
+
+const withPushConfig = (config) => {
+  const file = googleServicesFile();
+  return file ? { ...config, android: { ...config.android, googleServicesFile: file } } : config;
+};
+
 const withVariant = (config) =>
   isPreviewVariant()
     ? {
@@ -63,7 +90,7 @@ const withVariant = (config) =>
     : config;
 
 module.exports = ({ config }) => ({
-  ...withVariant(config),
+  ...withVariant(withPushConfig(config)),
   plugins: [
     ...config.plugins,
     ...(crashReportingEnabled() ? ['@sentry/react-native'] : []),

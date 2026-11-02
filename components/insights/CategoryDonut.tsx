@@ -5,7 +5,6 @@ import Svg, { G, Path } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { CountUpMoney } from '@/components/ui/CountUpMoney';
-import { Fonts } from '@/constants/theme';
 import { useReveal } from '@/hooks/use-reveal';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
@@ -22,6 +21,7 @@ import {
   type DashboardCategory,
   type DashboardPeriod,
 } from '@/lib/insights';
+import { Eyebrow, InsightCard, insightText } from './insight-ui';
 
 /**
  * The category breakdown, as a breakdown.
@@ -84,14 +84,8 @@ export function CategoryDonut({
   };
 
   return (
-    <View
-      className="rounded-[24px] border p-5 shadow-sm"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <ThemedText
-        className="text-[10px] uppercase opacity-50"
-        style={{ fontFamily: Fonts.title, letterSpacing: 1 }}>
-        Where it went
-      </ThemedText>
+    <InsightCard>
+      <Eyebrow>Where it went</Eyebrow>
 
       <View className="mt-4 items-center">
         <View style={{ width: SIZE, height: SIZE }}>
@@ -109,15 +103,12 @@ export function CategoryDonut({
           <View
             className="absolute inset-0 items-center justify-center"
             pointerEvents="none">
-            <ThemedText
-              className="text-[10px] uppercase opacity-50"
-              style={{ fontFamily: Fonts.title, letterSpacing: 1, lineHeight: 14 }}>
+            <ThemedText tone="muted" style={insightText.caption}>
               Total
             </ThemedText>
             <CountUpMoney
               amount={totalSpent}
-              className="text-[19px]"
-              style={{ fontFamily: Fonts.title, color: theme.text }}
+              style={{ fontSize: 19, lineHeight: 24, fontWeight: '700', color: theme.text }}
             />
           </View>
         </View>
@@ -135,7 +126,7 @@ export function CategoryDonut({
           />
         ))}
       </View>
-    </View>
+    </InsightCard>
   );
 }
 
@@ -234,7 +225,7 @@ function LegendRow({
           <MaterialCommunityIcons name={visual.icon} size={15} color={slice.color} />
         </View>
         <View className="flex-1 pr-2">
-          <ThemedText className="text-xs" style={{ color: theme.text }} numberOfLines={1}>
+          <ThemedText style={{ fontSize: 15, lineHeight: 20, color: theme.text }} numberOfLines={1}>
             {slice.label}
           </ThemedText>
           {/* S5's per-category comparison used to live on the card this donut
@@ -243,33 +234,41 @@ function LegendRow({
               this shows the ones worth reading and nothing else. */}
           {slice.change != null && Math.abs(slice.change) >= 20 && (
             <ThemedText
-              className="text-[10px]"
-              style={{ color: slice.change > 0 ? '#EF4444' : '#16A34A', lineHeight: 14 }}>
+              style={{
+                fontSize: 12,
+                lineHeight: 16,
+                color: slice.change > 0 ? theme.negative : theme.positive,
+              }}>
               {formatChangeMagnitude(slice.change)} {slice.change > 0 ? 'more' : 'less'} than{' '}
               {previousWindow}
             </ThemedText>
           )}
         </View>
-        <ThemedText className="text-[11px] opacity-50" style={{ minWidth: 34, textAlign: 'right' }}>
+        <ThemedText tone="muted" style={{ fontSize: 13, lineHeight: 18, minWidth: 38, textAlign: 'right' }}>
           {formatShare(slice.percentage)}
         </ThemedText>
         <ThemedText
-          className="ml-3 text-xs"
-          style={{ fontFamily: Fonts.title, color: theme.text }}>
+          style={{
+            marginLeft: 12,
+            fontSize: 15,
+            lineHeight: 20,
+            fontWeight: '600',
+            fontVariant: ['tabular-nums'],
+            color: theme.text,
+          }}>
           {formatMoney(slice.amount)}
         </ThemedText>
         <MaterialCommunityIcons
           name={slice.category ? 'chevron-right' : expanded ? 'chevron-up' : 'chevron-down'}
           size={16}
-          color={theme.text}
-          style={{ opacity: 0.35 }}
+          color={theme.muted}
         />
       </Pressable>
 
       {expanded && (
         <View className="mb-2 ml-10 gap-1">
           {slice.rolledUp.length === 0 ? (
-            <ThemedText className="text-[11px] opacity-55" style={{ lineHeight: 16 }}>
+            <ThemedText tone="muted" style={insightText.caption}>
               Categories too small to chart individually.
             </ThemedText>
           ) : (
@@ -282,17 +281,16 @@ function LegendRow({
                 accessibilityLabel={`${item.category}, ${formatMoney(item.amount)}`}
                 onPress={() => onSelectCategory(item.category)}
                 className="flex-row items-center py-1">
-                <ThemedText className="flex-1 text-[11px] opacity-70" numberOfLines={1}>
+                <ThemedText style={[insightText.caption, { flex: 1, color: theme.text }]} numberOfLines={1}>
                   {item.category}
                 </ThemedText>
-                <ThemedText className="text-[11px] opacity-55">
+                <ThemedText tone="muted" style={insightText.caption}>
                   {formatMoney(item.amount)}
                 </ThemedText>
                 <MaterialCommunityIcons
                   name="chevron-right"
                   size={14}
-                  color={theme.text}
-                  style={{ opacity: 0.3 }}
+                  color={theme.muted}
                 />
               </Pressable>
             ))

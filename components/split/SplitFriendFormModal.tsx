@@ -1,10 +1,10 @@
 import {
-  FormInput,
+  FormRow,
+  FormRowsCard,
   PrimaryModalButton,
   SplitModal,
 } from '@/components/split/primitives/SplitPrimitives';
-import { TText } from '@/components/split/primitives/themed-interop';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { ThemedText } from '@/components/themed-text';
 
 type SplitFriendFormModalProps = {
   visible: boolean;
@@ -21,6 +21,7 @@ type SplitFriendFormModalProps = {
   onClose: () => void;
 };
 
+/** Add or edit a friend (board R6-AddFriend): three rows in one card, and Save. */
 export function SplitFriendFormModal({
   visible,
   isEditing,
@@ -35,11 +36,10 @@ export function SplitFriendFormModal({
   onSave,
   onClose,
 }: SplitFriendFormModalProps) {
-  const theme = useThemeTokens().colors;
   return (
     <SplitModal
       visible={visible}
-      title={isEditing ? 'Edit Friend' : 'Add Friend'}
+      title={isEditing ? 'Edit friend' : 'Add friend'}
       errorMessage={errorMessage}
       footer={
         <PrimaryModalButton
@@ -49,20 +49,26 @@ export function SplitFriendFormModal({
         />
       }
       onClose={onClose}>
-      <FormInput label="Name" value={name} onChangeText={onChangeName} />
-      <FormInput
-        label="Phone (optional)"
-        value={phone}
-        onChangeText={onChangePhone}
-        keyboardType="phone-pad"
-      />
-      <FormInput
-        label="Email (optional)"
-        value={email}
-        onChangeText={onChangeEmail}
-        keyboardType="email-address"
-        autoCapitalize="none"
-      />
+      <FormRowsCard>
+        <FormRow label="Name" value={name} onChangeText={onChangeName} placeholder="Their name" />
+        <FormRow
+          label="Phone"
+          value={phone}
+          onChangeText={onChangePhone}
+          placeholder="Optional"
+          keyboardType="phone-pad"
+          divider
+        />
+        <FormRow
+          label="Email"
+          value={email}
+          onChangeText={onChangeEmail}
+          placeholder="Optional"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          divider
+        />
+      </FormRowsCard>
       {/*
        * Saying what these are *for* is the point. Typing a phone number
        * into a friend row looks like the thing that reaches the person,
@@ -70,10 +76,10 @@ export function SplitFriendFormModal({
        * and it only pays off if it happens to be the same address they
        * sign up with.
        */}
-      <TText className="text-xs" style={{ color: theme.muted }}>
+      <ThemedText tone="muted" style={{ fontSize: 13, lineHeight: 18 }}>
         Nothing is sent to these. They are how Finnri recognises this person if they join, so the
         balance you keep for them follows them in.
-      </TText>
+      </ThemedText>
     </SplitModal>
   );
 }

@@ -13,7 +13,7 @@ describe('welcome screen', () => {
 
     // The accent button — the one thing on the screen that leads straight to
     // the app — is the guest path.
-    await fireEvent.press(screen.getByText("Start tracking — it's free"));
+    await fireEvent.press(screen.getByText('Start for free'));
     expect(onGuest).toHaveBeenCalledTimes(1);
 
     await fireEvent.press(screen.getByText('Continue with Google'));
@@ -37,8 +37,11 @@ describe('welcome screen', () => {
       <AuthScreen1 onGuest={jest.fn()} onIdentifier={jest.fn()} onGoogle={jest.fn()} />
     );
 
-    expect(screen.getByText(/Your data stays on this device/)).toBeTruthy();
-    expect(screen.getByText('No bank connection required')).toBeTruthy();
+    // Guest entries live on Finnri's server under a guest ID this phone keeps,
+    // so the promise is about the phone, not about where the data is stored.
+    expect(screen.getByText(/Your entries stay linked to this phone until you sign in/)).toBeTruthy();
+    expect(screen.queryByText(/stays on this device/)).toBeNull();
+    expect(screen.getByText('No bank login needed')).toBeTruthy();
   });
 
   it('locks every action while a check-in is in flight', async () => {
@@ -57,7 +60,7 @@ describe('welcome screen', () => {
   });
 
   // A guest arriving from "save your workspace" already has data. Showing them
-  // "Welcome to Finnri" and "Start tracking" describes someone else's problem.
+  // the first-run pitch and "Start for free" describes someone else's problem.
   describe('when a guest arrives to save their workspace', () => {
     const renderLink = () =>
       render(
@@ -67,18 +70,18 @@ describe('welcome screen', () => {
     it('is about keeping the data, not starting', async () => {
       const screen = await renderLink();
       expect(screen.getByText('Save your workspace')).toBeTruthy();
-      expect(screen.queryByText('Welcome to Finnri')).toBeNull();
+      expect(screen.queryByText('Track money the way you talk')).toBeNull();
     });
 
     it('offers a way to back out that does not read as starting over', async () => {
       const screen = await renderLink();
       expect(screen.getByText('Keep using guest')).toBeTruthy();
-      expect(screen.queryByText("Start tracking — it's free")).toBeNull();
+      expect(screen.queryByText('Start for free')).toBeNull();
     });
 
     it('says plainly what staying a guest costs', async () => {
       const screen = await renderLink();
-      expect(screen.getByText(/Clearing app data or changing phone loses it/)).toBeTruthy();
+      expect(screen.getByText(/Clearing app data or changing phone loses them/)).toBeTruthy();
     });
   });
 });

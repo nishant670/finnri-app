@@ -77,80 +77,79 @@ export function CreditStatusCard({
         ? 'Renew to keep capturing by voice and text'
         : 'Choose a pass to keep capturing by voice and text';
   const needsAttention = isOutOfCredits || isLowDailyLimit;
+  const isOutForToday = !loading && credits !== null && !isOutOfCredits && dailyRemaining <= 0;
+  const compactTitle = loading
+    ? 'AI credits'
+    : isOutOfCredits
+      ? 'Out of AI credits'
+      : isOutForToday
+        ? 'No AI credits left today'
+        : isLowDailyLimit
+          ? 'Daily AI credits low'
+          : 'AI credits';
+  const compactLines = loading
+    ? ['Checking balance...']
+    : isOutOfCredits
+      ? [
+          access.kind === 'pass'
+            ? `${access.planName} credits used up`
+            : access.kind === 'ended'
+              ? trialLine
+              : null,
+          outOfCreditsHint,
+        ].filter((line): line is string => Boolean(line))
+      : [`${dailyUsed} of ${dailyLimit} used · ${totalRemaining} total credits left`];
+
+  /**
+   * Home's notice (boards R1-Home-CreditsLow and -Dark): one amber row with
+   * the state in warning ink, the numbers under it, and "View plans" at the
+   * end when there is somewhere to go. Without anything to warn about it is
+   * an ordinary card.
+   */
   const compactContent = (
-    <Card
-      compact
+    <View
       style={{
-        padding: theme.spacing.md,
-        gap: theme.spacing.sm,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 12,
+        paddingVertical: 10,
+        paddingLeft: 16,
+        paddingRight: 12,
+        borderRadius: 16,
+        borderWidth: 1,
+        backgroundColor: needsAttention ? colors.warningSurface : colors.card,
+        borderColor: needsAttention ? colors.warningBorder : colors.border,
       }}>
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
-        <View
+      <MaterialCommunityIcons
+        name={needsAttention ? 'alert-circle-outline' : 'creation'}
+        size={20}
+        color={needsAttention ? colors.warning : colors.text}
+      />
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <ThemedText
           style={{
-            height: 32,
-            width: 32,
-            borderRadius: 16,
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: needsAttention ? '#FFF3E0' : colors.secondary,
+            fontSize: 13,
+            lineHeight: 18,
+            fontWeight: '700',
+            color: needsAttention ? colors.warning : colors.text,
           }}>
-          <MaterialCommunityIcons
-            name={needsAttention ? 'alert-circle-outline' : 'creation'}
-            size={17}
-            color={needsAttention ? '#EF6C00' : colors.accent}
-          />
-        </View>
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <ThemedText numberOfLines={1} variant="captionStrong" style={{ color: colors.text }}>
-            {isOutOfCredits
-              ? 'Out of AI credits'
-              : isLowDailyLimit
-                ? 'Daily AI credits low'
-                : 'AI credits'}
+          {compactTitle}
+        </ThemedText>
+        {compactLines.map((line) => (
+          <ThemedText key={line} tone="muted" style={{ fontSize: 12, lineHeight: 16 }}>
+            {line}
           </ThemedText>
-          <ThemedText numberOfLines={1} variant="caption" style={{ color: `${colors.text}8F` }}>
-            {loading
-              ? 'Checking balance...'
-              : isOutOfCredits
-                ? access.kind === 'pass'
-                  ? `${access.planName} credits used up`
-                  : (access.kind === 'ended' && trialLine) || 'Tap to see plans'
-                : `${dailyUsed}/${dailyLimit} used today`}
-          </ThemedText>
-        </View>
-        <View style={{ alignItems: 'flex-end' }}>
-          <ThemedText variant="cardTitle" style={{ color: colors.text, fontSize: 18 }}>
-            {credits?.daily_credits_remaining ?? '—'}
-          </ThemedText>
-          <ThemedText variant="micro" style={{ color: `${colors.text}8F` }}>
-            left today
-          </ThemedText>
-        </View>
+        ))}
       </View>
-
-      <View
-        style={{
-          height: 5,
-          borderRadius: 3,
-          overflow: 'hidden',
-          backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.08)' : '#F1E6E8',
-        }}>
-        <View
-          style={{
-            height: '100%',
-            width: `${progress * 100}%`,
-            borderRadius: 3,
-            backgroundColor: needsAttention ? '#EF6C00' : colors.accent,
-          }}
-        />
-      </View>
-
-      <ThemedText numberOfLines={1} variant="micro" style={{ color: `${colors.text}7A` }}>
-        {isOutOfCredits
-          ? outOfCreditsHint
-          : `${credits?.total_credits_remaining ?? '—'} total credits left`}
-      </ThemedText>
-    </Card>
+      {onPress ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 44 }}>
+          <ThemedText style={{ fontSize: 13, lineHeight: 18, fontWeight: '600', color: colors.text }}>
+            View plans
+          </ThemedText>
+          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text} />
+        </View>
+      ) : null}
+    </View>
   );
 
   const content = compact ? compactContent : (

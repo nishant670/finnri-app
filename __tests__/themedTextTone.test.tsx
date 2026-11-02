@@ -36,7 +36,7 @@ async function colorUnder(
   { nightMode, themeColor = 'finnri' }: { nightMode: boolean; themeColor?: ThemeMoodId },
   props: ThemedTextProps = {}
 ) {
-  useAppMoodStore.setState({ nightMode, themeColor });
+  useAppMoodStore.setState({ appearance: nightMode ? 'dark' : 'light', themeColor });
   const screen = await render(<ThemedText {...props}>Label</ThemedText>);
   const color = styleOf(screen.getByText('Label')).color;
   await cleanup();
@@ -44,16 +44,28 @@ async function colorUnder(
 }
 
 afterEach(() => {
-  useAppMoodStore.setState({ nightMode: false, themeColor: 'finnri' });
+  useAppMoodStore.setState({ appearance: 'light', themeColor: 'finnri' });
 });
 
 describe('ThemedText tone', () => {
-  it('is the on-accent ink in light mode, not the theme text colour', async () => {
-    expect(await colorUnder({ nightMode: false }, { tone: 'onAccent' })).toBe('#FFFFFF');
+  it("is the mood's on-accent ink in light mode", async () => {
+    // Finnri's coral is too light for white (2.3:1), so its labels take the
+    // mood's dark ink instead.
+    expect(await colorUnder({ nightMode: false }, { tone: 'onAccent' })).toBe('#2D2D2D');
   });
 
   it('is the same ink in dark mode — the accent under it did not invert', async () => {
-    expect(await colorUnder({ nightMode: true }, { tone: 'onAccent' })).toBe('#FFFFFF');
+    expect(await colorUnder({ nightMode: true }, { tone: 'onAccent' })).toBe('#2D2D2D');
+    expect(await colorUnder({ nightMode: true }, { tone: 'onAccent' })).not.toBe(
+      ThemeMoods.finnri.dark.text
+    );
+  });
+
+  it('is white only on the moods whose accent is deep enough for it', async () => {
+    expect(getMoodColors('finnri').light.onAccent).toBe('#2D2D2D');
+    expect(getMoodColors('mint').light.onAccent).toBe('#182C24');
+    expect(getMoodColors('sky').light.onAccent).toBe('#FFFFFF');
+    expect(getMoodColors('plum').light.onAccent).toBe('#FFFFFF');
   });
 
   it('does not change colour between the two modes', async () => {

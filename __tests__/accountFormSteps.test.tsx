@@ -64,16 +64,17 @@ describe('AccountFormStepOne', () => {
     const { screen, setName, setIsDefault } = await stepOne();
     await fireEvent.changeText(screen.getByPlaceholderText('My Spending Account'), 'Salary');
     expect(setName).toHaveBeenCalledWith('Salary');
-    await fireEvent.press(screen.getByText('Use as default account'));
+    await fireEvent.press(screen.getByLabelText('Use as default account'));
     const updater = setIsDefault.mock.calls[0][0] as (v: boolean) => boolean;
     expect(updater(false)).toBe(true);
     expect(updater(true)).toBe(false);
   });
 
-  it('folds colour and default behind a row that reads them back', async () => {
+  it('reads colour and default back on their rows, and opens the swatches from Colour', async () => {
     const { screen, setShowStyleOptions } = await stepOne({ showStyleOptions: false });
-    expect(screen.queryByText('Use as default account')).toBeNull();
-    expect(screen.getByText('Blue · Not your default')).toBeTruthy();
+    expect(screen.getByText('Blue')).toBeTruthy();
+    expect(screen.getByText('Not your default')).toBeTruthy();
+    expect(screen.queryByLabelText('Blue colour')).toBeNull();
     await fireEvent.press(screen.getByTestId('account-style-options'));
     expect(setShowStyleOptions).toHaveBeenCalledTimes(1);
   });
@@ -263,11 +264,24 @@ describe('AccountFormSuccess', () => {
 
   it('offers to make it the default, and says so once it is', async () => {
     const { screen, handleSetCreatedDefault } = await setup();
-    await fireEvent.press(screen.getByText('Set as default'));
+    const toggle = screen.getByLabelText('Make it my default account');
+    expect(toggle.props.value).toBe(false);
+    await fireEvent(toggle, 'valueChange', true);
     expect(handleSetCreatedDefault).toHaveBeenCalledTimes(1);
     const done = await setup({ createdAccount: created({ is_default: true }) });
-    expect(done.screen.getByText('Default account')).toBeTruthy();
-    expect(done.screen.queryByText('Set as default')).toBeNull();
+    const on = done.screen.getByLabelText('Make it my default account');
+    expect(on.props.value).toBe(true);
+    expect(on.props.disabled).toBe(true);
+  });
+
+  it('lists the details still worth adding', async () => {
+    const { screen } = await setup();
+    expect(screen.getByText(/details? left$/)).toBeTruthy();
+    await fireEvent.press(screen.getAllByText('Add')[0]);
+    expect(router.replace).toHaveBeenCalledWith({
+      pathname: '/accounts/manage',
+      params: { id: '7', focus: 'details' },
+    });
   });
 
   it('adds another account and finishes', async () => {

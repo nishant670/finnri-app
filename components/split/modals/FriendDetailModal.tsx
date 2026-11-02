@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 
 import { FriendSettlementsModal } from '@/components/split/modals/FriendSettlementsModal';
+import { SplitExpenseRow } from '@/components/split/rows/SplitExpenseRow';
 import {
   AvatarCircle,
   DetailPill,
@@ -26,31 +27,38 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import type { SplitFriend } from '@/lib/splits';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
+import type { SplitBill, SplitFriend } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
 
 export function FriendDetailModal({
   summary: liveSummary,
+  friendById,
   currentUserName,
   onClose,
   onAddExpense,
   onSettleUp,
   onOpenGroup,
+  onOpenExpense,
   onOpenOptions,
   onSettlementsChanged,
 }: {
   summary: FriendDetailSummary | null;
+  friendById: Map<number, SplitFriend>;
   currentUserName: string;
   onClose: () => void;
   onAddExpense: (friendId: number) => void;
   onSettleUp: (friendId: number) => void;
   onOpenGroup: (groupId: number) => void;
+  /** An expense split with them outside any group, opened to view or edit. */
+  onOpenExpense: (bill: SplitBill) => void;
   onOpenOptions: (friend: SplitFriend) => void;
   /** A settlement was confirmed or denied from the history. */
   onSettlementsChanged?: () => void;
 }) {
   const theme = useThemeTokens().colors;
+  const listBottom = useBottomInset(132);
   const summaryRef = useRef<FriendDetailSummary | null>(liveSummary);
   if (liveSummary) summaryRef.current = liveSummary;
   const summary = summaryRef.current;
@@ -63,6 +71,11 @@ export function FriendDetailModal({
   if (!summary) return null;
 
   const { friend, groups, netBalance } = summary;
+  // Expenses split with them outside any group. These used to live in one
+  // "Non-group expenses" row on the Groups list, which looked like a group,
+  // had nothing to open, and only offered a new expense. They belong here,
+  // with the person they were split with.
+  const ungroupedBills = summary.bills.filter((bill) => !bill.group_id);
   const friendFirstName = getFirstName(friend.name);
   // Which group the outstanding money is in. Taken from the served balances
   // rather than from the bills' participant rows: those name their own author's
@@ -127,7 +140,7 @@ export function FriendDetailModal({
               top: 54,
               width: 220,
               height: 152,
-              backgroundColor: `${theme.onAccent}61`,
+              backgroundColor: `${theme.background}61`,
               transform: [{ rotate: '-32deg' }],
             }}
           />
@@ -138,7 +151,7 @@ export function FriendDetailModal({
               bottom: 10,
               width: 260,
               height: 152,
-              backgroundColor: `${theme.onAccent}6B`,
+              backgroundColor: `${theme.background}6B`,
               transform: [{ rotate: '32deg' }],
             }}
           />
@@ -154,12 +167,6 @@ export function FriendDetailModal({
               <View className="flex-row gap-4">
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityLabel="Search friend activity"
-                  className="h-12 w-12 items-center justify-center rounded-full">
-                  <MaterialCommunityIcons name="magnify" size={28} color={theme.onAccent} />
-                </Pressable>
-                <Pressable
-                  accessibilityRole="button"
                   accessibilityLabel={`${friend.name} options`}
                   onPress={() => onOpenOptions(friend)}
                   className="h-12 w-12 items-center justify-center rounded-full">
@@ -171,7 +178,7 @@ export function FriendDetailModal({
         </View>
 
         <View className="-mt-16 px-8">
-          <AvatarCircle label={friend.name} size={112} borderColor={theme.onAccent} />
+          <AvatarCircle label={friend.name} size={112} borderColor={theme.background} />
           <TText variant="screenTitle" className="mt-4" style={{ color: theme.text }}>
             {friend.name}
           </TText>
@@ -182,7 +189,7 @@ export function FriendDetailModal({
 
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 132, paddingTop: 30 }}>
+          contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: listBottom, paddingTop: 30 }}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -197,12 +204,33 @@ export function FriendDetailModal({
               icon="history"
               onPress={() => setIsSettlementsOpen(true)}
             />
-            <DetailPill label="Remind..." icon="bell-ring-outline" />
-            <DetailPill label="Charts" icon="diamond-stone" />
-            <DetailPill label="Convert" icon="diamond-stone" />
           </ScrollView>
 
           <View className="mt-8">
+            {ungroupedBills.length > 0 ? (
+              <View className="mb-7">
+                <TText
+                  className="mb-3 text-base"
+                  style={{ color: theme.mutedStrong, fontFamily: Fonts.title }}>
+                  Without a group
+                </TText>
+                {/* The list card's look, without its screen gutter: this page pads its own. */}
+                <View
+                  className="overflow-hidden rounded-2xl border"
+                  style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+                  {ungroupedBills.map((bill, index) => (
+                    <SplitExpenseRow
+                      key={bill.id}
+                      bill={bill}
+                      currentUserName={currentUserName}
+                      friendById={friendById}
+                      divider={index > 0}
+                      onPress={() => onOpenExpense(bill)}
+                    />
+                  ))}
+                </View>
+              </View>
+            ) : null}
             {groups.length > 0 ? (
               [...groupedRows.entries()].map(([section, sectionGroups]) => (
                 <View key={section} className="mb-7">
@@ -221,13 +249,13 @@ export function FriendDetailModal({
                   ))}
                 </View>
               ))
-            ) : (
+            ) : ungroupedBills.length > 0 ? null : (
               <View className="items-center px-6 py-16">
                 <AvatarCircle label={friend.name} size={70} />
                 <TText
                   className="mt-5 text-center text-lg"
                   style={{ color: theme.text, fontFamily: Fonts.title }}>
-                  No shared groups yet
+                  Nothing shared yet
                 </TText>
                 <TText className="mt-2 text-center text-sm leading-5" style={{ color: theme.muted }}>
                   Add an expense with {friendFirstName} or include them in a group to see history

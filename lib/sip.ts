@@ -33,7 +33,7 @@ export type SIPCalculation = {
 export const sipPresets: SIPPreset[] = [
   {
     id: 'mutual_fund',
-    label: 'Mutual Funds',
+    label: 'Mutual funds',
     monthlyInvestment: 10000,
     expectedAnnualReturnPercent: 12,
     tenureYears: 10,

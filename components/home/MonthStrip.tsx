@@ -1,8 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { categoryVisual } from '@/lib/categories';
 import {
@@ -48,8 +47,9 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
   const theme = themeTokens.colors;
 
   // A secondary widget must not report a failure on the primary screen. With
-  // nothing to show, Home is exactly what it was before this strip existed.
-  if (!dashboard && !loading) return null;
+  // nothing to show, Home is exactly what it was before this strip existed —
+  // less the strip, but not the air between the header and capture.
+  if (!dashboard && !loading) return <View style={styles.gapOnly} />;
 
   const month = monthLabel(dashboard?.period?.start);
 
@@ -66,18 +66,18 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
    */
   if (dashboard && dashboard.summary.transaction_count === 0) {
     return (
-      <View className="mx-6 mb-4">
-        <ThemedText className="text-sm opacity-60">
-          Nothing logged in {month} yet — your first expense starts the story.
-        </ThemedText>
-      </View>
+      <ThemedText tone="muted" style={styles.emptyLine}>
+        Nothing logged in {month} yet — your first expense starts the story.
+      </ThemedText>
     );
   }
 
   const body = () => {
     if (!dashboard) {
       return (
-        <ThemedText className="mt-1 text-sm opacity-50">Adding up your month…</ThemedText>
+        <ThemedText tone="muted" style={styles.line}>
+          Adding up your month…
+        </ThemedText>
       );
     }
 
@@ -86,43 +86,36 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
     const previousWindow = previousWindowLabel(period);
     const change = summary.spend_change ?? 0;
     const increased = change >= 0;
+    const changeColor = increased ? theme.negative : theme.positive;
     const topCategory = topCategories?.[0];
     const categoryIcon = topCategory ? categoryVisual(topCategory.category) : null;
 
     return (
       <>
-        {/* This carried `lineHeight: 40` until X14, because ThemedText's 21px
-            default line box clipped the grouping comma off a 30px number and
-            `₹40,486` read as `₹40.486`. ThemedText now derives the height from
-            the size it is actually given, so the pin is gone from here and
-            from the two other screens that had each arrived at it separately. */}
         <ThemedText
-          className="mt-1 text-[30px]"
           numberOfLines={1}
           adjustsFontSizeToFit
-          style={{ fontFamily: Fonts.title, color: theme.text }}>
+          style={[styles.amount, { color: theme.text }]}>
           {formatMoney(summary.total_spent)}
         </ThemedText>
 
-        <View className="mt-1.5 flex-row items-center gap-1.5">
+        <View style={styles.factRow}>
           {summary.spend_change_comparable ? (
             <>
               <MaterialCommunityIcons
                 name={increased ? 'trending-up' : 'trending-down'}
-                size={15}
-                color={increased ? '#EF4444' : '#16A34A'}
+                size={16}
+                color={changeColor}
               />
-              <ThemedText
-                className="text-sm"
-                style={{ fontFamily: Fonts.title, color: increased ? '#EF4444' : '#16A34A' }}>
-                {`${formatChangeMagnitude(change)} ${increased ? 'more' : 'less'}`}
-              </ThemedText>
-              <ThemedText className="flex-1 text-sm opacity-60" numberOfLines={1}>
-                than {previousWindow}
+              <ThemedText tone="muted" style={styles.factText} numberOfLines={1}>
+                <ThemedText style={[styles.line, styles.strong, { color: changeColor }]}>
+                  {`${formatChangeMagnitude(change)} ${increased ? 'more' : 'less'}`}
+                </ThemedText>
+                {` than ${previousWindow}`}
               </ThemedText>
             </>
           ) : (
-            <ThemedText className="flex-1 text-sm opacity-60" numberOfLines={1}>
+            <ThemedText tone="muted" style={styles.factText} numberOfLines={1}>
               {(summary.previous_total_spent ?? 0) > 0
                 ? `Too little in ${previousWindow} to compare`
                 : `Nothing logged in ${previousWindow} to compare`}
@@ -131,17 +124,13 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
         </View>
 
         {topCategory && categoryIcon && (
-          <View className="mt-1.5 flex-row items-center gap-1.5">
-            <MaterialCommunityIcons
-              name={categoryIcon.icon}
-              size={15}
-              color={categoryIcon.color}
-            />
-            <ThemedText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.text }}>
-              {topCategory.category}
-            </ThemedText>
-            <ThemedText className="flex-1 text-sm opacity-60" numberOfLines={1}>
-              {formatMoney(topCategory.amount)} · most of your spend
+          <View style={styles.factRow}>
+            <MaterialCommunityIcons name={categoryIcon.icon} size={16} color={categoryIcon.color} />
+            <ThemedText tone="muted" style={styles.factText} numberOfLines={1}>
+              <ThemedText style={[styles.line, styles.strong, { color: theme.text }]}>
+                {`${topCategory.category} ${formatMoney(topCategory.amount)}`}
+              </ThemedText>
+              {' · most of your spend'}
             </ThemedText>
           </View>
         )}
@@ -154,17 +143,68 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
       accessibilityRole="button"
       accessibilityLabel={`${month} so far. Open insights.`}
       onPress={onPress}
-      className="mx-6 mb-4 rounded-3xl border px-5 py-4"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-center justify-between">
-        <ThemedText
-          className="text-[11px] uppercase opacity-50"
-          style={{ fontFamily: Fonts.title, letterSpacing: 0.8 }}>
+      style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <View style={styles.titleRow}>
+        <ThemedText tone="muted" style={[styles.line, styles.strong]}>
           {month} so far
         </ThemedText>
-        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.text} opacity={0.4} />
+        <MaterialCommunityIcons name="chevron-right" size={20} color={theme.muted} />
       </View>
       {body()}
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  gapOnly: {
+    height: 12,
+  },
+  emptyLine: {
+    marginTop: 6,
+    marginBottom: 14,
+    marginHorizontal: 16,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  card: {
+    marginTop: 8,
+    marginBottom: 12,
+    marginHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    paddingLeft: 16,
+    paddingRight: 12,
+    gap: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  line: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  strong: {
+    fontWeight: '600',
+  },
+  amount: {
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
+  },
+  factRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  factText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+});

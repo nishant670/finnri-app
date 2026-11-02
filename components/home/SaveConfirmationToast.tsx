@@ -33,7 +33,7 @@ export function SaveConfirmationToast({
         ],
       }}
       pointerEvents="none">
-      <MaterialCommunityIcons name="check" size={15} color="white" />
+      <MaterialCommunityIcons name="check" size={15} color={theme.onAccent} />
       <ThemedText tone="onAccent" className="text-xs font-bold">
         {message}
       </ThemedText>

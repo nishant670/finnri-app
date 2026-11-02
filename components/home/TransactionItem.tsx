@@ -1,7 +1,9 @@
 import { ThemedText } from '@/components/themed-text';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { getMoodIconName } from '@/constants/theme';
-import { formatMoney } from '@/lib/money';
+import { categoryTile, UNKNOWN_VISUAL } from '@/lib/categories';
+import { rowTimeLabel } from '@/lib/datetime';
+import { formatMoney, MINUS_SIGN } from '@/lib/money';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -87,6 +89,18 @@ const CARD_RADIUS = 24;
 const SWIPE_ACTION_WIDTH = 76;
 
 /**
+ * The list row, as the redesign draws it everywhere a transaction is listed
+ * (boards R3-List and R3-Home): 60 tall, a 36 tile with radius 10, and the
+ * text starting 14 + 36 + 12 = 62 in — which is where the divider starts too,
+ * so it runs under the words and not under the tile.
+ */
+const ROW_HEIGHT = 60;
+const ROW_PADDING_X = 14;
+const ROW_GAP = 12;
+const TILE_SIZE = 36;
+const DIVIDER_INSET = ROW_PADDING_X + TILE_SIZE + ROW_GAP;
+
+/**
  * Past fully open the row keeps following the finger, at a fifth of its speed.
  *
  * Without this the row stops dead at full travel and the gesture reads as broken —
@@ -169,6 +183,15 @@ interface TransactionItemProps {
   collapsed?: boolean;
   /** Account-less entries stay saveable, but remain visibly recoverable. */
   unlinked?: boolean;
+  /** List rows only: a long press, which starts selecting on the transactions screen. */
+  onLongPress?: () => void;
+  /**
+   * List rows only, while the screen is selecting: ticked in place of the
+   * category icon. Undefined outside selection, so nothing changes there.
+   */
+  selected?: boolean;
+  /** List rows only: shown but not selectable, like income when grouping expenses. */
+  dimmed?: boolean;
 }
 
 export function TransactionItem({
@@ -194,6 +217,9 @@ export function TransactionItem({
   onSwipeOpenChange,
   collapsed = false,
   unlinked = false,
+  onLongPress,
+  selected,
+  dimmed = false,
 }: TransactionItemProps) {
   const theme = useThemeTokens();
   const motion = useMotion();
@@ -245,6 +271,14 @@ export function TransactionItem({
   const collapse = useSharedValue(1);
   const measuredHeight = useSharedValue(0);
   /**
+   * `hasCollapsed`, readable from the UI thread. The collapse style reads this
+   * rather than taking `hasCollapsed` as a dependency: a dependency rebuilds
+   * the animated style mid-delete, and on Android the rebuilt style can land a
+   * frame late — the row reappeared at full height, still swiped open, for a
+   * blink before it faded out.
+   */
+  const collapsing = useSharedValue(false);
+  /**
    * Whether the row needs its clip. See the note on `TransactionItem`: this
    * exists so a resting list keeps its shadows, and it flips on touch-down
    * rather than on movement so no frame of the pull escapes the box.
@@ -254,10 +288,12 @@ export function TransactionItem({
   // Open state is the list's, so the row follows the prop rather than its own
   // gesture — which is also what closes this row when another one opens.
   useEffect(() => {
-    if (!swipeable) return;
+    // A row on its way out keeps its actions showing until it has gone; the
+    // collapse puts it back shut once nobody can see it.
+    if (!swipeable || collapsed) return;
     swipe.value = motion.springTo(swipeOpen ? -swipeOpenDistance : 0);
     if (!swipeOpen) setEngaged(false);
-  }, [motion, swipe, swipeOpen, swipeOpenDistance, swipeable]);
+  }, [collapsed, motion, swipe, swipeOpen, swipeOpenDistance, swipeable]);
 
   /**
    * Latched on the first collapse and never unset, because it is what decides
@@ -273,23 +309,42 @@ export function TransactionItem({
    */
   const [hasCollapsed, setHasCollapsed] = useState(false);
 
-  useEffect(() => {
-    if (!collapsed) return;
-    setHasCollapsed(true);
-    // The row is on its way out and the Undo window has opened. Not `saved` —
-    // nothing has been written yet — and not `rejected`, which would say the
-    // app turned the delete down.
-    haptics.removed();
-  }, [collapsed]);
+  // The list's open row is this one until it is told otherwise; read through a
+  // ref so the collapse runs once per delete rather than on every re-render.
+  const swipeOpenRef = useRef(swipeOpen);
+  swipeOpenRef.current = swipeOpen;
+  const onSwipeOpenChangeRef = useRef(onSwipeOpenChange);
+  onSwipeOpenChangeRef.current = onSwipeOpenChange;
 
   useEffect(() => {
-    if (!hasCollapsed) return;
-    // Out on the exit curve, back on the entry one — the row leaving is faster
-    // than the row returning, which is C1's rule and the reason `exit` exists.
-    collapse.value = collapsed
-      ? withTiming(0, motion.exit('base'))
-      : withTiming(1, motion.enter('base'));
-  }, [collapse, collapsed, hasCollapsed, motion]);
+    if (collapsed) {
+      setHasCollapsed(true);
+      // The row is on its way out and the Undo window has opened. Not `saved` —
+      // nothing has been written yet — and not `rejected`, which would say the
+      // app turned the delete down.
+      haptics.removed();
+      // One frame, both values: the style switches to its measured height and
+      // starts shrinking together, with no rebuilt style in between.
+      collapsing.value = true;
+      // Out on the exit curve, back on the entry one — the row leaving is
+      // faster than the row returning, which is C1's rule and the reason `exit`
+      // exists. Once it is out of sight it is shut again, so an Undo brings
+      // back the row, not the actions it was deleted from.
+      collapse.value = withTiming(0, motion.exit('base'), (finished) => {
+        'worklet';
+        if (finished) swipe.value = 0;
+      });
+      // The list still thinks this row is open; it is not, and an Undo must
+      // not reopen it.
+      if (swipeOpenRef.current) onSwipeOpenChangeRef.current?.(false);
+      return;
+    }
+    if (!collapsing.value) return;
+    // Undone. Shut first, in case the Undo beat the collapse to its end.
+    swipe.value = 0;
+    setEngaged(false);
+    collapse.value = withTiming(1, motion.enter('base'));
+  }, [collapse, collapsed, collapsing, motion, swipe]);
 
   const measure = useCallback(
     (event: LayoutChangeEvent) => {
@@ -342,12 +397,10 @@ export function TransactionItem({
       if (!open) runOnJS(setEngaged)(false);
     });
 
-  const collapseStyle = useAnimatedStyle(
-    () =>
-      hasCollapsed
-        ? { height: measuredHeight.value * collapse.value, opacity: collapse.value }
-        : {},
-    [hasCollapsed]
+  const collapseStyle = useAnimatedStyle(() =>
+    collapsing.value
+      ? { height: measuredHeight.value * collapse.value, opacity: collapse.value }
+      : {}
   );
 
   const entranceStyle = useAnimatedStyle(() => ({
@@ -368,6 +421,16 @@ export function TransactionItem({
   const highlightStyle = useAnimatedStyle(() => ({ opacity: highlight.value }));
   const titleColor = theme.mode === 'dark' ? '#F3F4F6' : '#1F2933';
   const mutedColor = theme.mode === 'dark' ? 'rgba(255,255,255,0.5)' : '#9A9697';
+  // Colour lives in the tile and nowhere else on the row: the amount is ink
+  // whether it came in or went out, and the sign says which.
+  const tile = categoryTile(
+    { color: color || UNKNOWN_VISUAL.color, bgColor: bgColor || UNKNOWN_VISUAL.bgColor },
+    theme.mode
+  );
+  const signedAmount = `${isIncome ? '+' : MINUS_SIGN}${
+    maskAmount ? `${CURRENCY_SYMBOL}••••` : formatMoney(amount, { sign: 'never' })
+  }`;
+  const meta = [category, subtitle].filter(Boolean).join(' · ');
 
   const body = (
     // One view, not a fragment. `GestureDetector` clones its child to inject
@@ -396,7 +459,7 @@ export function TransactionItem({
             <SwipeAction
               icon="repeat"
               label="Repeat"
-              color="#FFFFFF"
+              color={theme.colors.onAccent}
               background={theme.colors.accent}
               onPress={onRepeat}
             />
@@ -404,147 +467,239 @@ export function TransactionItem({
           <SwipeAction
             icon="pencil-outline"
             label="Edit"
-            color={theme.colors.accent}
+            // Accent is for fills and large icons, never small text on a
+            // light surface — so the glyph keeps it and the label is ink.
+            color={theme.colors.text}
+            iconColor={theme.colors.accent}
             background={theme.colors.secondary}
             onPress={onEdit}
           />
           <SwipeAction
             icon="trash-can-outline"
             label="Delete"
-            color="#FFFFFF"
-            background="#E5484D"
+            color={theme.colors.onNegative}
+            background={theme.colors.negative}
             onPress={onDelete}
           />
         </Animated.View>
       )}
-      <Animated.View style={entranceStyle}>
+      <Animated.View
+        style={[
+          entranceStyle,
+          // The list row's surface is under the wash rather than on the row, so
+          // the wash shows; it still has to be opaque, or a swipe would slide
+          // the words over the actions behind them.
+          isList ? { backgroundColor: theme.colors.card } : undefined,
+        ]}>
         {/* Behind the row, not over it — a tint the content sits on rather than a
             film the content is read through. */}
         <Animated.View
           pointerEvents="none"
           style={[styles.highlight, { backgroundColor: theme.colors.accent }, highlightStyle]}
         />
-        <Pressable
-          // An open row's next tap belongs to the row, not to the detail
-          // screen: the actions are showing precisely because the user is
-          // deciding, and navigating away from that decision is the wrong
-          // answer to "never mind".
-          onPress={swipeOpen ? () => onSwipeOpenChange?.(false) : handlePress}
-          style={[
-            styles.itemBase,
-            isList ? styles.listItem : styles.cardItem,
-            !isList ? { backgroundColor: theme.mode === 'dark' ? '#1F2937' : '#FFFFFF' } : undefined,
-            !isList ? theme.shadows.soft : undefined,
-          ]}>
-          <View
-            ref={iconRef}
-            // Android flattens a plain container view out of the hierarchy, and
-            // a flattened view has nothing to measure — the same prop, and the
-            // same reason, as the collapse host C5 had to add for the gesture.
-            collapsable={false}
+        {isList ? (
+          <Pressable
+            // An open row's next tap belongs to the row, not to the detail
+            // screen: the actions are showing precisely because the user is
+            // deciding, and navigating away from that decision is the wrong
+            // answer to "never mind".
+            onPress={swipeOpen ? () => onSwipeOpenChange?.(false) : handlePress}
+            onLongPress={onLongPress}
+            testID="transaction-row"
+            accessibilityState={selected === undefined ? undefined : { selected, disabled: dimmed }}
             style={[
-              isList ? styles.listIcon : styles.cardIcon,
-              {
-                backgroundColor: bgColor || (isIncome ? '#E8F5E9' : '#FFEBEE'),
-                borderRadius: isList
-                  ? Math.min(theme.icon.containerRadius, 20)
-                  : theme.icon.containerRadius,
-              },
+              styles.row,
+              selected && { backgroundColor: theme.colors.selectedFill },
+              dimmed && styles.dimmed,
             ]}>
-            <MaterialCommunityIcons
-              name={getMoodIconName(icon, theme.mood.iconStyle) as any}
-              size={isList ? 18 : 22}
-              color={color || (isIncome ? '#27AE60' : '#E57373')}
-            />
-          </View>
-
-          <View style={styles.details}>
-            <ThemedText
-              numberOfLines={1}
-              variant={isList ? 'bodyStrong' : 'sectionTitle'}
+            <View
+              ref={iconRef}
+              // Android flattens a plain container view out of the hierarchy,
+              // and a flattened view has nothing to measure — the same prop, and
+              // the same reason, as the collapse host C5 had to add.
+              collapsable={false}
               style={[
-                styles.title,
-                {
-                  color: titleColor,
-                },
-                isList ? styles.listTitleText : styles.cardTitleText,
+                styles.tile,
+                { backgroundColor: selected ? theme.colors.text : tile.background },
               ]}>
-              {title}
-            </ThemedText>
-            <View style={styles.metaRow}>
-              <View
+              <MaterialCommunityIcons
+                name={
+                  selected
+                    ? 'check'
+                    : (getMoodIconName(icon, theme.mood.iconStyle) as any)
+                }
+                size={18}
+                color={selected ? theme.colors.background : tile.foreground}
+              />
+            </View>
+            <View style={styles.rowText}>
+              <View style={styles.rowLine}>
+                <ThemedText numberOfLines={1} style={[styles.rowTitle, { color: theme.colors.text }]}>
+                  {title}
+                </ThemedText>
+                <View ref={amountRef} collapsable={false}>
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.rowAmount, { color: theme.colors.text }]}>
+                    {signedAmount}
+                  </ThemedText>
+                </View>
+              </View>
+              <View style={styles.rowLine}>
+                <ThemedText tone="muted" numberOfLines={1} style={styles.rowMeta}>
+                  {meta}
+                </ThemedText>
+                {unlinked ? (
+                  <View style={styles.rowUnlinked}>
+                    <MaterialCommunityIcons
+                      name="link-variant-off"
+                      size={12}
+                      color={theme.colors.warning}
+                    />
+                    <ThemedText tone="warning" style={styles.rowUnlinkedText}>
+                      Unlinked
+                    </ThemedText>
+                  </View>
+                ) : null}
+                {date ? (
+                  <ThemedText tone="muted" numberOfLines={1} style={styles.rowTime}>
+                    {rowTimeLabel(date)}
+                  </ThemedText>
+                ) : null}
+              </View>
+            </View>
+          </Pressable>
+        ) : (
+          <Pressable
+            // An open row's next tap belongs to the row, not to the detail
+            // screen: the actions are showing precisely because the user is
+            // deciding, and navigating away from that decision is the wrong
+            // answer to "never mind".
+            onPress={swipeOpen ? () => onSwipeOpenChange?.(false) : handlePress}
+            style={[
+              styles.itemBase,
+              isList ? styles.listItem : styles.cardItem,
+              !isList ? { backgroundColor: theme.mode === 'dark' ? '#1F2937' : '#FFFFFF' } : undefined,
+              !isList ? theme.shadows.soft : undefined,
+            ]}>
+            <View
+              ref={iconRef}
+              // Android flattens a plain container view out of the hierarchy, and
+              // a flattened view has nothing to measure — the same prop, and the
+              // same reason, as the collapse host C5 had to add for the gesture.
+              collapsable={false}
+              style={[
+                isList ? styles.listIcon : styles.cardIcon,
+                {
+                  backgroundColor: bgColor || (isIncome ? '#E8F5E9' : '#FFEBEE'),
+                  borderRadius: isList
+                    ? Math.min(theme.icon.containerRadius, 20)
+                    : theme.icon.containerRadius,
+                },
+              ]}>
+              <MaterialCommunityIcons
+                name={getMoodIconName(icon, theme.mood.iconStyle) as any}
+                size={isList ? 18 : 22}
+                color={color || (isIncome ? '#27AE60' : '#E57373')}
+              />
+            </View>
+
+            <View style={styles.details}>
+              <ThemedText
+                numberOfLines={1}
+                variant={isList ? 'bodyStrong' : 'sectionTitle'}
                 style={[
-                  isList ? styles.listPill : styles.cardPill,
-                  { backgroundColor: bgColor || '#F3F4F6' },
+                  styles.title,
+                  {
+                    color: titleColor,
+                  },
+                  isList ? styles.listTitleText : styles.cardTitleText,
                 ]}>
+                {title}
+              </ThemedText>
+              <View style={styles.metaRow}>
+                <View
+                  style={[
+                    isList ? styles.listPill : styles.cardPill,
+                    { backgroundColor: bgColor || '#F3F4F6' },
+                  ]}>
+                  <ThemedText
+                    numberOfLines={1}
+                    variant="micro"
+                    style={[
+                      styles.category,
+                      {
+                        color: color || '#6B7280',
+                      },
+                      isList ? styles.listCategoryText : styles.cardCategoryText,
+                    ]}>
+                    {category}
+                  </ThemedText>
+                </View>
+                {subtitle && (
+                  <ThemedText
+                    numberOfLines={1}
+                    variant="caption"
+                    style={[
+                      styles.subtitle,
+                      {
+                        color: mutedColor,
+                      },
+                      isList ? styles.listSubtitleText : styles.cardSubtitleText,
+                    ]}>
+                    {isList ? subtitle : `• ${subtitle}`}
+                  </ThemedText>
+                )}
+                {unlinked ? (
+                  <View style={styles.unlinkedPill}>
+                    <MaterialCommunityIcons name="link-variant-off" size={11} color="#D97706" />
+                    <ThemedText variant="micro" style={styles.unlinkedText}>
+                      Unlinked
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+
+            <View ref={amountRef} collapsable={false} style={styles.amountBlock}>
+              <ThemedText
+                numberOfLines={1}
+                variant="amount"
+                style={[
+                  styles.amount,
+                  {
+                    color: isIncome ? '#27AE60' : theme.colors.text,
+                  },
+                  isList ? styles.listAmountText : styles.cardAmountText,
+                ]}>
+                {isIncome ? '+' : '-'}
+                {maskAmount ? `${CURRENCY_SYMBOL}••••` : formatMoney(amount, { sign: 'never' })}
+              </ThemedText>
+              {date ? (
                 <ThemedText
                   numberOfLines={1}
                   variant="micro"
                   style={[
-                    styles.category,
-                    {
-                      color: color || '#6B7280',
-                    },
-                    isList ? styles.listCategoryText : styles.cardCategoryText,
-                  ]}>
-                  {category}
-                </ThemedText>
-              </View>
-              {subtitle && (
-                <ThemedText
-                  numberOfLines={1}
-                  variant="caption"
-                  style={[
-                    styles.subtitle,
+                    styles.date,
                     {
                       color: mutedColor,
                     },
-                    isList ? styles.listSubtitleText : styles.cardSubtitleText,
                   ]}>
-                  {isList ? subtitle : `• ${subtitle}`}
+                  {date}
                 </ThemedText>
-              )}
-              {unlinked ? (
-                <View style={styles.unlinkedPill}>
-                  <MaterialCommunityIcons name="link-variant-off" size={11} color="#D97706" />
-                  <ThemedText variant="micro" style={styles.unlinkedText}>
-                    Unlinked
-                  </ThemedText>
-                </View>
               ) : null}
             </View>
-          </View>
-
-          <View ref={amountRef} collapsable={false} style={styles.amountBlock}>
-            <ThemedText
-              numberOfLines={1}
-              variant="amount"
-              style={[
-                styles.amount,
-                {
-                  color: isIncome ? '#27AE60' : theme.colors.text,
-                },
-                isList ? styles.listAmountText : styles.cardAmountText,
-              ]}>
-              {isIncome ? '+' : '-'}
-              {maskAmount ? `${CURRENCY_SYMBOL}••••` : formatMoney(amount, { sign: 'never' })}
-            </ThemedText>
-            {date ? (
-              <ThemedText
-                numberOfLines={1}
-                variant="micro"
-                style={[
-                  styles.date,
-                  {
-                    color: mutedColor,
-                  },
-                ]}>
-                {date}
-              </ThemedText>
-            ) : null}
-          </View>
-        </Pressable>
-        {showDivider ? <View style={styles.divider} /> : null}
+          </Pressable>
+        )}
+        {showDivider ? (
+          <View
+            style={
+              isList
+                ? [styles.rowDivider, { backgroundColor: theme.colors.border }]
+                : styles.divider
+            }
+          />
+        ) : null}
       </Animated.View>
     </Animated.View>
   );
@@ -572,12 +727,15 @@ function SwipeAction({
   icon,
   label,
   color,
+  iconColor = color,
   background,
   onPress,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   label: string;
   color: string;
+  /** When the glyph wants a different colour from the label. */
+  iconColor?: string;
   background: string;
   onPress?: () => void;
 }) {
@@ -587,7 +745,7 @@ function SwipeAction({
       accessibilityLabel={label}
       onPress={onPress}
       style={[styles.action, { backgroundColor: background }]}>
-      <MaterialCommunityIcons name={icon} size={20} color={color} />
+      <MaterialCommunityIcons name={icon} size={20} color={iconColor} />
       <ThemedText variant="micro" style={[styles.actionLabel, { color }]}>
         {label}
       </ThemedText>
@@ -596,6 +754,9 @@ function SwipeAction({
 }
 
 const styles = StyleSheet.create({
+  dimmed: {
+    opacity: 0.45,
+  },
   clipped: {
     overflow: 'hidden',
   },
@@ -621,6 +782,68 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
+  },
+  row: {
+    height: ROW_HEIGHT,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: ROW_GAP,
+    paddingHorizontal: ROW_PADDING_X,
+  },
+  tile: {
+    width: TILE_SIZE,
+    height: TILE_SIZE,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  rowLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rowTitle: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  rowAmount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+  },
+  rowMeta: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  rowUnlinked: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  rowUnlinkedText: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  rowTime: {
+    fontSize: 12,
+    lineHeight: 16,
+    fontVariant: ['tabular-nums'],
+  },
+  rowDivider: {
+    height: 1,
+    marginLeft: DIVIDER_INSET,
   },
   itemBase: {
     width: '100%',

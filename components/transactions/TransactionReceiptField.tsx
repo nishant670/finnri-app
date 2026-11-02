@@ -1,79 +1,63 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { isLocalAttachmentUri } from '@/lib/uploads';
 
 type TransactionReceiptFieldProps = {
   attachment: string | null;
   error: string | null;
-  withSectionLabel: boolean;
+  /** Draws the rule above the row: every row in a card but the first. */
+  divider?: boolean;
   onPick: () => void;
   onRemove: () => void;
 };
 
 /**
- * The receipt attach row.
- *
- * Pulled out of More details because the AI draft review shows it too,
- * inside its expanded summary. Only ever one of the two is mounted.
- *
- * The heading is a section label, which is how More details reads; in the
- * review list every other row carries its label inside the card, so there
- * the row speaks for itself.
+ * The Receipt row under More details (board R2-Split): the label column, then
+ * "Attach a photo or PDF" with a paperclip, or the attached file's name with a
+ * way to remove it.
  */
 export function TransactionReceiptField({
   attachment,
   error,
-  withSectionLabel,
+  divider = false,
   onPick,
   onRemove,
 }: TransactionReceiptFieldProps) {
-  const themeTokens = useThemeTokens();
-  const theme = themeTokens.colors;
-  const accent = theme.accent;
-  const detailInputPlaceholderColor =
-    themeTokens.mode === 'dark' ? 'rgba(255,255,255,0.45)' : '#9CA3AF';
+  const { colors } = useThemeTokens();
+  const fileName = attachment
+    ? decodeURIComponent(attachment.split('?')[0].split('/').pop() ?? 'Receipt')
+    : '';
 
   return (
-    <View>
-      {withSectionLabel && (
-        <ThemedText
-          tone="muted"
-          className="text-[10px] font-black uppercase tracking-widest mb-3 italic">
-          Receipt
-        </ThemedText>
-      )}
-      <Pressable
+    <View style={divider ? { borderTopWidth: 1, borderTopColor: colors.border } : undefined}>
+      <PressableView
         onPress={onPick}
         accessibilityRole="button"
         accessibilityLabel={attachment ? 'Change receipt' : 'Attach a receipt'}
-        className="w-full min-h-[64px] rounded-[20px] border px-4 py-3 flex-row items-center justify-between shadow-sm"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-        <View className="flex-row items-center gap-3 flex-1 pr-3">
-          <MaterialCommunityIcons
-            name={attachment ? 'file-check-outline' : 'file-upload-outline'}
-            size={22}
-            color={attachment ? accent : detailInputPlaceholderColor}
-          />
-          <View className="flex-1">
-            <ThemedText
-              className="text-sm font-bold"
-              numberOfLines={1}
-              style={{ color: attachment ? theme.text : detailInputPlaceholderColor }}>
-              {attachment
-                ? decodeURIComponent(attachment.split('?')[0].split('/').pop() ?? 'Receipt')
-                : 'Attach a photo or PDF'}
+        style={styles.row}
+        pressedStyle={styles.pressed}>
+        <ThemedText tone="muted" style={styles.label}>
+          Receipt
+        </ThemedText>
+        <MaterialCommunityIcons
+          name={attachment ? 'file-check-outline' : 'paperclip'}
+          size={18}
+          color={colors.text}
+        />
+        <View style={styles.value}>
+          <ThemedText numberOfLines={1} style={[styles.valueText, { color: colors.text }]}>
+            {attachment ? fileName : 'Attach a photo or PDF'}
+          </ThemedText>
+          {attachment ? (
+            <ThemedText tone="muted" style={styles.caption}>
+              {isLocalAttachmentUri(attachment) ? 'Uploads when you save' : 'Saved to this transaction'}
             </ThemedText>
-            {attachment ? (
-              <ThemedText tone="muted" className="text-[10px] font-bold mt-0.5">
-                {isLocalAttachmentUri(attachment)
-                  ? 'Uploads when you save'
-                  : 'Saved to this transaction'}
-              </ThemedText>
-            ) : null}
-          </View>
+          ) : null}
         </View>
         {attachment ? (
           <Pressable
@@ -81,21 +65,61 @@ export function TransactionReceiptField({
             hitSlop={12}
             accessibilityRole="button"
             accessibilityLabel="Remove receipt">
-            <MaterialCommunityIcons name="close-circle" size={20} color="#EF4444" />
+            <MaterialCommunityIcons name="close-circle" size={20} color={colors.muted} />
           </Pressable>
         ) : (
           <MaterialCommunityIcons
-            name="plus-circle-outline"
-            size={20}
-            color={detailInputPlaceholderColor}
+            name="chevron-right"
+            size={16}
+            color={withAlpha(colors.text, 0.6)}
           />
         )}
-      </Pressable>
+      </PressableView>
       {error ? (
-        <ThemedText tone="negative" className="text-[11px] font-bold mt-2 ml-1">
+        <ThemedText tone="negative" style={styles.error}>
           {error}
         </ThemedText>
       ) : null}
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  row: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 10,
+    paddingVertical: 6,
+  },
+  label: {
+    width: 84,
+    marginRight: 2,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  value: {
+    flex: 1,
+    minWidth: 0,
+  },
+  valueText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '500',
+  },
+  caption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  error: {
+    paddingHorizontal: 14,
+    paddingBottom: 10,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

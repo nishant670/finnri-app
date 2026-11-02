@@ -1,10 +1,15 @@
 import type { AIUsageEvent } from '@/lib/billing';
 
 const actionLabels: Record<string, string> = {
+  // Bill scans read "transaction parse receipt" before this label existed
+  // (a fix on board R8-Usage).
+  transaction_parse_receipt: 'Bill scan',
   transaction_parse_text: 'Text capture',
   transaction_parse_voice_short: 'Short voice capture',
   transaction_parse_voice_medium: 'Voice capture',
   transaction_parse_voice_long: 'Long voice capture',
+  statement_pdf_read: 'Statement PDF read',
+  future_ai_statement_import: 'Statement screenshots read',
 };
 
 export const ASK_FINNRI_USAGE_LABEL = 'Ask Finnri';

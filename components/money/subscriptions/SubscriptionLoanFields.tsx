@@ -1,27 +1,28 @@
-import type { Dispatch, SetStateAction } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { useState, type Dispatch, type SetStateAction } from 'react';
+import { StyleSheet, View } from 'react-native';
 
 import { DateRow } from '@/components/money/subscriptions/DateRow';
-import { Field } from '@/components/money/subscriptions/Field';
-import { LoanType } from '@/lib/subscriptions';
-import { Pill } from '@/components/money/subscriptions/Pill';
+import { InputRow, RECURRING_LABEL_WIDTH, RowsCard } from '@/components/money/subscriptions/FormRows';
 import { ThemedText } from '@/components/themed-text';
+import { LabelRow } from '@/components/ui/LabelRow';
+import { PickerOptionList, PickerSheet } from '@/components/ui/PickerSheet';
+import { PressableView } from '@/components/ui/PressableView';
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { formatMoney } from '@/lib/money';
 import { haptics } from '@/lib/haptics';
 import { loanTypeOptions } from '@/lib/recurring';
 import { suggestLoanFigures, sanitizeAmount } from '@/lib/subscription-form';
-import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { LoanType } from '@/lib/subscriptions';
 
 type SubscriptionLoanFieldsProps = {
   amount: string;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
   emisPaid: string;
   foreclosurePct: string;
   lender: string;
   loanSuggestion: ReturnType<typeof suggestLoanFigures>;
   loanType: LoanType | '';
-  muted: string;
   name: string;
   openStartDatePicker: () => void;
   principal: string;
@@ -40,16 +41,17 @@ type SubscriptionLoanFieldsProps = {
   totalEmis: string;
 };
 
+/**
+ * Under "Loan details": the loan itself, as rows of two cards (the rows of
+ * board R5-NewLoan). Its figures, then the EMI the figures work out to, then
+ * the dates and charges.
+ */
 export function SubscriptionLoanFields({
-  amount,
-  colors,
   emisPaid,
   foreclosurePct,
   lender,
   loanSuggestion,
   loanType,
-  muted,
-  name,
   openStartDatePicker,
   principal,
   processingFee,
@@ -66,75 +68,68 @@ export function SubscriptionLoanFields({
   startDate,
   totalEmis,
 }: SubscriptionLoanFieldsProps) {
+  const { colors } = useThemeTokens();
+  const [isTypePickerVisible, setIsTypePickerVisible] = useState(false);
+  const typeLabel = loanTypeOptions.find((option) => option.value === loanType)?.label;
+
   return (
-    <View testID="recurring-loan-fields">
-      <ThemedText className="mb-2 text-[11px] font-black uppercase" style={{ color: muted }}>
-        Loan type
-      </ThemedText>
-      <View className="mb-3 flex-row flex-wrap gap-2">
-        {loanTypeOptions.map((option) => (
-          <Pill
-            key={option.value}
-            label={option.label}
-            selected={loanType === option.value}
-            onPress={() => setLoanType(loanType === option.value ? '' : option.value)}
-            colors={colors}
-          />
-        ))}
-      </View>
-      <Field
-        label="Lender"
-        value={lender}
-        onChangeText={setLender}
-        colors={colors}
-        placeholder="HDFC Bank, Bajaj Finance"
-      />
-      <View className="flex-row gap-3">
-        <View className="flex-1">
-          <Field
-            label="Loan amount"
-            value={principal}
-            onChangeText={(value) => setPrincipal(sanitizeAmount(value))}
-            keyboardType="decimal-pad"
-            colors={colors}
-            placeholder="3,00,000"
-          />
-        </View>
-        <View className="flex-1">
-          <Field
-            label="Interest % a year"
-            value={ratePct}
-            onChangeText={(value) => setRatePct(sanitizeAmount(value))}
-            keyboardType="decimal-pad"
-            colors={colors}
-            placeholder="10.5"
-          />
-        </View>
-      </View>
-      <View className="flex-row gap-3">
-        <View className="flex-1">
-          <Field
-            label="Total EMIs"
-            value={totalEmis}
-            onChangeText={(value) => setTotalEmis(value.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
-            colors={colors}
-            placeholder="36"
-          />
-        </View>
-        <View className="flex-1">
-          <Field
-            label="EMIs already paid"
-            value={emisPaid}
-            onChangeText={(value) => setEmisPaid(value.replace(/[^0-9]/g, ''))}
-            keyboardType="number-pad"
-            colors={colors}
-            placeholder="0"
-          />
-        </View>
-      </View>
+    <View testID="recurring-loan-fields" style={styles.stack}>
+      <RowsCard>
+        <LabelRow
+          testID="recurring-loan-type"
+          label="Loan type"
+          value={typeLabel ?? 'Choose'}
+          valueMuted={!typeLabel}
+          labelWidth={RECURRING_LABEL_WIDTH}
+          onPress={() => setIsTypePickerVisible(true)}
+        />
+        <InputRow
+          label="Lender"
+          value={lender}
+          onChangeText={setLender}
+          placeholder="HDFC Bank, Bajaj Finance"
+          divider
+        />
+        <InputRow
+          label="Loan amount"
+          value={principal}
+          onChangeText={(value) => setPrincipal(sanitizeAmount(value))}
+          keyboardType="decimal-pad"
+          prefix={CURRENCY_SYMBOL}
+          placeholder="3,00,000"
+          divider
+        />
+        <InputRow
+          label="Interest"
+          accessibilityLabel="Interest % a year"
+          value={ratePct}
+          onChangeText={(value) => setRatePct(sanitizeAmount(value))}
+          keyboardType="decimal-pad"
+          suffix="% a year"
+          placeholder="10.5"
+          divider
+        />
+        <InputRow
+          label="Total EMIs"
+          value={totalEmis}
+          onChangeText={(value) => setTotalEmis(value.replace(/[^0-9]/g, ''))}
+          keyboardType="number-pad"
+          placeholder="36"
+          divider
+        />
+        <InputRow
+          label="EMIs paid"
+          accessibilityLabel="EMIs already paid"
+          value={emisPaid}
+          onChangeText={(value) => setEmisPaid(value.replace(/[^0-9]/g, ''))}
+          keyboardType="number-pad"
+          placeholder="0"
+          divider
+        />
+      </RowsCard>
+
       {Object.keys(loanSuggestion).length > 0 ? (
-        <Pressable
+        <PressableView
           testID="recurring-loan-suggestion"
           accessibilityRole="button"
           onPress={() => {
@@ -146,14 +141,10 @@ export function SubscriptionLoanFields({
             if (loanSuggestion.annualRatePct != null)
               setRatePct(String(loanSuggestion.annualRatePct));
           }}
-          className="mb-3 flex-row items-center gap-2 rounded-2xl px-3 py-2.5"
-          style={{ backgroundColor: colors.secondary }}>
-          <MaterialCommunityIcons
-            name="calculator-variant-outline"
-            size={18}
-            color={colors.accent}
-          />
-          <ThemedText className="flex-1 text-xs font-bold" style={{ color: colors.text }}>
+          style={[styles.suggestion, { backgroundColor: colors.selectedFill, borderColor: colors.selectedBorder }]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="calculator-variant-outline" size={18} color={colors.text} />
+          <ThemedText style={[styles.suggestionText, { color: colors.text }]}>
             {loanSuggestion.emi != null
               ? `EMI works out to ${formatMoney(loanSuggestion.emi)}. Use it`
               : loanSuggestion.months != null
@@ -162,37 +153,73 @@ export function SubscriptionLoanFields({
                   ? `Loan amount works out to ${formatMoney(loanSuggestion.principal)}. Use it`
                   : `Interest works out to ${loanSuggestion.annualRatePct}% a year. Use it`}
           </ThemedText>
-        </Pressable>
+        </PressableView>
       ) : null}
-      <DateRow
-        label="First EMI on"
-        value={startDate}
-        onPress={openStartDatePicker}
-        colors={colors}
-        muted={muted}
-      />
-      <View className="flex-row gap-3">
-        <View className="flex-1">
-          <Field
-            label="Processing fee"
-            value={processingFee}
-            onChangeText={(value) => setProcessingFee(sanitizeAmount(value))}
-            keyboardType="decimal-pad"
-            colors={colors}
-            placeholder="0"
-          />
-        </View>
-        <View className="flex-1">
-          <Field
-            label="Foreclosure charge %"
-            value={foreclosurePct}
-            onChangeText={(value) => setForeclosurePct(sanitizeAmount(value))}
-            keyboardType="decimal-pad"
-            colors={colors}
-            placeholder="4"
-          />
-        </View>
-      </View>
+
+      <RowsCard>
+        <DateRow label="First EMI on" value={startDate} onPress={openStartDatePicker} />
+        <InputRow
+          label="Processing fee"
+          value={processingFee}
+          onChangeText={(value) => setProcessingFee(sanitizeAmount(value))}
+          keyboardType="decimal-pad"
+          prefix={CURRENCY_SYMBOL}
+          placeholder="0"
+          divider
+        />
+        <InputRow
+          label="Foreclosure"
+          accessibilityLabel="Foreclosure charge %"
+          value={foreclosurePct}
+          onChangeText={(value) => setForeclosurePct(sanitizeAmount(value))}
+          keyboardType="decimal-pad"
+          suffix="% charge"
+          placeholder="4"
+          divider
+        />
+      </RowsCard>
+
+      <PickerSheet
+        visible={isTypePickerVisible}
+        title="Loan type"
+        onClose={() => setIsTypePickerVisible(false)}>
+        <PickerOptionList
+          accessibilityLabel="Loan type"
+          options={loanTypeOptions.map((option) => ({ key: option.value, label: option.label }))}
+          selectedKey={loanType || null}
+          onSelect={(key) => {
+            haptics.select();
+            // Choosing the chosen type again clears it, as tapping its chip did.
+            setLoanType(loanType === key ? '' : (key as LoanType));
+            setIsTypePickerVisible(false);
+          }}
+        />
+      </PickerSheet>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  stack: {
+    gap: 10,
+  },
+  suggestion: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 14,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

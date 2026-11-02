@@ -16,13 +16,15 @@ import '../global.css';
 import { FinnriSplashScreen } from '@/components/SplashScreen';
 import { TransactionDeleteProvider } from '@/components/transactions/TransactionDeleteProvider';
 import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
+import { useAppMoodStore } from '@/hooks/use-app-mood-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { installApiSessionGuard } from '@/lib/api-session';
-import { initCrashReporting } from '@/lib/crash-reporting';
+import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { monthFromActionURL } from '@/lib/monthly-review';
+import { isBillingActionURL } from '@/lib/notifications';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
 
 export const unstable_settings = {
@@ -75,6 +77,7 @@ const resolveInitialRoute = async () => {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { setColorScheme } = useNativeWindColorScheme();
+  const appearance = useAppMoodStore((state) => state.appearance);
   const themeTokens = useThemeTokens();
   const motion = useMotion();
   const [isAppReady, setIsAppReady] = useState(false);
@@ -150,9 +153,15 @@ export default function RootLayout() {
     });
   }, [clearAuth, router]);
 
+  /**
+   * NativeWind gets the preference, not the resolved mode. Its setter calls
+   * `Appearance.setColorScheme`, which overrides what React Native reports as
+   * the phone's setting — so handing it `colorScheme` pinned Match phone to
+   * whatever the phone said at launch. `'system'` clears that override.
+   */
   useEffect(() => {
-    setColorScheme(colorScheme);
-  }, [colorScheme, setColorScheme]);
+    setColorScheme(appearance);
+  }, [appearance, setColorScheme]);
 
   useEffect(() => {
     if (!token || Constants.appOwnership === 'expo') return;
@@ -162,7 +171,13 @@ export default function RootLayout() {
     void Promise.all([import('expo-notifications'), import('@/lib/push-notifications')])
       .then(([Notifications, { registerForPushNotifications }]) => {
         if (cancelled) return;
-        void registerForPushNotifications(token).catch(() => undefined);
+        // A phone that can't register gets no push at all, so a failure here is
+        // reported rather than dropped. On Android it was silent for months:
+        // without a Firebase config Expo can't issue a push token.
+        void registerForPushNotifications(token).catch((error: unknown) => {
+          console.warn('Push registration failed', error);
+          reportHandledError(error, { where: 'registerForPushNotifications' });
+        });
         responseSubscription = Notifications.addNotificationResponseReceivedListener((event) => {
           // Tapping a push has always landed on the notification list, which is
           // right when there is nothing more specific to open and wrong for the
@@ -173,6 +188,11 @@ export default function RootLayout() {
           const month = typeof actionURL === 'string' ? monthFromActionURL(actionURL) : null;
           if (month) {
             router.push({ pathname: '/monthly-review', params: { month } });
+            return;
+          }
+          // A gifted pass: open the pass itself, not the list it sits in.
+          if (typeof actionURL === 'string' && isBillingActionURL(actionURL)) {
+            router.push('/billing');
             return;
           }
           router.push('/notifications');
@@ -258,6 +278,8 @@ export default function RootLayout() {
         <Stack.Screen name="emi-plans/[id]" />
         <Stack.Screen name="auth" options={{ gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="transactions/index" />
+        <Stack.Screen name="events/index" />
+        <Stack.Screen name="events/[id]" />
         <Stack.Screen name="lock" options={{ gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="edit-profile" />
         <Stack.Screen name="security" />
@@ -273,6 +295,7 @@ export default function RootLayout() {
         <Stack.Screen name="billing" />
         <Stack.Screen name="purchase-history" />
         <Stack.Screen name="ai-usage" />
+        <Stack.Screen name="ai-credits" />
         <Stack.Screen name="ask" />
         <Stack.Screen name="tools" />
         <Stack.Screen name="about-finnri" />

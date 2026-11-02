@@ -10,6 +10,7 @@ import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Entitlement } from '@/lib/api-error';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
   fetchBillingPlans,
   fetchBillingStatus,
@@ -139,6 +140,7 @@ type UpgradeSheetProps = {
  */
 export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProps) {
   const router = useRouter();
+  const sheetBottom = useBottomInset(32);
   const theme = useThemeTokens();
   const colors = theme.colors;
   const muted = `${colors.text}99`;
@@ -200,7 +202,7 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
         borderTopRightRadius: 32,
         paddingHorizontal: 24,
         paddingTop: 12,
-        paddingBottom: 32,
+        paddingBottom: sheetBottom,
       }}>
       <View className="mb-5 items-center">
         <View className="h-1 w-10 rounded-full" style={{ backgroundColor: colors.border }} />
@@ -267,7 +269,7 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
         onPress={PLANS_REACHABLE ? openPlans : onClose}
         className="mt-6 h-13 items-center justify-center rounded-2xl"
         style={{ backgroundColor: colors.accent, minHeight: 52 }}>
-        <ThemedText className="text-sm font-black" style={{ color: 'white' }}>
+        <ThemedText className="text-sm font-black" style={{ color: colors.onAccent }}>
           {PLANS_REACHABLE ? 'See plans' : 'Got it'}
         </ThemedText>
       </Pressable>

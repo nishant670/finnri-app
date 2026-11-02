@@ -8,6 +8,7 @@ import { formatApiDate, formatTime } from './datetime';
 export type ApiEntry = {
   id?: string | number;
   account_id?: number | null;
+  event_id?: number | null;
   account?: {
     id: number;
     name: string;
@@ -64,6 +65,7 @@ export interface TransactionFilters {
   category?: string;
   mode?: string;
   account_id?: number;
+  event_id?: number;
   min_amount?: number;
   max_amount?: number;
   start_date?: string;
@@ -269,6 +271,7 @@ export const mapEntryToTransaction = (entry: ApiEntry): Transaction => {
     mode: entry.mode ?? null,
     accountId: entry.account_id ?? null,
     accountName: entry.account?.name ?? null,
+    eventId: entry.event_id ?? null,
     notes: entry.notes ?? null,
     merchant: entry.merchant ?? null,
     timeLabel,

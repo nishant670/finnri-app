@@ -211,9 +211,9 @@ export default function InsightScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: 16,
-          paddingTop: 6,
+          paddingTop: 4,
           paddingBottom: 110,
-          gap: 20,
+          gap: 16,
         }}
         refreshControl={
           <RefreshControl
@@ -222,7 +222,7 @@ export default function InsightScreen() {
               setRefreshing(true);
               void loadData(true);
             }}
-            tintColor={theme.accent}
+            tintColor={theme.muted}
           />
         }>
         {error && <ErrorBanner message={error} onRetry={() => void loadData()} />}

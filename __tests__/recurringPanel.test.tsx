@@ -134,7 +134,7 @@ describe('Recurring panel', () => {
 
     await findByTestId('recurring-overview');
     await fireEvent.press(await findByTestId('recurring-filter-loan'));
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
 
     // Everything about the loan beyond its EMI is optional, so it is folded.
     await fireEvent.press(await findByTestId('recurring-loan-details'));
@@ -168,7 +168,7 @@ describe('Recurring panel', () => {
   // The device report: the investment was a blank box, this month's PPF
   // instalment could not be logged, and the bank account to pay from looked
   // like a second copy of the mode.
-  it('adds a PPF from the type chips, logging this payment from a bank account', async () => {
+  it('adds a PPF from the type picker, logging this payment from a bank account', async () => {
     jest
       .spyOn(accounts, 'fetchAccounts')
       .mockResolvedValue([
@@ -181,14 +181,16 @@ describe('Recurring panel', () => {
       await render(<SubscriptionsPanel embedded />);
 
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Investment'));
     await findByTestId('recurring-investment-type');
     expect(queryByText('Swiggy')).toBeNull();
+    await fireEvent.press(await findByTestId('recurring-investment-type-row'));
     await fireEvent.press(await findByText('PPF'));
     await fireEvent.changeText(await findByPlaceholderText('5,000'), '3000');
 
     // Daily and every two weeks are in Repeats now, not under More options.
+    await fireEvent.press(await findByTestId('recurring-interval'));
     await findByText('Every 2 weeks');
 
     await fireEvent.press(await findByText("Also log this month's payment"));
@@ -224,11 +226,12 @@ describe('Recurring panel', () => {
       <SubscriptionsPanel embedded />
     );
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Investment'));
     await fireEvent.press(await findByText('Add investment'));
     await findByText(/Pick the investment type\./);
 
+    await fireEvent.press(await findByTestId('recurring-investment-type-row'));
     await fireEvent.press(await findByText('Other'));
     await fireEvent.changeText(
       await findByPlaceholderText('ULIP, Sukanya Samriddhi, chit fund'),
@@ -243,6 +246,34 @@ describe('Recurring panel', () => {
     expect(createSpy.mock.calls[0][1]).not.toHaveProperty('log_payment_on');
   });
 
+  // Board R5-RecurringList: the summary once, a card per kind, cancelled
+  // items folded under the list instead of among the active ones.
+  it('groups by kind, says the summary once, and folds cancelled items away', async () => {
+    const zee = { ...netflix, id: 3, name: 'Zee Entertainment', status: 'cancelled', due_state: 'cancelled' } as Subscription;
+    jest.spyOn(recurring, 'fetchRecurring').mockResolvedValue({
+      summary: {
+        monthly_total: 9965 + 649,
+        by_kind: { loan: 9965, subscription: 649 },
+        active_count: 2,
+        next_due: { name: 'Car loan', kind: 'loan', amount: 9965, date: '2026-11-05' },
+      },
+      items: [carLoan, netflix, zee],
+      card_emis: [],
+    });
+    const { findByTestId, findByText, getByText, queryByText, getAllByText } = await render(
+      <SubscriptionsPanel embedded />
+    );
+    await findByTestId('recurring-overview');
+    expect(getByText(/2 active · next is Car loan/)).toBeTruthy();
+    expect(getAllByText('Committed each month')).toHaveLength(1);
+    // Once as a filter chip, once over its card.
+    expect(getAllByText('Loans & EMIs')).toHaveLength(2);
+    expect(getByText('₹649 a month')).toBeTruthy();
+    expect(queryByText('Zee Entertainment')).toBeNull();
+    await fireEvent.press(await findByText('Cancelled · Zee Entertainment'));
+    await findByText('Zee Entertainment');
+  });
+
   // Mark paid moved the date on and wrote nothing, so the payment never
   // reached the transactions. It now logs it — from the account it came
   // from — unless turned off for a payment already logged.
@@ -254,16 +285,19 @@ describe('Recurring panel', () => {
     const paidSpy = jest
       .spyOn(subscriptions, 'markSubscriptionPaid')
       .mockResolvedValue({ ...netflix, logged_entry_id: 7 } as never);
-    const { findByLabelText, findByText, findByTestId } = await render(
+    const { findByLabelText, findByText, findByTestId, findAllByText } = await render(
       <SubscriptionsPanel embedded />
     );
 
+    // The row opens its actions (board R5-RecurringActions); Mark paid is one of them.
+    await fireEvent.press(await findByText('Netflix'));
     await fireEvent.press(await findByLabelText('Mark Netflix paid'));
     await findByTestId('mark-paid-sheet');
     // Cash, the item's mode, is not one an account can be picked for.
     await findByLabelText('Paid from SBI Savings');
+    await fireEvent.press(await findByText('Paid via'));
     await fireEvent.press(await findByText('UPI'));
-    await fireEvent.press(await findByText('Mark paid'));
+    await fireEvent.press((await findAllByText('Mark paid')).at(-1)!);
 
     await waitFor(() => expect(paidSpy).toHaveBeenCalled());
     expect(paidSpy.mock.calls[0][1]).toBe(netflix.id);
@@ -276,12 +310,13 @@ describe('Recurring panel', () => {
 
   it('can mark paid without logging, for a payment already logged', async () => {
     const paidSpy = jest.spyOn(subscriptions, 'markSubscriptionPaid').mockResolvedValue(netflix);
-    const { findByLabelText, findByText } = await render(<SubscriptionsPanel embedded />);
+    const { findByLabelText, findByText, findAllByText } = await render(<SubscriptionsPanel embedded />);
 
+    await fireEvent.press(await findByText('Netflix'));
     await fireEvent.press(await findByLabelText('Mark Netflix paid'));
     await fireEvent.press(await findByLabelText('Add to transactions'));
     await findByText(/Nothing is added to your transactions/);
-    await fireEvent.press(await findByText('Mark paid'));
+    await fireEvent.press((await findAllByText('Mark paid')).at(-1)!);
 
     await waitFor(() => expect(paidSpy).toHaveBeenCalled());
     expect(paidSpy.mock.calls[0][3]).toEqual(expect.objectContaining({ logTransaction: false }));
@@ -296,7 +331,7 @@ describe('Recurring panel', () => {
     const { findByTestId, findByText, findByPlaceholderText, findAllByText, queryByTestId } =
       await render(<SubscriptionsPanel embedded />);
     await findByTestId('recurring-overview');
-    await fireEvent.press((await findAllByText('New'))[0]);
+    await fireEvent.press((await findAllByText('Add'))[0]);
     await fireEvent.press(await findByText('Bill'));
     await fireEvent.changeText(
       await findByPlaceholderText('Rent, Electricity, Insurance premium'),

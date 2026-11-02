@@ -1,5 +1,6 @@
 import { Switch, type SwitchProps } from 'react-native';
 
+import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { haptics } from '@/lib/haptics';
 
 /**
@@ -22,8 +23,14 @@ import { haptics } from '@/lib/haptics';
  * fingerprint sheet". The switch has already moved; the hand should say so.
  */
 export function HapticSwitch({ onValueChange, ...props }: SwitchProps) {
+  const { colors } = useThemeTokens();
   return (
     <Switch
+      // The redesign's switch: accent when on, the quiet track when off. A
+      // caller can still pass its own; most left the platform's teal showing.
+      trackColor={{ false: colors.borderStrong, true: colors.accent }}
+      thumbColor="#FFFFFF"
+      ios_backgroundColor={colors.borderStrong}
       {...props}
       onValueChange={(next) => {
         haptics.toggle(next);

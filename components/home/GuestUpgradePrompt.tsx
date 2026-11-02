@@ -23,7 +23,7 @@ export function GuestUpgradePrompt({
   return (
     <View
       accessibilityRole="summary"
-      className="mx-6 mb-6 rounded-3xl border p-4"
+      className="mx-4 mb-3 rounded-2xl border p-4"
       style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.accent }}>
       <View className="flex-row items-start gap-3">
         <View

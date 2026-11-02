@@ -216,7 +216,7 @@ export function ProbableRow({
               }}>
               <TText
                 className="text-xs"
-                style={{ fontFamily: Fonts.title, color: active ? '#FFFFFF' : theme.text }}>
+                style={{ fontFamily: Fonts.title, color: active ? theme.onAccent : theme.text }}>
                 {label}
               </TText>
             </Pressable>
@@ -274,7 +274,7 @@ export function ImportResultCard({
         onPress={onDone}
         className="mt-3 h-10 items-center justify-center rounded-full"
         style={{ backgroundColor: theme.accent }}>
-        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#FFFFFF' }}>
+        <TText className="text-sm" style={{ fontFamily: Fonts.title, color: theme.onAccent }}>
           Done
         </TText>
       </Pressable>
@@ -435,7 +435,7 @@ export function CardUpdatesCard({ token, intake }: { token: string; intake: Stat
                           backgroundColor: on ? theme.accent : 'transparent',
                           borderColor: on ? theme.accent : '#94A3B8',
                         }}>
-                        {on && <MaterialCommunityIcons name="check" size={13} color="#FFFFFF" />}
+                        {on && <MaterialCommunityIcons name="check" size={13} color={theme.onAccent} />}
                       </View>
                       <TText
                         className="min-w-0 flex-1 text-sm"
@@ -477,13 +477,13 @@ export function CardUpdatesCard({ token, intake }: { token: string; intake: Stat
                   className="h-10 flex-1 items-center justify-center rounded-full"
                   style={{ backgroundColor: chosen.length > 0 ? theme.accent : theme.secondary }}>
                   {state === 'saving' ? (
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color={theme.onAccent} />
                   ) : (
                     <TText
                       className="text-sm"
                       style={{
                         fontFamily: Fonts.title,
-                        color: chosen.length > 0 ? '#FFFFFF' : '#94A3B8',
+                        color: chosen.length > 0 ? theme.onAccent : '#94A3B8',
                       }}>
                       Update card
                     </TText>

@@ -4,12 +4,12 @@ import { LayoutChangeEvent, Pressable, View } from 'react-native';
 import Svg, { Line, Rect } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
-import { Fonts } from '@/constants/theme';
 import { useReveal } from '@/hooks/use-reveal';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
 import { buildSpendBuckets, type SpendBucket } from '@/lib/spend-charts';
 import { formatChangeMagnitude, type DashboardResponse } from '@/lib/insights';
+import { Eyebrow, InsightCard, insightText } from './insight-ui';
 
 /**
  * Spending over time — the view the app did not have anywhere.
@@ -34,9 +34,14 @@ type SpendTrendChartProps = {
   dashboard: DashboardResponse;
   /** Opens the transaction list over the bucket's own date range. */
   onOpenRange: (bucket: SpendBucket) => void;
+  /**
+   * Just the plot, the axis and the selection line, for a card that already
+   * has its own heading (board R7-Analysis puts the chart under the total).
+   */
+  bare?: boolean;
 };
 
-export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps) {
+export function SpendTrendChart({ dashboard, onOpenRange, bare = false }: SpendTrendChartProps) {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const [width, setWidth] = useState(0);
@@ -77,34 +82,26 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
     setSelected(index);
   };
 
+  const Frame = bare ? View : InsightCard;
+
   return (
-    <View
-      className="rounded-[24px] border p-5 shadow-sm"
-      style={{ backgroundColor: theme.card, borderColor: theme.border }}>
-      <View className="flex-row items-start justify-between">
-        <View className="flex-1 pr-3">
-          <ThemedText
-            className="text-[10px] uppercase opacity-50"
-            style={{ fontFamily: Fonts.title, letterSpacing: 1 }}>
-            Spending over time
-          </ThemedText>
-          <ThemedText
-            className="mt-1 text-base"
-            style={{ fontFamily: Fonts.title, color: theme.text }}>
-            {granularity === 'week' ? 'Each week' : 'Each day'} of {periodLabel(dashboard)}
+    <Frame>
+      {bare ? null : (
+        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 12 }}>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Eyebrow>Spending over time</Eyebrow>
+            <ThemedText style={[insightText.title, { color: theme.text }]}>
+              {granularity === 'week' ? 'Each week' : 'Each day'} of {periodLabel(dashboard)}
+            </ThemedText>
+          </View>
+          <ThemedText tone="muted" style={[insightText.caption, { marginTop: 2 }]}>
+            avg {formatMoney(average)} {averageLabel}
           </ThemedText>
         </View>
-        <View className="rounded-lg px-3 py-2" style={{ backgroundColor: theme.secondary }}>
-          <ThemedText
-            className="text-[10px]"
-            style={{ fontFamily: Fonts.title, color: theme.accent }}>
-            Avg {formatMoney(average)} {averageLabel}
-          </ThemedText>
-        </View>
-      </View>
+      )}
 
       <View
-        className="mt-6"
+        className="mt-5"
         style={{ height: CHART_HEIGHT }}
         onLayout={(event: LayoutChangeEvent) => setWidth(event.nativeEvent.layout.width)}>
         {width > 0 && (
@@ -148,8 +145,8 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
                   right: 0,
                   backgroundColor: theme.card,
                 }}>
-                <ThemedText className="text-[9px] opacity-50" style={{ lineHeight: 12 }}>
-                  avg
+                <ThemedText tone="muted" style={{ fontSize: 11, lineHeight: 14 }}>
+                  {bare ? `avg ${formatMoney(average)}` : 'avg'}
                 </ThemedText>
               </View>
             )}
@@ -161,8 +158,8 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
         {axisTicks.map((bucket, index) => (
           <ThemedText
             key={`${bucket.start}-${index}`}
-            className="text-[10px] opacity-45"
-            style={{ lineHeight: 14 }}>
+            tone="muted"
+            style={{ fontSize: 12, lineHeight: 16 }}>
             {bucket.axisLabel}
           </ThemedText>
         ))}
@@ -174,7 +171,7 @@ export function SpendTrendChart({ dashboard, onOpenRange }: SpendTrendChartProps
         averageLabel={averageLabel}
         onOpen={() => selectedBucket && onOpenRange(selectedBucket)}
       />
-    </View>
+    </Frame>
   );
 }
 
@@ -280,10 +277,8 @@ function SelectionPanel({
 
   if (!bucket) {
     return (
-      <View
-        className="mt-4 rounded-2xl border px-4 py-3"
-        style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
-        <ThemedText className="text-xs opacity-60" style={{ lineHeight: 18 }}>
+      <View style={{ marginTop: 12 }}>
+        <ThemedText tone="muted" style={insightText.caption}>
           Tap a bar to see that {averageLabel === 'per week' ? 'week' : 'day'}, and again to open
           its transactions.
         </ThemedText>
@@ -302,33 +297,29 @@ function SelectionPanel({
     <Pressable
       accessibilityRole="button"
       onPress={onOpen}
-      className="mt-4 rounded-2xl border px-4 py-3"
-      style={{ backgroundColor: theme.secondary, borderColor: theme.border }}>
+      className="mt-3 rounded-xl border px-4 py-3"
+      style={{ backgroundColor: theme.background, borderColor: theme.border }}>
       <View className="flex-row items-center justify-between">
         <View className="flex-1 pr-3">
-          <ThemedText
-            className="text-[10px] uppercase opacity-50"
-            style={{ fontFamily: Fonts.title, letterSpacing: 1, lineHeight: 14 }}>
+          <ThemedText tone="muted" style={[insightText.caption, { fontWeight: '600' }]}>
             {bucket.label}
             {partial ? ` · ${bucket.days} of 7 days` : ''}
           </ThemedText>
-          <ThemedText
-            className="mt-1 text-lg"
-            style={{ fontFamily: Fonts.title, color: theme.text, lineHeight: 26 }}>
+          <ThemedText style={[insightText.title, { color: theme.text, fontVariant: ['tabular-nums'] }]}>
             {formatMoney(bucket.amount)}
           </ThemedText>
         </View>
         <View className="flex-row items-center">
-          <ThemedText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.accent }}>
+          <ThemedText style={[insightText.caption, { fontWeight: '700', color: theme.text }]}>
             {bucket.count} transaction{bucket.count === 1 ? '' : 's'}
           </ThemedText>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={theme.accent} />
+          <MaterialCommunityIcons name="chevron-right" size={18} color={theme.text} />
         </View>
       </View>
       {/* S5's rule, not a second one: past 300% a percentage stops reading as
           a quantity, so it becomes a multiplier. A rent day is genuinely 6×
           the average — "521% above" makes that look like a broken sum. */}
-      <ThemedText className="mt-1 text-[11px] opacity-60" style={{ lineHeight: 16 }}>
+      <ThemedText tone="muted" style={[insightText.caption, { marginTop: 2 }]}>
         {bucket.amount === 0
           ? 'Nothing logged.'
           : average <= 0 || Math.abs(delta) < 5

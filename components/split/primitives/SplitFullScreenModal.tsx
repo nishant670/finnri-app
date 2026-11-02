@@ -106,7 +106,7 @@ export function SplitFullScreenModal({
         style={[{ flex: 1, backgroundColor: theme.background }, travelStyle]}>
         <SafeAreaView
           className="flex-1"
-          edges={['top', 'left', 'right']}
+          edges={['top', 'left', 'right', 'bottom']}
           style={{ backgroundColor: theme.background }}>
           {children(close)}
         </SafeAreaView>

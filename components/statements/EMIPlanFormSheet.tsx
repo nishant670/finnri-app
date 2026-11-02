@@ -10,6 +10,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { EMIPlanPayload } from '@/lib/emi-plans';
 import { formatMoney } from '@/lib/money';
 import { fromISODate, parseAmountInput, toISODate } from '@/lib/statement-dates';
@@ -45,6 +46,7 @@ export function EMIPlanFormSheet({
   onSubmit: (payload: EMIPlanPayload) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(32);
 
   const [title, setTitle] = useState('');
   const [principal, setPrincipal] = useState('');
@@ -81,8 +83,8 @@ export function EMIPlanFormSheet({
          * dimmed screen behind it — the backdrop was doing all the work and the
          * fields read as though they belonged to the page underneath.
          */
-        className="rounded-t-[28px] border px-6 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-6 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-4 flex-row items-center justify-between">
           <TText className="text-xl" style={{ fontFamily: Fonts.title, color: theme.text }}>
             Split into EMI
@@ -139,7 +141,7 @@ export function EMIPlanFormSheet({
                   className="text-xs"
                   style={{
                     fontFamily: Fonts.title,
-                    color: tenure === months ? '#FFFFFF' : theme.text,
+                    color: tenure === months ? theme.onAccent : theme.text,
                   }}>
                   {months} mo
                 </TText>
@@ -225,11 +227,11 @@ export function EMIPlanFormSheet({
           className="mt-6 h-14 items-center justify-center rounded-full"
           style={{ backgroundColor: canSubmit ? theme.accent : theme.secondary }}>
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.onAccent} />
           ) : (
             <TText
               className="text-base"
-              style={{ fontFamily: Fonts.title, color: canSubmit ? '#FFFFFF' : '#94A3B8' }}>
+              style={{ fontFamily: Fonts.title, color: canSubmit ? theme.onAccent : '#94A3B8' }}>
               Create plan
             </TText>
           )}

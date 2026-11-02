@@ -1,75 +1,55 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, View } from 'react-native';
+import { Fragment, useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
+import { Segments } from '@/components/ui/Segments';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
-import { Fonts } from '@/constants/theme';
+import { mixHex, withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { categoryTile } from '@/lib/categories';
+import {
+  groupNotifications,
+  notificationDestination,
+  notificationKind,
+  notificationTimeLabel,
+  occurrenceIdFromActionURL,
+} from '@/lib/notification-kinds';
 import {
   AppNotification,
-  accountIdFromActionURL,
   fetchNotifications,
-  isRecurringActionURL,
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/lib/notifications';
-import { monthFromActionURL } from '@/lib/monthly-review';
 import { confirmSubscriptionOccurrence, revertSubscriptionOccurrence } from '@/lib/subscriptions';
 
 type Filter = 'all' | 'unread' | 'read';
 
-const iconForType = (type: string): keyof typeof MaterialCommunityIcons.glyphMap => {
-  // Before the generic `created`/`deleted` matches below, which
-  // `split.settlement.*` would otherwise never reach.
-  if (type === 'split.settlement.denied') return 'close-circle-outline';
-  if (type === 'split.settlement.confirmed') return 'check-circle-outline';
-  if (type.startsWith('split.settlement')) return 'hand-coin-outline';
-  if (type.startsWith('split.')) return 'account-group-outline';
-  if (type.includes('budget')) return 'chart-donut';
-  if (type.includes('subscription')) return 'calendar-sync-outline';
-  if (type.includes('created')) return 'plus-circle-outline';
-  if (type.includes('updated')) return 'pencil-circle-outline';
-  if (type.includes('deleted')) return 'trash-can-outline';
-  return 'bell-outline';
+const EMPTY_COPY: Record<Filter, { title: string; body: string }> = {
+  all: {
+    title: 'No notifications yet',
+    body: 'Bill reminders, budget alerts and split updates show up here.',
+  },
+  unread: { title: 'Nothing unread', body: 'New reminders and updates show up here first.' },
+  read: { title: 'Nothing read yet', body: 'Notifications you have opened move here.' },
 };
 
-const formatNotificationTime = (value: string) => {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMinutes = Math.floor(diffMs / 60000);
-  if (diffMinutes < 1) return 'Just now';
-  if (diffMinutes < 60) return `${diffMinutes}m ago`;
-  const diffHours = Math.floor(diffMinutes / 60);
-  if (diffHours < 24) return `${diffHours}h ago`;
-  return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
-};
-
-// The app's own scheme is `finnri://`. `ezmoney://` is the pre-rename scheme,
-// still registered in app.json so links minted by an older build keep working;
-// both spellings reduce to the same router path here.
-const splitInviteTokenFromActionURL = (actionURL?: string) => {
-  if (!actionURL) return null;
-  const trimmed = actionURL.trim();
-  const path = trimmed.replace(/^(?:finnri|ezmoney):\/\//, '/');
-  const match = path.match(/^\/invite\/split\/([^/?#]+)$/);
-  return match?.[1] ?? null;
-};
-
+/**
+ * Notifications (R10-Notif, R10-Notif-Dark, R10-Kinds): grouped Today · Last 7
+ * days · Earlier in cards of inset-divided rows, each with its type's own icon
+ * and tile, and a next step that names the screen it opens. Unread rows are
+ * bold, dotted and faintly warm, with the step drawn as an outlined chip; read
+ * rows keep the step as a plain link. No accent borders.
+ */
 export default function NotificationsScreen() {
   const router = useRouter();
   const { token } = useAuthStore();
-  const theme = useThemeTokens();
-  const colors = theme.colors;
+  const { colors, mode } = useThemeTokens();
   const [filter, setFilter] = useState<Filter>('all');
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -105,11 +85,8 @@ export default function NotificationsScreen() {
     }, [load])
   );
 
-  const emptyLabel = useMemo(() => {
-    if (filter === 'unread') return 'No unread notifications';
-    if (filter === 'read') return 'No read notifications';
-    return 'No notifications yet';
-  }, [filter]);
+  const groups = useMemo(() => groupNotifications(notifications), [notifications]);
+  const unreadFill = mode === 'dark' ? withAlpha(colors.accent, 0.08) : mixHex(colors.card, colors.accent, 0.07);
 
   const openNotification = async (notification: AppNotification) => {
     if (token && !notification.read_at) {
@@ -121,48 +98,8 @@ export default function NotificationsScreen() {
       );
       setUnreadCount((current) => Math.max(0, current - 1));
     }
-
-    const entryMatch = notification.action_url?.match(/^\/entry\/(\d+)$/);
-    if (entryMatch) {
-      router.push({ pathname: '/entry/[id]', params: { id: entryMatch[1] } });
-      return;
-    }
-
-    if (isRecurringActionURL(notification.action_url)) {
-      router.push({ pathname: '/(tabs)/money', params: { segment: 'subscriptions' } });
-      return;
-    }
-
-    const accountId = accountIdFromActionURL(notification.action_url);
-    if (accountId) {
-      router.push({ pathname: '/accounts/[id]', params: { id: accountId } });
-      return;
-    }
-
-    const splitGroupMatch = notification.action_url?.match(/^\/split\/groups\/(\d+)$/);
-    if (splitGroupMatch) {
-      router.push('/(tabs)/split');
-      return;
-    }
-
-    // A settlement has no screen of its own. Both sides of the decision belong
-    // on Splits: the prompt to confirm or deny sits at the top of it, and the
-    // outcome is a row in its activity feed.
-    if (/^\/split\/settlements\/\d+$/.test(notification.action_url ?? '')) {
-      router.push('/(tabs)/split');
-      return;
-    }
-
-    const splitInviteToken = splitInviteTokenFromActionURL(notification.action_url);
-    if (splitInviteToken) {
-      router.push({ pathname: '/invite/split/[token]', params: { token: splitInviteToken } });
-      return;
-    }
-
-    const reviewMonth = monthFromActionURL(notification.action_url);
-    if (reviewMonth) {
-      router.push({ pathname: '/monthly-review', params: { month: reviewMonth } });
-    }
+    const destination = notificationDestination(notification);
+    if (destination) router.push(destination);
   };
 
   const handleMarkAllRead = async () => {
@@ -171,14 +108,9 @@ export default function NotificationsScreen() {
     await load(true);
   };
 
-  const occurrenceID = (actionURL?: string) => {
-    const match = actionURL?.match(/^\/subscription-occurrences\/(\d+)$/);
-    return match ? Number(match[1]) : null;
-  };
-
   const handleOccurrence = async (notification: AppNotification, action: 'confirm' | 'revert') => {
     if (!token) return;
-    const id = occurrenceID(notification.action_url);
+    const id = occurrenceIdFromActionURL(notification.action_url);
     if (!id) return;
     if (action === 'confirm') {
       await confirmSubscriptionOccurrence(token, id);
@@ -192,139 +124,409 @@ export default function NotificationsScreen() {
     });
   };
 
-  return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
-      <AppHeader
-        title="Notifications"
-        subtitle={`${unreadCount} unread`}
-        onBack={() => router.back()}
-        rightNode={
-          <Pressable
-            onPress={handleMarkAllRead}
-            disabled={unreadCount === 0}
-            className="ml-4 h-10 w-10 items-center justify-center rounded-full"
-            style={{ backgroundColor: colors.card, opacity: unreadCount === 0 ? 0.4 : 1 }}
-            hitSlop={12}>
-            <MaterialCommunityIcons name="check-all" size={22} color={colors.accent} />
-          </Pressable>
-        }
-      />
+  const renderRow = (notification: AppNotification) => {
+    const unread = !notification.read_at;
+    const kind = notificationKind(notification.type);
+    const tile = categoryTile(kind, mode);
+    const occurrenceId = occurrenceIdFromActionURL(notification.action_url);
+    const destination = notificationDestination(notification);
+    const action = destination ? kind.action : null;
 
-      <View className="mx-6 mb-4 flex-row rounded-2xl p-1" style={{ backgroundColor: colors.card }}>
-        {(['all', 'unread', 'read'] as Filter[]).map((item) => {
-          const active = filter === item;
-          return (
-            <Pressable
-              key={item}
-              onPress={() => setFilter(item)}
-              className="flex-1 items-center rounded-xl py-2"
-              style={{ backgroundColor: active ? colors.secondary : 'transparent' }}>
-              <ThemedText
-                className="text-xs font-black uppercase"
-                style={{ color: active ? colors.accent : '#8C8588' }}>
-                {item}
+    return (
+      <View
+        testID={`notification-${notification.id}`}
+        style={unread ? { backgroundColor: unreadFill } : undefined}>
+        <PressableView
+          accessibilityRole="button"
+          accessibilityLabel={`${unread ? 'Unread. ' : ''}${notification.title}`}
+          accessibilityHint={action ?? undefined}
+          onPress={() => void openNotification(notification)}
+          style={styles.row}
+          pressedStyle={styles.pressed}>
+          <View style={[styles.tile, { backgroundColor: tile.background }]}>
+            <MaterialCommunityIcons name={kind.icon} size={22} color={tile.foreground} />
+          </View>
+          <View style={styles.rowText}>
+            <View style={styles.titleLine}>
+              <ThemedText style={[styles.title, { fontWeight: unread ? '700' : '500' }]}>
+                {notification.title}
               </ThemedText>
-            </Pressable>
-          );
-        })}
+              <View style={styles.time}>
+                <ThemedText tone="muted" style={styles.timeLabel}>
+                  {notificationTimeLabel(notification.created_at)}
+                </ThemedText>
+                {unread ? (
+                  <View
+                    accessibilityElementsHidden
+                    style={[styles.dot, { backgroundColor: colors.accent }]}
+                  />
+                ) : null}
+              </View>
+            </View>
+            {notification.body ? (
+              <ThemedText tone="muted" numberOfLines={2} style={styles.body}>
+                {notification.body}
+              </ThemedText>
+            ) : null}
+            {action ? (
+              unread ? (
+                <View
+                  style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}>
+                  <ThemedText style={styles.actionLabel}>{action}</ThemedText>
+                  <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
+                </View>
+              ) : (
+                <View style={styles.link}>
+                  <ThemedText style={styles.actionLabel}>{action}</ThemedText>
+                  <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
+                </View>
+              )
+            ) : null}
+          </View>
+        </PressableView>
+        {/* Outside the row's own press target, so each button is its own tap
+            rather than a button nested in a button. Outlined, never accent. */}
+        {occurrenceId ? (
+          <View style={styles.occurrenceActions}>
+            {(['confirm', 'revert'] as const).map((choice) => (
+              <PressableView
+                key={choice}
+                accessibilityRole="button"
+                onPress={() => void handleOccurrence(notification, choice)}
+                style={[styles.chip, styles.occurrenceChip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
+                pressedStyle={styles.pressed}>
+                <ThemedText style={styles.actionLabel}>{choice === 'confirm' ? 'Confirm' : 'Fix it'}</ThemedText>
+              </PressableView>
+            ))}
+          </View>
+        ) : null}
+      </View>
+    );
+  };
+
+  const empty = EMPTY_COPY[filter];
+
+  return (
+    <SafeAreaView
+      style={[styles.screen, { backgroundColor: colors.background }]}
+      edges={['top', 'left', 'right', 'bottom']}>
+      <View style={styles.header}>
+        <PressableView
+          accessibilityRole="button"
+          accessibilityLabel="Back"
+          onPress={() => router.back()}
+          style={styles.back}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="chevron-left" size={28} color={colors.text} />
+        </PressableView>
+        <ThemedText accessibilityRole="header" numberOfLines={1} style={styles.heading}>
+          Notifications
+        </ThemedText>
+        {/* Only when there is something to mark. */}
+        {unreadCount > 0 ? (
+          <PressableView
+            testID="notifications-mark-all"
+            accessibilityRole="button"
+            onPress={() => void handleMarkAllRead()}
+            style={styles.markAll}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="check-all" size={18} color={colors.text} />
+            <ThemedText style={styles.markAllLabel}>Mark all read</ThemedText>
+          </PressableView>
+        ) : null}
       </View>
 
+      <Segments
+        active={filter}
+        onChange={setFilter}
+        style={styles.filter}
+        options={[
+          { key: 'all', label: 'All' },
+          { key: 'unread', label: 'Unread', count: unreadCount },
+          { key: 'read', label: 'Read' },
+        ]}
+      />
+
       {loading ? (
-        <SkeletonFrame
-          label="Loading notifications"
-          testID="notifications-skeleton"
-          style={{ paddingHorizontal: 20, paddingTop: 16 }}>
+        <SkeletonFrame label="Loading notifications" testID="notifications-skeleton" style={styles.skeleton}>
           <SkeletonRows count={6} showAmount={false} lines={3} />
         </SkeletonFrame>
       ) : error ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <MaterialCommunityIcons name="alert-circle-outline" size={36} color="#D32F2F" />
-          <ThemedText className="mt-3 text-center text-sm opacity-60">{error}</ThemedText>
-        </View>
-      ) : notifications.length === 0 ? (
-        <View className="flex-1 items-center justify-center px-8">
-          <MaterialCommunityIcons name="bell-sleep-outline" size={42} color="#A7A1A3" />
-          <ThemedText className="mt-3 text-center text-sm font-black">{emptyLabel}</ThemedText>
+        <View style={styles.message}>
+          <MaterialCommunityIcons name="alert-circle-outline" size={32} color={colors.negative} />
+          <ThemedText tone="muted" style={styles.messageBody}>
+            {error}
+          </ThemedText>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 32 }}>
-          <View className="gap-3">
-            {notifications.map((notification) => {
-              const unread = !notification.read_at;
-              return (
-                <Pressable
-                  key={notification.id}
-                  onPress={() => void openNotification(notification)}
-                  className="flex-row items-start rounded-[28px] p-4"
-                  style={{
-                    backgroundColor: colors.card,
-                    borderWidth: 1,
-                    borderColor: unread ? colors.accent : colors.border,
-                  }}>
-                  <View
-                    className="mr-4 h-11 w-11 items-center justify-center rounded-2xl"
-                    style={{ backgroundColor: unread ? colors.secondary : '#F4F1F3' }}>
-                    <MaterialCommunityIcons
-                      name={iconForType(notification.type)}
-                      size={22}
-                      color={unread ? colors.accent : '#8C8588'}
-                    />
-                  </View>
-                  <View className="flex-1">
-                    <View className="flex-row items-start justify-between gap-3">
-                      <ThemedText
-                        className="flex-1 text-sm font-black"
-                        style={{ fontFamily: Fonts.title }}>
-                        {notification.title}
-                      </ThemedText>
-                      <ThemedText className="text-[11px] opacity-40">
-                        {formatNotificationTime(notification.created_at)}
-                      </ThemedText>
-                    </View>
-                    <ThemedText className="mt-1 text-xs leading-5 opacity-60">
-                      {notification.body}
-                    </ThemedText>
-                    {occurrenceID(notification.action_url) && (
-                      <View className="mt-3 flex-row gap-2">
-                        <Pressable
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            void handleOccurrence(notification, 'confirm');
-                          }}
-                          className="rounded-xl px-4 py-2"
-                          style={{ backgroundColor: colors.accent }}>
-                          <ThemedText tone="onAccent" className="text-xs font-black">
-                            Confirm
-                          </ThemedText>
-                        </Pressable>
-                        <Pressable
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            void handleOccurrence(notification, 'revert');
-                          }}
-                          className="rounded-xl border px-4 py-2"
-                          style={{ borderColor: colors.accent }}>
-                          <ThemedText
-                            className="text-xs font-black"
-                            style={{ color: colors.accent }}>
-                            Fix it
-                          </ThemedText>
-                        </Pressable>
-                      </View>
-                    )}
-                  </View>
-                  {unread && (
-                    <View
-                      className="ml-2 mt-2 h-2 w-2 rounded-full"
-                      style={{ backgroundColor: colors.accent }}
-                    />
-                  )}
-                </Pressable>
-              );
-            })}
-          </View>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {unreadCount === 0 && filter !== 'read' && notifications.length > 0 ? (
+            <View
+              accessibilityRole="summary"
+              style={[styles.caughtUp, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <View style={[styles.caughtUpIcon, { backgroundColor: withAlpha(colors.positive, 0.14) }]}>
+                <MaterialCommunityIcons name="check" size={18} color={colors.positive} />
+              </View>
+              <View>
+                <ThemedText style={styles.caughtUpTitle}>You’re all caught up</ThemedText>
+                <ThemedText tone="muted" style={styles.caughtUpBody}>
+                  Nothing new since you last looked.
+                </ThemedText>
+              </View>
+            </View>
+          ) : null}
+
+          {groups.length === 0 ? (
+            <>
+              <ThemedText tone="muted" style={styles.groupLabel}>
+                Nothing yet
+              </ThemedText>
+              <View style={[styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={[styles.emptyIcon, { backgroundColor: colors.track }]}>
+                  <MaterialCommunityIcons name="bell-outline" size={22} color={colors.text} />
+                </View>
+                <ThemedText style={styles.emptyTitle}>{empty.title}</ThemedText>
+                <ThemedText tone="muted" style={styles.emptyBody}>
+                  {empty.body}
+                </ThemedText>
+              </View>
+            </>
+          ) : (
+            groups.map(({ group, items }) => (
+              <View key={group}>
+                <ThemedText tone="muted" style={styles.groupLabel}>
+                  {group}
+                </ThemedText>
+                <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {items.map((notification, index) => (
+                    <Fragment key={notification.id}>
+                      {index > 0 ? <View style={[styles.divider, { backgroundColor: colors.border }]} /> : null}
+                      {renderRow(notification)}
+                    </Fragment>
+                  ))}
+                </View>
+              </View>
+            ))
+          )}
         </ScrollView>
       )}
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+  },
+  header: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+  },
+  back: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heading: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: '700',
+  },
+  markAll: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+  },
+  markAllLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  filter: {
+    marginTop: 4,
+    marginHorizontal: 16,
+  },
+  skeleton: {
+    paddingHorizontal: 16,
+    paddingTop: 20,
+  },
+  message: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    gap: 12,
+  },
+  messageBody: {
+    textAlign: 'center',
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  content: {
+    paddingBottom: 32,
+  },
+  caughtUp: {
+    marginTop: 14,
+    marginHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  caughtUpIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  caughtUpTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  caughtUpBody: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  groupLabel: {
+    marginTop: 20,
+    marginBottom: 8,
+    marginHorizontal: 16,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  card: {
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  divider: {
+    height: 1,
+    marginLeft: 66,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    padding: 14,
+  },
+  tile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rowText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  titleLine: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  title: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  time: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  timeLabel: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  dot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  body: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  chip: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingLeft: 14,
+    paddingRight: 8,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  link: {
+    marginTop: 2,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  actionLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  occurrenceActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: -8,
+    paddingLeft: 66,
+    paddingBottom: 14,
+  },
+  occurrenceChip: {
+    marginTop: 0,
+    paddingRight: 14,
+  },
+  empty: {
+    marginHorizontal: 16,
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 24,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  emptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  emptyBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

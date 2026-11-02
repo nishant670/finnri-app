@@ -1,6 +1,7 @@
-import { Pressable } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type PillProps = {
@@ -10,22 +11,41 @@ type PillProps = {
   colors: ReturnType<typeof useThemeTokens>['colors'];
 };
 
+/** A choice chip (board R5-NewLoan): tinted, ringed and bold when chosen; ink, never accent text. */
 export function Pill({ label, selected, onPress, colors }: PillProps) {
   return (
-    <Pressable
+    <PressableView
       accessibilityRole="button"
       accessibilityState={{ selected }}
       onPress={onPress}
-      className="min-h-11 justify-center rounded-full border px-3 py-2"
-      style={{
-        backgroundColor: selected ? colors.secondary : colors.background,
-        borderColor: selected ? colors.accent : colors.border,
-      }}>
-      <ThemedText
-        className="text-[11px] font-black"
-        style={{ color: selected ? colors.accent : `${colors.text}99` }}>
+      style={[
+        styles.pill,
+        {
+          backgroundColor: selected ? colors.selectedFill : colors.card,
+          borderColor: selected ? colors.selectedBorder : colors.border,
+        },
+      ]}
+      pressedStyle={styles.pressed}>
+      <ThemedText style={[styles.label, { color: colors.text, fontWeight: selected ? '700' : '500' }]}>
         {label}
       </ThemedText>
-    </Pressable>
+    </PressableView>
   );
 }
+
+const styles = StyleSheet.create({
+  pill: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  label: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+});

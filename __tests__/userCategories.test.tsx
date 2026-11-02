@@ -163,7 +163,8 @@ describe('a category the user adds', () => {
     const onSave = jest.fn().mockResolvedValue(undefined);
     const first = await renderForm({ ...blankForm, type: 'Income', category: 'Other' }, onSave);
 
-    await fireEvent.press(await first.findByTestId('entry-category-chip'));
+    await fireEvent.press(await first.findByTestId('entry-category-picker'));
+    await fireEvent.press(await first.findByText('New category'));
     await fireEvent.changeText(await first.findByTestId('entry-custom-category-input'), 'Dividend');
     await fireEvent.press(await first.findByTestId('entry-add-custom-category-button'));
     expect(await first.findByLabelText('Category Dividend')).toBeTruthy();
@@ -171,7 +172,7 @@ describe('a category the user adds', () => {
 
     // A new form, for a different income: Dividend is in the picker now.
     const second = await renderForm({ ...blankForm, type: 'Income', category: 'Other' });
-    await fireEvent.press(await second.findByTestId('entry-category-chip'));
+    await fireEvent.press(await second.findByTestId('entry-category-picker'));
     expect(await second.findByText('Dividend')).toBeTruthy();
   });
 
@@ -179,7 +180,7 @@ describe('a category the user adds', () => {
     serveCategories({ expense: ['Pet Care'], income: [] });
     const ui = await renderForm(blankForm);
 
-    await fireEvent.press(await ui.findByTestId('entry-category-chip'));
+    await fireEvent.press(await ui.findByTestId('entry-category-picker'));
     expect(await ui.findByText('Pet Care')).toBeTruthy();
   });
 });
@@ -242,12 +243,14 @@ describe('tags on income', () => {
   it('are not offered', async () => {
     serveCategories({ expense: [], income: [] });
     const expense = await renderForm(blankForm);
-    expect(await expense.findByLabelText('Add tag')).toBeTruthy();
+    await fireEvent.press(await expense.findByTestId('entry-more-details'));
+    expect(await expense.findByTestId('entry-tag-picker')).toBeTruthy();
     await expense.unmount();
 
     const income = await renderForm({ ...blankForm, type: 'Income', category: 'Other' });
-    await income.findByLabelText('Add note');
-    expect(income.queryByLabelText('Add tag')).toBeNull();
+    await fireEvent.press(await income.findByTestId('entry-more-details'));
+    await income.findByTestId('entry-notes-input');
+    expect(income.queryByTestId('entry-tag-picker')).toBeNull();
   });
 
   it("drop an expense's tag when the entry becomes income", async () => {

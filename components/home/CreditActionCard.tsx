@@ -1,50 +1,93 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { type CreditActionState } from '@/lib/home-capture';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type CreditActionCardProps = {
   creditAction: CreditActionState;
+  /** A quiet line under the message, such as "950 total credits left". */
+  footnote?: string | null;
   onPress: () => void;
 };
 
-export function CreditActionCard({ creditAction, onPress }: CreditActionCardProps) {
-  const themeTokens = useThemeTokens();
-  const isDark = themeTokens.mode === 'dark';
+/**
+ * Why a capture was refused, and the way past it (board R1-Home-UsedUp): an
+ * amber block, the state in warning ink, the action as an outlined pill so the
+ * screen's one accent stays on capture.
+ */
+export function CreditActionCard({ creditAction, footnote, onPress }: CreditActionCardProps) {
+  const { colors } = useThemeTokens();
 
   return (
     <View
-      className="mx-6 mb-6 rounded-2xl border p-4"
-      style={{
-        backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : '#FFF8F4',
-        borderColor: themeTokens.colors.border,
-      }}>
-      <View className="flex-row items-start gap-3">
-        <View
-          className="h-9 w-9 items-center justify-center rounded-full"
-          style={{ backgroundColor: themeTokens.colors.secondary }}>
-          <MaterialCommunityIcons name="creation" size={18} color={themeTokens.colors.accent} />
-        </View>
-        <View className="min-w-0 flex-1">
-          <ThemedText className="font-bold" style={{ color: themeTokens.colors.text }}>
-            {creditAction.title}
+      accessibilityRole="alert"
+      style={[
+        styles.card,
+        { backgroundColor: colors.warningSurface, borderColor: colors.warningBorder },
+      ]}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={20} color={colors.warning} />
+      <View style={styles.text}>
+        <ThemedText style={[styles.title, { color: colors.warning }]}>
+          {creditAction.title}
+        </ThemedText>
+        <ThemedText style={[styles.message, { color: colors.mutedStrong }]}>
+          {creditAction.message}
+        </ThemedText>
+        {footnote ? (
+          <ThemedText tone="muted" style={styles.footnote}>
+            {footnote}
           </ThemedText>
-          <ThemedText className="mt-1 text-xs" style={{ color: `${themeTokens.colors.text}99` }}>
-            {creditAction.message}
-          </ThemedText>
-          <Pressable
-            accessibilityRole="button"
+        ) : null}
+        <View style={styles.actionRow}>
+          <Button
+            label={creditAction.actionLabel}
+            variant="outline"
+            height={40}
             onPress={onPress}
-            className="mt-3 self-start rounded-full px-4 py-2"
-            style={{ backgroundColor: themeTokens.colors.accent }}>
-            <ThemedText tone="onAccent" className="text-xs font-bold">
-              {creditAction.actionLabel}
-            </ThemedText>
-          </Pressable>
+            style={{ backgroundColor: colors.card, borderColor: colors.warningOutline }}
+          />
         </View>
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingTop: 14,
+    paddingBottom: 16,
+    paddingLeft: 16,
+    paddingRight: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  text: {
+    flex: 1,
+    minWidth: 0,
+    gap: 4,
+  },
+  title: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  message: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  footnote: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+});

@@ -79,7 +79,7 @@ export const resetHourClockCache = () => {
  * timestamp, the parser's `HH:MM[:SS]`, or the legacy `10:09 PM` display
  * string that older manual entries wrote.
  */
-const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
+export const parseTimeOfDay = (value: Date | string | null | undefined): TimeOfDay | null => {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime())
       ? null
@@ -136,6 +136,14 @@ export const formatTime = (value: Date | string | null | undefined): string | nu
 };
 
 /**
+ * A time label as the redesign draws it on a row: "3:48 pm", not "3:48 PM".
+ * Display only — `formatTime` keeps its capitals because the transaction form
+ * stores what it returns. A 24-hour label passes through unchanged.
+ */
+export const rowTimeLabel = (label: string): string =>
+  label.replace(/\s(AM|PM)$/, (meridiem) => meridiem.toLowerCase());
+
+/**
  * The canonical `HH:MM` we put on the wire, matching the shape the AI parser
  * already emits. Storing the display string is what let two clocks into the
  * database in the first place.
@@ -186,3 +194,13 @@ export const formatRelativeDay = (value: string | Date | null | undefined): stri
   }
   return `${dayStart.getDate()} ${month} ${dayStart.getFullYear()}`;
 };
+
+const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "8 Oct", in the reader's own time zone. Spelled out rather than taken from
+ * `toLocaleDateString('en-IN', { month: 'short' })`, which writes September as
+ * "Sept" and so breaks the three-letter run every other month keeps.
+ */
+export const formatDayMonth = (date: Date): string =>
+  `${date.getDate()} ${SHORT_MONTHS[date.getMonth()]}`;

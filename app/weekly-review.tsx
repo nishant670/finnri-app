@@ -1,17 +1,28 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Stack, router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, TouchableOpacity, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import {
+  Eyebrow,
+  HueTile,
+  InsightCard,
+  MetricStrip,
+  NavCard,
+  insightText,
+} from '@/components/insights/insight-ui';
+import { SectionHeader } from '@/components/insights/SectionHeader';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { ListRow } from '@/components/ui/ListRow';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { categoryVisual } from '@/lib/categories';
 import { formatMoney } from '@/lib/money';
 import { DashboardResponse, fetchDashboard } from '@/lib/insights';
 
@@ -41,7 +52,6 @@ export default function WeeklyReviewScreen() {
   const params = useLocalSearchParams();
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const muted = `${colors.text}99`;
   const { token } = useAuthStore();
   const fallbackRange = useMemo(() => defaultWeeklyRange(), []);
   const start = toParam(params.start) ?? fallbackRange.start;
@@ -135,98 +145,139 @@ export default function WeeklyReviewScreen() {
     };
   }, [budgetRisks, dashboard, end, label, recurringDue.length, reviewCount, start]);
 
+  const topCategory = dashboard?.top_categories[0];
+  const topMerchant = dashboard?.top_merchants[0];
+
   return (
-    <SafeAreaView className="flex-1" style={{ backgroundColor: colors.background }}>
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
-      <AppHeader title="Weekly review" subtitle={label} onBack={() => router.back()} rightIcon="refresh" onRightPress={load} />
+      <AppHeader
+        title="Weekly review"
+        subtitle={label}
+        onBack={() => router.back()}
+        style={{ paddingHorizontal: 16, paddingVertical: 10 }}
+        rightNode={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Reload"
+            onPress={load}
+            style={styles.headerIcon}>
+            <MaterialCommunityIcons name="refresh" size={24} color={colors.text} />
+          </Pressable>
+        }
+      />
 
       {loading && !dashboard ? (
         <SkeletonFrame
           label="Loading weekly review"
           testID="weekly-review-skeleton"
-          style={{ paddingHorizontal: 20, paddingTop: 16, gap: 16 }}>
-          <SkeletonCards count={4} lines={3} radius={28} />
+          style={{ paddingHorizontal: 16, paddingTop: 16, gap: 16 }}>
+          <SkeletonCards count={4} lines={3} radius={16} />
         </SkeletonFrame>
       ) : !dashboard ? (
-        <View className="flex-1 justify-center">
-          <StateView icon={error ? 'wifi-off' : 'file-chart'} title={error ? 'Review did not load' : 'No review yet'} message={error || 'Add transactions to generate a weekly review.'} actionLabel="Try again" onAction={load} />
+        <View style={styles.center}>
+          <StateView
+            icon={error ? 'wifi-off' : 'file-chart'}
+            title={error ? 'Review did not load' : 'No review yet'}
+            message={error || 'Add transactions to generate a weekly review.'}
+            actionLabel="Try again"
+            onAction={load}
+          />
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 110, gap: 16 }}>
-          {error && (
-            <ErrorBanner message={error} onRetry={load} />
-          )}
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+          {error && <ErrorBanner message={error} onRetry={load} />}
 
-          <View className="rounded-[28px] border p-5 shadow-sm" style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-            <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">This period</ThemedText>
-            <ThemedText className="mt-2 text-4xl font-black" numberOfLines={1} adjustsFontSizeToFit>
+          <InsightCard>
+            <Eyebrow>This period</Eyebrow>
+            <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[insightText.figure, { color: colors.text }]}>
               {formatMoney(dashboard.summary.total_spent)}
             </ThemedText>
-            <ThemedText className="mt-1 text-xs" style={{ color: muted }}>
-              {dashboard.summary.transaction_count} confirmed transactions · {formatMoney(dashboard.summary.daily_average)}/day
+            <ThemedText tone="muted" style={insightText.body}>
+              {dashboard.summary.transaction_count} confirmed transactions ·{' '}
+              {formatMoney(dashboard.summary.daily_average)} a day
             </ThemedText>
-            <View className="mt-5 flex-row gap-3">
-              <MiniStat label="Income" value={formatMoney(dashboard.summary.total_income)} />
-              <MiniStat label="Budgets" value={String(budgetRisks.length)} />
-              <MiniStat label="Recurring" value={String(recurringDue.length)} />
-            </View>
-          </View>
+            <MetricStrip
+              items={[
+                { label: 'Income', value: formatMoney(dashboard.summary.total_income) },
+                { label: 'Budgets', value: String(budgetRisks.length) },
+                { label: 'Recurring', value: String(recurringDue.length) },
+              ]}
+            />
+          </InsightCard>
 
           {topAction && (
-            <TouchableOpacity
-              activeOpacity={0.84}
+            <NavCard
+              icon={topAction.icon}
+              hue={colors.accent}
+              eyebrow="Next step"
+              title={topAction.title}
+              body={topAction.body}
               onPress={topAction.onPress}
-              className="rounded-[24px] border p-5"
-              style={{ backgroundColor: colors.card, borderColor: colors.border }}>
-              <View className="flex-row items-start gap-4">
-                <View className="h-12 w-12 items-center justify-center rounded-2xl" style={{ backgroundColor: colors.secondary }}>
-                  <MaterialCommunityIcons name={topAction.icon} size={23} color={colors.accent} />
-                </View>
-                <View className="flex-1">
-                  <ThemedText tone="muted" className="text-[10px] font-black uppercase tracking-widest">Next action</ThemedText>
-                  <ThemedText className="mt-1 text-lg font-black">{topAction.title}</ThemedText>
-                  <ThemedText className="mt-1 text-xs leading-5" style={{ color: muted }}>{topAction.body}</ThemedText>
-                </View>
-                <MaterialCommunityIcons name="chevron-right" size={22} color={colors.accent} />
-              </View>
-            </TouchableOpacity>
+            />
           )}
 
-          <ReviewSection title="Highlights">
-            <ReviewRow
-              icon="shape-outline"
-              title={dashboard.top_categories[0]?.category ?? 'No category leader'}
-              body={dashboard.top_categories[0] ? `${formatMoney(dashboard.top_categories[0].amount)} · ${Math.round(dashboard.top_categories[0].percentage)}% of spend` : 'More transactions will reveal a category pattern.'}
-            />
-            <ReviewRow
-              icon="storefront-outline"
-              title={dashboard.top_merchants[0]?.merchant ?? 'No merchant leader'}
-              body={dashboard.top_merchants[0] ? `${formatMoney(dashboard.top_merchants[0].amount)} across ${dashboard.top_merchants[0].transaction_count} transaction(s)` : 'Merchant insights appear after merchant-tagged expenses.'}
-            />
-          </ReviewSection>
+          <SectionHeader title="Highlights">
+            <InsightCard flush>
+              <ListRow
+                icon={topCategory ? categoryVisual(topCategory.category).icon : 'shape-outline'}
+                hue={topCategory ? categoryVisual(topCategory.category).color : colors.neutral}
+                title={topCategory?.category ?? 'No category leader'}
+                meta={
+                  topCategory
+                    ? `${Math.round(topCategory.percentage)}% of spend`
+                    : 'More transactions will reveal a category pattern.'
+                }
+                amount={topCategory ? formatMoney(topCategory.amount) : undefined}
+              />
+              <ListRow
+                icon="storefront-outline"
+                hue={colors.neutral}
+                title={topMerchant?.merchant ?? 'No merchant leader'}
+                meta={
+                  topMerchant
+                    ? `${topMerchant.transaction_count} transaction${topMerchant.transaction_count === 1 ? '' : 's'}`
+                    : 'Merchant insights appear after merchant-tagged expenses.'
+                }
+                amount={topMerchant ? formatMoney(topMerchant.amount) : undefined}
+                divider
+              />
+            </InsightCard>
+          </SectionHeader>
 
           {(budgetRisks.length > 0 || recurringDue.length > 0 || warnings.length > 0) && (
-            <ReviewSection title="Needs Attention">
-              {budgetRisks.slice(0, 2).map((budget) => (
-                <ReviewRow
-                  key={`budget-${budget.budget_id}`}
-                  icon="chart-donut"
-                  title={`${budget.category || budget.name} budget ${budget.status}`}
-                  body={`${Math.round(budget.percentage)}% used · ${formatMoney(budget.remaining_amount)} left`}
-                />
-              ))}
-              {recurringDue.slice(0, 2).map((candidate) => (
-                <ReviewRow
-                  key={`recurring-${candidate.candidate_key}`}
-                  icon="repeat-variant"
-                  title={candidate.label}
-                  body={`${formatMoney(candidate.average_amount)} expected around ${candidate.next_expected_date}`}
-                />
-              ))}
-              {warnings.slice(0, 2).map((warning) => (
-                <ReviewRow key={`warning-${warning.kind}-${warning.title}`} icon="alarm-light-outline" title={warning.title} body={warning.body} />
-              ))}
-            </ReviewSection>
+            <SectionHeader title="Needs attention">
+              <InsightCard flush>
+                {[
+                  ...budgetRisks.slice(0, 2).map((budget) => ({
+                    key: `budget-${budget.budget_id}`,
+                    icon: 'chart-donut' as const,
+                    hue: budget.status === 'exceeded' ? colors.negative : colors.warning,
+                    title: `${budget.category || budget.name} budget ${budget.status}`,
+                    body: `${Math.round(budget.percentage)}% used · ${formatMoney(budget.remaining_amount)} left`,
+                  })),
+                  ...recurringDue.slice(0, 2).map((candidate) => ({
+                    key: `recurring-${candidate.candidate_key}`,
+                    icon: 'repeat-variant' as const,
+                    hue: colors.accent,
+                    title: candidate.label,
+                    body: `${formatMoney(candidate.average_amount)} expected around ${candidate.next_expected_date}`,
+                  })),
+                  ...warnings.slice(0, 2).map((warning) => ({
+                    key: `warning-${warning.kind}-${warning.title}`,
+                    icon: 'alarm-light-outline' as const,
+                    hue: colors.warning,
+                    title: warning.title,
+                    body: warning.body,
+                  })),
+                ].map(({ key, ...item }, index) => (
+                  <AttentionRow key={key} {...item} divider={index > 0} />
+                ))}
+              </InsightCard>
+            </SectionHeader>
           )}
         </ScrollView>
       )}
@@ -234,47 +285,70 @@ export default function WeeklyReviewScreen() {
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
-  const theme = useThemeTokens();
-  return (
-    <View className="flex-1 rounded-2xl border px-3 py-3" style={{ backgroundColor: theme.colors.background, borderColor: theme.colors.border }}>
-      <ThemedText tone="muted" className="text-[10px] font-black uppercase">{label}</ThemedText>
-      <ThemedText className="mt-1 text-sm font-black" numberOfLines={1}>{value}</ThemedText>
-    </View>
-  );
-}
-
-function ReviewSection({ title, children }: { title: string; children: React.ReactNode }) {
-  const theme = useThemeTokens();
-  return (
-    <View>
-      <ThemedText className="mb-3 px-1 text-lg font-black">{title}</ThemedText>
-      <View className="overflow-hidden rounded-[24px] border" style={{ backgroundColor: theme.colors.card, borderColor: theme.colors.border }}>
-        {children}
-      </View>
-    </View>
-  );
-}
-
-function ReviewRow({
+/** A row that explains rather than opens: tile, title, and a body that may wrap. */
+function AttentionRow({
   icon,
+  hue,
   title,
   body,
+  divider,
 }: {
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  hue: string;
   title: string;
   body: string;
+  divider: boolean;
 }) {
-  const theme = useThemeTokens();
+  const { colors } = useThemeTokens();
   return (
-    <View className="flex-row items-center border-b border-gray-100 p-4 last:border-b-0 dark:border-gray-700">
-      <View className="mr-3 h-10 w-10 items-center justify-center rounded-2xl" style={{ backgroundColor: theme.colors.secondary }}>
-        <MaterialCommunityIcons name={icon} size={19} color={theme.colors.accent} />
-      </View>
-      <View className="flex-1">
-        <ThemedText className="text-sm font-black" numberOfLines={1}>{title}</ThemedText>
-        <ThemedText tone="muted" className="mt-1 text-xs leading-5" numberOfLines={2}>{body}</ThemedText>
+    <View style={[styles.attention, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}>
+      <HueTile icon={icon} hue={hue} />
+      <View style={styles.attentionText}>
+        <ThemedText numberOfLines={1} style={[styles.attentionTitle, { color: colors.text }]}>
+          {title}
+        </ThemedText>
+        <ThemedText tone="muted" numberOfLines={2} style={insightText.caption}>
+          {body}
+        </ThemedText>
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  center: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  content: {
+    gap: 20,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: 48,
+  },
+  attention: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  attentionText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  attentionTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  headerIcon: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+    marginRight: -8,
+  },
+});

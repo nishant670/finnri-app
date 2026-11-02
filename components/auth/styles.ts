@@ -217,7 +217,6 @@ export const styles = StyleSheet.create({
     height: 60,
     borderRadius: 30,
     borderWidth: 1,
-    backgroundColor: 'white',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
