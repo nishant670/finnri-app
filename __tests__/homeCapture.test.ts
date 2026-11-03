@@ -405,12 +405,10 @@ describe('quick prompts', () => {
     expect(form.date).toContain('2026');
   });
 
-  it('gives the editor defaults for a new prompt', () => {
-    expect(quickPromptEditorData(null, accounts, now)).toMatchObject({
-      category: 'Food & Drinks',
-      mode: 'Cash',
-      type: 'Expense',
-    });
+  it('gives the editor defaults for a new prompt, leaving the category to the title', () => {
+    const data = quickPromptEditorData(null, accounts, now);
+    expect(data).toMatchObject({ mode: 'Cash', type: 'Expense' });
+    expect(data).not.toHaveProperty('category');
   });
 
   it('fills the editor from an existing prompt, account and all', () => {

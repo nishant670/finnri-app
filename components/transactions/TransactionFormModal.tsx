@@ -479,6 +479,14 @@ export function TransactionFormModal({
    * creation is a form for a shortcut, not a transaction.
    */
   const fastEntry = mode === 'manual' && !isEdit;
+  /**
+   * Whether the category follows the title ("E rickshaw" is Transport) and the
+   * mode follows the category. Wider than `fastEntry`: a new quick prompt has
+   * the full layout but is still a blank form being filled in, and it used to
+   * keep whatever category it opened on — every new prompt was Food & Drinks.
+   * Editing anything saved keeps what was saved.
+   */
+  const followsTitle = !isEdit && (mode === 'manual' || mode === 'quick-prompt');
 
   /**
    * The AI draft review: the same sheet, but ranked by how sure the parser
@@ -643,7 +651,7 @@ export function TransactionFormModal({
    */
   const followCategoryMode = useCallback(
     (next: EntryForm): EntryForm => {
-      if (!fastEntry || modeChosenRef.current) return next;
+      if (!followsTitle || modeChosenRef.current) return next;
       const usual = usualModeForCategory(next.category, next.type);
       const mode =
         usual && getAccountsForPaymentMode(accounts, usual).length > 0
@@ -652,7 +660,7 @@ export function TransactionFormModal({
       if (mode === next.mode) return next;
       return resolveEntryFormAccount({ ...next, mode, accountId: null, account: '' });
     },
-    [accounts, fastEntry, resolveEntryFormAccount]
+    [accounts, followsTitle, resolveEntryFormAccount]
   );
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
   /** Flagged fields the user has since opened or edited. */
@@ -668,6 +676,28 @@ export function TransactionFormModal({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [splitShareMode, setSplitShareMode] = useState<TransactionSplitShareMode>('amount');
   const [isDiscardDialogVisible, setIsDiscardDialogVisible] = useState(false);
+  /**
+   * Deleting a prompt asks first and reports a failure here. It used to fire
+   * on the tap — one stray touch under Save removed the prompt — and a failed
+   * request was an unhandled rejection with nothing on screen.
+   */
+  const [isDeleteDialogVisible, setIsDeleteDialogVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const confirmDelete = async () => {
+    setIsDeleteDialogVisible(false);
+    if (!onDelete || isDeleting) return;
+    setIsDeleting(true);
+    setFormError(null);
+    try {
+      await onDelete();
+      haptics.removed();
+    } catch (error) {
+      haptics.rejected();
+      setFormError(getFriendlyErrorMessage(error, 'Unable to delete this prompt right now.'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
   const [customCategory, setCustomCategory] = useState('');
   const autoFocusedFieldRef = useRef<string | null>(null);
   const amountInputRef = useRef<TextInput>(null);
@@ -1133,7 +1163,7 @@ export function TransactionFormModal({
     defaultCategoryForType(type);
 
   const handleTitleChange = (title: string) => {
-    const shouldInfer = fastEntry && !categoryChosenRef.current;
+    const shouldInfer = followsTitle && !categoryChosenRef.current;
     setFormError(null);
     setForm((previous) =>
       followCategoryMode({
@@ -1147,7 +1177,7 @@ export function TransactionFormModal({
   };
 
   const handleMerchantChange = (merchant: string) => {
-    const shouldInfer = fastEntry && !categoryChosenRef.current;
+    const shouldInfer = followsTitle && !categoryChosenRef.current;
     setForm((previous) =>
       followCategoryMode({
         ...previous,
@@ -1172,7 +1202,7 @@ export function TransactionFormModal({
         ...previous,
         type,
         category:
-          (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
+          (followsTitle ? inferTransactionCategory(previous.title, type) : null) ??
           defaultCategoryForType(type),
         // See `tagsApply`: an expense's tag has nothing to mean on income.
         tag: type === 'Income' ? 'General' : previous.tag,
@@ -1297,13 +1327,15 @@ export function TransactionFormModal({
     });
     categoryChosenRef.current =
       normalizeCategoryValue(seeded.category, seeded.type) !== defaultCategoryForType(seeded.type);
-    if (fastEntry && !categoryChosenRef.current) {
+    if (followsTitle && !categoryChosenRef.current) {
       seeded.category =
         inferTransactionCategory(seeded.title, seeded.type) ?? defaultCategoryForType(seeded.type);
     }
     // A mode or account the caller brought (a quick prompt, a draft) was chosen
-    // by someone; the blank form's Cash was not.
+    // by someone; the blank form's Cash was not. A caller that settled the
+    // category settled the mode with it — a Cash salary prompt stays Cash.
     modeChosenRef.current =
+      categoryChosenRef.current ||
       initialData?.accountId != null ||
       (initialData?.mode != null && initialData.mode !== DEFAULT_PAYMENT_MODE);
     seededModeRef.current = seeded.mode;
@@ -1318,7 +1350,7 @@ export function TransactionFormModal({
     // genuinely does not close over it. That is the point — reseeding on every
     // parent re-render would wipe in-progress edits, and the two moments that
     // *should* reseed call this deliberately.
-  }, [fastEntry, followCategoryMode, resolveEntryFormAccount]);
+  }, [fastEntry, followCategoryMode, followsTitle, resolveEntryFormAccount]);
 
   useEffect(() => {
     if (visible) {
@@ -2596,7 +2628,9 @@ export function TransactionFormModal({
                 {onDelete && (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={onDelete}
+                    accessibilityState={{ disabled: isDeleting || isSaving, busy: isDeleting }}
+                    disabled={isDeleting || isSaving}
+                    onPress={() => setIsDeleteDialogVisible(true)}
                     style={formStyles.deleteLink}>
                     <ThemedText tone="negative" style={formStyles.deleteLabel}>
                       Delete prompt
@@ -2758,7 +2792,9 @@ export function TransactionFormModal({
               ? 'Discard this draft?'
               : isEdit
                 ? 'Discard your changes?'
-                : `Discard this ${form.type === 'Income' ? 'income' : 'expense'}?`
+                : mode === 'quick-prompt'
+                  ? 'Discard this prompt?'
+                  : `Discard this ${form.type === 'Income' ? 'income' : 'expense'}?`
           }
           message={
             mode === 'audio'
@@ -2774,6 +2810,16 @@ export function TransactionFormModal({
             setIsDiscardDialogVisible(false);
             onClose();
           }}
+        />
+
+        <ThemedDeleteDialog
+          visible={isDeleteDialogVisible}
+          title="Delete this prompt?"
+          message="It goes from Home. Transactions you already added with it stay."
+          cancelLabel="Keep it"
+          confirmLabel="Delete"
+          onCancel={() => setIsDeleteDialogVisible(false)}
+          onConfirm={() => void confirmDelete()}
         />
 
         <UpgradeSheet

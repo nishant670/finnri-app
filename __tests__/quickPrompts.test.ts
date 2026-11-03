@@ -83,7 +83,8 @@ describe('formToQuickPromptPayload', () => {
       merchant: 'Delhi Metro',
       tag: 'General',
       notes: 'Monthly top-up',
-      icon: 'train',
+      // Travel's own icon, the one its rows draw.
+      icon: 'airplane',
     });
   });
 

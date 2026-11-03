@@ -272,6 +272,106 @@ describe('TransactionFormModal', () => {
     });
   });
 
+  describe('a new quick prompt', () => {
+    // What Home opens the editor with: no category, so the title decides it.
+    const newPrompt: Partial<EntryForm> = { mode: 'Cash', type: 'Expense', date: '11 July 2026' };
+
+    it('files the prompt by its title, as the add form does', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', initialData: newPrompt });
+      expect(await ui.findByLabelText('Category Misc')).toBeTruthy();
+
+      await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '20');
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
+
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      await waitFor(() =>
+        expect(ui.onSave).toHaveBeenCalledWith(
+          expect.objectContaining({ title: 'E rickshaw', category: 'Transport' })
+        )
+      );
+    });
+
+    it('asks before discarding a prompt, in its own words', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', initialData: newPrompt });
+      await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '20');
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      await fireEvent.press(await ui.findByLabelText('Close'));
+
+      expect(await ui.findByText('Discard this prompt?')).toBeTruthy();
+    });
+
+    it('keeps a saved prompt\'s category when its title is edited', async () => {
+      const ui = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        initialData: { ...newPrompt, title: 'Lunch', amount: '200', category: 'Food & Drinks' },
+      });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    });
+  });
+
+  describe('deleting a quick prompt', () => {
+    const savedPrompt: Partial<EntryForm> = {
+      ...completeInitialData,
+      title: 'E rickshaw',
+      category: 'Transport',
+    };
+    const renderPrompt = async (onDelete: jest.Mock) => {
+      const ui = await render(
+        <TransactionFormModal
+          visible
+          isEdit
+          mode="quick-prompt"
+          initialData={savedPrompt}
+          accounts={[cashAccount]}
+          onSave={jest.fn()}
+          onClose={jest.fn()}
+          onDelete={onDelete}
+        />
+      );
+      await fireEvent.press(await ui.findByText('Delete prompt'));
+      return ui;
+    };
+
+    it('asks first, and does nothing on Keep it', async () => {
+      const onDelete = jest.fn().mockResolvedValue(undefined);
+      const ui = await renderPrompt(onDelete);
+
+      expect(await ui.findByText('Delete this prompt?')).toBeTruthy();
+      await fireEvent.press(await ui.findByText('Keep it'));
+      expect(onDelete).not.toHaveBeenCalled();
+    });
+
+    it('says why when the delete fails', async () => {
+      const onDelete = jest.fn().mockRejectedValue(new Error('Prompt is busy.'));
+      const ui = await renderPrompt(onDelete);
+
+      await fireEvent.press(await ui.findByText('Delete'));
+      expect(onDelete).toHaveBeenCalledTimes(1);
+      expect(await ui.findByText('Prompt is busy.')).toBeTruthy();
+    });
+  });
+
+  it('keeps a Cash salary prompt on cash when it is used', async () => {
+    const bank: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5', is_default: true };
+    const ui = await renderModal({
+      accounts: [cashAccount, bank],
+      initialData: {
+        ...completeInitialData,
+        title: 'Salary',
+        type: 'Income',
+        category: 'Salary',
+        mode: 'Cash',
+        accountId: null,
+        account: '',
+      },
+    });
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ mode: 'Cash', accountId: 1 }));
+  });
+
   it('validates required fields before saving', async () => {
     const { findByTestId, findByText, onSave } = await renderModal({
       mode: 'audio',

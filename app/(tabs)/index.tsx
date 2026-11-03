@@ -94,7 +94,7 @@ import {
   type CaptureKind,
   type CreditBlock,
 } from '@/lib/credit-gate';
-import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import { requestMicAccess } from '@/lib/microphone-access';
 import {
@@ -470,15 +470,16 @@ export default function HomeScreen() {
       body: JSON.stringify(payload),
     });
 
-    if (resp.ok) {
-      setIsPromptModalOpen(false);
-      // We need to trigger a re-fetch in the QuickPrompts component.
-      // In a real app we might use a global store or a key to force re-render.
-      // For now, let's just use a simple key state.
-      setQuickPromptKey((prev) => prev + 1);
-    } else {
-      throw new Error('Failed to save prompt');
+    if (!resp.ok) {
+      // What the server said, field by field, rather than one line that
+      // leaves the user guessing which field to fix.
+      throw await readApiError(resp, 'Unable to save this prompt right now.', {
+        account_id: 'Account',
+      });
     }
+    setIsPromptModalOpen(false);
+    // Remounts QuickPrompts, which re-reads the list.
+    setQuickPromptKey((prev) => prev + 1);
   };
 
   const handleDeletePrompt = async () => {
@@ -489,12 +490,9 @@ export default function HomeScreen() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (resp.ok) {
-      setIsPromptModalOpen(false);
-      setQuickPromptKey((prev) => prev + 1);
-    } else {
-      throw new Error('Failed to delete prompt');
-    }
+    if (!resp.ok) throw await readApiError(resp, 'Unable to delete this prompt right now.');
+    setIsPromptModalOpen(false);
+    setQuickPromptKey((prev) => prev + 1);
   };
 
   const [quickPromptKey, setQuickPromptKey] = useState(0);
