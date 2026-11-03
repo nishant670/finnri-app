@@ -342,7 +342,7 @@ export default function TransactionsScreen() {
    * would not be one against a hard-deleting endpoint. This screen only supplies
    * what happens when the window closes.
    */
-  const { pending: pendingDelete, requestDelete } = useTransactionDelete();
+  const { pending: pendingDelete, removedIds, requestDelete } = useTransactionDelete();
 
   const isFilterActive = useMemo(() => hasFilterConstraints(filters), [filters]);
 
@@ -411,8 +411,9 @@ export default function TransactionsScreen() {
         sort: filters.sort,
         hasMore,
         pendingDeleteId: pendingDelete?.id,
+        removedIds,
       }),
-    [filters.sort, hasMore, pendingDelete?.id, transactions]
+    [filters.sort, hasMore, pendingDelete?.id, removedIds, transactions]
   );
 
   /**
@@ -557,20 +558,14 @@ export default function TransactionsScreen() {
       addIdempotencyKey.current = null;
       addSaveProgress.current = {};
       setIsAddOpen(false);
-      if (!convertedToEMI) {
-        setNewTransactionId(String(entry.id));
-        // Newest first, a transaction dated today lands at the top — which is
-        // where the user is taken to see it arrive.
-        if (filters.sort === 'newest') {
-          listRef.current?.scrollToOffset({ offset: 0, animated: true });
-        }
-      }
+      // The list is taken to the new row once it arrives — see below.
+      if (!convertedToEMI) setNewTransactionId(String(entry.id));
       notifyTransactionsChanged();
       if (formData.type === 'Expense' && !convertedToEMI) {
         void offerBudgetAlert(budgetNotificationIds);
       }
     },
-    [accounts, dialog, filters.sort, offerBudgetAlert, token]
+    [accounts, dialog, offerBudgetAlert, token]
   );
 
   /**
@@ -582,6 +577,40 @@ export default function TransactionsScreen() {
   const isNewRowShown =
     newTransactionId != null &&
     transactions.some((transaction) => transaction.id === newTransactionId);
+
+  /**
+   * Taken to the new row, wherever its date put it. Scrolling to the top only
+   * found rows dated today; one back-dated to last week landed somewhere below
+   * with the list parked above it.
+   */
+  const scrolledToNewId = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isNewRowShown || scrolledToNewId.current === newTransactionId) return;
+    scrolledToNewId.current = newTransactionId;
+    const index = listItems.findIndex((item) => item.key === `row:${newTransactionId}`);
+    if (index >= 0) listRef.current?.scrollToIndex({ index, viewPosition: 0.3, animated: true });
+  }, [isNewRowShown, listItems, newTransactionId]);
+  // Rows have no fixed height, so a row far below what has been laid out cannot
+  // be scrolled to directly: get near it on the average, then try again.
+  // Once per row, so a list that still cannot reach it does not keep trying.
+  const retriedScrollIndex = useRef<number | null>(null);
+  const scrollNearIndex = useCallback(
+    (info: { index: number; averageItemLength: number }) => {
+      listRef.current?.scrollToOffset({
+        offset: info.averageItemLength * info.index,
+        animated: false,
+      });
+      if (retriedScrollIndex.current === info.index) return;
+      retriedScrollIndex.current = info.index;
+      setTimeout(
+        () =>
+          listRef.current?.scrollToIndex({ index: info.index, viewPosition: 0.3, animated: true }),
+        100
+      );
+    },
+    []
+  );
+
   useEffect(() => {
     if (!newTransactionId) return undefined;
     const timer = setTimeout(
@@ -945,6 +974,11 @@ export default function TransactionsScreen() {
         // About a screen ahead, so the next page is usually in before the
         // spinner is ever seen.
         onEndReachedThreshold={1}
+        onScrollToIndexFailed={scrollNearIndex}
+        // Android's default detaches rows scrolled out of view, and a row
+        // detached while a Reanimated animation held it could come back drawn
+        // blank. The window below already bounds what is mounted.
+        removeClippedSubviews={false}
         initialNumToRender={12}
         maxToRenderPerBatch={12}
         windowSize={11}
@@ -1214,6 +1248,7 @@ const TransactionRow = memo(function TransactionRow({
         onLongPress={!selecting && joinsEvents ? () => onStartSelecting(transaction) : undefined}
         selected={selecting ? selected : undefined}
         dimmed={selecting && !joinsEvents}
+        reflow={false}
       />
     </View>
   );

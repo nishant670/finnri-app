@@ -192,6 +192,13 @@ interface TransactionItemProps {
   selected?: boolean;
   /** List rows only: shown but not selectable, like income when grouping expenses. */
   dimmed?: boolean;
+  /**
+   * Animate the row to a new position when the list around it changes. Off
+   * inside a `FlatList`: each row there is the only child of its own cell, so
+   * the transition has nothing to move, and on Android it left a row that an
+   * add had pushed down drawn as a blank space until the app restarted.
+   */
+  reflow?: boolean;
 }
 
 export function TransactionItem({
@@ -220,6 +227,7 @@ export function TransactionItem({
   onLongPress,
   selected,
   dimmed = false,
+  reflow = true,
 }: TransactionItemProps) {
   const theme = useThemeTokens();
   const motion = useMotion();
@@ -710,7 +718,7 @@ export function TransactionItem({
       // A filter or a period change rewrites the list under the rows that
       // survive it. Without this they teleport to their new positions while the
       // ones arriving fade in, which reads as two unrelated events.
-      layout={motion.reflow()}>
+      layout={reflow ? motion.reflow() : undefined}>
       {swipeable ? <GestureDetector gesture={pan}>{body}</GestureDetector> : body}
     </Animated.View>
   );

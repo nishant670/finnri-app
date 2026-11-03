@@ -724,6 +724,53 @@ describe('TransactionFormModal — title category suggestions', () => {
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ type: 'Income', category: 'Refund' }));
   });
 
+  describe('mode following the category', () => {
+    const bankAccount: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5', is_default: true };
+    const blankIncome: Partial<EntryForm> = {
+      ...completeInitialData,
+      title: '',
+      merchant: '',
+      type: 'Income',
+      category: 'Other',
+      mode: 'Cash',
+      accountId: null,
+      account: '',
+    };
+
+    it('receives a dividend in the bank account, and goes back to cash when the title changes', async () => {
+      const ui = await renderModal({ initialData: blankIncome, accounts: [cashAccount, bankAccount] });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      expect(await ui.findByLabelText('Category Dividend')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: 'Dividend', mode: 'Bank Account', accountId: 3 })
+      );
+
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Sold old phone');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'Cash', accountId: 1 }));
+    });
+
+    it('stays on cash when there is no bank account to put it in', async () => {
+      const ui = await renderModal({ initialData: blankIncome, accounts: [cashAccount] });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Dividend', mode: 'Cash', accountId: 1 })
+      );
+    });
+
+    it('leaves a mode the caller chose alone', async () => {
+      const ui = await renderModal({
+        initialData: { ...blankIncome, mode: 'UPI', accountId: 2, account: 'HDFC UPI' },
+        accounts: [cashAccount, upiAccount, bankAccount],
+      });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ mode: 'UPI', accountId: 2 }));
+    });
+  });
+
   it('preserves saved transaction categories when editing the title', async () => {
     const ui = await renderModal({ initialData: unclassified, isEdit: true });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');

@@ -70,7 +70,12 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
 import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
-import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
+import {
+  DEFAULT_PAYMENT_MODE,
+  PAYMENT_MODES,
+  paymentModeVisual,
+  usualModeForCategory,
+} from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
   type DraftFieldKey,
@@ -624,6 +629,31 @@ export function TransactionFormModal({
   const revealSplitRef = useRef(false);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
+  /** The same for the mode and account: once the user picks either, it stays. */
+  const modeChosenRef = useRef(false);
+  /** What the form opened on, for when a category stops implying a mode. */
+  const seededModeRef = useRef<string>(DEFAULT_PAYMENT_MODE);
+
+  /**
+   * A new transaction's mode follows its category until the user picks one:
+   * "Vedanta dividend" moves Received in from Cash to the bank account, and
+   * back again if the title stops saying dividend. Only when there is a bank
+   * account to put it in — Bank Account with no account behind it is worse
+   * than the Cash the form started on.
+   */
+  const followCategoryMode = useCallback(
+    (next: EntryForm): EntryForm => {
+      if (!fastEntry || modeChosenRef.current) return next;
+      const usual = usualModeForCategory(next.category, next.type);
+      const mode =
+        usual && getAccountsForPaymentMode(accounts, usual).length > 0
+          ? usual
+          : seededModeRef.current;
+      if (mode === next.mode) return next;
+      return resolveEntryFormAccount({ ...next, mode, accountId: null, account: '' });
+    },
+    [accounts, fastEntry, resolveEntryFormAccount]
+  );
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
   /** Flagged fields the user has since opened or edited. */
   const [checkedDraftFields, setCheckedDraftFields] = useState<DraftFieldKey[]>([]);
@@ -1105,43 +1135,49 @@ export function TransactionFormModal({
   const handleTitleChange = (title: string) => {
     const shouldInfer = fastEntry && !categoryChosenRef.current;
     setFormError(null);
-    setForm((previous) => ({
-      ...previous,
-      title,
-      category: shouldInfer
-        ? inferCategory(title, previous.merchant, previous.type)
-        : previous.category,
-    }));
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        title,
+        category: shouldInfer
+          ? inferCategory(title, previous.merchant, previous.type)
+          : previous.category,
+      })
+    );
   };
 
   const handleMerchantChange = (merchant: string) => {
     const shouldInfer = fastEntry && !categoryChosenRef.current;
-    setForm((previous) => ({
-      ...previous,
-      merchant,
-      category: shouldInfer
-        ? inferCategory(previous.title, merchant, previous.type)
-        : previous.category,
-    }));
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        merchant,
+        category: shouldInfer
+          ? inferCategory(previous.title, merchant, previous.type)
+          : previous.category,
+      })
+    );
   };
 
   const selectCategory = (category: string) => {
     categoryChosenRef.current = true;
-    setForm((previous) => ({ ...previous, category }));
+    setForm((previous) => followCategoryMode({ ...previous, category }));
   };
 
   const selectTransactionType = (type: 'Expense' | 'Income') => {
     if (form.type === type) return;
     categoryChosenRef.current = false;
-    setForm((previous) => ({
-      ...previous,
-      type,
-      category:
-        (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
-        defaultCategoryForType(type),
-      // See `tagsApply`: an expense's tag has nothing to mean on income.
-      tag: type === 'Income' ? 'General' : previous.tag,
-    }));
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        type,
+        category:
+          (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
+          defaultCategoryForType(type),
+        // See `tagsApply`: an expense's tag has nothing to mean on income.
+        tag: type === 'Income' ? 'General' : previous.tag,
+      })
+    );
   };
 
   const focusAmountKeypad = () => {
@@ -1187,6 +1223,7 @@ export function TransactionFormModal({
       setForm((prev) => {
         const next: EntryForm = { ...prev, category: fill.category };
         if (fill.kind === 'merchant') {
+          if (fill.mode || fill.accountId != null) modeChosenRef.current = true;
           next.title = fill.title ?? fill.label;
           next.merchant = fill.merchant ?? '';
           if (fill.mode) {
@@ -1264,9 +1301,16 @@ export function TransactionFormModal({
       seeded.category =
         inferTransactionCategory(seeded.title, seeded.type) ?? defaultCategoryForType(seeded.type);
     }
+    // A mode or account the caller brought (a quick prompt, a draft) was chosen
+    // by someone; the blank form's Cash was not.
+    modeChosenRef.current =
+      initialData?.accountId != null ||
+      (initialData?.mode != null && initialData.mode !== DEFAULT_PAYMENT_MODE);
+    seededModeRef.current = seeded.mode;
+    const followed = followCategoryMode(seeded);
     // A quick prompt seeds "120.00"; the keypad would then refuse every
     // further digit because both decimal places are already spent.
-    const nextForm = fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded;
+    const nextForm = fastEntry ? { ...followed, amount: toKeypadValue(followed.amount) } : followed;
     seededFormRef.current = nextForm;
     setForm(nextForm);
     // No `initialData` dependency, and no suppression needed for its absence:
@@ -1274,7 +1318,7 @@ export function TransactionFormModal({
     // genuinely does not close over it. That is the point — reseeding on every
     // parent re-render would wipe in-progress edits, and the two moments that
     // *should* reseed call this deliberately.
-  }, [fastEntry, resolveEntryFormAccount]);
+  }, [fastEntry, followCategoryMode, resolveEntryFormAccount]);
 
   useEffect(() => {
     if (visible) {
@@ -2619,6 +2663,7 @@ export function TransactionFormModal({
           selected={form.mode}
           onClose={() => setIsModePickerVisible(false)}
           onSelect={(m) => {
+            modeChosenRef.current = true;
             setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
             setIsModePickerVisible(false);
           }}
@@ -2670,6 +2715,7 @@ export function TransactionFormModal({
           autoCreateError={autoCreateAccountError}
           onClose={() => setIsAccountPickerVisible(false)}
           onSelect={(account) => {
+            modeChosenRef.current = true;
             setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
             setIsAccountPickerVisible(false);
           }}
