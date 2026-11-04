@@ -10,7 +10,7 @@ import { withAlpha } from '@/constants/theme';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { type AccountType } from '@/lib/accounts';
+import { type AccountType, type CreditKind } from '@/lib/accounts';
 import { typeOptions, COLORS, COLOR_NAMES } from '@/lib/account-form';
 import { styles } from './account-form-styles';
 
@@ -29,7 +29,9 @@ type AccountFormStepOneProps = {
   setStep: Dispatch<SetStateAction<number>>;
   showStyleOptions: boolean;
   typeError: string | null;
-  updateSelectedType: (nextType: AccountType) => void;
+  updateSelectedType: (nextType: AccountType, nextKind?: CreditKind) => void;
+  /** 'pay_later' when the Pay later tile is the one chosen. */
+  creditKind?: CreditKind;
 };
 
 export function AccountFormStepOne({
@@ -48,6 +50,7 @@ export function AccountFormStepOne({
   showStyleOptions,
   typeError,
   updateSelectedType,
+  creditKind = '',
 }: AccountFormStepOneProps) {
   const theme = useThemeTokens().colors;
   const colorName = COLOR_NAMES[selectedColor] ?? 'Custom colour';
@@ -77,13 +80,16 @@ export function AccountFormStepOne({
         </ThemedText>
         <View style={styles.gridContainer}>
           {typeOptions.map((option) => {
-            const isSelected = selectedType === option.key;
+            // Credit and Pay later are both credit_card accounts; the kind
+            // tells the two tiles apart.
+            const isSelected =
+              selectedType === option.key && (option.creditKind ?? '') === creditKind;
             return (
               <PressableView
-                key={option.key}
+                key={`${option.key}-${option.creditKind ?? ''}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                onPress={() => updateSelectedType(option.key)}
+                onPress={() => updateSelectedType(option.key, option.creditKind ?? '')}
                 style={[
                   styles.gridItem,
                   {

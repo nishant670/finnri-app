@@ -31,7 +31,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
-  accountTypeLabels,
+  getAccountTypeLabel,
   accountVisuals,
   formatAccountIdentifier,
   getAccountSetupItems,
@@ -43,7 +43,6 @@ import {
   getCreditUsage,
   getCurrentStatement,
   getLastActivityLabel,
-  getRunningBalance,
 } from '@/lib/account-display';
 import { formatMoney } from '@/lib/money';
 import {
@@ -299,7 +298,6 @@ export default function AccountDetailsScreen() {
     cardLimit?.outstanding_source === 'ledger' &&
     cardLimit.outstanding > 0
   );
-  const runningBalance = account ? getRunningBalance(account) : null;
   const lastActivity = account ? getLastActivityLabel(account) : null;
   const setupItems = useMemo(() => (account ? getAccountSetupItems(account) : []), [account]);
   const setupComplete = setupItems.every((item) => item.complete);
@@ -517,13 +515,13 @@ export default function AccountDetailsScreen() {
   // Nothing spent reads as a quiet ₹0 (board R5-AcctBank); the line under the
   // name already says there are no transactions yet.
   const isZeroHeadline = Boolean(headline?.placeholder) || (headline?.amount ?? 0) === 0;
-  const extraFigures = account.summary ? accountFigureRows(account, runningBalance) : [];
+  const extraFigures = account.summary ? accountFigureRows(account) : [];
   const usedNoun = isCreditCard ? 'card' : 'account';
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader
-        title={accountTypeLabels[accountType]}
+        title={getAccountTypeLabel(account)}
         onBack={() => router.back()}
         rightIcon="dots-horizontal"
         rightAccessibilityLabel="Account actions"
@@ -919,10 +917,12 @@ export default function AccountDetailsScreen() {
 }
 
 /**
- * The figures beyond the three in "This month": money in, the opening balance
- * the user typed, and the balance run forward from it.
+ * The figures beyond the three in "This month": money in, and on a card what
+ * was owed before tracking. A wallet's or bank account's balance is the hero
+ * figure now (getAccountHeadline), so it is not repeated here, and the opening
+ * balance behind it is bookkeeping the user never typed.
  */
-function accountFigureRows(account: Account, runningBalance: number | null) {
+function accountFigureRows(account: Account) {
   const summary = account.summary;
   if (!summary) return [];
   const isCreditCard = normalizeAccountType(account.type) === 'credit_card';
@@ -934,10 +934,9 @@ function accountFigureRows(account: Account, runningBalance: number | null) {
       value: formatMoney(summary.received_this_month),
     });
   }
-  if (opening !== 0) {
-    rows.push({ label: isCreditCard ? 'Owed before tracking' : 'Opening balance', value: formatMoney(opening) });
+  if (isCreditCard && opening !== 0) {
+    rows.push({ label: 'Owed before tracking', value: formatMoney(opening) });
   }
-  if (runningBalance !== null) rows.push({ label: 'Running balance', value: formatMoney(runningBalance) });
   return rows;
 }
 

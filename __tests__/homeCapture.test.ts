@@ -424,3 +424,28 @@ describe('quick prompts', () => {
     });
   });
 });
+
+describe('a wallet top-up scan', () => {
+  // "Your Pluxee Card has been credited" never says how the money moved, so
+  // the read has no mode; the user's Pluxee wallet is still the account.
+  const sodexo = {
+    id: 9,
+    type: 'wallet',
+    name: 'Sodexo',
+    provider: 'Pluxee',
+    color: '#FF9F43',
+  } as Account;
+
+  it('lands in the saved wallet the payer names, in Wallets', () => {
+    const form = apply(
+      draft({ type: 'income', mode: null, merchant: 'Pluxee', missing_fields: ['mode'] }),
+      { hintedAccount: sodexo }
+    );
+    expect(form).toMatchObject({ mode: 'Wallets', accountId: 9, account: 'Sodexo' });
+  });
+
+  it('still leaves the mode to the user when no account was named', () => {
+    const form = apply(draft({ type: 'income', mode: null, missing_fields: ['mode'] }));
+    expect(form.mode).toBe('');
+  });
+});

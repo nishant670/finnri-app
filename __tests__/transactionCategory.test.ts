@@ -58,6 +58,10 @@ describe('title category hints', () => {
     ['Groceries cashback', 'Refund'],
     ['ब्याज', 'Interest'],
     ['Diwali bonus', 'Salary'],
+    // An employer's meal wallet load is part of pay.
+    ['Pluxee Card Credit', 'Salary'],
+    ['Sodexo meal card', 'Salary'],
+    ['Meal wallet top-up', 'Salary'],
     ['Upwork invoice', 'Freelance'],
     ['Dinner', null],
   ])('keeps %s in the income vocabulary', (title, expected) => {

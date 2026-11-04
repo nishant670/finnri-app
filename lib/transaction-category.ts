@@ -466,6 +466,11 @@ const incomeRules: CategoryRule[] = [
     phrases: ['salary', 'payroll', 'paycheck', 'wages', 'stipend', 'bonus', 'incentive', 'वेतन', 'सैलरी'],
   },
   {
+    // Meal and benefit wallets an employer loads every month are part of pay.
+    category: 'Salary',
+    phrases: ['pluxee', 'sodexo', 'zeta', 'meal wallet', 'meal card', 'meal allowance', 'food wallet'],
+  },
+  {
     category: 'Freelance',
     phrases: [
       'freelance',

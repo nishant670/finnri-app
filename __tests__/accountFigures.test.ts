@@ -48,6 +48,23 @@ describe('getAccountHeadline', () => {
     expect(headline.amount).not.toBe(200000);
   });
 
+  it('leads a wallet with what it holds once it has a balance', () => {
+    // A meal wallet nobody spent from this month read "Spent this month ₹0"
+    // while holding ₹33,184.
+    const headline = getAccountHeadline(
+      account({
+        type: 'wallet',
+        balance_tracked: true,
+        summary: summary({ running_balance: 33184.16, entries_total: 5 }),
+      })
+    );
+    expect(headline).toEqual({ label: 'Balance', amount: 33184.16 });
+  });
+
+  it('counts a balance the user gave as one, even when it opened at ₹0', () => {
+    expect(hasOpeningBalance(account({ type: 'wallet', balance: 0, balance_tracked: true }))).toBe(true);
+  });
+
   it('says so plainly when an account has never been used', () => {
     const headline = getAccountHeadline(account({ summary: summary() }));
     expect(headline.placeholder).toBe('No spend yet');
