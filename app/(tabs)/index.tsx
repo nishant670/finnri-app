@@ -34,7 +34,7 @@ import { ParseErrorCard } from '@/components/home/ParseErrorCard';
 import { VoiceInputCard } from '@/components/home/VoiceInputCard';
 import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
-import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { useAppDialog, type AppConfirmOptions } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { useGiftPassAnnouncement } from '@/hooks/use-gift-pass-announcement';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
@@ -63,7 +63,7 @@ import {
   shouldShowGuestUpgradePrompt,
   snoozeGuestUpgradePrompt,
 } from '@/lib/guest-upgrade';
-import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, suggestAccountFromTransaction, saveAccount, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
+import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, accountForParsedDraft, suggestAccountFromTransaction, saveAccount, setAccountBalance, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
 import {
   describeLikelyDuplicate,
   saveNewTransaction,
@@ -95,6 +95,7 @@ import {
   type CreditBlock,
 } from '@/lib/credit-gate';
 import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
+import { describeReceiptBalanceUpdate } from '@/lib/receipt-balance';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import { requestMicAccess } from '@/lib/microphone-access';
 import {
@@ -237,6 +238,8 @@ export default function HomeScreen() {
    * matching alone would keep asking for the account they just made.
    */
   const pendingSuggestionSetup = useRef<{ type: AccountType; count: number } | null>(null);
+  /** The balance the scanned receipt printed, offered to its account after saving. */
+  const receiptBalance = useRef<number | null>(null);
   const accountSuggestion = useMemo(
     () =>
       accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, accounts) : null,
@@ -1051,6 +1054,30 @@ export default function HomeScreen() {
     [accounts]
   );
 
+  /**
+   * Asks to bring an account's balance in line with the one its receipt
+   * printed, and does it on a yes. Runs after the save, so a refusal or a
+   * failure here never touches the transaction.
+   */
+  const offerReceiptBalance = useCallback(
+    async (accountId: number, balance: number, question: AppConfirmOptions) => {
+      if (!token || !(await dialog.confirm(question))) return;
+      try {
+        const updated = await setAccountBalance(token, accountId, balance);
+        setAccounts((current) =>
+          current.map((account) => (account.id === accountId ? updated : account))
+        );
+      } catch (error) {
+        void dialog.alert({
+          title: "Couldn't update the balance",
+          message: getFriendlyErrorMessage(error, 'Try again from the account screen.'),
+          tone: 'danger',
+        });
+      }
+    },
+    [dialog, token]
+  );
+
   const handleConfirmEntry = useCallback(
     async (formData: EntryForm) => {
       try {
@@ -1107,6 +1134,15 @@ export default function HomeScreen() {
         setRefundReceived(null);
         setIsEditOpen(false);
         notifyTransactionsChanged();
+        const printedBalance = modalMode === 'audio' ? receiptBalance.current : null;
+        receiptBalance.current = null;
+        const balanceQuestion = describeReceiptBalanceUpdate(resolvedAccount, printedBalance, {
+          type: createdEntry.type ?? formData.type,
+          amount: Number(createdEntry.amount),
+        });
+        if (balanceQuestion && resolvedAccount && printedBalance != null) {
+          void offerReceiptBalance(resolvedAccount.id, printedBalance, balanceQuestion);
+        }
         // The moment Finnri just did something useful is the one moment a
         // plans prompt reads as help rather than a toll — see usePlansPrompt.
         considerPlansPrompt();
@@ -1135,6 +1171,7 @@ export default function HomeScreen() {
       ensureAccountForEntry,
       fetchSplitOptions,
       modalMode,
+      offerReceiptBalance,
       recordRefund,
       refundReceived,
       router,
@@ -1186,6 +1223,7 @@ export default function HomeScreen() {
       attachment?: string
     ) => {
       setAiSourceText(data.source_text ?? fallbackText);
+      receiptBalance.current = inputSource === 'receipt' ? (data.balance_after ?? null) : null;
       setAiInputSource(inputSource);
       pendingSuggestionSetup.current = null;
       setRefundReceived(
@@ -1198,11 +1236,7 @@ export default function HomeScreen() {
         cardNetwork: data.card_network,
       });
       const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
-      const hintedAccount =
-        matchAccountsToHint(
-          { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
-          accounts
-        )[0]?.account ?? null;
+      const hintedAccount = accountForParsedDraft(data, accounts);
       setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
       setForm((prev) =>
         applyParsedDraftToForm(prev, data, {

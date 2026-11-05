@@ -63,6 +63,8 @@ type AccountFormStepTwoProps = {
   showMonthModal: boolean;
   showReminderOptions: boolean;
   updateIdentifier: (value: string) => void;
+  /** A pay-later line: no last 4 digits or annual fee, and its own words. */
+  payLater?: boolean;
 };
 
 export function AccountFormStepTwo({
@@ -108,6 +110,7 @@ export function AccountFormStepTwo({
   showMonthModal,
   showReminderOptions,
   updateIdentifier,
+  payLater = false,
 }: AccountFormStepTwoProps) {
   const theme = useThemeTokens().colors;
   if (selectedType === 'credit_card') {
@@ -215,31 +218,39 @@ export function AccountFormStepTwo({
             )}
           </View>
 
-          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
-            {detailCopy.identifierLabel}
-          </ThemedText>
-          <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
-            <MaterialCommunityIcons
-              name={detailCopy.identifierIcon ?? 'numeric-4-box-outline'}
-              size={24}
-              color={theme.accent}
-              style={styles.inputIcon}
-            />
-            <TextInput
-              value={last4}
-              onChangeText={updateIdentifier}
-              placeholder={detailCopy.identifierPlaceholder}
-              placeholderTextColor={theme.muted}
-              keyboardType="number-pad"
-              style={[styles.textInputSmall, { color: theme.text }]}
-            />
-          </View>
+          {detailCopy.identifierLabel ? (
+            <>
+              <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+                {detailCopy.identifierLabel}
+              </ThemedText>
+              <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
+                <MaterialCommunityIcons
+                  name={detailCopy.identifierIcon ?? 'numeric-4-box-outline'}
+                  size={24}
+                  color={theme.accent}
+                  style={styles.inputIcon}
+                />
+                <TextInput
+                  value={last4}
+                  onChangeText={updateIdentifier}
+                  placeholder={detailCopy.identifierPlaceholder}
+                  placeholderTextColor={theme.muted}
+                  keyboardType="number-pad"
+                  style={[styles.textInputSmall, { color: theme.text }]}
+                />
+              </View>
+            </>
+          ) : null}
 
           <View style={{ height: 24 }} />
 
-          <ThemedText style={styles.sectionHeaderLabel}>Limit & due date</ThemedText>
+          <ThemedText style={styles.sectionHeaderLabel}>
+            {payLater ? 'Limit & repay date' : 'Limit & due date'}
+          </ThemedText>
 
-          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Credit limit</ThemedText>
+          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+            {payLater ? 'Limit' : 'Credit limit'}
+          </ThemedText>
           <View style={[styles.inputContainerSmall, { backgroundColor: theme.card }]}>
             <MaterialCommunityIcons
               name="currency-inr"
@@ -257,7 +268,9 @@ export function AccountFormStepTwo({
             />
           </View>
 
-          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>Due day</ThemedText>
+          <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
+            {payLater ? 'Repay by' : 'Due day'}
+          </ThemedText>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={dueDay ? `Due day ${dueDay}` : 'Choose the due day'}
@@ -343,6 +356,7 @@ export function AccountFormStepTwo({
               )}
             </FormDisclosure>
 
+            {payLater ? null : (
             <FormDisclosure
               testID="card-annual-fee-options"
               label="Annual fee"
@@ -429,6 +443,7 @@ export function AccountFormStepTwo({
                 />
               </View>
             </FormDisclosure>
+            )}
           </View>
         </KeyboardAvoidingScreen>
 

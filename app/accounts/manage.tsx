@@ -1,5 +1,5 @@
 import { router, useLocalSearchParams } from 'expo-router';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type Dispatch, type SetStateAction } from 'react';
 import { View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -15,7 +15,9 @@ import {
   normalizeAccountType,
   saveAccount,
   updateAccount,
+  type AccountPayload,
   type AccountType,
+  type CreditKind,
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
@@ -28,6 +30,7 @@ import {
   DEFAULT_ACCOUNT_COLORS,
   DEFAULT_ACCOUNT_NAMES,
   ACCOUNT_DETAIL_COPY,
+  PAY_LATER_DETAIL_COPY,
   providerIcon,
   type ProviderOption,
 } from '@/lib/account-form';
@@ -67,6 +70,8 @@ export default function ManageAccountScreen() {
 
   // Step 1 States
   const [selectedType, setSelectedType] = useState<AccountType>('bank');
+  // Credit and Pay later are both credit_card accounts; this tells them apart.
+  const [creditKind, setCreditKind] = useState<CreditKind>('');
   const [selectedColor, setSelectedColor] = useState('#54A0FF');
   const [name, setName] = useState('');
 
@@ -78,6 +83,11 @@ export default function ManageAccountScreen() {
 
   const [last4, setLast4] = useState('');
   const [balance, setBalance] = useState('');
+  // The field asks for today's balance, but the account stores an opening
+  // one. Untouched, the opening goes back as it was; typed, the server works
+  // back to a new opening from it.
+  const [balanceTouched, setBalanceTouched] = useState(false);
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [creditLimit, setCreditLimit] = useState('');
   const [dueDay, setDueDay] = useState('');
   const [reminderEnabled, setReminderEnabled] = useState(true);
@@ -120,6 +130,7 @@ export default function ManageAccountScreen() {
           throw new Error('Account not found.');
         }
         setSelectedType(account.type);
+        setCreditKind(account.credit_kind ?? '');
         setSelectedColor(account.color || '#54A0FF');
         setName(account.name);
         setIssuerQuery(account.provider || '');
@@ -135,7 +146,17 @@ export default function ManageAccountScreen() {
         setLast4(
           account.last4 || account.upi_handle || account.wallet_nickname || account.identifier || ''
         );
-        setBalance(account.balance ? String(account.balance) : '');
+        setOpeningBalance(account.balance ?? 0);
+        const running = account.summary?.running_balance;
+        setBalance(
+          normalizeAccountType(account.type) === 'credit_card'
+            ? account.balance
+              ? String(account.balance)
+              : ''
+            : typeof running === 'number'
+              ? String(running)
+              : ''
+        );
         setCreditLimit(account.credit_limit ? String(account.credit_limit) : '');
         setDueDay(account.due_day ? String(account.due_day) : '');
         setReminderEnabled(account.reminder_enabled !== false);
@@ -173,6 +194,7 @@ export default function ManageAccountScreen() {
           id: item.id,
           name: item.display_name,
           icon: providerIcon(item.asset_key),
+          creditKind: item.credit_kind,
         }));
         setProviderOptions(options);
       })
@@ -194,20 +216,25 @@ export default function ManageAccountScreen() {
     }
   }, [issuerQuery, providerOptions, selectedIssuer]);
 
-  const updateSelectedType = (nextType: AccountType) => {
-    if (nextType === selectedType) {
+  const defaultNameFor = (accountType: AccountType, kind: CreditKind) =>
+    kind === 'pay_later' ? 'Pay later' : DEFAULT_ACCOUNT_NAMES[accountType];
+
+  const updateSelectedType = (nextType: AccountType, nextKind: CreditKind = '') => {
+    if (nextType === selectedType && nextKind === creditKind) {
       setTypeError(null);
       return;
     }
+    const previousName = defaultNameFor(selectedType, creditKind);
     setSelectedType(nextType);
+    setCreditKind(nextKind);
     setSelectedColor((currentColor) =>
       currentColor === DEFAULT_ACCOUNT_COLORS[selectedType]
         ? DEFAULT_ACCOUNT_COLORS[nextType]
         : currentColor
     );
     setName((currentName) => {
-      if (!currentName || currentName === DEFAULT_ACCOUNT_NAMES[selectedType]) {
-        return DEFAULT_ACCOUNT_NAMES[nextType];
+      if (!currentName || currentName === previousName) {
+        return defaultNameFor(nextType, nextKind);
       }
       return currentName;
     });
@@ -229,6 +256,7 @@ export default function ManageAccountScreen() {
     const nextType: AccountType = 'bank';
     setCreatedAccount(null);
     setSelectedType(nextType);
+    setCreditKind('');
     setSelectedColor(DEFAULT_ACCOUNT_COLORS[nextType]);
     setName(DEFAULT_ACCOUNT_NAMES[nextType]);
     setIssuerQuery('');
@@ -236,6 +264,8 @@ export default function ManageAccountScreen() {
     setShowIssuerResults(false);
     setLast4('');
     setBalance('');
+    setBalanceTouched(false);
+    setOpeningBalance(0);
     setCreditLimit('');
     setDueDay('');
     setReminderEnabled(true);
@@ -260,7 +290,18 @@ export default function ManageAccountScreen() {
     setIsSaving(true);
     setSaveError(null);
     try {
-      const payload = {
+      const isCard = selectedType === 'credit_card';
+      const typedBalance = balance.trim() ? parseFloat(balance) : NaN;
+      const balanceFields: Pick<AccountPayload, 'balance' | 'current_balance' | 'balance_tracked'> =
+        isCard
+          ? { balance: parseFloat(balance) || 0 }
+          : !balanceTouched
+            ? { balance: openingBalance }
+            : Number.isNaN(typedBalance)
+              ? // Cleared: stop showing a balance.
+                { balance: 0, balance_tracked: false }
+              : { balance: openingBalance, current_balance: typedBalance };
+      const payload: AccountPayload = {
         type: normalizeAccountType(selectedType),
         name: name.trim(),
         color: selectedColor,
@@ -268,7 +309,8 @@ export default function ManageAccountScreen() {
         identifier: last4,
         provider_id: selectedIssuer?.id || '',
         last4:
-          selectedType === 'bank' || selectedType === 'credit_card' || selectedType === 'debit_card'
+          (selectedType === 'bank' || selectedType === 'credit_card' || selectedType === 'debit_card') &&
+          creditKind !== 'pay_later'
             ? last4
             : '',
         upi_handle: selectedType === 'upi' ? last4 : '',
@@ -285,7 +327,8 @@ export default function ManageAccountScreen() {
               fee_waiver_spend: parseFloat(feeWaiverSpend) || 0,
             }
           : {}),
-        balance: parseFloat(balance) || 0,
+        ...balanceFields,
+        ...(isCard ? { credit_kind: creditKind } : {}),
         is_default: isDefault,
       };
       if (isEditing && accountId !== null) {
@@ -343,12 +386,22 @@ export default function ManageAccountScreen() {
     }
   };
 
-  const detailCopy = ACCOUNT_DETAIL_COPY[selectedType];
+  const detailCopy =
+    creditKind === 'pay_later' ? PAY_LATER_DETAIL_COPY : ACCOUNT_DETAIL_COPY[selectedType];
+  const changeBalance: Dispatch<SetStateAction<string>> = (value) => {
+    setBalanceTouched(true);
+    setBalance(value);
+  };
 
   const filteredIssuers = useMemo(() => {
     if (!issuerQuery) return [];
-    return providerOptions.filter((i) => i.name.toLowerCase().includes(issuerQuery.toLowerCase()));
-  }, [issuerQuery, providerOptions]);
+    return providerOptions.filter(
+      (i) =>
+        i.name.toLowerCase().includes(issuerQuery.toLowerCase()) &&
+        // A card's issuers and a pay-later line's lenders are separate lists.
+        (selectedType !== 'credit_card' || (i.creditKind ?? '') === creditKind)
+    );
+  }, [creditKind, issuerQuery, providerOptions, selectedType]);
 
   const selectProvider = (provider: ProviderOption) => {
     setSelectedIssuer(provider);
@@ -403,6 +456,7 @@ export default function ManageAccountScreen() {
             showStyleOptions={showStyleOptions}
             typeError={typeError}
             updateSelectedType={updateSelectedType}
+            creditKind={creditKind}
           />
         ) : step === 2 ? (
           <AccountFormStepTwo
@@ -427,7 +481,7 @@ export default function ManageAccountScreen() {
             selectProvider={selectProvider}
             selectedType={selectedType}
             setAnnualFee={setAnnualFee}
-            setBalance={setBalance}
+            setBalance={changeBalance}
             setCreditLimit={setCreditLimit}
             setDueDay={setDueDay}
             setFeeMonth={setFeeMonth}
@@ -448,6 +502,7 @@ export default function ManageAccountScreen() {
             showMonthModal={showMonthModal}
             showReminderOptions={showReminderOptions}
             updateIdentifier={updateIdentifier}
+            payLater={creditKind === 'pay_later'}
           />
         ) : (
           <AccountFormSuccess

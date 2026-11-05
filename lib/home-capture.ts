@@ -2,6 +2,7 @@ import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import {
   getAccountTypeForPaymentMode,
   getPreferredAccountForPaymentMode,
+  paymentModeForAccountType,
   type Account,
 } from '@/lib/accounts';
 import type { QuickPrompt } from '@/components/home/QuickPrompts';
@@ -140,7 +141,15 @@ export const applyParsedDraftToForm = (
     // The parser emits `HH:MM`; the form shows and stores a display string.
     time: formatTime(data.time) ?? prev.time,
     type: newType,
-    mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
+    // A draft that named a saved account but not how the money moved takes
+    // the account's own mode: a Pluxee top-up lands in Wallets, not Cash.
+    mode: !smartSorting
+      ? ''
+      : !missing.has('mode') && data.mode
+        ? data.mode
+        : hintedAccount
+          ? (paymentModeForAccountType(hintedAccount.type) ?? '')
+          : '',
     category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
     merchant: data.merchant ?? '',
     // The account the user named, when they named one we know. Without
