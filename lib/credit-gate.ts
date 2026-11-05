@@ -159,3 +159,53 @@ export const creditGateFor = (
   }
   return null;
 };
+
+/**
+ * What a refused capture needed, and what there was at the time.
+ *
+ * Home's "Out of AI credits" card is a snapshot of a refusal, so it used to
+ * stay up after the balance came back — a gifted pass landed, the footnote
+ * under the card read "3600 total credits left", and the card still said the
+ * credits were gone until the app was restarted.
+ */
+export type CreditBlock = {
+  requiredCredits: number;
+  /** The balance when it was refused, or null if it wasn't known yet. */
+  creditsWhenBlocked: { total: number; daily: number } | null;
+};
+
+export const creditBlockFor = (
+  status: Pick<BillingStatus, 'credits'> | null,
+  requiredCredits: number
+): CreditBlock => ({
+  requiredCredits,
+  creditsWhenBlocked: status
+    ? {
+        total: status.credits.total_credits_remaining ?? 0,
+        daily: status.credits.daily_credits_remaining ?? 0,
+      }
+    : null,
+});
+
+/**
+ * Whether a refused capture could go ahead now, so its card can step aside.
+ *
+ * Two things must both be true: credits came in since the refusal, and they
+ * now cover what was refused. "Covers" alone is not enough — a long voice clip
+ * costs more than the shortest-clip price the app knows about, so a balance
+ * the app thinks is enough can still be refused, and the card must not vanish
+ * while nothing has changed.
+ */
+export const creditBlockLifted = (
+  block: CreditBlock,
+  status: Pick<BillingStatus, 'credits'> | null
+): boolean => {
+  if (!status) return false;
+  const total = status.credits.total_credits_remaining ?? 0;
+  const daily = status.credits.daily_credits_remaining ?? 0;
+  const dailyLimit = status.credits.daily_limit ?? 0;
+  const before = block.creditsWhenBlocked;
+  const gained = !before || total > before.total || daily > before.daily;
+  const covers = total >= block.requiredCredits && (dailyLimit <= 0 || daily >= block.requiredCredits);
+  return gained && covers;
+};

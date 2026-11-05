@@ -20,6 +20,7 @@
     android:paddingEnd="10dp">
 
     <TextView
+      android:id="@+id/widget_logo"
       android:layout_width="36dp"
       android:layout_height="36dp"
       android:background="@drawable/widget_logo"
@@ -31,6 +32,7 @@
       android:textStyle="bold"/>
 
     <TextView
+      android:id="@+id/widget_prompt"
       android:layout_width="0dp"
       android:layout_height="wrap_content"
       android:layout_marginStart="12dp"

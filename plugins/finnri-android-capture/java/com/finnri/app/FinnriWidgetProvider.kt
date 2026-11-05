@@ -5,11 +5,13 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.SizeF
 import android.widget.RemoteViews
+import androidx.annotation.RequiresApi
 
 /**
  * The home-screen widget (board R14-Widget): capture only, in three sizes.
@@ -69,6 +71,7 @@ class FinnriWidgetProvider : AppWidgetProvider() {
 
     private fun build(context: Context, layout: Int): RemoteViews {
       val views = RemoteViews(context.packageName, layout)
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) paint(views, layout, FinnriPalette.load(context))
       val speak = PendingIntent.getActivity(
         context,
         4202,
@@ -90,6 +93,37 @@ class FinnriWidgetProvider : AppWidgetProvider() {
       // The rest of the pill ("Log an expense") types too.
       views.setOnClickPendingIntent(R.id.widget_root, type)
       return views
+    }
+
+    /**
+     * Repaints the layout in the app's mood. Each colour goes over as a day and
+     * a night pair, and the launcher picks one by the phone's dark mode — so
+     * Match phone still flips with the phone while the app is closed.
+     *
+     * Android 12 is the first that lets a widget tint a view's background. On
+     * older phones the layouts keep their resource colours: the Finnri mood,
+     * following the phone.
+     */
+    @RequiresApi(Build.VERSION_CODES.S)
+    private fun paint(views: RemoteViews, layout: Int, theme: Pair<FinnriPalette, FinnriPalette>) {
+      val (day, night) = theme
+      // Tints replace a drawable's colour but keep its alpha, so the pill stays 92%.
+      fun tint(id: Int, method: String, color: (FinnriPalette) -> Int) =
+        views.setColorStateList(id, method, ColorStateList.valueOf(color(day)), ColorStateList.valueOf(color(night)))
+
+      tint(R.id.widget_capture, "setBackgroundTintList") { it.accent }
+      tint(R.id.widget_capture, "setImageTintList") { it.onAccent }
+      if (layout == R.layout.widget_finnri_small) return
+
+      tint(R.id.widget_root, "setBackgroundTintList") { it.card }
+      tint(R.id.widget_type, "setImageTintList") { it.text }
+      if (layout == R.layout.widget_finnri_medium) {
+        tint(R.id.widget_type, "setBackgroundTintList") { it.track }
+        return
+      }
+      tint(R.id.widget_logo, "setBackgroundTintList") { it.logoFill }
+      views.setColorInt(R.id.widget_logo, "setTextColor", day.logoInk, night.logoInk)
+      views.setColorInt(R.id.widget_prompt, "setTextColor", day.hint, night.hint)
     }
 
     /**

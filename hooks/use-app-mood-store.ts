@@ -10,6 +10,7 @@ import {
   type IconStyle,
   type ThemeMoodId,
 } from '@/constants/theme';
+import { syncNativeTheme } from '@/lib/native-theme';
 
 type AppMoodState = AppMoodSettings & {
   setThemeColor: (themeColor: ThemeMoodId) => void;
@@ -20,15 +21,17 @@ type AppMoodState = AppMoodSettings & {
 
 export const useAppMoodStore = create<AppMoodState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DefaultAppMood,
       setThemeColor: (themeColor) => {
         setRuntimeAppMood({ themeColor });
         set({ themeColor });
+        syncNativeTheme(get());
       },
       setAppearance: (appearance) => {
         setRuntimeAppMood({ appearance });
         set({ appearance });
+        syncNativeTheme(get());
       },
       setIconStyle: (iconStyle) => {
         setRuntimeAppMood({ iconStyle });
@@ -37,6 +40,7 @@ export const useAppMoodStore = create<AppMoodState>()(
       resetMood: () => {
         setRuntimeAppMood(DefaultAppMood);
         set(DefaultAppMood);
+        syncNativeTheme(DefaultAppMood);
       },
     }),
     {
@@ -70,6 +74,10 @@ export const useAppMoodStore = create<AppMoodState>()(
           appearance: state.appearance,
           iconStyle: state.iconStyle,
         });
+        // Every launch, so a widget placed before this build learns the mood
+        // without waiting for the next change. Nothing stored means the
+        // default, which is what the widget draws on its own.
+        syncNativeTheme(state);
       },
     }
   )

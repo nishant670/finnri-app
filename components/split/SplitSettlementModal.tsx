@@ -1,3 +1,4 @@
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { View } from 'react-native';
 
 import {
@@ -26,6 +27,8 @@ type SplitSettlementModalProps = {
   date: string;
   notes: string;
   paymentMode: SettlementPaymentMode | null;
+  /** Save was pressed without a payment method. */
+  paymentModeMissing?: boolean;
   errorMessage: string | null;
   onChangeFriend: (id: number) => void;
   onChangeDirection: (direction: SettlementDirection) => void;
@@ -47,6 +50,7 @@ export function SplitSettlementModal({
   date,
   notes,
   paymentMode,
+  paymentModeMissing = false,
   errorMessage,
   onChangeFriend,
   onChangeDirection,
@@ -92,7 +96,9 @@ export function SplitSettlementModal({
         />
       </View>
       <View className="gap-2">
-        <TText className="text-xs" style={{ color: theme.muted }}>
+        <TText
+          className="text-xs"
+          style={{ color: paymentModeMissing ? theme.negative : theme.muted }}>
           How was it paid?
         </TText>
         <View className="flex-row flex-wrap gap-2">
@@ -103,9 +109,18 @@ export function SplitSettlementModal({
               selected={paymentMode === option.value}
               onPress={() => onChangePaymentMode(option.value)}
               fill={false}
+              invalid={paymentModeMissing}
             />
           ))}
         </View>
+        {paymentModeMissing ? (
+          <View accessibilityLiveRegion="polite" className="flex-row items-center gap-2">
+            <MaterialCommunityIcons name="alert-circle-outline" size={16} color={theme.negative} />
+            <TText className="flex-1 text-sm" style={{ color: theme.negative }}>
+              Select a payment method (UPI, Cash, …) to save this settlement.
+            </TText>
+          </View>
+        ) : null}
       </View>
       <FormInput
         label="Amount"

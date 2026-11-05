@@ -3,6 +3,7 @@ import { router, Stack, useFocusEffect, useLocalSearchParams } from 'expo-router
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  BackHandler,
   FlatList,
   Pressable,
   ScrollView,
@@ -55,7 +56,11 @@ import {
   type SplitFriend,
   type SplitGroup,
 } from '@/lib/splits';
-import { saveNewTransaction, type TransactionSaveProgress } from '@/lib/transaction-composer';
+import {
+  describeLikelyDuplicate,
+  saveNewTransaction,
+  type TransactionSaveProgress,
+} from '@/lib/transaction-composer';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { buildTransactionListItems, type TransactionListItem } from '@/lib/transaction-list';
 import { isAmountSort } from '@/lib/transactions';
@@ -68,6 +73,18 @@ import {
   type TransactionFilterState,
 } from '@/lib/transaction-filters';
 import { Transaction } from '@/types/transaction';
+import { EventPickerSheet } from '@/components/events/EventPickerSheet';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
+import {
+  EVENT_ENTRIES_PER_CALL,
+  addEntriesToEvent,
+  canJoinEvent,
+  describeEventGrouping,
+  eventLabel,
+  removeEntriesFromEvent,
+  useEvents,
+  type FinnriEvent,
+} from '@/lib/events';
 
 const needsTransactionReview = (transaction: Transaction) => {
   const category = String(transaction.category ?? '').trim().toLowerCase();
@@ -96,6 +113,8 @@ export default function TransactionsScreen() {
     type: routeType,
     q: routeSearch,
     mode: routeMode,
+    event_id: routeEventIdParam,
+    pickFor: pickForParam,
   } = useLocalSearchParams<{
     accountId?: string;
     review?: string;
@@ -105,7 +124,16 @@ export default function TransactionsScreen() {
     type?: string;
     q?: string;
     mode?: string;
+    /** Only this event's expenses. */
+    event_id?: string;
+    /**
+     * Opened from an event's "Add existing": the screen starts selecting, and
+     * the one action puts the selection in that event.
+     */
+    pickFor?: string;
   }>();
+  const routeEventId = routeEventIdParam ? Number(routeEventIdParam) : null;
+  const pickForEventId = pickForParam ? Number(pickForParam) || null : null;
   const routeAccountId = accountIdParam ? Number(accountIdParam) : null;
   const reviewMode = review === '1';
   // The Insights charts plot expenses, so they arrive asking for expenses. An
@@ -130,6 +158,7 @@ export default function TransactionsScreen() {
     category: routeCategory ?? null,
     mode: routeMode ?? null,
     accountId: Number.isFinite(routeAccountId) && routeAccountId ? routeAccountId : null,
+    eventId: Number.isFinite(routeEventId) && routeEventId ? routeEventId : null,
     startDate: routeStartDate ?? null,
     endDate: routeEndDate ?? null,
   }));
@@ -262,6 +291,53 @@ export default function TransactionsScreen() {
   const [openSwipeId, setOpenSwipeId] = useState<string | null>(null);
 
   /**
+   * Selecting, to put several expenses in an event at once — the way to group
+   * an occasion's transactions after they were logged. A long press on an
+   * expense starts it; arriving from an event's "Add existing" starts it empty.
+   * Only expenses can be chosen, because only expenses belong to events.
+   */
+  const [isSelecting, setIsSelecting] = useState(pickForEventId !== null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [isEventPickerOpen, setIsEventPickerOpen] = useState(false);
+  const [isGrouping, setIsGrouping] = useState(false);
+
+  const startSelecting = useCallback((item: Transaction) => {
+    if (!canJoinEvent(item)) return;
+    haptics.select();
+    setOpenSwipeId(null);
+    setIsSelecting(true);
+    setSelectedIds(new Set([item.id]));
+  }, []);
+
+  const toggleSelected = useCallback((item: Transaction) => {
+    if (!canJoinEvent(item)) return;
+    haptics.select();
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.id)) next.delete(item.id);
+      else next.add(item.id);
+      return next;
+    });
+  }, []);
+
+  const stopSelecting = useCallback(() => {
+    setIsSelecting(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  // Android's back ends a selection the way the header's ✕ does, rather than
+  // leaving the screen with its filters. Arriving to pick for an event, the
+  // selection is the screen, so back leaves as usual.
+  useEffect(() => {
+    if (!isSelecting || pickForEventId !== null) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      stopSelecting();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [isSelecting, pickForEventId, stopSelecting]);
+
+  /**
    * The delete is held, not sent — see `useUndoableDelete` for why a reversal
    * would not be one against a hard-deleting endpoint. This screen only supplies
    * what happens when the window closes.
@@ -275,6 +351,20 @@ export default function TransactionsScreen() {
     [accounts]
   );
 
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
+  const invalidateEvents = useEvents((state) => state.invalidate);
+  useEffect(() => {
+    if (token) void loadEvents(token);
+  }, [loadEvents, token]);
+  const eventNameFor = useCallback(
+    (id: number) => {
+      const event = events.find((candidate) => candidate.id === id);
+      return event ? eventLabel(event) : undefined;
+    },
+    [events]
+  );
+
   /**
    * Every applied filter, as a removable chip.
    *
@@ -284,8 +374,8 @@ export default function TransactionsScreen() {
    * screen said so.
    */
   const appliedChips = useMemo(
-    () => (reviewMode ? [] : describeFilters(filters, accountNameFor)),
-    [accountNameFor, filters, reviewMode]
+    () => (reviewMode ? [] : describeFilters(filters, accountNameFor, eventNameFor)),
+    [accountNameFor, eventNameFor, filters, reviewMode]
   );
 
   const clearRouteParams = useCallback(() => {
@@ -462,6 +552,7 @@ export default function TransactionsScreen() {
         account: resolveAccountForEntry(accounts, formData),
         idempotencyKey: addIdempotencyKey.current,
         progress: addSaveProgress.current,
+        confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
       });
       addIdempotencyKey.current = null;
       addSaveProgress.current = {};
@@ -479,7 +570,7 @@ export default function TransactionsScreen() {
         void offerBudgetAlert(budgetNotificationIds);
       }
     },
-    [accounts, filters.sort, offerBudgetAlert, token]
+    [accounts, dialog, filters.sort, offerBudgetAlert, token]
   );
 
   /**
@@ -518,10 +609,14 @@ export default function TransactionsScreen() {
           swipeOpen={openSwipeId === transaction.id}
           collapsed={pendingDelete?.id === transaction.id}
           isNew={newTransactionId === transaction.id}
+          selecting={isSelecting}
+          selected={selectedIds.has(transaction.id)}
           onOpen={openDetail}
           onSwipeAction={openFromSwipe}
           onSwipeOpenChange={changeSwipeOpen}
           onDelete={requestDelete}
+          onStartSelecting={startSelecting}
+          onToggleSelected={toggleSelected}
         />
       );
     },
@@ -529,14 +624,85 @@ export default function TransactionsScreen() {
       changeSwipeOpen,
       entranceSpent,
       isRankedByAmount,
+      isSelecting,
       newTransactionId,
       openDetail,
       openFromSwipe,
       openSwipeId,
       pendingDelete?.id,
       requestDelete,
+      selectedIds,
+      startSelecting,
+      toggleSelected,
     ]
   );
+
+  /**
+   * Puts the selection in an event, a request per 200 rows. Each request is
+   * all or nothing, but the requests are not: when one fails part-way, the
+   * rows already sent stay done. The list and the event show them, they leave
+   * the selection, and the rest stay selected for another try.
+   */
+  const groupSelection = useCallback(
+    async (event: FinnriEvent, action: 'add' | 'remove') => {
+      if (!token || isGrouping) return;
+      const ids = Array.from(selectedIds, Number).filter((id) => Number.isFinite(id));
+      if (ids.length === 0) return;
+      setIsEventPickerOpen(false);
+      setIsGrouping(true);
+      let done = 0;
+      const showChanges = () => {
+        invalidateEvents();
+        notifyTransactionsChanged();
+        void refresh();
+      };
+      try {
+        let moved = 0;
+        for (let start = 0; start < ids.length; start += EVENT_ENTRIES_PER_CALL) {
+          const chunk = ids.slice(start, start + EVENT_ENTRIES_PER_CALL);
+          if (action === 'add') moved += (await addEntriesToEvent(token, event.id, chunk)).moved;
+          else await removeEntriesFromEvent(token, event.id, chunk);
+          done += chunk.length;
+        }
+        haptics.saved();
+        stopSelecting();
+        showChanges();
+        if (pickForEventId !== null) {
+          router.back();
+          return;
+        }
+        await dialog.alert({
+          ...describeEventGrouping(action, event, ids.length, moved),
+          tone: 'success',
+          iconName: 'party-popper',
+        });
+      } catch (err) {
+        haptics.rejected();
+        if (done > 0) {
+          const applied = new Set(ids.slice(0, done).map(String));
+          setSelectedIds((current) => new Set([...current].filter((id) => !applied.has(id))));
+          showChanges();
+        }
+        await dialog.alert({
+          title: 'Could not update the event',
+          message:
+            done > 0
+              ? `${done} of ${ids.length} went through before it stopped. The other ${ids.length - done} are still selected, so you can try again.`
+              : getFriendlyErrorMessage(err, 'Try again in a moment.'),
+          tone: 'danger',
+        });
+      } finally {
+        setIsGrouping(false);
+      }
+    },
+    [dialog, invalidateEvents, isGrouping, pickForEventId, refresh, selectedIds, stopSelecting, token]
+  );
+  const pickForEvent = pickForEventId
+    ? (events.find((event) => event.id === pickForEventId) ?? null)
+    : null;
+  const filteredEvent =
+    filters.eventId !== null ? (events.find((event) => event.id === filters.eventId) ?? null) : null;
+  const selectionBarBottom = useBottomInset(12);
 
   const listHeader = (
     <>
@@ -576,6 +742,7 @@ export default function TransactionsScreen() {
       }
       actionLabel={hasActiveConstraints ? 'Clear filters' : 'Add transaction'}
       onAction={hasActiveConstraints ? clearFilters : openAdd}
+      style={styles.emptyState}
     />
   );
 
@@ -612,7 +779,32 @@ export default function TransactionsScreen() {
       style={{ flex: 1, backgroundColor: theme.background }}
       edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
-      {/* Header (board R3-List): back, the title, and the screen's two actions. */}
+      {/* Header (board R3-List): back, the title, and the screen's two actions.
+          While selecting, it says how many are chosen and how to stop. */}
+      {isSelecting ? (
+        <View style={styles.header}>
+          <Pressable
+            testID="transactions-selection-cancel"
+            accessibilityRole="button"
+            accessibilityLabel="Stop selecting"
+            onPress={() => (pickForEventId !== null ? router.back() : stopSelecting())}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="close" size={24} color={theme.text} />
+          </Pressable>
+          <ThemedText
+            accessibilityRole="header"
+            accessibilityLiveRegion="polite"
+            numberOfLines={1}
+            style={[styles.title, { color: theme.text }]}>
+            {selectedIds.size === 0
+              ? pickForEvent
+                ? `Add to ${pickForEvent.name}`
+                : 'Select expenses'
+              : `${selectedIds.size} selected`}
+          </ThemedText>
+          <View style={styles.headerActions} />
+        </View>
+      ) : (
       <View style={styles.header}>
         <Pressable
           accessibilityRole="button"
@@ -640,6 +832,17 @@ export default function TransactionsScreen() {
             <MaterialCommunityIcons name="tray-arrow-up" size={22} color={theme.text} />
           </Pressable>
           <Pressable
+            testID="transactions-events"
+            accessibilityRole="button"
+            accessibilityLabel="Events"
+            onPress={() => {
+              haptics.select();
+              router.push('/events');
+            }}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="party-popper" size={22} color={theme.text} />
+          </Pressable>
+          <Pressable
             testID="transactions-add"
             accessibilityRole="button"
             accessibilityLabel="Add transaction"
@@ -649,6 +852,7 @@ export default function TransactionsScreen() {
           </Pressable>
         </View>
       </View>
+      )}
 
       <View style={styles.searchRow}>
         <View style={[styles.search, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -747,12 +951,76 @@ export default function TransactionsScreen() {
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={{ paddingBottom: isSelecting ? 120 : 40 }}
         // Applying a filter leaves the previous rows on screen until the new
         // ones arrive — the full-screen loader only covers the empty case.
         // Without this the list spends a beat showing results that contradict
         // the chip above it, which reads as the filter being broken.
         style={{ opacity: isLoading && transactions.length > 0 ? 0.4 : 1 }}
+      />
+
+      {isSelecting && (
+        <View
+          testID="transactions-selection-bar"
+          style={[
+            styles.selectionBar,
+            { backgroundColor: theme.card, borderTopColor: theme.border, paddingBottom: selectionBarBottom },
+          ]}>
+          {selectedIds.size === 0 ? (
+            <ThemedText tone="muted" style={[styles.caption, styles.selectionHint]}>
+              Tap the expenses that belong together. Income and card bill payments can’t go in an event.
+            </ThemedText>
+          ) : pickForEventId !== null ? (
+            <Button
+              testID="transactions-selection-add-here"
+              label={pickForEvent ? `Add to ${pickForEvent.name}` : 'Add to event'}
+              icon="party-popper"
+              height={48}
+              loading={isGrouping}
+              style={styles.selectionButton}
+              onPress={() =>
+                void groupSelection(
+                  pickForEvent ?? ({ id: pickForEventId, name: 'the event', emoji: '' } as FinnriEvent),
+                  'add'
+                )
+              }
+            />
+          ) : (
+            <>
+              {filteredEvent ? (
+                <Button
+                  testID="transactions-selection-remove"
+                  label="Remove from event"
+                  variant="outline"
+                  height={48}
+                  disabled={isGrouping}
+                  style={styles.selectionButton}
+                  onPress={() => void groupSelection(filteredEvent, 'remove')}
+                />
+              ) : null}
+              <Button
+                testID="transactions-selection-add"
+                label="Add to event"
+                icon="party-popper"
+                height={48}
+                loading={isGrouping}
+                style={styles.selectionButton}
+                onPress={() => setIsEventPickerOpen(true)}
+              />
+            </>
+          )}
+        </View>
+      )}
+
+      <EventPickerSheet
+        visible={isEventPickerOpen}
+        title="Add to event"
+        selectedId={null}
+        allowNone={false}
+        onClose={() => setIsEventPickerOpen(false)}
+        onSelect={(event) => {
+          if (event) void groupSelection(event, 'add');
+        }}
       />
 
       {/* Advanced Filters Bottom Sheet */}
@@ -874,10 +1142,14 @@ const TransactionRow = memo(function TransactionRow({
   swipeOpen,
   collapsed,
   isNew,
+  selecting,
+  selected,
   onOpen,
   onSwipeAction,
   onSwipeOpenChange,
   onDelete,
+  onStartSelecting,
+  onToggleSelected,
 }: {
   transaction: Transaction;
   groupFirst: boolean;
@@ -887,12 +1159,17 @@ const TransactionRow = memo(function TransactionRow({
   swipeOpen: boolean;
   collapsed: boolean;
   isNew: boolean;
+  selecting: boolean;
+  selected: boolean;
   onOpen: (item: Transaction, intent?: 'edit' | 'repeat', origin?: RowOrigin) => void;
   onSwipeAction: (item: Transaction, intent: 'edit' | 'repeat') => void;
   onSwipeOpenChange: (id: string, open: boolean) => void;
   onDelete: (item: Transaction) => void;
+  onStartSelecting: (item: Transaction) => void;
+  onToggleSelected: (item: Transaction) => void;
 }) {
   const isIncome = transaction.entryType === 'income' || transaction.amount >= 0;
+  const joinsEvents = canJoinEvent(transaction);
   const theme = useThemeTokens().colors;
 
   // Each row draws its slice of the day's card, so the list stays one flat,
@@ -924,13 +1201,19 @@ const TransactionRow = memo(function TransactionRow({
         showDivider={!groupLast}
         isNew={isNew}
         entranceIndex={entranceIndex}
-        onEdit={() => onSwipeAction(transaction, 'edit')}
-        onDelete={() => onDelete(transaction)}
-        onRepeat={() => onSwipeAction(transaction, 'repeat')}
-        swipeOpen={swipeOpen}
+        // No swipe while selecting: a row's tap and drag both mean "choose".
+        onEdit={selecting ? undefined : () => onSwipeAction(transaction, 'edit')}
+        onDelete={selecting ? undefined : () => onDelete(transaction)}
+        onRepeat={selecting ? undefined : () => onSwipeAction(transaction, 'repeat')}
+        swipeOpen={selecting ? false : swipeOpen}
         onSwipeOpenChange={(open) => onSwipeOpenChange(transaction.id, open)}
         collapsed={collapsed}
-        onPress={(origin) => onOpen(transaction, undefined, origin)}
+        onPress={(origin) =>
+          selecting ? onToggleSelected(transaction) : onOpen(transaction, undefined, origin)
+        }
+        onLongPress={!selecting && joinsEvents ? () => onStartSelecting(transaction) : undefined}
+        selected={selecting ? selected : undefined}
+        dimmed={selecting && !joinsEvents}
       />
     </View>
   );
@@ -1054,6 +1337,12 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     borderWidth: 1.5,
   },
+  // On the search row's gutter, and clear of it: the card used to sit flush
+  // under the search box and 8pt narrower on each side than it.
+  emptyState: {
+    marginHorizontal: SCREEN_GUTTER,
+    marginTop: 16,
+  },
   chipScroll: {
     flexGrow: 0,
     marginTop: 10,
@@ -1145,6 +1434,25 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '600',
+  },
+  selectionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 12,
+    paddingHorizontal: 16,
+    borderTopWidth: 1,
+  },
+  selectionButton: {
+    flex: 1,
+  },
+  selectionHint: {
+    flex: 1,
+    textAlign: 'center',
+    paddingVertical: 14,
   },
   pressed: {
     opacity: 0.7,

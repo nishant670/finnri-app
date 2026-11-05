@@ -99,21 +99,24 @@ export function SegmentedSections({
 export function SettledHint({
   settledCount,
   onShowSettled,
+  noun = 'group',
 }: {
   settledCount: number;
   onShowSettled: () => void;
+  /** What is hidden: Groups hides groups, Friends hides friends. */
+  noun?: 'group' | 'friend';
 }) {
   if (settledCount <= 0) return null;
 
   return (
     <View style={styles.settled}>
       <ThemedText tone="muted" style={styles.settledText}>
-        Hiding groups that are settled up.
+        {noun === 'friend' ? "Hiding friends you're settled up with." : 'Hiding groups that are settled up.'}
       </ThemedText>
       <Button
         variant="outline"
         height={40}
-        label={`Show ${settledCount} settled-up group${settledCount === 1 ? '' : 's'}`}
+        label={`Show ${settledCount} settled-up ${noun}${settledCount === 1 ? '' : 's'}`}
         onPress={onShowSettled}
         style={styles.settledButton}
       />

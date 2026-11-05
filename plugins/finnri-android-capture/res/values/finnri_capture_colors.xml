@@ -3,7 +3,12 @@
   The Finnri palette, for the two native surfaces that cannot read
   `constants/theme.ts` — the quick-capture sheet and the home-screen widget
   (board R14). Light here; `values-night/finnri_capture_colors.xml` holds the
-  dark set under the same names, so both surfaces follow the phone's theme.
+  dark set under the same names.
+
+  Both surfaces now draw in the app's own mood and Light · Dark · Match phone,
+  which the app hands them (`lib/native-theme.ts`, `FinnriPalette.kt`). These
+  are what they draw before the app has run once to hand it over, and all the
+  widget draws on Android 11 and older, which cannot tint it.
 
   Values are copied from the Finnri mood in `constants/theme.ts` and have to be
   updated with it; there is no build step that checks them. Android writes

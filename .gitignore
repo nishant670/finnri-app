@@ -42,3 +42,6 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Firebase Android config: supplied by EAS as the GOOGLE_SERVICES_JSON file variable.
+google-services.json
