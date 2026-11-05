@@ -3,7 +3,7 @@ import Animated from 'react-native-reanimated';
 import { GroupAvatar } from '@/components/split/GroupAvatar';
 import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { ListRow } from '@/components/ui/ListRow';
-import { formatBalance, summaryKindDisplay, zeroBalanceLabel } from '@/components/split/split-utils';
+import { formatBalance, groupBalanceAlertReached, summaryKindDisplay, zeroBalanceLabel } from '@/components/split/split-utils';
 import { type SplitGroupSummary } from '@/components/split/split-types';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -43,7 +43,7 @@ export function SplitGroupCard({
     .filter((person) => !person.isViewer)
     .map((person) => person.name)
     .join(', ');
-  const meta =
+  const baseMeta =
     detailLines.length > 0
       ? detailLines.join(' · ')
       : latestBill
@@ -51,6 +51,11 @@ export function SplitGroupCard({
         : // The status already says "No expenses yet" when there are none, so
           // this line spends itself on the next thing the user needs.
           memberNames || 'Add members or the first expense';
+  // The group is marked, as the alert's own copy promised, whenever a balance
+  // in it is at or past the limit — not only in the notification.
+  const meta = groupBalanceAlertReached(group)
+    ? `Past the ${formatBalance(group.balance_alert_amount ?? 0)} alert · ${baseMeta}`
+    : baseMeta;
 
   return (
     <Animated.View entering={motion.rowEntering(entranceIndex)} layout={motion.reflow()}>

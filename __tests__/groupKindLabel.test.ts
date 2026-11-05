@@ -1,4 +1,5 @@
 import {
+  groupBalanceAlertReached,
   groupKindDisplay,
   groupKindIconChoices,
   suggestGroupKindIcon,
@@ -48,5 +49,29 @@ describe("an Other group's own label and icon", () => {
       label: 'Office',
       icon: 'format-list-bulleted',
     });
+  });
+});
+
+describe('whether a group is past its balance alert', () => {
+  const balances = (...amounts: number[]) =>
+    amounts.map((net_balance, index) => ({ friend_id: index + 1, net_balance }));
+
+  it('is past it when any one balance reaches the limit, either way round', () => {
+    expect(
+      groupBalanceAlertReached({ balance_alert_amount: 1000, viewer_balances: balances(200, 1000) })
+    ).toBe(true);
+    expect(
+      groupBalanceAlertReached({ balance_alert_amount: 1000, viewer_balances: balances(-1200) })
+    ).toBe(true);
+  });
+
+  it('is not past it under the limit, or with the alert off', () => {
+    expect(
+      groupBalanceAlertReached({ balance_alert_amount: 1000, viewer_balances: balances(600, -999) })
+    ).toBe(false);
+    expect(
+      groupBalanceAlertReached({ balance_alert_amount: 0, viewer_balances: balances(5000) })
+    ).toBe(false);
+    expect(groupBalanceAlertReached({ viewer_balances: balances(5000) })).toBe(false);
   });
 });

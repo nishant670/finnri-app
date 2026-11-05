@@ -12,8 +12,10 @@ import {
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
+import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -24,10 +26,11 @@ import type { SplitFriend } from '@/lib/splits';
 /**
  * Create or edit a group (board R6-CreateGroup): photo and name, the kind
  * chips — with a label and icon of the group's own under Other — members from
- * existing friends, and one button.
+ * existing friends, the balance alert, and one button.
  *
- * The board's Balance alert card is gone: nothing ever stored or acted on it,
- * so it was a switch that did nothing. It comes back when alerts are real.
+ * The balance alert is saved on the group and the server notifies each member
+ * when one person's balance with them reaches it. Free for everyone, so it
+ * carries no plan tag.
  */
 export function CreateGroupModal({
   visible,
@@ -42,12 +45,16 @@ export function CreateGroupModal({
   onRemovePhoto,
   kindLabel,
   kindIcon,
+  balanceAlertEnabled,
+  balanceAlertAmount,
   friends,
   selectedFriendIds,
   onChangeName,
   onChangeKind,
   onChangeKindLabel,
   onPickKindIcon,
+  onToggleBalanceAlert,
+  onChangeBalanceAlertAmount,
   onToggleFriend,
   onClose,
   onDone,
@@ -71,12 +78,16 @@ export function CreateGroupModal({
   kindLabel: string;
   /** The icon beside that label, suggested from it until the user picks one. */
   kindIcon: string;
+  balanceAlertEnabled: boolean;
+  balanceAlertAmount: string;
   friends: SplitFriend[];
   selectedFriendIds: number[];
   onChangeName: (value: string) => void;
   onChangeKind: (kind: GroupKind) => void;
   onChangeKindLabel: (value: string) => void;
   onPickKindIcon: (icon: string) => void;
+  onToggleBalanceAlert: () => void;
+  onChangeBalanceAlertAmount: (value: string) => void;
   onToggleFriend: (friendId: number) => void;
   onClose: () => void;
   onDone: () => void;
@@ -301,6 +312,41 @@ export function CreateGroupModal({
               </View>
             ) : null}
           </View>
+
+          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.alertRow}>
+              <View style={styles.alertText}>
+                <ThemedText style={[styles.alertTitle, { color: theme.text }]}>
+                  Balance alert
+                </ThemedText>
+                <ThemedText tone="muted" style={styles.caption}>
+                  Get notified when anyone&apos;s balance in this group reaches an amount.
+                </ThemedText>
+              </View>
+              <HapticSwitch
+                accessibilityLabel="Balance alert"
+                value={balanceAlertEnabled}
+                onValueChange={onToggleBalanceAlert}
+              />
+            </View>
+            {balanceAlertEnabled ? (
+              <View style={[styles.row, styles.amountRow, { borderTopColor: theme.border }]}>
+                <ThemedText tone="muted" style={styles.rowLabel}>
+                  Alert at
+                </ThemedText>
+                <ThemedText style={[styles.rupee, { color: theme.text }]}>{CURRENCY_SYMBOL}</ThemedText>
+                <TextInput
+                  accessibilityLabel="Balance alert amount"
+                  value={balanceAlertAmount}
+                  onChangeText={onChangeBalanceAlertAmount}
+                  keyboardType="decimal-pad"
+                  placeholder="5,000"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.amountInput, { color: theme.text, fontFamily: Fonts.title }]}
+                />
+              </View>
+            ) : null}
+          </View>
         </ScrollView>
 
         <View style={styles.footer}>
@@ -463,6 +509,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
     borderRadius: 20,
+  },
+  alertRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 14,
+  },
+  alertText: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  alertTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  caption: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  amountRow: {
+    borderTopWidth: 1,
+  },
+  rupee: {
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '600',
+  },
+  amountInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    fontSize: 20,
+    fontVariant: ['tabular-nums'],
   },
   footer: {
     paddingTop: 8,

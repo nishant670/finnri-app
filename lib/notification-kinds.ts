@@ -64,6 +64,7 @@ const KINDS: Record<string, NotificationKind> = {
   monthly_review: { icon: 'chart-bar', ...HUES.review, action: 'Read the review' },
   'split.group_invite.received': { icon: 'account-group-outline', ...HUES.split, action: 'View invite' },
   'split.group_invite.accepted': { icon: 'account-group-outline', ...HUES.split, action: 'Open Splits' },
+  'split.balance_alert': { icon: 'bell-alert-outline', ...HUES.late, action: 'Open Splits' },
   'split.settlement.recorded': { icon: 'hand-coin-outline', ...HUES.split, action: 'Review in Splits' },
   'split.settlement.confirmed': { icon: 'check', ...HUES.done, action: 'Open Splits' },
   'split.settlement.denied': { icon: 'close-circle-outline', ...HUES.late, action: 'Open Splits' },
