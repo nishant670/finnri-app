@@ -325,9 +325,10 @@ export const quickPromptEditorData = (
   accounts: Account[],
   now: Date
 ): Partial<EntryForm> => {
+  // No category: a new prompt is filed by its title, the way a new entry is.
+  // Seeding Food & Drinks read as a choice, so the title was never consulted.
   if (!editingPrompt)
     return {
-      category: 'Food & Drinks',
       mode: 'Cash',
       type: 'Expense',
       date: formatDateLabel(now),

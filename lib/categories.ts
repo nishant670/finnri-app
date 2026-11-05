@@ -30,7 +30,14 @@ export const CATEGORIES = [
   'Misc',
 ] as const;
 
-export const INCOME_CATEGORIES = ['Salary', 'Freelance', 'Interest', 'Refund', 'Other'] as const;
+export const INCOME_CATEGORIES = [
+  'Salary',
+  'Freelance',
+  'Interest',
+  'Dividend',
+  'Refund',
+  'Other',
+] as const;
 
 export type ExpenseCategory = (typeof CATEGORIES)[number];
 export type IncomeCategory = (typeof INCOME_CATEGORIES)[number];
@@ -59,6 +66,7 @@ export const CATEGORY_VISUALS: Record<string, CategoryVisual> = {
   salary: { icon: 'briefcase-outline', color: '#16A34A', bgColor: '#DCFCE7' },
   freelance: { icon: 'account-cash-outline', color: '#0D9488', bgColor: '#CCFBF1' },
   interest: { icon: 'percent-outline', color: '#2563EB', bgColor: '#DBEAFE' },
+  dividend: { icon: 'chart-line', color: '#EA580C', bgColor: '#FFEDD5' },
   refund: { icon: 'cash-refund', color: '#7C3AED', bgColor: '#EDE9FE' },
   other: { icon: 'dots-horizontal', color: '#64748B', bgColor: '#F1F5F9' },
 };
@@ -134,6 +142,8 @@ const INCOME_CATEGORY_ALIASES: Record<string, IncomeCategory> = {
   'side hustle': 'Freelance',
   'interest income': 'Interest',
   'bank interest': 'Interest',
+  dividends: 'Dividend',
+  'dividend income': 'Dividend',
   cashback: 'Refund',
   reimbursement: 'Refund',
   'returned purchase': 'Refund',

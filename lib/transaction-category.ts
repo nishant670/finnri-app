@@ -486,7 +486,10 @@ const incomeRules: CategoryRule[] = [
       'fiverr',
     ],
   },
-  { category: 'Interest', phrases: ['interest', 'fd interest', 'dividend', 'ब्याज'] },
+  { category: 'Interest', phrases: ['interest', 'fd interest', 'ब्याज'] },
+  // Paid on shares and funds, not by a bank on savings — a separate line on a
+  // tax return, so it is not filed under Interest.
+  { category: 'Dividend', phrases: ['dividend', 'interim dividend', 'final dividend', 'लाभांश'] },
   {
     category: 'Refund',
     phrases: ['refund', 'refunded', 'cashback', 'reimbursement', 'reversal', 'returned purchase', 'रिफंड'],

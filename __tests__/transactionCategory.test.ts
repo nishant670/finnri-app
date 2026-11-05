@@ -54,6 +54,8 @@ describe('title category hints', () => {
     ['Monthly salary', 'Salary'],
     ['Client payment', 'Freelance'],
     ['Bank interest', 'Interest'],
+    ['Vedanta dividend', 'Dividend'],
+    ['ITC interim dividend', 'Dividend'],
     ['Dinner refund', 'Refund'],
     ['Groceries cashback', 'Refund'],
     ['ब्याज', 'Interest'],
