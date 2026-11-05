@@ -139,6 +139,11 @@ export type SplitGroup = {
   kind_label?: string;
   kind_icon?: string;
   /**
+   * The group's balance limit; 0 when the alert is off. The server notifies a
+   * member when one person's balance with them in this group reaches it.
+   */
+  balance_alert_amount?: number;
+  /**
    * The group's picture, hosted by the backend. Empty when it has none.
    *
    * A URL rather than a device path on purpose: the photo belongs to the group,
@@ -428,6 +433,8 @@ export type SplitGroupPayload = {
    */
   kind_label?: string;
   kind_icon?: string;
+  /** The balance limit; 0 turns the alert off. Omit to leave it alone. */
+  balance_alert_amount?: number;
   /**
    * Omit to leave the group's photo alone; send an empty string to remove it.
    * The server rejects anything that is not a URL it issued from `/v1/upload`.
@@ -607,6 +614,7 @@ export const fetchSplitGroups = async (token: string): Promise<SplitGroup[]> => 
   return (payload as SplitGroup[]).map((group) => ({
     ...group,
     viewer_net_balance: Number(group.viewer_net_balance ?? 0),
+    balance_alert_amount: Number(group.balance_alert_amount ?? 0),
     viewer_balances: (group.viewer_balances ?? []).map((entry) => ({
       friend_id: entry.friend_id,
       net_balance: Number(entry.net_balance),

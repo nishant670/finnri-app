@@ -79,6 +79,18 @@ export function suggestGroupKindIcon(label: string): GroupIconName {
   return groupKindIconChoices[0];
 }
 
+/**
+ * Whether a balance in this group has reached its alert, as the viewer sees
+ * it: the same per-person balances the server checks before it notifies.
+ */
+export function groupBalanceAlertReached(
+  group: Pick<SplitGroup, 'balance_alert_amount' | 'viewer_balances'>,
+): boolean {
+  const limit = Number(group.balance_alert_amount ?? 0);
+  if (!(limit > 0)) return false;
+  return (group.viewer_balances ?? []).some((entry) => Math.abs(entry.net_balance) >= limit);
+}
+
 /** `groupKindDisplay` for a group summary, whose kind is already resolved. */
 export function summaryKindDisplay(summary: Pick<SplitGroupSummary, 'group' | 'kind'>) {
   return groupKindDisplay({ ...summary.group, kind: summary.kind });

@@ -3,9 +3,11 @@ import { fireEvent, render } from '@testing-library/react-native';
 import { CreateGroupModal } from '@/components/split/modals/CreateGroupModal';
 import type { GroupKind } from '@/lib/split-preferences';
 
-const setup = async (groupKind: GroupKind, kindLabel = '') => {
+const setup = async (groupKind: GroupKind, kindLabel = '', balanceAlertEnabled = false) => {
   const onChangeKindLabel = jest.fn();
   const onPickKindIcon = jest.fn();
+  const onToggleBalanceAlert = jest.fn();
+  const onChangeBalanceAlertAmount = jest.fn();
   const screen = await render(
     <CreateGroupModal
       visible
@@ -20,18 +22,28 @@ const setup = async (groupKind: GroupKind, kindLabel = '') => {
       onRemovePhoto={jest.fn()}
       kindLabel={kindLabel}
       kindIcon="party-popper"
+      balanceAlertEnabled={balanceAlertEnabled}
+      balanceAlertAmount=""
       friends={[]}
       selectedFriendIds={[]}
       onChangeName={jest.fn()}
       onChangeKind={jest.fn()}
       onChangeKindLabel={onChangeKindLabel}
       onPickKindIcon={onPickKindIcon}
+      onToggleBalanceAlert={onToggleBalanceAlert}
+      onChangeBalanceAlertAmount={onChangeBalanceAlertAmount}
       onToggleFriend={jest.fn()}
       onClose={jest.fn()}
       onDone={jest.fn()}
     />
   );
-  return { screen, onChangeKindLabel, onPickKindIcon };
+  return {
+    screen,
+    onChangeKindLabel,
+    onPickKindIcon,
+    onToggleBalanceAlert,
+    onChangeBalanceAlertAmount,
+  };
 };
 
 describe('the Create group sheet', () => {
@@ -48,9 +60,14 @@ describe('the Create group sheet', () => {
     expect(screen.queryByLabelText('What is this group for')).toBeNull();
   });
 
-  it('no longer shows the Balance alert that did nothing', async () => {
-    const { screen } = await setup('other');
-    expect(screen.queryByText('Balance alert')).toBeNull();
-    expect(screen.queryByText('Finnri plan')).toBeNull();
+  it('offers the balance alert free, with an amount once it is on', async () => {
+    const off = await setup('trip');
+    expect(off.screen.getByText('Balance alert')).toBeTruthy();
+    expect(off.screen.queryByText('Finnri plan')).toBeNull();
+    expect(off.screen.queryByLabelText('Balance alert amount')).toBeNull();
+
+    const on = await setup('trip', '', true);
+    await fireEvent.changeText(on.screen.getByLabelText('Balance alert amount'), '5000');
+    expect(on.onChangeBalanceAlertAmount).toHaveBeenCalledWith('5000');
   });
 });

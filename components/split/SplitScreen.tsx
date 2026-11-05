@@ -300,6 +300,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
    * label keeps choosing the icon; after, the user's pick stays put.
    */
   const [groupKindIconPicked, setGroupKindIconPicked] = useState(false);
+  /** The group's balance alert, saved on the group as `balance_alert_amount`. */
+  const [groupBalanceAlertEnabled, setGroupBalanceAlertEnabled] = useState(false);
+  const [groupBalanceAlertAmount, setGroupBalanceAlertAmount] = useState('');
   const [groupInviteEmail, setGroupInviteEmail] = useState('');
   const [groupInvitePhone, setGroupInvitePhone] = useState('');
   const [groupInviteTargetId, setGroupInviteTargetId] = useState<number | null>(null);
@@ -833,6 +836,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setGroupKindLabel('');
     setGroupKindIcon(groupKindIconChoices[0]);
     setGroupKindIconPicked(false);
+    setGroupBalanceAlertEnabled(false);
+    setGroupBalanceAlertAmount('');
     setSelectedGroupFriendIds([]);
   };
 
@@ -1000,6 +1005,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       setError('Group name is required.');
       return;
     }
+    const balanceAlertAmount = groupBalanceAlertEnabled ? parseAmount(groupBalanceAlertAmount) : 0;
+    if (groupBalanceAlertEnabled && !(balanceAlertAmount > 0)) {
+      setError('Enter the balance to be alerted at, or turn the alert off.');
+      return;
+    }
     const isEditingGroup = Boolean(editingGroupId);
     setSaving(true);
     setError(null);
@@ -1021,6 +1031,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
               kind_icon: groupKindLabel.trim() ? groupKindIcon : '',
             }
           : {}),
+        balance_alert_amount: Number.isFinite(balanceAlertAmount)
+          ? Math.round(balanceAlertAmount * 100) / 100
+          : 0,
         ...(photoUrl === undefined ? {} : { photo_url: photoUrl }),
         friend_ids: selectedGroupFriendIds,
       };
@@ -1388,6 +1401,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     // A saved icon is whatever the user last settled on; keep it unless they
     // pick again.
     setGroupKindIconPicked(Boolean(summary.group.kind_icon));
+    const alertAmount = Number(summary.group.balance_alert_amount ?? 0);
+    setGroupBalanceAlertEnabled(alertAmount > 0);
+    setGroupBalanceAlertAmount(alertAmount > 0 ? String(alertAmount) : '');
     setSelectedGroupFriendIds(summary.memberIds);
     setEditingGroupId(summary.group.id);
     setError(null);
@@ -2637,6 +2653,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           onRemovePhoto={removeGroupPhoto}
           kindLabel={groupKindLabel}
           kindIcon={groupKindIcon}
+          balanceAlertEnabled={groupBalanceAlertEnabled}
+          balanceAlertAmount={groupBalanceAlertAmount}
           friends={friends}
           selectedFriendIds={selectedGroupFriendIds}
           onChangeName={setGroupName}
@@ -2649,6 +2667,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
             setGroupKindIcon(icon);
             setGroupKindIconPicked(true);
           }}
+          onToggleBalanceAlert={() => setGroupBalanceAlertEnabled((current) => !current)}
+          onChangeBalanceAlertAmount={setGroupBalanceAlertAmount}
           onToggleFriend={toggleGroupFriend}
           onClose={closeModal}
           onDone={() => void handleCreateGroup()}
