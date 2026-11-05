@@ -20,7 +20,7 @@ import { GroupSettingsModal } from '@/components/split/modals/GroupSettingsModal
 import { PeoplePickerModal, type PeoplePickerTarget } from '@/components/split/modals/PeoplePickerModal';
 import { GroupActionModal } from '@/components/split/modals/GroupActionModal';
 import { BillDetailModal } from '@/components/split/modals/BillDetailModal';
-import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupMatchesSearch, parseAmount, todayApiDate } from '@/components/split/split-utils';
+import { composerMemberKeys, contactMatchesFriend, countHiddenSettledGroups, groupKindIconChoices, groupMatchesSearch, parseAmount, suggestGroupKindIcon, todayApiDate } from '@/components/split/split-utils';
 import type { DeviceContactOption, GroupActionMode, SplitGroupSummary } from '@/components/split/split-types';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import {
@@ -246,13 +246,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   const [contactsLoading, setContactsLoading] = useState(false);
   const [deviceContacts, setDeviceContacts] = useState<DeviceContactOption[]>([]);
   const [pendingFriendGroupId, setPendingFriendGroupId] = useState<number | null>(null);
-  /**
-   * Balance alerts are still only a form field — nothing acts on them yet — so
-   * they stay in memory rather than pretending to be saved.
-   */
-  const [groupBalanceAlertById, setGroupBalanceAlertById] = useState<
-    Record<number, { enabled: boolean; amount: string }>
-  >({});
   const [soloGroupPromptId, setSoloGroupPromptId] = useState<number | null>(null);
   const [defaultSplitGroupId, setDefaultSplitGroupId] = useState<number | null>(null);
   const [defaultSplitScreen, setDefaultSplitScreen] = useState<'choice' | 'adjust'>('choice');
@@ -299,8 +292,14 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
    */
   const [groupPhotoUri, setGroupPhotoUri] = useState<string | null>(null);
   const [groupPhotoBusy, setGroupPhotoBusy] = useState(false);
-  const [groupBalanceAlertEnabled, setGroupBalanceAlertEnabled] = useState(false);
-  const [groupBalanceAlertAmount, setGroupBalanceAlertAmount] = useState('');
+  /** An "other" group's own label, and the icon drawn beside it. */
+  const [groupKindLabel, setGroupKindLabel] = useState('');
+  const [groupKindIcon, setGroupKindIcon] = useState<string>(groupKindIconChoices[0]);
+  /**
+   * Whether the icon was tapped rather than suggested. Until it is, typing the
+   * label keeps choosing the icon; after, the user's pick stays put.
+   */
+  const [groupKindIconPicked, setGroupKindIconPicked] = useState(false);
   const [groupInviteEmail, setGroupInviteEmail] = useState('');
   const [groupInvitePhone, setGroupInvitePhone] = useState('');
   const [groupInviteTargetId, setGroupInviteTargetId] = useState<number | null>(null);
@@ -831,8 +830,9 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setGroupKind('trip');
     setGroupPhotoUri(null);
     setGroupPhotoBusy(false);
-    setGroupBalanceAlertEnabled(false);
-    setGroupBalanceAlertAmount('');
+    setGroupKindLabel('');
+    setGroupKindIcon(groupKindIconChoices[0]);
+    setGroupKindIconPicked(false);
     setSelectedGroupFriendIds([]);
   };
 
@@ -1015,6 +1015,12 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       const payload = {
         name: groupName.trim(),
         kind: groupKind,
+        ...(groupKind === 'other'
+          ? {
+              kind_label: groupKindLabel.trim(),
+              kind_icon: groupKindLabel.trim() ? groupKindIcon : '',
+            }
+          : {}),
         ...(photoUrl === undefined ? {} : { photo_url: photoUrl }),
         friend_ids: selectedGroupFriendIds,
       };
@@ -1022,13 +1028,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         ? await updateSplitGroup(token, editingGroupId, payload)
         : await createSplitGroup(token, payload);
       reportMemberInvites(savedGroup.member_invites ?? []);
-      setGroupBalanceAlertById((current) => ({
-        ...current,
-        [savedGroup.id]: {
-          enabled: groupBalanceAlertEnabled,
-          amount: groupBalanceAlertAmount.trim(),
-        },
-      }));
       haptics.saved();
       closeModal();
       setActiveSection('groups');
@@ -1384,8 +1383,11 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     setGroupName(summary.group.name);
     setGroupKind(summary.kind);
     setGroupPhotoUri(summary.group.photo_url || null);
-    setGroupBalanceAlertEnabled(groupBalanceAlertById[summary.group.id]?.enabled ?? false);
-    setGroupBalanceAlertAmount(groupBalanceAlertById[summary.group.id]?.amount ?? '');
+    setGroupKindLabel(summary.group.kind_label ?? '');
+    setGroupKindIcon(summary.group.kind_icon || suggestGroupKindIcon(summary.group.kind_label ?? ''));
+    // A saved icon is whatever the user last settled on; keep it unless they
+    // pick again.
+    setGroupKindIconPicked(Boolean(summary.group.kind_icon));
     setSelectedGroupFriendIds(summary.memberIds);
     setEditingGroupId(summary.group.id);
     setError(null);
@@ -2633,14 +2635,20 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           photoBusy={groupPhotoBusy}
           onPickPhoto={() => void pickGroupPhoto()}
           onRemovePhoto={removeGroupPhoto}
-          balanceAlertEnabled={groupBalanceAlertEnabled}
-          balanceAlertAmount={groupBalanceAlertAmount}
+          kindLabel={groupKindLabel}
+          kindIcon={groupKindIcon}
           friends={friends}
           selectedFriendIds={selectedGroupFriendIds}
           onChangeName={setGroupName}
           onChangeKind={setGroupKind}
-          onToggleBalanceAlert={() => setGroupBalanceAlertEnabled((current) => !current)}
-          onChangeBalanceAlertAmount={setGroupBalanceAlertAmount}
+          onChangeKindLabel={(label) => {
+            setGroupKindLabel(label);
+            if (!groupKindIconPicked) setGroupKindIcon(suggestGroupKindIcon(label));
+          }}
+          onPickKindIcon={(icon) => {
+            setGroupKindIcon(icon);
+            setGroupKindIconPicked(true);
+          }}
           onToggleFriend={toggleGroupFriend}
           onClose={closeModal}
           onDone={() => void handleCreateGroup()}

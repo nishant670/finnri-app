@@ -7,7 +7,7 @@ import { GroupAvatar } from '@/components/split/GroupAvatar';
 import { SplitEmptyCard, SplitListCard } from '@/components/split/primitives/SplitChrome';
 import {
   formatBalance,
-  getGroupKindConfig,
+  summaryKindDisplay,
   readBillForViewer,
 } from '@/components/split/split-utils';
 import { SplitExpenseRow } from '@/components/split/rows/SplitExpenseRow';
@@ -103,7 +103,7 @@ export function GroupDetailModal({
     (bill) => readBillForViewer(bill, friendById, currentUserName).net,
     billSort === 'date_desc' || billSort === 'date_asc'
   );
-  const kind = getGroupKindConfig(summary.kind);
+  const kind = summaryKindDisplay(summary);
   const peopleLabel = `${summary.roster.length} ${summary.roster.length === 1 ? 'person' : 'people'}`;
   const net = summary.netBalance;
   const tone = net > 0 ? theme.positive : theme.negative;
@@ -201,25 +201,31 @@ export function GroupDetailModal({
                     {line}
                   </ThemedText>
                 ))}
-                <View style={styles.actions}>
-                  <Button
-                    variant="outline"
-                    height={48}
-                    icon="hand-coin-outline"
-                    label="Settle up"
-                    onPress={() => onOpenAction(summary, 'settle')}
-                    style={styles.action}
-                  />
-                  {canAddExpense ? (
-                    <PrimaryButton
-                      height={48}
-                      icon="receipt-text-plus-outline"
-                      label="Add expense"
-                      onPress={() => onAddExpense(summary.group.id)}
-                      style={styles.action}
-                    />
-                  ) : null}
-                </View>
+                {summary.billCount > 0 || canAddExpense ? (
+                  <View style={styles.actions}>
+                    {/* Nothing to settle before the first expense: the button
+                        would only open a sheet with nothing in it. */}
+                    {summary.billCount > 0 ? (
+                      <Button
+                        variant="outline"
+                        height={48}
+                        icon="hand-coin-outline"
+                        label="Settle up"
+                        onPress={() => onOpenAction(summary, 'settle')}
+                        style={styles.action}
+                      />
+                    ) : null}
+                    {canAddExpense ? (
+                      <PrimaryButton
+                        height={48}
+                        icon="receipt-text-plus-outline"
+                        label="Add expense"
+                        onPress={() => onAddExpense(summary.group.id)}
+                        style={styles.action}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
               <View style={[styles.pills, { borderTopColor: theme.border }]}>
                 <GroupPill

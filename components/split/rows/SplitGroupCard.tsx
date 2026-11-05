@@ -3,7 +3,7 @@ import Animated from 'react-native-reanimated';
 import { GroupAvatar } from '@/components/split/GroupAvatar';
 import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { ListRow } from '@/components/ui/ListRow';
-import { formatBalance, getGroupKindConfig, zeroBalanceLabel } from '@/components/split/split-utils';
+import { formatBalance, summaryKindDisplay, zeroBalanceLabel } from '@/components/split/split-utils';
 import { type SplitGroupSummary } from '@/components/split/split-types';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -37,8 +37,8 @@ export function SplitGroupCard({
 }: SplitGroupCardProps) {
   const theme = useThemeTokens().colors;
   const motion = useMotion();
-  const { group, detailLines, roster, kind, netBalance, billCount, latestBill } = summary;
-  const kindConfig = getGroupKindConfig(kind);
+  const { group, detailLines, roster, netBalance, billCount, latestBill } = summary;
+  const kindConfig = summaryKindDisplay(summary);
   const memberNames = roster
     .filter((person) => !person.isViewer)
     .map((person) => person.name)

@@ -4,14 +4,16 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { MemberToggleChip } from '@/components/split/primitives/SplitPrimitives';
-import { groupKindOptions } from '@/components/split/split-utils';
+import {
+  GROUP_KIND_LABEL_MAX,
+  groupKindIconChoices,
+  groupKindOptions,
+} from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
-import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
-import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -21,7 +23,11 @@ import type { SplitFriend } from '@/lib/splits';
 
 /**
  * Create or edit a group (board R6-CreateGroup): photo and name, the kind
- * chips, members from existing friends, the balance alert, and one button.
+ * chips — with a label and icon of the group's own under Other — members from
+ * existing friends, and one button.
+ *
+ * The board's Balance alert card is gone: nothing ever stored or acted on it,
+ * so it was a switch that did nothing. It comes back when alerts are real.
  */
 export function CreateGroupModal({
   visible,
@@ -34,14 +40,14 @@ export function CreateGroupModal({
   photoBusy,
   onPickPhoto,
   onRemovePhoto,
-  balanceAlertEnabled,
-  balanceAlertAmount,
+  kindLabel,
+  kindIcon,
   friends,
   selectedFriendIds,
   onChangeName,
   onChangeKind,
-  onToggleBalanceAlert,
-  onChangeBalanceAlertAmount,
+  onChangeKindLabel,
+  onPickKindIcon,
   onToggleFriend,
   onClose,
   onDone,
@@ -61,14 +67,16 @@ export function CreateGroupModal({
   photoBusy: boolean;
   onPickPhoto: () => void;
   onRemovePhoto: () => void;
-  balanceAlertEnabled: boolean;
-  balanceAlertAmount: string;
+  /** An "other" group's own label; only shown while Other is selected. */
+  kindLabel: string;
+  /** The icon beside that label, suggested from it until the user picks one. */
+  kindIcon: string;
   friends: SplitFriend[];
   selectedFriendIds: number[];
   onChangeName: (value: string) => void;
   onChangeKind: (kind: GroupKind) => void;
-  onToggleBalanceAlert: () => void;
-  onChangeBalanceAlertAmount: (value: string) => void;
+  onChangeKindLabel: (value: string) => void;
+  onPickKindIcon: (icon: string) => void;
   onToggleFriend: (friendId: number) => void;
   onClose: () => void;
   onDone: () => void;
@@ -206,6 +214,57 @@ export function CreateGroupModal({
             })}
           </View>
 
+          {groupKind === 'other' ? (
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.labelRow}>
+                <View style={[styles.labelIcon, { backgroundColor: theme.selectedFill }]}>
+                  <MaterialCommunityIcons
+                    name={kindIcon as keyof typeof MaterialCommunityIcons.glyphMap}
+                    size={22}
+                    color={theme.text}
+                  />
+                </View>
+                <TextInput
+                  accessibilityLabel="What is this group for"
+                  value={kindLabel}
+                  onChangeText={onChangeKindLabel}
+                  maxLength={GROUP_KIND_LABEL_MAX}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  placeholder="What's it for? e.g. Office, Party"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.labelInput, { color: theme.text, fontFamily: Fonts.body }]}
+                />
+              </View>
+              <View style={[styles.icons, { borderTopColor: theme.border }]}>
+                {groupKindIconChoices.map((icon) => {
+                  const selected = icon === kindIcon;
+                  return (
+                    <PressableView
+                      key={icon}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Icon ${icon.replace(/-outline$/, '').replace(/-/g, ' ')}`}
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        haptics.select();
+                        onPickKindIcon(icon);
+                      }}
+                      style={[
+                        styles.iconChoice,
+                        {
+                          backgroundColor: selected ? theme.selectedFill : 'transparent',
+                          borderColor: selected ? theme.selectedBorder : theme.border,
+                        },
+                      ]}
+                      pressedStyle={styles.pressed}>
+                      <MaterialCommunityIcons name={icon} size={20} color={theme.text} />
+                    </PressableView>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <PressableView
               accessibilityRole="button"
@@ -239,46 +298,6 @@ export function CreateGroupModal({
                     onPress={() => onToggleFriend(friend.id)}
                   />
                 ))}
-              </View>
-            ) : null}
-          </View>
-
-          <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.alertRow}>
-              <View style={styles.alertText}>
-                <View style={styles.alertTitleRow}>
-                  <ThemedText style={[styles.alertTitle, { color: theme.text }]}>
-                    Balance alert
-                  </ThemedText>
-                  <View style={[styles.tag, { backgroundColor: theme.track }]}>
-                    <ThemedText style={[styles.tagLabel, { color: theme.text }]}>Finnri plan</ThemedText>
-                  </View>
-                </View>
-                <ThemedText tone="muted" style={styles.caption}>
-                  Mark this group when someone reaches a balance limit.
-                </ThemedText>
-              </View>
-              <HapticSwitch
-                accessibilityLabel="Balance alert"
-                value={balanceAlertEnabled}
-                onValueChange={onToggleBalanceAlert}
-              />
-            </View>
-            {balanceAlertEnabled ? (
-              <View style={[styles.row, styles.amountRow, { borderTopColor: theme.border }]}>
-                <ThemedText tone="muted" style={styles.rowLabel}>
-                  Alert at
-                </ThemedText>
-                <ThemedText style={[styles.rupee, { color: theme.text }]}>{CURRENCY_SYMBOL}</ThemedText>
-                <TextInput
-                  accessibilityLabel="Balance amount"
-                  value={balanceAlertAmount}
-                  onChangeText={onChangeBalanceAlertAmount}
-                  keyboardType="decimal-pad"
-                  placeholder="0"
-                  placeholderTextColor={theme.muted}
-                  style={[styles.amountInput, { color: theme.text, fontFamily: Fonts.title }]}
-                />
               </View>
             ) : null}
           </View>
@@ -410,55 +429,40 @@ const styles = StyleSheet.create({
     padding: 14,
     borderTopWidth: 1,
   },
-  alertRow: {
+  labelRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
-  alertText: {
-    flex: 1,
-    minWidth: 0,
-    gap: 2,
-  },
-  alertTitleRow: {
-    flexDirection: 'row',
+  labelIcon: {
+    width: 40,
+    height: 40,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    borderRadius: 12,
   },
-  alertTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-  },
-  tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  tagLabel: {
-    fontSize: 11,
-    lineHeight: 15,
-    fontWeight: '700',
-  },
-  caption: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
-  amountRow: {
-    borderTopWidth: 1,
-  },
-  rupee: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: '600',
-  },
-  amountInput: {
+  labelInput: {
     flex: 1,
     minWidth: 0,
     minHeight: 44,
-    fontSize: 20,
-    fontVariant: ['tabular-nums'],
+    fontSize: 16,
+  },
+  icons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    borderTopWidth: 1,
+  },
+  iconChoice: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 20,
   },
   footer: {
     paddingTop: 8,

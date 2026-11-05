@@ -16,7 +16,7 @@ import {
   formatBillListDate,
   formatMonthYear,
   getFirstName,
-  getGroupKindConfig,
+  summaryKindDisplay,
   todayApiDate,
 } from '@/components/split/split-utils';
 import type {
@@ -293,7 +293,7 @@ function FriendSharedGroupRow({
   onPress: () => void;
 }) {
   const theme = useThemeTokens().colors;
-  const kindConfig = getGroupKindConfig(summary.kind);
+  const kindConfig = summaryKindDisplay(summary);
   const date = formatBillListDate(
     summary.latestBill?.date ?? summary.group.created_at ?? todayApiDate()
   );
