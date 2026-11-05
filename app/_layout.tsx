@@ -23,6 +23,7 @@ import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { installApiSessionGuard } from '@/lib/api-session';
 import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
+import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
 import { monthFromActionURL } from '@/lib/monthly-review';
 import { isBillingActionURL } from '@/lib/notifications';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
@@ -69,6 +70,13 @@ const resolveInitialRoute = async () => {
 
   if (currentUser) {
     return currentUser.has_pin || currentUser.biometrics_enabled ? '/lock' : '/(tabs)';
+  }
+
+  // Installed from a group invite link: open that invite rather than the
+  // generic welcome. It sends a signed-out user through sign-in and back.
+  const inviteToken = await takeInstallReferrerInvite();
+  if (inviteToken) {
+    return { pathname: '/invite/split/[token]', params: { token: inviteToken } } as const;
   }
 
   return (await hasCompletedOnboarding()) ? '/auth' : '/onboarding';
