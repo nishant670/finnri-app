@@ -75,13 +75,14 @@ afterEach(() => {
 
 describe('categoryOptionsFor', () => {
   it("lists the user's own categories after the built-ins", () => {
-    expect(categoryOptionsFor('Salary', 'Income', ['Dividend', 'Rental income'])).toEqual([
+    expect(categoryOptionsFor('Salary', 'Income', ['Pocket money', 'Rental income'])).toEqual([
       'Salary',
       'Freelance',
       'Interest',
+      'Dividend',
       'Refund',
       'Other',
-      'Dividend',
+      'Pocket money',
       'Rental income',
     ]);
   });
@@ -104,21 +105,21 @@ describe('useUserCategories', () => {
 
     let name = '';
     await act(async () => {
-      name = useUserCategories.getState().add('session', 'Dividend', 'income');
+      name = useUserCategories.getState().add('session', 'Tuition fees', 'income');
     });
 
-    expect(name).toBe('Dividend');
-    expect(useUserCategories.getState().categories.income).toEqual(['Dividend']);
+    expect(name).toBe('Tuition fees');
+    expect(useUserCategories.getState().categories.income).toEqual(['Tuition fees']);
     expect(calls).toContainEqual(
-      expect.objectContaining({ method: 'POST', body: { name: 'Dividend', type: 'income' } })
+      expect.objectContaining({ method: 'POST', body: { name: 'Tuition fees', type: 'income' } })
     );
   });
 
   it('answers with what the user already has instead of adding a second one', async () => {
     const calls = serveCategories({ expense: [], income: [] });
-    useUserCategories.setState({ categories: { expense: [], income: ['Dividend'] } });
+    useUserCategories.setState({ categories: { expense: [], income: ['Tuition fees'] } });
 
-    expect(useUserCategories.getState().add('session', 'dividend', 'income')).toBe('Dividend');
+    expect(useUserCategories.getState().add('session', 'tuition FEES', 'income')).toBe('Tuition fees');
     expect(useUserCategories.getState().add('session', 'groceries', 'expense')).toBe(
       'Food & Drinks'
     );
@@ -147,9 +148,9 @@ describe('useUserCategories', () => {
   });
 
   it("does not show one account's categories to the next", async () => {
-    serveCategories({ expense: [], income: ['Dividend'] });
+    serveCategories({ expense: [], income: ['Tuition fees'] });
     await useUserCategories.getState().load('first');
-    expect(useUserCategories.getState().categories.income).toEqual(['Dividend']);
+    expect(useUserCategories.getState().categories.income).toEqual(['Tuition fees']);
 
     global.fetch = jest.fn(() => new Promise(() => undefined)) as unknown as typeof fetch;
     void useUserCategories.getState().load('second');
@@ -165,15 +166,15 @@ describe('a category the user adds', () => {
 
     await fireEvent.press(await first.findByTestId('entry-category-picker'));
     await fireEvent.press(await first.findByText('New category'));
-    await fireEvent.changeText(await first.findByTestId('entry-custom-category-input'), 'Dividend');
+    await fireEvent.changeText(await first.findByTestId('entry-custom-category-input'), 'Tuition fees');
     await fireEvent.press(await first.findByTestId('entry-add-custom-category-button'));
-    expect(await first.findByLabelText('Category Dividend')).toBeTruthy();
+    expect(await first.findByLabelText('Category Tuition fees')).toBeTruthy();
     await first.unmount();
 
-    // A new form, for a different income: Dividend is in the picker now.
+    // A new form, for a different income: Tuition fees is in the picker now.
     const second = await renderForm({ ...blankForm, type: 'Income', category: 'Other' });
     await fireEvent.press(await second.findByTestId('entry-category-picker'));
-    expect(await second.findByText('Dividend')).toBeTruthy();
+    expect(await second.findByText('Tuition fees')).toBeTruthy();
   });
 
   it("loads the user's categories when the form opens", async () => {
