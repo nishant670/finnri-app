@@ -660,8 +660,11 @@ function PassRow({
         <ThemedText tone="muted" style={styles.small}>
           {/* P55: credits in what they buy, beside the daily cap. */}
           {[
-            `${formatCount(plan.included_credits)} credits`,
-            textPrice > 0 ? `${formatCount(Math.floor(plan.included_credits / textPrice))} entries` : null,
+            // A quote has no fixed credits: "0 credits · 0 entries" read as worthless.
+            plan.included_credits > 0 ? `${formatCount(plan.included_credits)} credits` : null,
+            plan.included_credits > 0 && textPrice > 0
+              ? `${formatCount(Math.floor(plan.included_credits / textPrice))} entries`
+              : null,
             daily,
           ]
             .filter(Boolean)
