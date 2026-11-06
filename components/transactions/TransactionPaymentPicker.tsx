@@ -131,6 +131,15 @@ export function TransactionPaymentPicker({
   const rows = buildPaymentRows({ modes, accounts, selectedMode, selectedAccountId, showAccounts });
   const selectedModeHasAccount =
     !showAccounts || getAccountsForPaymentMode(accounts, selectedMode).length > 0;
+  /**
+   * The chosen method has no account yet: its row grows a short panel with
+   * the two ways to add one, so the buttons sit with the row they are about.
+   */
+  const showSetupPanel =
+    showAccounts &&
+    !selectedModeHasAccount &&
+    !!suggestion &&
+    (!!onAutoCreateSuggestedAccount || !!onSetupSuggestedAccount);
 
   return (
     <PickerSheet visible={visible} title={title} onClose={onClose}>
@@ -181,7 +190,8 @@ export function TransactionPaymentPicker({
                     ]}>
                     {row.label}
                   </ThemedText>
-                  {row.caption ? (
+                  {/* The setup panel under this row says it better. */}
+                  {row.caption && !(showSetupPanel && row.selected && !row.indent) ? (
                     <ThemedText tone="muted" numberOfLines={1} style={styles.optionCaption}>
                       {row.caption}
                     </ThemedText>
@@ -191,53 +201,68 @@ export function TransactionPaymentPicker({
                   <MaterialCommunityIcons name="check" size={20} color={colors.text} />
                 ) : null}
               </PressableView>
+              {showSetupPanel && row.selected && !row.indent ? (
+                <View
+                  testID="payment-setup-panel"
+                  style={[styles.setupPanel, { backgroundColor: colors.selectedFill }]}>
+                  <ThemedText tone="muted" style={styles.setupText}>
+                    {`Add your ${row.mode} account so entries show where the money came from.`}
+                  </ThemedText>
+                  <View style={styles.setupActions}>
+                    {onAutoCreateSuggestedAccount && suggestion ? (
+                      <Button
+                        label={isAutoCreating ? 'Creating…' : 'Create one for me'}
+                        height={40}
+                        disabled={isAutoCreating}
+                        style={styles.setupAction}
+                        onPress={() => onAutoCreateSuggestedAccount(suggestion)}
+                      />
+                    ) : null}
+                    {onSetupSuggestedAccount && suggestion ? (
+                      <Button
+                        label="Set up"
+                        variant="outline"
+                        height={40}
+                        style={styles.setupAction}
+                        onPress={() => {
+                          onClose();
+                          onSetupSuggestedAccount(suggestion);
+                        }}
+                      />
+                    ) : null}
+                  </View>
+                  {autoCreateError ? (
+                    <ThemedText tone="negative" style={styles.error}>
+                      {autoCreateError}
+                    </ThemedText>
+                  ) : null}
+                </View>
+              ) : null}
             </Fragment>
           );
         })}
+
+        {/* The way out to the accounts screen ends the list, as one more row,
+            rather than a third button of another width under it. */}
+        {showAccounts && onManageAccounts ? (
+          <PressableView
+            testID="payment-manage-accounts"
+            accessibilityRole="button"
+            onPress={() => {
+              onClose();
+              onManageAccounts(suggestion ?? undefined);
+            }}
+            style={[styles.option, { borderTopWidth: 1, borderTopColor: colors.border }]}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="plus" size={20} color={colors.text} />
+            <ThemedText style={[styles.optionLabel, styles.optionText, { color: colors.text }]}>
+              Add or manage accounts
+            </ThemedText>
+            <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
+          </PressableView>
+        ) : null}
       </View>
 
-      {showAccounts && !selectedModeHasAccount && suggestion ? (
-        <View style={styles.setup}>
-          {onSetupSuggestedAccount ? (
-            <Button
-              label="Set up account"
-              height={44}
-              onPress={() => {
-                onClose();
-                onSetupSuggestedAccount(suggestion);
-              }}
-            />
-          ) : null}
-          {onAutoCreateSuggestedAccount ? (
-            <Button
-              label={isAutoCreating ? 'Creating…' : 'Create one for me'}
-              variant="outline"
-              height={44}
-              disabled={isAutoCreating}
-              onPress={() => onAutoCreateSuggestedAccount(suggestion)}
-            />
-          ) : null}
-          {autoCreateError ? (
-            <ThemedText tone="negative" style={styles.error}>
-              {autoCreateError}
-            </ThemedText>
-          ) : null}
-        </View>
-      ) : null}
-
-      {showAccounts && onManageAccounts ? (
-        <Button
-          label="Add or manage payment accounts"
-          variant="outline"
-          icon="plus"
-          height={44}
-          style={styles.manage}
-          onPress={() => {
-            onClose();
-            onManageAccounts(suggestion ?? undefined);
-          }}
-        />
-      ) : null}
     </PickerSheet>
   );
 }
@@ -287,18 +312,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
-  setup: {
-    alignItems: 'center',
+  setupPanel: {
     gap: 10,
-    paddingTop: 12,
+    paddingLeft: 46,
+    paddingRight: 14,
+    paddingBottom: 14,
+  },
+  setupText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  setupActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  setupAction: {
+    flex: 1,
   },
   error: {
     fontSize: 12,
     lineHeight: 16,
-    textAlign: 'center',
-  },
-  manage: {
-    marginTop: 12,
   },
   pressed: {
     opacity: 0.7,

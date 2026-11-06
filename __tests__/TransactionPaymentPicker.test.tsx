@@ -69,7 +69,7 @@ describe('Paid with picker (P6)', () => {
   it('lists methods only when a friend paid', async () => {
     const { screen } = await setup({ showAccounts: false });
     expect(screen.queryByText('Salary UPI')).toBeNull();
-    expect(screen.queryByText('Add or manage payment accounts')).toBeNull();
+    expect(screen.queryByText('Add or manage accounts')).toBeNull();
     expect(screen.getByText('UPI')).toBeTruthy();
   });
 
@@ -82,8 +82,17 @@ describe('Paid with picker (P6)', () => {
       suggestion,
       onSetupSuggestedAccount,
     });
-    await fireEvent.press(screen.getByText('Set up account'));
+    // The offer sits under the chosen method's row, not in a floating stack.
+    expect(screen.getByTestId('payment-setup-panel')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Set up'));
     expect(onSetupSuggestedAccount).toHaveBeenCalledWith(suggestion);
+  });
+
+  it('ends the list with a row for managing accounts', async () => {
+    const onManageAccounts = jest.fn();
+    const { screen } = await setup({ onManageAccounts });
+    await fireEvent.press(screen.getByTestId('payment-manage-accounts'));
+    expect(onManageAccounts).toHaveBeenCalled();
   });
 
   it('shows the account after the method on the form row', () => {
