@@ -11,8 +11,7 @@ import { Transaction } from '@/types/transaction';
 import { TransactionItem } from '@/components/home/TransactionItem';
 import { encodeFrame } from '@/hooks/use-shared-element';
 import { groupTransactionsBySection } from '@/lib/transactions';
-import { formatMoney, toAmountString } from '@/lib/money';
-import { dayTotalsByTitle } from '@/lib/transaction-list';
+import { toAmountString } from '@/lib/money';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
@@ -21,8 +20,6 @@ type HomeRecentActivityProps = {
   entriesError: string | null;
   hasTransactions: boolean;
   transactions: Transaction[];
-  /** More entries exist than were loaded, so the oldest loaded day may be partial. */
-  hasMore?: boolean;
   newTransactionId: string | null;
   isStealthMode: boolean;
   onRetry: () => void;
@@ -60,7 +57,6 @@ export function HomeRecentActivity({
   entriesError,
   hasTransactions,
   transactions,
-  hasMore = false,
   newTransactionId,
   isStealthMode,
   onRetry,
@@ -124,7 +120,6 @@ export function HomeRecentActivity({
 
   const recentTransactions = transactions.slice(0, 5);
   const groupedRecentTransactions = groupTransactionsBySection(recentTransactions);
-  const dayTotals = dayTotalsByTitle(transactions, { hasMore });
   // The stagger counts down the feed rather than restarting at every date
   // heading — see the same note on the full list in app/transactions/index.tsx.
   let rowsAbove = 0;
@@ -133,13 +128,14 @@ export function HomeRecentActivity({
     <View>
       <RecentActivityHeader onSeeAll={() => router.push('/transactions')} />
 
-      {/* One card, each day labelled inside it with its total (board
-          R3-Home-Proposals, P13). */}
+      {/* One card, each day labelled inside it (board R3-Home). No day
+          totals here: Home shows only the newest rows, so a total could add
+          up rows that are not on screen, and the month card above already
+          carries the number. The full list keeps them (P13, dropped 6 Nov). */}
       <Card inset style={styles.listCard}>
         {groupedRecentTransactions.map((group, groupIndex) => {
           const groupOffset = rowsAbove;
           rowsAbove += group.data.length;
-          const dayTotal = dayTotals.get(group.title);
 
           return (
             // Changing the month rewrites the feed under whatever survives it.
@@ -155,13 +151,6 @@ export function HomeRecentActivity({
                 <ThemedText accessibilityRole="header" tone="muted" style={styles.dayLabelText}>
                   {group.title}
                 </ThemedText>
-                {dayTotal != null && !isStealthMode ? (
-                  <ThemedText
-                    testID="home-day-total"
-                    style={[styles.dayLabelText, styles.dayTotal, { color: colors.text }]}>
-                    {formatMoney(dayTotal, { sign: dayTotal > 0 ? 'always' : 'auto' })}
-                  </ThemedText>
-                ) : null}
               </View>
               {group.data.map((item, index) => {
                 const isLastInSection = index === group.data.length - 1;
@@ -249,13 +238,8 @@ const styles = StyleSheet.create({
   },
   dayLabel: {
     height: 34,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 14,
-  },
-  dayTotal: {
-    fontVariant: ['tabular-nums'],
   },
   dayLabelText: {
     fontSize: 13,

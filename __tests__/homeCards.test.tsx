@@ -69,21 +69,10 @@ describe('HomeRecentActivity', () => {
     expect(screen.getByText('Your entries show up here.')).toBeTruthy();
   });
 
-  it("shows each day's total over everything loaded (P13)", async () => {
+  it('leaves day totals off Home: the full list carries them', async () => {
     const many = ['1', '2', '3', '4', '5', '6'].map((id) => tx(id));
     const { screen } = await setup({ transactions: many });
-    // Six rows of −₹120 today, though only five are drawn.
-    expect(screen.getByTestId('home-day-total').props.children).toBe('\u2212₹720');
-  });
-
-  it('leaves a day that may continue on the server without a total', async () => {
-    const { screen } = await setup({ hasMore: true });
-    expect(screen.queryByTestId('home-day-total')).toBeNull();
-  });
-
-  it('hides the day total in stealth mode', async () => {
-    const { screen } = await setup({ isStealthMode: true });
-    expect(screen.queryByTestId('home-day-total')).toBeNull();
+    expect(screen.queryByText('\u2212₹720')).toBeNull();
   });
 
   it('lists the five most recent rows under their section heading', async () => {

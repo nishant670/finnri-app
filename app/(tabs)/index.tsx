@@ -1632,7 +1632,6 @@ export default function HomeScreen() {
       entriesError={entriesError}
       hasTransactions={hasTransactions}
       transactions={transactions}
-      hasMore={entryTotal > transactions.length}
       newTransactionId={newTransactionId}
       isStealthMode={isStealthMode}
       onRetry={() => {

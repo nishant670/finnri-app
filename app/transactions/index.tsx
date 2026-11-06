@@ -30,7 +30,7 @@ import { Colors } from '@/constants/theme';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Button } from '@/components/ui/Button';
-import { PickerSheet } from '@/components/ui/PickerSheet';
+import { PickerOptionList, PickerSheet, type PickerOption } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { encodeFrame } from '@/hooks/use-shared-element';
@@ -94,6 +94,15 @@ const needsTransactionReview = (transaction: Transaction) => {
   const category = String(transaction.category ?? '').trim().toLowerCase();
   return !category || category === 'uncategorized' || transaction.accountId == null;
 };
+
+/**
+ * The header's ⋯ (beside +): what the screen offers now and then, so the bar
+ * holds two buttons and the title keeps its middle.
+ */
+const MORE_OPTIONS: PickerOption[] = [
+  { key: 'events', label: 'Events', caption: 'Group spending by occasion', icon: 'party-popper' },
+  { key: 'export', label: 'Export', caption: 'Spreadsheet or PDF', icon: 'tray-arrow-up' },
+];
 
 /** Long enough for the row stagger to finish: eight steps of 28ms plus the fade. */
 const ENTRANCE_WINDOW_MS = 800;
@@ -167,6 +176,8 @@ export default function TransactionsScreen() {
     endDate: routeEndDate ?? null,
   }));
   const [isExportOpen, setIsExportOpen] = useState(false);
+  /** The header's ⋯: Events and Export, the screen's occasional actions. */
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -861,28 +872,6 @@ export default function TransactionsScreen() {
         </ThemedText>
         <View style={styles.headerActions}>
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Export transactions"
-            onPress={() => {
-              haptics.select();
-              setExportError(null);
-              setIsExportOpen(true);
-            }}
-            style={styles.headerButton}>
-            <MaterialCommunityIcons name="tray-arrow-up" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
-            testID="transactions-events"
-            accessibilityRole="button"
-            accessibilityLabel="Events"
-            onPress={() => {
-              haptics.select();
-              router.push('/events');
-            }}
-            style={styles.headerButton}>
-            <MaterialCommunityIcons name="party-popper" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
             testID="transactions-add"
             accessibilityRole="button"
             accessibilityLabel="Add transaction"
@@ -890,9 +879,37 @@ export default function TransactionsScreen() {
             style={styles.headerButton}>
             <MaterialCommunityIcons name="plus" size={26} color={theme.text} />
           </Pressable>
+          <Pressable
+            testID="transactions-more"
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            onPress={() => {
+              haptics.select();
+              setIsMoreOpen(true);
+            }}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="dots-vertical" size={24} color={theme.text} />
+          </Pressable>
         </View>
       </View>
       )}
+
+      <PickerSheet visible={isMoreOpen} title="Transactions" onClose={() => setIsMoreOpen(false)}>
+        <PickerOptionList
+          accessibilityLabel="More options"
+          options={MORE_OPTIONS}
+          selectedKey={null}
+          onSelect={(key) => {
+            setIsMoreOpen(false);
+            if (key === 'events') {
+              router.push('/events');
+              return;
+            }
+            setExportError(null);
+            setIsExportOpen(true);
+          }}
+        />
+      </PickerSheet>
 
       <View style={styles.searchRow}>
         <View style={[styles.search, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -1435,11 +1452,17 @@ const styles = StyleSheet.create({
   },
   chipScroll: {
     flexGrow: 0,
+    // A ScrollView may shrink by default, and the list under it took the
+    // chips' last few points: their bottom edge was cut off on Android.
+    flexShrink: 0,
     marginTop: 10,
   },
   chips: {
     gap: 8,
     paddingHorizontal: SCREEN_GUTTER,
+    // Android's horizontal scroller clips to its content box, which shaved
+    // the chips' bottom border off. Two points of air keep the outline whole.
+    paddingVertical: 2,
   },
   chip: {
     height: 32,
