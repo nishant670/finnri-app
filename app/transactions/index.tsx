@@ -167,6 +167,8 @@ export default function TransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState(routeSearch ?? '');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(routeSearch?.trim() ?? '');
   const [accounts, setAccounts] = useState<Account[]>([]);
+  /** The accounts have been asked for at least once, found or not (P61). */
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
 
   // Filter State — one object, the same shape the sheet edits and
   // `toTransactionFilters` turns into a query.
@@ -293,7 +295,8 @@ export default function TransactionsScreen() {
       if (token) {
         void fetchAccounts(token)
           .then(setAccounts)
-          .catch(() => setAccounts([]));
+          .catch(() => setAccounts([]))
+          .finally(() => setAccountsLoaded(true));
       }
       return () => {
         isFocused.current = false;
@@ -552,7 +555,9 @@ export default function TransactionsScreen() {
   useEffect(() => {
     if (composeParam !== '1' || composedFromRoute.current) return;
     const account = routeAccountId ? accounts.find((item) => item.id === routeAccountId) : null;
-    if (routeAccountId && !account) return;
+    // Wait for the accounts, but not for an account that is not there (it was
+    // deleted, or they did not load): the form still opens, on no account.
+    if (routeAccountId && !account && !accountsLoaded) return;
     composedFromRoute.current = true;
     openAdd();
     if (account) {
@@ -563,7 +568,7 @@ export default function TransactionsScreen() {
         mode: paymentModeForAccountType(account.type) ?? form.mode,
       }));
     }
-  }, [accounts, composeParam, openAdd, routeAccountId]);
+  }, [accounts, accountsLoaded, composeParam, openAdd, routeAccountId]);
 
   const offerBudgetAlert = useCallback(
     async (budgetNotificationIds: Set<number>) => {

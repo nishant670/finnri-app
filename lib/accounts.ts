@@ -729,7 +729,8 @@ export const fetchAccountCategories = async (
   token: string,
   accountId: number
 ): Promise<AccountCategories | null> => {
-  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/categories`, {
+  const query = new URLSearchParams({ tz: getClientTimeZone() });
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/categories?${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (response.status === 404 || response.status === 405) return null;
