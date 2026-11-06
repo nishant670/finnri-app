@@ -1754,7 +1754,14 @@ export function TransactionFormModal({
         [
           ...prev.splitParticipants,
           {
-            friendId: splitFriends[0]?.id ?? null,
+            // The next friend not already in the split: two rows for the
+            // same person is never what a second "Add a friend" means.
+            friendId:
+              splitFriends.find(
+                (friend) => !prev.splitParticipants.some((row) => row.friendId === friend.id)
+              )?.id ??
+              splitFriends[0]?.id ??
+              null,
             friendName: '',
             shareAmount: defaultShare,
             direction: 'friend_owes_user',

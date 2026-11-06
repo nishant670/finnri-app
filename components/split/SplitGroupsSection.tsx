@@ -2,6 +2,7 @@ import { View } from 'react-native';
 
 import {
   BalanceFilterButton,
+  NewGroupButton,
   SettledHint,
   SplitEmptyCard,
   SplitListCard,
@@ -45,7 +46,11 @@ export function SplitGroupsSection({
         <GroupHeader
           label={groups.length > 0 ? `Groups · ${groups.length}` : 'Groups'}
           accessory={
-            hideFilter ? undefined : <BalanceFilterButton active={filterActive} onPress={onOpenFilter} />
+            hideFilter ? (
+              <NewGroupButton onPress={onNewGroup} />
+            ) : (
+              <BalanceFilterButton active={filterActive} onPress={onOpenFilter} />
+            )
           }
         />
       ) : null}
