@@ -252,9 +252,9 @@ export default function ToolsScreen() {
                   ]}
                   footnote={
                     <ThemedText tone="muted" style={styles.whatIf}>
-                      {'In today’s money that is about '}
+                      {'In today’s money that is '}
                       <ThemedText style={[styles.whatIf, styles.whatIfStrong, { color: colors.text }]}>
-                        {inWords(todaysMoney) ?? formatMoney(todaysMoney)}
+                        {inWords(todaysMoney) ?? `about ${formatMoney(todaysMoney)}`}
                       </ThemedText>
                       {`, if prices rise ${SIP_INFLATION_PERCENT}% a year.`}
                     </ThemedText>

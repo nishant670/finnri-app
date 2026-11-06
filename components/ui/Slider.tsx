@@ -25,7 +25,15 @@ type SliderProps = {
   testID?: string;
 };
 
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+/**
+ * A worklet: the drag runs on the UI thread and calls it there. Without the
+ * directive Reanimated throws "Tried to synchronously call a Remote Function"
+ * on the first touch — a crash Jest cannot see, found on the device.
+ */
+const clamp = (value: number, min: number, max: number) => {
+  'worklet';
+  return Math.min(max, Math.max(min, value));
+};
 
 /** Snaps to the step, and keeps floating-point noise (0.30000000000000004) out of the value. */
 const snap = (value: number, min: number, max: number, step: number) => {

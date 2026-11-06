@@ -1,7 +1,7 @@
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { withAlpha } from '@/constants/theme';
+import { mixHex } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { EMIYear } from '@/lib/emi';
 import { formatMoneyCompact } from '@/lib/money';
@@ -52,7 +52,9 @@ export function SIPGrowthChart({ years }: { years: SIPYearBreakdown[] }) {
                 <View
                   style={[
                     styles.barBase,
-                    { height: putIn, backgroundColor: withAlpha(colors.text, 0.22) },
+                    // Solid, not see-through: over the green it read as
+                    // more green, not the legend's grey.
+                    { height: putIn, backgroundColor: mixHex(colors.card, colors.text, 0.22) },
                   ]}
                 />
               </View>
@@ -90,7 +92,7 @@ export function EMIYearsChart({ years }: { years: EMIYear[] }) {
         <ThemedText tone="muted" style={styles.legendText}>
           Interest
         </ThemedText>
-        <View style={[styles.swatch, { backgroundColor: withAlpha(colors.text, 0.22) }]} />
+        <View style={[styles.swatch, { backgroundColor: mixHex(colors.card, colors.text, 0.22) }]} />
         <ThemedText tone="muted" style={styles.legendText}>
           Loan repaid
         </ThemedText>
@@ -106,7 +108,7 @@ export function EMIYearsChart({ years }: { years: EMIYear[] }) {
               accessible
               accessibilityLabel={`Year ${year.year}: ${formatMoneyCompact(year.interest)} interest`}
               style={styles.barSlot}>
-              <View style={[styles.bar, { height, backgroundColor: withAlpha(colors.text, 0.22) }]}>
+              <View style={[styles.bar, { height, backgroundColor: mixHex(colors.card, colors.text, 0.22) }]}>
                 <View
                   style={[styles.barTop, { height: interestHeight, backgroundColor: colors.warning }]}
                 />

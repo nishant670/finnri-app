@@ -65,7 +65,8 @@ describe('Calculators (boards R11-SIP-Proposals, R11-EMI-Proposals)', () => {
     expect(screen.queryByText('Calculate')).toBeNull();
     expect(screen.getByDisplayValue('10,000')).toBeTruthy();
     expect(screen.getByText('In 10 years, you could have')).toBeTruthy();
-    expect(screen.getByText(/In today’s money that is about/)).toBeTruthy();
+    expect(screen.getByText(/In today’s money that is/)).toBeTruthy();
+    expect(screen.queryByText(/about about/)).toBeNull();
     expect(screen.getByTestId('sip-growth-chart')).toBeTruthy();
     // The table waits for a tap.
     expect(screen.queryByText('Value at year end')).toBeNull();
