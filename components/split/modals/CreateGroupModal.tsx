@@ -4,7 +4,11 @@ import { useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { MemberToggleChip } from '@/components/split/primitives/SplitPrimitives';
-import { groupKindOptions } from '@/components/split/split-utils';
+import {
+  GROUP_KIND_LABEL_MAX,
+  groupKindIconChoices,
+  groupKindOptions,
+} from '@/components/split/split-utils';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Button, PrimaryButton } from '@/components/ui/Button';
@@ -14,13 +18,19 @@ import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 import type { GroupKind } from '@/lib/split-preferences';
 import type { SplitFriend } from '@/lib/splits';
 
 /**
  * Create or edit a group (board R6-CreateGroup): photo and name, the kind
- * chips, members from existing friends, the balance alert, and one button.
+ * chips — with a label and icon of the group's own under Other — members from
+ * existing friends, the balance alert, and one button.
+ *
+ * The balance alert is saved on the group and the server notifies each member
+ * when one person's balance with them reaches it. Free for everyone, so it
+ * carries no plan tag.
  */
 export function CreateGroupModal({
   visible,
@@ -33,12 +43,16 @@ export function CreateGroupModal({
   photoBusy,
   onPickPhoto,
   onRemovePhoto,
+  kindLabel,
+  kindIcon,
   balanceAlertEnabled,
   balanceAlertAmount,
   friends,
   selectedFriendIds,
   onChangeName,
   onChangeKind,
+  onChangeKindLabel,
+  onPickKindIcon,
   onToggleBalanceAlert,
   onChangeBalanceAlertAmount,
   onToggleFriend,
@@ -63,12 +77,18 @@ export function CreateGroupModal({
   photoBusy: boolean;
   onPickPhoto: () => void;
   onRemovePhoto: () => void;
+  /** An "other" group's own label; only shown while Other is selected. */
+  kindLabel: string;
+  /** The icon beside that label, suggested from it until the user picks one. */
+  kindIcon: string;
   balanceAlertEnabled: boolean;
   balanceAlertAmount: string;
   friends: SplitFriend[];
   selectedFriendIds: number[];
   onChangeName: (value: string) => void;
   onChangeKind: (kind: GroupKind) => void;
+  onChangeKindLabel: (value: string) => void;
+  onPickKindIcon: (icon: string) => void;
   onToggleBalanceAlert: () => void;
   onChangeBalanceAlertAmount: (value: string) => void;
   onToggleFriend: (friendId: number) => void;
@@ -79,6 +99,7 @@ export function CreateGroupModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const sheetBottom = useBottomInset(24);
   const theme = useThemeTokens().colors;
   const [memberQuery, setMemberQuery] = useState('');
   const selectedFriends = friends.filter((friend) => selectedFriendIds.includes(friend.id));
@@ -109,7 +130,7 @@ export function CreateGroupModal({
       avoidKeyboard
       backdropOpacity={0.3}
       sheetStyle={{ maxHeight: '94%' }}>
-      <View style={[styles.sheet, { backgroundColor: theme.background }]}>
+      <View style={[styles.sheet, { backgroundColor: theme.background, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
         <View style={styles.header}>
           <ThemedText accessibilityRole="header" style={[styles.title, { color: theme.text }]}>
@@ -220,6 +241,57 @@ export function CreateGroupModal({
             })}
           </View>
 
+          {groupKind === 'other' ? (
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.labelRow}>
+                <View style={[styles.labelIcon, { backgroundColor: theme.selectedFill }]}>
+                  <MaterialCommunityIcons
+                    name={kindIcon as keyof typeof MaterialCommunityIcons.glyphMap}
+                    size={22}
+                    color={theme.text}
+                  />
+                </View>
+                <TextInput
+                  accessibilityLabel="What is this group for"
+                  value={kindLabel}
+                  onChangeText={onChangeKindLabel}
+                  maxLength={GROUP_KIND_LABEL_MAX}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  placeholder="What's it for? e.g. Office, Party"
+                  placeholderTextColor={theme.muted}
+                  style={[styles.labelInput, { color: theme.text, fontFamily: Fonts.body }]}
+                />
+              </View>
+              <View style={[styles.icons, { borderTopColor: theme.border }]}>
+                {groupKindIconChoices.map((icon) => {
+                  const selected = icon === kindIcon;
+                  return (
+                    <PressableView
+                      key={icon}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Icon ${icon.replace(/-outline$/, '').replace(/-/g, ' ')}`}
+                      accessibilityState={{ selected }}
+                      onPress={() => {
+                        haptics.select();
+                        onPickKindIcon(icon);
+                      }}
+                      style={[
+                        styles.iconChoice,
+                        {
+                          backgroundColor: selected ? theme.selectedFill : 'transparent',
+                          borderColor: selected ? theme.selectedBorder : theme.border,
+                        },
+                      ]}
+                      pressedStyle={styles.pressed}>
+                      <MaterialCommunityIcons name={icon} size={20} color={theme.text} />
+                    </PressableView>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           {/* Members by name (P28, board R6-CreateGroup-Proposals): pick a
               friend, or type a new name and Add — it becomes a friend too. */}
           <View
@@ -302,16 +374,11 @@ export function CreateGroupModal({
           <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
             <View style={styles.alertRow}>
               <View style={styles.alertText}>
-                <View style={styles.alertTitleRow}>
-                  <ThemedText style={[styles.alertTitle, { color: theme.text }]}>
-                    Balance alert
-                  </ThemedText>
-                  <View style={[styles.tag, { backgroundColor: theme.track }]}>
-                    <ThemedText style={[styles.tagLabel, { color: theme.text }]}>Finnri plan</ThemedText>
-                  </View>
-                </View>
+                <ThemedText style={[styles.alertTitle, { color: theme.text }]}>
+                  Balance alert
+                </ThemedText>
                 <ThemedText tone="muted" style={styles.caption}>
-                  Mark this group when someone reaches a balance limit.
+                  Get notified when anyone&apos;s balance in this group reaches an amount.
                 </ThemedText>
               </View>
               <HapticSwitch
@@ -327,11 +394,11 @@ export function CreateGroupModal({
                 </ThemedText>
                 <ThemedText style={[styles.rupee, { color: theme.text }]}>{CURRENCY_SYMBOL}</ThemedText>
                 <TextInput
-                  accessibilityLabel="Balance amount"
+                  accessibilityLabel="Balance alert amount"
                   value={balanceAlertAmount}
                   onChangeText={onChangeBalanceAlertAmount}
                   keyboardType="decimal-pad"
-                  placeholder="0"
+                  placeholder="5,000"
                   placeholderTextColor={theme.muted}
                   style={[styles.amountInput, { color: theme.text, fontFamily: Fonts.title }]}
                 />
@@ -410,7 +477,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,
@@ -523,6 +589,41 @@ const styles = StyleSheet.create({
     padding: 14,
     borderTopWidth: 1,
   },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  labelIcon: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+  },
+  labelInput: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    fontSize: 16,
+  },
+  icons: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 14,
+    borderTopWidth: 1,
+  },
+  iconChoice: {
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderRadius: 20,
+  },
   alertRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -534,24 +635,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
     gap: 2,
   },
-  alertTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
   alertTitle: {
     fontSize: 15,
     lineHeight: 20,
-    fontWeight: '700',
-  },
-  tag: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  tagLabel: {
-    fontSize: 11,
-    lineHeight: 15,
     fontWeight: '700',
   },
   caption: {

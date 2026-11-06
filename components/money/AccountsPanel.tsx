@@ -279,7 +279,8 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
     const status = isCreditCard
       ? (dueLabel ?? 'Add due date')
       : runningBalance !== null
-        ? `${formatMoney(runningBalance)} balance`
+        ? // The amount is the balance itself now (getAccountHeadline).
+          'Balance'
         : !hasLedgerActivity(account) && !hasOpeningBalance(account)
           ? 'Not used yet'
           : undefined;

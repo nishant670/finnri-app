@@ -4,12 +4,10 @@ const {
   withAndroidManifest,
   withAndroidStyles,
   withDangerousMod,
-  withMainApplication,
   withStringsXml,
 } = require('expo/config-plugins');
 
 const PLUGIN_ROOT = path.join(__dirname, 'finnri-android-capture');
-const WIDGET_PACKAGE_LINE = 'add(FinnriWidgetPackage())';
 
 const replaceNamedEntry = (entries, name, value) => [
   ...(entries ?? []).filter((entry) => entry?.$?.['android:name'] !== name),
@@ -27,7 +25,8 @@ const withCaptureManifest = (config) =>
         'android:exported': 'false',
         'android:excludeFromRecents': 'true',
         'android:theme': '@style/FinnriCaptureTheme',
-        'android:screenOrientation': 'portrait',
+        // No fixed orientation: Android 8.0 refuses to start a translucent
+        // activity that requests one, and the capture sheet is translucent.
       },
     });
     application.service = replaceNamedEntry(application.service, '.CaptureTileService', {
@@ -63,9 +62,10 @@ const withCaptureStrings = (config) =>
   withStringsXml(config, (nextConfig) => {
     const values = {
       capture_tile_label: 'Capture expense',
-      widget_description: 'Month-to-date spending and quick voice capture',
-      widget_month_default: 'This month',
-      widget_amount_default: 'Open Finnri to refresh',
+      widget_description: 'Log an expense by speaking or typing',
+      widget_prompt: 'Log an expense',
+      widget_type_label: 'Type an expense',
+      widget_speak_label: 'Speak an expense',
     };
     const names = new Set(Object.keys(values));
     const strings = (nextConfig.modResults.resources.string ?? []).filter(
@@ -85,38 +85,21 @@ const withCaptureStyle = (config) =>
     );
     styles.push({
       $: { name: 'FinnriCaptureTheme', parent: 'Theme.AppCompat.DayNight.NoActionBar' },
-      // Colours come from `res/values/finnri_capture_colors.xml`, which the
-      // resource copy below drops into the same `values/` folder. `colorAccent`
-      // is what tints AppCompat widgets, so leaving it off-palette here is what
-      // made the capture button render purple no matter what the view set.
+      // Colours come from `res/values/finnri_capture_colors.xml` (and its
+      // values-night twin), which the resource copy below drops in beside the
+      // app's own. The window is translucent: the capture sheet (board
+      // R14-Capture) sits over a dimmed lock or home screen. `colorAccent` is
+      // what tints AppCompat widgets; off-palette, the button rendered purple.
       item: [
-        { $: { name: 'android:windowBackground' }, _: '@color/finnri_background' },
+        { $: { name: 'android:windowIsTranslucent' }, _: 'true' },
+        { $: { name: 'android:windowBackground' }, _: '@android:color/transparent' },
         { $: { name: 'android:colorAccent' }, _: '@color/finnri_accent' },
         { $: { name: 'android:windowLightStatusBar' }, _: 'false' },
-        { $: { name: 'android:statusBarColor' }, _: '@color/finnri_background' },
+        { $: { name: 'android:statusBarColor' }, _: '@android:color/transparent' },
         { $: { name: 'android:navigationBarColor' }, _: '@color/finnri_background' },
       ],
     });
     nextConfig.modResults.resources.style = styles;
-    return nextConfig;
-  });
-
-const withWidgetPackage = (config) =>
-  withMainApplication(config, (nextConfig) => {
-    const mainApplication = nextConfig.modResults;
-    if (mainApplication.language !== 'kt') {
-      throw new Error('Finnri capture plugin currently requires a Kotlin MainApplication.');
-    }
-    if (!mainApplication.contents.includes(WIDGET_PACKAGE_LINE)) {
-      const marker = /PackageList\(this\)\.packages\.apply \{\s*\n/;
-      if (!marker.test(mainApplication.contents)) {
-        throw new Error('Finnri capture plugin could not register its React Native package.');
-      }
-      mainApplication.contents = mainApplication.contents.replace(
-        marker,
-        (match) => `${match}          ${WIDGET_PACKAGE_LINE}\n`
-      );
-    }
     return nextConfig;
   });
 
@@ -158,6 +141,5 @@ module.exports = function withFinnriAndroidCapture(config) {
   config = withCaptureManifest(config);
   config = withCaptureStrings(config);
   config = withCaptureStyle(config);
-  config = withWidgetPackage(config);
   return withCaptureSources(config);
 };

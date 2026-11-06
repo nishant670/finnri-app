@@ -85,7 +85,7 @@ export default function PurchaseHistoryScreen() {
   });
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader title="Purchase history" onBack={() => router.back()} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         {isLoading && payments.length === 0 ? (

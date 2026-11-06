@@ -1,9 +1,11 @@
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
 import { getAccountSetupItems } from '@/lib/account-display';
-import type { Account, AccountType } from '@/lib/accounts';
+import type { Account, AccountType, CreditKind } from '@/lib/accounts';
 
 export type AccountTypeOption = {
   key: AccountType;
+  /** Set on the Pay later tile: a credit_card account of that kind. */
+  creditKind?: CreditKind;
   label: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
   color: string;
@@ -14,6 +16,8 @@ export type ProviderOption = {
   id: string;
   name: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  /** 'pay_later' for a pay-later lender such as CRED flash. */
+  creditKind?: CreditKind;
 };
 
 export const typeOptions: AccountTypeOption[] = [
@@ -22,6 +26,16 @@ export const typeOptions: AccountTypeOption[] = [
     key: 'credit_card',
     label: 'Credit',
     icon: 'credit-card',
+    color: '#8257E5',
+    bgColor: '#F4F1FE',
+  },
+  {
+    // CRED flash, LazyPay, Simpl: a limit, a monthly statement and a short
+    // window to repay. The card machinery, under its own name.
+    key: 'credit_card',
+    creditKind: 'pay_later',
+    label: 'Pay later',
+    icon: 'timer-sand',
     color: '#8257E5',
     bgColor: '#F4F1FE',
   },
@@ -129,15 +143,15 @@ export const ACCOUNT_DETAIL_COPY: Record<
 > = {
   cash: {
     message: 'How much cash do you have on you right now?',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'Cash in hand before your first logged transaction.',
+    balanceLabel: 'Cash in hand',
+    balanceHint: 'What you have on you today. Finnri keeps it up to date as you log.',
   },
   upi: {
     message: 'Which UPI app is this? It keeps your scan-and-pay spends together.',
     providerLabel: 'UPI app',
     providerPlaceholder: 'Search or type a UPI app',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'What this held before your first logged transaction.',
+    balanceLabel: 'Current balance',
+    balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
     identifierLabel: 'UPI ID or nickname',
     identifierPlaceholder: 'name@bank or personal UPI',
     identifierIcon: 'at',
@@ -146,8 +160,8 @@ export const ACCOUNT_DETAIL_COPY: Record<
     message: 'Add the bank and last 4 digits so you can tell your accounts apart.',
     providerLabel: 'Bank',
     providerPlaceholder: 'Search or type a bank',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'What this held before your first logged transaction.',
+    balanceLabel: 'Current balance',
+    balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
     identifierLabel: 'Last 4 digits',
     identifierPlaceholder: '1234',
     identifierIcon: 'numeric-4-box-outline',
@@ -166,8 +180,8 @@ export const ACCOUNT_DETAIL_COPY: Record<
     message: 'Add the bank and last 4 digits so you can tell your cards apart.',
     providerLabel: 'Bank',
     providerPlaceholder: 'Search or type a bank',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'What this held before your first logged transaction.',
+    balanceLabel: 'Current balance',
+    balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
     identifierLabel: 'Last 4 digits',
     identifierPlaceholder: '1234',
     identifierIcon: 'numeric-4-box-outline',
@@ -176,20 +190,32 @@ export const ACCOUNT_DETAIL_COPY: Record<
     message: 'Which wallet is this? A balance keeps prepaid spends separate.',
     providerLabel: 'Wallet',
     providerPlaceholder: 'Search or type a wallet',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'What this held before your first logged transaction.',
+    balanceLabel: 'Current balance',
+    balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
     identifierLabel: 'Nickname',
     identifierPlaceholder: 'Personal wallet',
     identifierIcon: 'wallet-outline',
   },
   other: {
     message: 'Add a balance or a short note to tell this one apart.',
-    balanceLabel: 'Opening balance',
-    balanceHint: 'What this held before your first logged transaction.',
+    balanceLabel: 'Current balance',
+    balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
     identifierLabel: 'Nickname or reference',
     identifierPlaceholder: 'Reference or nickname',
     identifierIcon: 'card-text-outline',
   },
+};
+
+/**
+ * A pay-later line's step two: the card fields under the names a pay-later
+ * app uses, and no last 4 digits — there is no card to read them off.
+ */
+export const PAY_LATER_DETAIL_COPY: (typeof ACCOUNT_DETAIL_COPY)['credit_card'] = {
+  message: 'Add the limit and the day you repay, and Finnri reminds you before it is due.',
+  providerLabel: 'Lender',
+  providerPlaceholder: 'Search or type (CRED flash, LazyPay…)',
+  balanceLabel: 'Opening outstanding',
+  balanceHint: 'What you already owed before your first logged transaction.',
 };
 
 /** How many of the account's setup details are still missing (see `getAccountSetupItems`). */

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The 1 × 1 widget (board R14-Widget): one orange tile that starts speaking. -->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:id="@+id/widget_root"
+  android:layout_width="match_parent"
+  android:layout_height="match_parent">
+
+  <ImageView
+    android:id="@+id/widget_capture"
+    android:layout_width="64dp"
+    android:layout_height="64dp"
+    android:layout_gravity="center"
+    android:background="@drawable/widget_mic_tile"
+    android:contentDescription="@string/widget_speak_label"
+    android:padding="18dp"
+    android:src="@drawable/ic_mic_ink"/>
+</FrameLayout>

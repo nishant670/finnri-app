@@ -1,11 +1,11 @@
 import { fireEvent, render } from '@testing-library/react-native';
 
+import { RecurringActionsSheet, RecurringRow } from '@/components/money/RecurringList';
 import { DateRow } from '@/components/money/subscriptions/DateRow';
 import { Field } from '@/components/money/subscriptions/Field';
 import { InputRow, ToggleRow } from '@/components/money/subscriptions/FormRows';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
-import { SubscriptionCard } from '@/components/money/subscriptions/SubscriptionCard';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import type { Subscription } from '@/lib/subscriptions';
 
@@ -130,7 +130,7 @@ describe('DateRow', () => {
   });
 });
 
-describe('SubscriptionCard', () => {
+describe('RecurringRow and its actions (boards R5-RecurringList, R5-RecurringActions)', () => {
   const sub = (over: Record<string, unknown> = {}) =>
     ({
       id: 1,
@@ -144,52 +144,59 @@ describe('SubscriptionCard', () => {
       days_until_due: 5,
       category: 'Entertainment',
       cancel_before_due: false,
+      reminder_days: 3,
       total_instalments: 0,
       instalments_paid: 0,
       ...over,
     }) as unknown as Subscription;
 
-  const setup = async (over: Record<string, unknown> = {}) => {
-    const h = {
-      onPress: jest.fn(),
-      onMarkPaid: jest.fn(),
-      onCancelNow: jest.fn(),
-      onDelete: jest.fn(),
-    };
-    const screen = await render(
-      <SubscriptionCard subscription={sub(over)} colors={colors} muted="#999" {...h} />
+  it('names what it is and when it is due, in one date format, and opens its actions', async () => {
+    const onPress = jest.fn();
+    const screen = await render(<RecurringRow item={sub()} divider={false} onPress={onPress} />);
+    expect(screen.getByText('Entertainment · monthly')).toBeTruthy();
+    expect(screen.getByText(/^Due 12 Oct$/)).toBeTruthy();
+    // No unlabelled icons on the row any more.
+    expect(screen.queryByLabelText('Delete Netflix')).toBeNull();
+    await fireEvent.press(screen.getByText('Netflix'));
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('says overdue, and shows a loan’s progress', async () => {
+    expect((await render(<RecurringRow item={sub({ due_state: 'overdue' })} divider={false} onPress={jest.fn()} />)).getByText(/^Overdue/)).toBeTruthy();
+    const loan = await render(
+      <RecurringRow
+        item={sub({ kind: 'loan', name: 'Car loan', lender: 'ICICI Bank', total_instalments: 12, instalments_paid: 4 })}
+        divider={false}
+        onPress={jest.fn()}
+      />
     );
+    expect(loan.getByText('4 of 12 paid · 8 left')).toBeTruthy();
+    expect(loan.getByText('Loan · ICICI Bank · monthly')).toBeTruthy();
+  });
+
+  const sheet = async (over: Record<string, unknown> = {}) => {
+    const h = { onClose: jest.fn(), onMarkPaid: jest.fn(), onEdit: jest.fn(), onCancel: jest.fn(), onDelete: jest.fn() };
+    const screen = await render(<RecurringActionsSheet item={sub(over)} visible {...h} />);
     return { screen, ...h };
   };
 
-  it('opens the editor and offers mark-paid, cancel and delete for an active subscription', async () => {
-    const { screen, onPress, onMarkPaid, onCancelNow, onDelete } = await setup();
-    await fireEvent.press(screen.getByLabelText('Edit Netflix'));
+  it('offers mark paid, edit, cancel and delete for an active item, each named', async () => {
+    const { screen, onMarkPaid, onEdit, onCancel, onDelete } = await sheet();
+    expect(screen.getByText('₹649 · due 12 Oct · reminder 3 days before')).toBeTruthy();
     await fireEvent.press(screen.getByLabelText('Mark Netflix paid'));
+    await fireEvent.press(screen.getByLabelText('Edit Netflix'));
     await fireEvent.press(screen.getByLabelText('Cancel Netflix'));
     await fireEvent.press(screen.getByLabelText('Delete Netflix'));
-    expect(onPress).toHaveBeenCalledTimes(1);
     expect(onMarkPaid).toHaveBeenCalledTimes(1);
-    expect(onCancelNow).toHaveBeenCalledTimes(1);
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
-  it('hides mark-paid and cancel once it is no longer active', async () => {
-    const { screen } = await setup({ status: 'cancelled' });
+  it('keeps only edit and delete once it is cancelled', async () => {
+    const { screen } = await sheet({ status: 'cancelled', due_state: 'cancelled' });
     expect(screen.queryByLabelText('Mark Netflix paid')).toBeNull();
     expect(screen.queryByLabelText('Cancel Netflix')).toBeNull();
     expect(screen.getByLabelText('Delete Netflix')).toBeTruthy();
-  });
-
-  it('shows the cancellation reminder flag', async () => {
-    const { screen } = await setup({ cancel_before_due: true });
-    expect(screen.getByText('Cancel reminder')).toBeTruthy();
-  });
-
-  it('shows loan progress and completion', async () => {
-    const running = await setup({ total_instalments: 12, instalments_paid: 4 });
-    expect(running.screen.getByText('4 of 12 paid · 8 left')).toBeTruthy();
-    const done = await setup({ total_instalments: 12, instalments_paid: 12 });
-    expect(done.screen.getByText('All 12 payments done')).toBeTruthy();
   });
 });

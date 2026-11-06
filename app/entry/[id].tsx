@@ -28,9 +28,11 @@ import {
 } from '@/components/transactions/TransactionFormModal';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { EntryDetailSkeleton } from '@/components/transactions/TransactionListSkeleton';
+import { ReceiptViewer } from '@/components/transactions/ReceiptViewer';
 import { useTransactionDelete } from '@/components/transactions/TransactionDeleteProvider';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { decodeFrame, useSharedElementTarget } from '@/hooks/use-shared-element';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { Account, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { fetchCardEMIPlans } from '@/lib/emi-plans';
 import { fetchSubscriptions } from '@/lib/subscriptions';
@@ -56,6 +58,7 @@ import {
   type SplitGroup,
 } from '@/lib/splits';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
+import { eventLabel, useEvents } from '@/lib/events';
 import {
   describeLoggedBy,
   entryMonthRange,
@@ -77,6 +80,7 @@ const PUSH_SETTLE_FALLBACK_MS = 900;
 
 export default function TransactionDetailsScreen() {
   const dialog = useAppDialog();
+  const sheetBottom = useBottomInset(40);
   const router = useRouter();
   const params = useLocalSearchParams<{
     id: string;
@@ -100,6 +104,8 @@ export default function TransactionDetailsScreen() {
   }>();
 
   const { token } = useAuthStore();
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
   const [transaction, setTransaction] = useState<any>(null); // Using any to be flexible with API response initially
   const [isLoading, setIsLoading] = useState(true);
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
@@ -308,12 +314,19 @@ export default function TransactionDetailsScreen() {
 
   const meta = resolveCategoryMetadata(displayData.category, displayData.type);
   const isIncomeEntry = String(displayData.type ?? '').toLowerCase() === 'income';
+  const entryEventId = displayData.event_id ?? null;
+  useEffect(() => {
+    if (token && entryEventId != null) void loadEvents(token);
+  }, [entryEventId, loadEvents, token]);
+  const entryEvent =
+    entryEventId != null ? (events.find((event) => event.id === entryEventId) ?? null) : null;
   const icon = meta.icon;
   const iconColor = meta.color;
   const bgColor = meta.bgColor;
 
   const receiptUrl = displayData.attachment || null;
   const [displayReceiptUrl, setDisplayReceiptUrl] = useState<string | null>(null);
+  const [isReceiptViewerOpen, setIsReceiptViewerOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -334,8 +347,16 @@ export default function TransactionDetailsScreen() {
     };
   }, [receiptUrl, token]);
 
+  /**
+   * A photo opens in the app's own viewer (board R4-ReceiptViewer). A PDF still
+   * goes to the system's viewer: there is no PDF renderer in the app.
+   */
   const handleOpenReceipt = async () => {
     if (!displayReceiptUrl) return;
+    if (!isPdfAttachment(receiptUrl)) {
+      setIsReceiptViewerOpen(true);
+      return;
+    }
     try {
       await WebBrowser.openBrowserAsync(displayReceiptUrl);
     } catch {
@@ -565,6 +586,7 @@ export default function TransactionDetailsScreen() {
       accounts.find((account) => account.id === displayData.account_id)?.name ||
       '',
     merchant: displayData.merchant || '',
+    eventId: displayData.event_id ?? null,
     attachment: displayData.attachment || null,
     splitEnabled: Boolean(splitBill),
     splitGroupId: splitBill?.group_id ?? null,
@@ -778,6 +800,19 @@ export default function TransactionDetailsScreen() {
           {!isIncomeEntry && displayData.tag ? (
             <LabelRow label="Tag" value={displayData.tag} divider />
           ) : null}
+          {!isIncomeEntry && entryEvent ? (
+            <LabelRow
+              testID="entry-event-row"
+              label="Event"
+              value={eventLabel(entryEvent)}
+              icon="party-popper"
+              iconColor={theme.text}
+              divider
+              onPress={() =>
+                router.push({ pathname: '/events/[id]', params: { id: String(entryEvent.id) } })
+              }
+            />
+          ) : null}
           {displayData.notes ? (
             <LabelRow label="Note" divider>
               <ThemedText style={[styles.note, { color: theme.text }]}>{displayData.notes}</ThemedText>
@@ -837,38 +872,53 @@ export default function TransactionDetailsScreen() {
           </View>
         )}
 
-        {/* PAPER TRAIL */}
+        {/* PAPER TRAIL (board R4-Receipt): a labelled row with the whole bill as
+            a thumbnail, instead of a 220px crop that cut its top and bottom. */}
         {receiptUrl ? (
-          isPdfAttachment(receiptUrl) ? (
+          <View>
+            <ThemedText tone="muted" accessibilityRole="header" style={styles.sectionLabel}>
+              Receipt
+            </ThemedText>
             <PressableView
+              testID="entry-receipt"
               onPress={handleOpenReceipt}
               accessibilityRole="button"
-              accessibilityLabel="Open receipt PDF"
-              style={[styles.card, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+              accessibilityLabel={isPdfAttachment(receiptUrl) ? 'Open bill PDF' : 'View bill photo'}
+              disabled={!displayReceiptUrl}
+              style={[styles.card, styles.receiptCard, styles.receiptRow, { backgroundColor: theme.card, borderColor: theme.border }]}
               pressedStyle={styles.pressed}>
-              <MaterialCommunityIcons name="file-pdf-box" size={24} color={theme.text} />
+              {isPdfAttachment(receiptUrl) ? (
+                <View style={[styles.receiptThumb, styles.receiptThumbIcon, { borderColor: theme.border, backgroundColor: theme.track }]}>
+                  <MaterialCommunityIcons name="file-pdf-box" size={26} color={theme.text} />
+                </View>
+              ) : (
+                <View style={[styles.receiptThumb, { borderColor: theme.border, backgroundColor: '#FFFFFF' }]}>
+                  {displayReceiptUrl ? (
+                    <Image
+                      source={{ uri: displayReceiptUrl }}
+                      style={styles.receiptImage}
+                      contentFit="cover"
+                      contentPosition="top"
+                      transition={150}
+                    />
+                  ) : null}
+                </View>
+              )}
               <View style={styles.flex}>
-                <ThemedText style={[styles.rowTitle, { color: theme.text }]}>Receipt PDF</ThemedText>
+                <ThemedText style={[styles.receiptTitle, { color: theme.text }]}>
+                  {isPdfAttachment(receiptUrl) ? 'Bill PDF' : 'Bill photo'}
+                </ThemedText>
                 <ThemedText tone="muted" style={styles.caption}>
-                  Tap to open
+                  {displayReceiptUrl ? (isPdfAttachment(receiptUrl) ? 'Tap to open' : 'Tap to view') : 'Loading…'}
                 </ThemedText>
               </View>
-              <MaterialCommunityIcons name="open-in-new" size={18} color={theme.muted} />
-            </PressableView>
-          ) : (
-            <Pressable
-              onPress={handleOpenReceipt}
-              accessibilityRole="imagebutton"
-              accessibilityLabel="Open receipt image"
-              style={[styles.card, { borderColor: theme.border }]}>
-              <Image
-                source={{ uri: displayReceiptUrl ?? undefined }}
-                style={{ width: '100%', height: 220 }}
-                contentFit="cover"
-                transition={150}
+              <MaterialCommunityIcons
+                name={isPdfAttachment(receiptUrl) ? 'open-in-new' : 'chevron-right'}
+                size={16}
+                color={theme.muted}
               />
-            </Pressable>
-          )
+            </PressableView>
+          </View>
         ) : null}
 
         {displayData.refundable_amount && displayData.refund_status === 'pending' ? (
@@ -1005,8 +1055,8 @@ export default function TransactionDetailsScreen() {
         onClose={closeDeleteConfirm}
         backdropOpacity={0.45}>
         <View
-          className="rounded-t-[32px] border px-6 pb-10 pt-5"
-          style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+          className="rounded-t-[32px] border px-6 pt-5"
+          style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
           <View className="mx-auto mb-6 h-1.5 w-12 rounded-full bg-gray-200 dark:bg-gray-700" />
 
           <View className="items-center">
@@ -1078,6 +1128,22 @@ export default function TransactionDetailsScreen() {
           </View>
         </View>
       </AnimatedBottomSheet>
+      <ReceiptViewer
+        visible={isReceiptViewerOpen}
+        uri={displayReceiptUrl}
+        subtitle={[
+          displayData.title || 'Transaction',
+          formatMoney(amountValue, { sign: 'never' }),
+        ].join(' · ')}
+        onClose={() => setIsReceiptViewerOpen(false)}
+        onShareError={() =>
+          void dialog.alert({
+            title: 'Could not share',
+            message: 'The bill photo could not be shared right now.',
+            tone: 'danger',
+          })
+        }
+      />
     </DetailSheetFrame>
   );
 }
@@ -1306,12 +1372,43 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderTopWidth: 1,
   },
+  sectionLabel: {
+    marginTop: 20,
+    marginHorizontal: SCREEN_GUTTER,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  receiptCard: {
+    marginTop: 8,
+  },
   receiptRow: {
-    minHeight: 56,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
-    paddingHorizontal: 14,
+    gap: 14,
+    paddingVertical: 10,
+    paddingLeft: 10,
+    paddingRight: 12,
+  },
+  receiptThumb: {
+    width: 56,
+    height: 72,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  receiptImage: {
+    width: '100%',
+    height: '100%',
+  },
+  receiptThumbIcon: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  receiptTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   refund: {
     gap: 4,
@@ -1323,7 +1420,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   deleteRow: {
-    height: 48,
+    height: 52,
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-start',
@@ -1333,9 +1430,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   deleteLabel: {
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '600',
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   bar: {
     flexDirection: 'row',

@@ -6,6 +6,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
+import { EMIPlanActionsSheet } from '@/components/statements/EMIPlanActionsSheet';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedConfirmDialog, ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
@@ -54,6 +55,7 @@ export default function EMIPlanDetailScreen() {
   const [isPending, setIsPending] = useState(false);
   const [isForecloseVisible, setIsForecloseVisible] = useState(false);
   const [isDeleteVisible, setIsDeleteVisible] = useState(false);
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !Number.isFinite(planId) || planId <= 0) {
@@ -125,7 +127,7 @@ export default function EMIPlanDetailScreen() {
   const active = plan.status === 'active';
 
   return (
-    <SafeAreaView className="flex-1" edges={['top', 'left', 'right']}>
+    <SafeAreaView className="flex-1" edges={['top', 'left', 'right', 'bottom']}>
       <View className="flex-1" style={{ backgroundColor: theme.background }}>
         <View className="flex-row items-center justify-between px-6 pb-4 pt-3">
           <Pressable
@@ -143,8 +145,8 @@ export default function EMIPlanDetailScreen() {
           </TText>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Delete plan"
-            onPress={() => setIsDeleteVisible(true)}
+            accessibilityLabel="More options for this plan"
+            onPress={() => setIsMenuVisible(true)}
             className="h-11 w-11 items-center justify-center rounded-full"
             style={{ backgroundColor: theme.card }}>
             <MaterialCommunityIcons name="dots-horizontal" size={22} color={theme.text} />
@@ -250,6 +252,14 @@ export default function EMIPlanDetailScreen() {
             ))}
           </View>
         </ScrollView>
+
+        <EMIPlanActionsSheet
+          plan={plan}
+          visible={isMenuVisible}
+          onClose={() => setIsMenuVisible(false)}
+          onForeclose={() => setIsForecloseVisible(true)}
+          onDelete={() => setIsDeleteVisible(true)}
+        />
 
         <ThemedConfirmDialog
           visible={isForecloseVisible}

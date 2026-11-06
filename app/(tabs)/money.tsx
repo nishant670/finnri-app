@@ -88,6 +88,11 @@ export default function MoneyScreen() {
             ? []
             : [
                 {
+                  icon: 'party-popper',
+                  accessibilityLabel: 'Events',
+                  onPress: () => router.push('/events'),
+                },
+                {
                   icon: 'calculator-variant-outline',
                   accessibilityLabel: 'Calculators',
                   onPress: () => router.push('/tools'),

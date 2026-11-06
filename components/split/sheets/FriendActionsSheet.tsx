@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { SplitFriend } from '@/lib/splits';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
@@ -24,11 +25,12 @@ export function FriendActionsSheet({
   onArchive: (friend: SplitFriend) => void;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(32);
   return (
     <AnimatedBottomSheet visible={Boolean(friend)} onClose={onClose}>
       <View
-        className="rounded-t-[28px] border px-5 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-5 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-4 flex-row items-center justify-between">
           <View>
             <TText variant="sectionTitle">

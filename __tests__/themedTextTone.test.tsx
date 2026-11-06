@@ -36,7 +36,7 @@ async function colorUnder(
   { nightMode, themeColor = 'finnri' }: { nightMode: boolean; themeColor?: ThemeMoodId },
   props: ThemedTextProps = {}
 ) {
-  useAppMoodStore.setState({ nightMode, themeColor });
+  useAppMoodStore.setState({ appearance: nightMode ? 'dark' : 'light', themeColor });
   const screen = await render(<ThemedText {...props}>Label</ThemedText>);
   const color = styleOf(screen.getByText('Label')).color;
   await cleanup();
@@ -44,7 +44,7 @@ async function colorUnder(
 }
 
 afterEach(() => {
-  useAppMoodStore.setState({ nightMode: false, themeColor: 'finnri' });
+  useAppMoodStore.setState({ appearance: 'light', themeColor: 'finnri' });
 });
 
 describe('ThemedText tone', () => {

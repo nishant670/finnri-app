@@ -13,6 +13,7 @@ import { PressableView } from '@/components/ui/PressableView';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
@@ -122,6 +123,8 @@ const formatCount = (value?: number | null) => (value ?? 0).toLocaleString('en-I
 export default function BillingScreen() {
   const { colors } = useThemeTokens();
   const router = useRouter();
+  const footerBottom = useBottomInset(20);
+  const contentBottom = useBottomInset(32);
   const { token, user } = useAuthStore();
   const dialog = useAppDialog();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
@@ -369,7 +372,13 @@ export default function BillingScreen() {
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
       <ScreenHeader title="Plans & credits" onBack={() => router.back()} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.content,
+          // The footer clears the nav bar when it shows; without it the list does.
+          !(PLANS_VISIBLE && selectedPlan) && { paddingBottom: contentBottom },
+        ]}>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <View style={styles.access}>
             <View style={styles.accessHead}>
@@ -556,7 +565,11 @@ export default function BillingScreen() {
       </ScrollView>
 
       {PLANS_VISIBLE && selectedPlan ? (
-        <View style={[styles.footer, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+        <View
+          style={[
+            styles.footer,
+            { backgroundColor: colors.card, borderTopColor: colors.border, paddingBottom: footerBottom },
+          ]}>
           <PrimaryButton
             testID="plans-continue"
             label={busyPlan === selectedPlan.code ? 'Opening payment…' : actionLabel}
@@ -911,7 +924,6 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 20,
     borderTopWidth: 1,
   },
   pressed: {

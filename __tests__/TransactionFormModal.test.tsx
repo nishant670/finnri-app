@@ -5,12 +5,14 @@ import * as Haptics from 'expo-haptics';
 
 import {
   TransactionFormModal,
+  buildDateChoices,
   type EMILink,
   type EntryForm,
   type AiReviewMetadata,
 } from '@/components/transactions/TransactionFormModal';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
+import { useEvents } from '@/lib/events';
 import type { Transaction } from '@/types/transaction';
 
 const recentEntry = (overrides: Partial<Transaction>): Transaction => ({
@@ -269,6 +271,106 @@ describe('TransactionFormModal', () => {
 
       expect(await findByText('Wallets · Amazon Pay')).toBeTruthy();
     });
+  });
+
+  describe('a new quick prompt', () => {
+    // What Home opens the editor with: no category, so the title decides it.
+    const newPrompt: Partial<EntryForm> = { mode: 'Cash', type: 'Expense', date: '11 July 2026' };
+
+    it('files the prompt by its title, as the add form does', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', initialData: newPrompt });
+      expect(await ui.findByLabelText('Category Misc')).toBeTruthy();
+
+      await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '20');
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
+
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      await waitFor(() =>
+        expect(ui.onSave).toHaveBeenCalledWith(
+          expect.objectContaining({ title: 'E rickshaw', category: 'Transport' })
+        )
+      );
+    });
+
+    it('asks before discarding a prompt, in its own words', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', initialData: newPrompt });
+      await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '20');
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      await fireEvent.press(await ui.findByLabelText('Close'));
+
+      expect(await ui.findByText('Discard this prompt?')).toBeTruthy();
+    });
+
+    it('keeps a saved prompt\'s category when its title is edited', async () => {
+      const ui = await renderModal({
+        mode: 'quick-prompt',
+        isEdit: true,
+        initialData: { ...newPrompt, title: 'Lunch', amount: '200', category: 'Food & Drinks' },
+      });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'E rickshaw');
+      expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    });
+  });
+
+  describe('deleting a quick prompt', () => {
+    const savedPrompt: Partial<EntryForm> = {
+      ...completeInitialData,
+      title: 'E rickshaw',
+      category: 'Transport',
+    };
+    const renderPrompt = async (onDelete: jest.Mock) => {
+      const ui = await render(
+        <TransactionFormModal
+          visible
+          isEdit
+          mode="quick-prompt"
+          initialData={savedPrompt}
+          accounts={[cashAccount]}
+          onSave={jest.fn()}
+          onClose={jest.fn()}
+          onDelete={onDelete}
+        />
+      );
+      await fireEvent.press(await ui.findByText('Delete prompt'));
+      return ui;
+    };
+
+    it('asks first, and does nothing on Keep it', async () => {
+      const onDelete = jest.fn().mockResolvedValue(undefined);
+      const ui = await renderPrompt(onDelete);
+
+      expect(await ui.findByText('Delete this prompt?')).toBeTruthy();
+      await fireEvent.press(await ui.findByText('Keep it'));
+      expect(onDelete).not.toHaveBeenCalled();
+    });
+
+    it('says why when the delete fails', async () => {
+      const onDelete = jest.fn().mockRejectedValue(new Error('Prompt is busy.'));
+      const ui = await renderPrompt(onDelete);
+
+      await fireEvent.press(await ui.findByText('Delete'));
+      expect(onDelete).toHaveBeenCalledTimes(1);
+      expect(await ui.findByText('Prompt is busy.')).toBeTruthy();
+    });
+  });
+
+  it('keeps a Cash salary prompt on cash when it is used', async () => {
+    const bank: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5', is_default: true };
+    const ui = await renderModal({
+      accounts: [cashAccount, bank],
+      initialData: {
+        ...completeInitialData,
+        title: 'Salary',
+        type: 'Income',
+        category: 'Salary',
+        mode: 'Cash',
+        accountId: null,
+        account: '',
+      },
+    });
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ mode: 'Cash', accountId: 1 }));
   });
 
   it('validates required fields before saving', async () => {
@@ -549,7 +651,7 @@ describe('TransactionFormModal — amount-first manual entry', () => {
     const ui = await renderModal({ initialData: blankEntry });
     await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Dinner');
 
-    expect(await ui.findByText('Merchant, note, tag, receipt, split')).toBeTruthy();
+    expect(await ui.findByText('Merchant, note, tag, event, receipt, split')).toBeTruthy();
     expect(ui.queryByTestId('entry-merchant-input')).toBeNull();
     expect(ui.queryByText('Split this expense')).toBeNull();
 
@@ -583,7 +685,73 @@ describe('TransactionFormModal — amount-first manual entry', () => {
 
     expect(ui.queryByText('Split this expense')).toBeNull();
     expect(ui.queryByTestId('entry-tag-picker')).toBeNull();
+    expect(ui.queryByTestId('entry-event-picker')).toBeNull();
     expect(await ui.findByTestId('entry-notes-input')).toBeTruthy();
+  });
+
+  describe('event', () => {
+    const party = {
+      id: 7,
+      name: 'Diwali party',
+      emoji: '🪔',
+      start_date: '2026-10-31',
+      end_date: '2026-11-01',
+      budget: null,
+      notes: '',
+      entry_count: 0,
+      total_paid: 0,
+      owed_back: 0,
+      net_cost: 0,
+    };
+
+    beforeEach(() => {
+      useEvents.setState({ events: [party], loadedFor: null, loadedAt: 0 });
+    });
+
+    afterEach(() => {
+      useEvents.setState({ events: [], loadedFor: null, loadedAt: 0 });
+    });
+
+    it('puts an expense in an event from More details', async () => {
+      // A merchant is set, so More details is already open.
+      const ui = await renderModal({ isEdit: true });
+
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-7'));
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
+      expect(ui.onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ eventId: 7 }));
+    });
+
+    it('shows the event an edit already has, and can take it out', async () => {
+      const ui = await renderModal({ isEdit: true, initialData: { ...completeInitialData, eventId: 7 } });
+
+      expect(await ui.findByText('🪔 Diwali party')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-none'));
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+
+      await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
+      expect(ui.onSave.mock.calls[0][0]).toEqual(expect.objectContaining({ eventId: null }));
+    });
+
+    it('titles a new entry after its event, and drops the title with the event', async () => {
+      const ui = await renderModal({ initialData: { ...completeInitialData, eventId: 7 } });
+
+      expect(await ui.findByText('Add to Diwali party')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-event-picker'));
+      await fireEvent.press(await ui.findByTestId('event-option-none'));
+
+      await waitFor(() => expect(ui.queryByText('Add to Diwali party')).toBeNull());
+    });
+
+    it('has no event on a quick prompt', async () => {
+      const ui = await renderModal({ mode: 'quick-prompt', isEdit: true });
+
+      expect(await ui.findByTestId('entry-merchant-input')).toBeTruthy();
+      expect(ui.queryByTestId('entry-event-picker')).toBeNull();
+    });
   });
 
   it('shows the merchant a quick-fill chip filled rather than hiding it behind a chip', async () => {
@@ -602,7 +770,7 @@ describe('TransactionFormModal — amount-first manual entry', () => {
 });
 
 describe('TransactionFormModal — title category suggestions', () => {
-  const unclassified = { ...completeInitialData, title: '', category: 'Misc' };
+  const unclassified = { ...completeInitialData, title: '', merchant: '', category: 'Misc' };
 
   it('follows title corrections and saves the latest inferred category', async () => {
     const ui = await renderModal({ initialData: unclassified });
@@ -622,6 +790,17 @@ describe('TransactionFormModal — title category suggestions', () => {
       await fireEvent.changeText(await ui.findByTestId('entry-title-input'), unknown);
       expect(await ui.findByLabelText('Category Misc')).toBeTruthy();
     }
+  });
+
+  it('falls back to the merchant when the title has no clue', async () => {
+    const ui = await renderModal({ initialData: unclassified });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Team outing');
+    await fireEvent.press(await ui.findByTestId('entry-more-details'));
+    await fireEvent.changeText(await ui.findByTestId('entry-merchant-input'), 'Zomato');
+    expect(await ui.findByLabelText('Category Food & Drinks')).toBeTruthy();
+    // The title still wins when it has a clue of its own.
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Cab home');
+    expect(await ui.findByLabelText('Category Transport')).toBeTruthy();
   });
 
   it.each(['Shopping', 'Misc'])('preserves an explicit %s selection across title edits and same-type taps', async (category) => {
@@ -644,6 +823,53 @@ describe('TransactionFormModal — title category suggestions', () => {
     expect(await ui.findByLabelText('Category Refund')).toBeTruthy();
     await fireEvent.press(await ui.findByTestId('entry-save-button'));
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ type: 'Income', category: 'Refund' }));
+  });
+
+  describe('mode following the category', () => {
+    const bankAccount: Account = { id: 3, type: 'bank', name: 'SBI Bank', color: '#42A5F5', is_default: true };
+    const blankIncome: Partial<EntryForm> = {
+      ...completeInitialData,
+      title: '',
+      merchant: '',
+      type: 'Income',
+      category: 'Other',
+      mode: 'Cash',
+      accountId: null,
+      account: '',
+    };
+
+    it('receives a dividend in the bank account, and goes back to cash when the title changes', async () => {
+      const ui = await renderModal({ initialData: blankIncome, accounts: [cashAccount, bankAccount] });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      expect(await ui.findByLabelText('Category Dividend')).toBeTruthy();
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenLastCalledWith(
+        expect.objectContaining({ category: 'Dividend', mode: 'Bank Account', accountId: 3 })
+      );
+
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Sold old phone');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenLastCalledWith(expect.objectContaining({ mode: 'Cash', accountId: 1 }));
+    });
+
+    it('stays on cash when there is no bank account to put it in', async () => {
+      const ui = await renderModal({ initialData: blankIncome, accounts: [cashAccount] });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenCalledWith(
+        expect.objectContaining({ category: 'Dividend', mode: 'Cash', accountId: 1 })
+      );
+    });
+
+    it('leaves a mode the caller chose alone', async () => {
+      const ui = await renderModal({
+        initialData: { ...blankIncome, mode: 'UPI', accountId: 2, account: 'HDFC UPI' },
+        accounts: [cashAccount, upiAccount, bankAccount],
+      });
+      await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Vedanta dividend');
+      await fireEvent.press(await ui.findByTestId('entry-save-button'));
+      expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ mode: 'UPI', accountId: 2 }));
+    });
   });
 
   it('preserves saved transaction categories when editing the title', async () => {
@@ -971,5 +1197,81 @@ describe('TransactionFormModal — created-account confirmation', () => {
     await waitFor(() =>
       expect(queryByText('Axis Bank Account created and selected')).toBeNull()
     );
+  });
+});
+
+describe('TransactionFormModal — closing with unsaved input', () => {
+  const blank = { ...completeInitialData, title: '', amount: '', merchant: '', notes: '' };
+
+  it('closes straight away when nothing has been entered', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this expense?')).toBeNull();
+  });
+
+  it('closes straight away with only one field entered', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await typeAmount(ui.findByTestId, '210');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this expense?')).toBeNull();
+  });
+
+  it('asks before discarding typed input, and keeps it on Keep editing', async () => {
+    const ui = await renderModal({ initialData: blank });
+    await typeAmount(ui.findByTestId, '210');
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Momos');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(await ui.findByText('Discard this expense?')).toBeTruthy();
+    expect(ui.onClose).not.toHaveBeenCalled();
+
+    await fireEvent.press(await ui.findByText('Keep editing'));
+    expect(ui.onClose).not.toHaveBeenCalled();
+    expect((await ui.findByTestId('entry-title-input')).props.value).toBe('Momos');
+
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    await fireEvent.press(await ui.findByText('Discard'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts only what an edit changed', async () => {
+    const ui = await renderModal({ isEdit: true });
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Something new');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(ui.onClose).toHaveBeenCalledTimes(1);
+
+    const edited = await renderModal({ isEdit: true });
+    await fireEvent.changeText(await edited.findByTestId('entry-title-input'), 'Something new');
+    await fireEvent.changeText(await edited.findByTestId('entry-amount-input'), '999');
+    await fireEvent.press(await edited.findByLabelText('Close'));
+    expect(await edited.findByText('Discard your changes?')).toBeTruthy();
+    expect(edited.onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('TransactionFormModal — across midnight', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('works out Today and Yesterday from the moment it is shown', () => {
+    expect(buildDateChoices(new Date(2026, 9, 25, 0, 12))).toEqual([
+      { key: 'today', label: 'Today', value: '25 October 2026' },
+      { key: 'yesterday', label: 'Yesterday', value: '24 October 2026' },
+    ]);
+  });
+
+  it('saves Yesterday as the day before the new day, not the one the sheet was drawn on', async () => {
+    jest.useFakeTimers({ advanceTimers: true, now: new Date(2026, 9, 24, 23, 53) });
+    const ui = await renderModal({ initialData: { ...completeInitialData, date: '24 October 2026' } });
+
+    // Midnight passes with the sheet mounted, then anything redraws it.
+    jest.setSystemTime(new Date(2026, 9, 25, 0, 12));
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Something');
+
+    await fireEvent.press(await ui.findByTestId('entry-date-yesterday'));
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ date: '24 October 2026' }));
   });
 });

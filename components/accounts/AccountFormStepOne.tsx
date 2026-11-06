@@ -10,7 +10,7 @@ import { withAlpha } from '@/constants/theme';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { type AccountType } from '@/lib/accounts';
+import { type AccountType, type CreditKind } from '@/lib/accounts';
 import { typeOptions, COLORS, COLOR_NAMES } from '@/lib/account-form';
 import { styles } from './account-form-styles';
 
@@ -29,7 +29,9 @@ type AccountFormStepOneProps = {
   setStep: Dispatch<SetStateAction<number>>;
   showStyleOptions: boolean;
   typeError: string | null;
-  updateSelectedType: (nextType: AccountType) => void;
+  updateSelectedType: (nextType: AccountType, nextKind?: CreditKind) => void;
+  /** 'pay_later' when the Pay later tile is the one chosen. */
+  creditKind?: CreditKind;
   /**
    * Part of the one-sheet account form (P21): only the type chips and the
    * name, with no header, scroll or Continue of its own.
@@ -37,8 +39,21 @@ type AccountFormStepOneProps = {
   embedded?: boolean;
 };
 
-/** The order the one-sheet form lists types in (board R5-Account-Proposals). */
-const CHIP_ORDER: AccountType[] = ['cash', 'bank', 'credit_card', 'debit_card', 'upi', 'wallet', 'other'];
+/**
+ * The order the one-sheet form lists types in (board R5-Account-Proposals).
+ * Pay later is a credit_card account with its own kind, so it sits next to
+ * Credit card and is told apart by `creditKind`.
+ */
+const CHIP_ORDER: { key: AccountType; creditKind?: CreditKind }[] = [
+  { key: 'cash' },
+  { key: 'bank' },
+  { key: 'credit_card' },
+  { key: 'credit_card', creditKind: 'pay_later' },
+  { key: 'debit_card' },
+  { key: 'upi' },
+  { key: 'wallet' },
+  { key: 'other' },
+];
 const CHIP_LABELS: Partial<Record<AccountType, string>> = {
   credit_card: 'Credit card',
   debit_card: 'Debit card',
@@ -60,6 +75,7 @@ export function AccountFormStepOne({
   showStyleOptions,
   typeError,
   updateSelectedType,
+  creditKind = '',
   embedded = false,
 }: AccountFormStepOneProps) {
   const theme = useThemeTokens().colors;
@@ -68,17 +84,19 @@ export function AccountFormStepOne({
     return (
       <>
         <View accessibilityRole="radiogroup" accessibilityLabel="Account type" style={chipStyles.wrap}>
-          {CHIP_ORDER.map((key) => {
-            const option = typeOptions.find((candidate) => candidate.key === key);
+          {CHIP_ORDER.map(({ key, creditKind: chipKind = '' }) => {
+            const option = typeOptions.find(
+              (candidate) => candidate.key === key && (candidate.creditKind ?? '') === chipKind
+            );
             if (!option) return null;
-            const isSelected = selectedType === key;
+            const isSelected = selectedType === key && chipKind === creditKind;
             return (
               <PressableView
-                key={key}
-                testID={`account-type-${key}`}
+                key={`${key}-${chipKind}`}
+                testID={chipKind ? `account-type-${chipKind}` : `account-type-${key}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                onPress={() => updateSelectedType(key)}
+                onPress={() => updateSelectedType(key, chipKind)}
                 style={[
                   chipStyles.chip,
                   {
@@ -90,7 +108,7 @@ export function AccountFormStepOne({
                 <MaterialCommunityIcons name={option.icon} size={18} color={theme.text} />
                 <ThemedText
                   style={[chipStyles.label, { color: theme.text, fontWeight: isSelected ? '700' : '500' }]}>
-                  {CHIP_LABELS[key] ?? option.label}
+                  {chipKind ? option.label : (CHIP_LABELS[key] ?? option.label)}
                 </ThemedText>
               </PressableView>
             );
@@ -136,13 +154,16 @@ export function AccountFormStepOne({
         </ThemedText>
         <View style={styles.gridContainer}>
           {typeOptions.map((option) => {
-            const isSelected = selectedType === option.key;
+            // Credit and Pay later are both credit_card accounts; the kind
+            // tells the two tiles apart.
+            const isSelected =
+              selectedType === option.key && (option.creditKind ?? '') === creditKind;
             return (
               <PressableView
-                key={option.key}
+                key={`${option.key}-${option.creditKind ?? ''}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                onPress={() => updateSelectedType(option.key)}
+                onPress={() => updateSelectedType(option.key, option.creditKind ?? '')}
                 style={[
                   styles.gridItem,
                   {

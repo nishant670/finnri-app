@@ -93,6 +93,8 @@ type TransactionSplitFieldsProps = {
   onAddParticipant: () => void;
   onUpdateParticipant: (index: number, updates: Partial<SplitParticipantForm>) => void;
   onRemoveParticipant: (index: number) => void;
+  /** Called when the switch turns split on, so the sheet can scroll the new fields into view. */
+  onTurnedOn?: () => void;
 };
 
 /**
@@ -116,6 +118,7 @@ export function TransactionSplitFields({
   onAddParticipant,
   onUpdateParticipant,
   onRemoveParticipant,
+  onTurnedOn,
 }: TransactionSplitFieldsProps) {
   const { colors } = useThemeTokens();
   const selectedGroup = groups.find((group) => group.id === form.splitGroupId) ?? null;
@@ -146,6 +149,7 @@ export function TransactionSplitFields({
             haptics.toggle(!form.splitEnabled);
             // A new split starts even (P8); the friend's half is already in.
             if (!form.splitEnabled && form.splitParticipants.length === 0) onChangeShareMode('equal');
+            if (!form.splitEnabled) onTurnedOn?.();
             setForm((previous) =>
               previous.splitEnabled
                 ? { ...previous, splitEnabled: false }

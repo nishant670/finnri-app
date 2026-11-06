@@ -161,3 +161,9 @@ export const accountIdFromActionURL = (actionURL?: string | null): string | null
  */
 export const isRecurringActionURL = (actionURL?: string | null): boolean =>
   /^\/recurring(\/\d+)?$/.test(actionURL ?? '');
+
+/**
+ * A pass gifted from the admin panel links to `/billing`, the screen that
+ * shows the pass and its dates. Tapping the push opens it too.
+ */
+export const isBillingActionURL = (actionURL?: string | null): boolean => actionURL === '/billing';

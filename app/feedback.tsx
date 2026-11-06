@@ -16,6 +16,7 @@ import { PressableView } from '@/components/ui/PressableView';
 import { Segments } from '@/components/ui/Segments';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import {
   FeedbackImpact,
@@ -49,6 +50,7 @@ export default function FeedbackScreen() {
   const router = useRouter();
   const { token } = useAuthStore();
   const { colors } = useThemeTokens();
+  const footerBottom = useBottomInset(20);
   const dialog = useAppDialog();
   const [type, setType] = useState<FeedbackType>('feature_request');
   // Not "Capture": a default here is a label on someone else's report, and an
@@ -308,7 +310,11 @@ export default function FeedbackScreen() {
         ) : null}
       </KeyboardAvoidingScreen>
 
-      <View style={[styles.footer, { backgroundColor: colors.background, borderTopColor: colors.border }]}>
+      <View
+        style={[
+          styles.footer,
+          { backgroundColor: colors.background, borderTopColor: colors.border, paddingBottom: footerBottom },
+        ]}>
         <PrimaryButton
           icon="send"
           label={submitting && uploadProgress ? uploadProgress : 'Send feedback'}
@@ -461,7 +467,6 @@ const styles = StyleSheet.create({
   footer: {
     paddingHorizontal: 16,
     paddingTop: 12,
-    paddingBottom: 20,
     borderTopWidth: 1,
   },
   pressed: {

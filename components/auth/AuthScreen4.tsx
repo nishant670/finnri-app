@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { categoryTile } from '@/lib/categories';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
@@ -10,6 +11,10 @@ import { ScreenProps } from './types';
 export const AuthScreen4 = ({ onContinue }: ScreenProps) => {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
+  // The illustration's pastel tiles, dimmed for a dark page the way category
+  // tiles are; the fixed pastels glared there.
+  const tileFill = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).background;
+  const tileInk = (color: string, bgColor: string) => categoryTile({ color, bgColor }, colorScheme).foreground;
 
   return (
     <ScrollView
@@ -20,17 +25,17 @@ export const AuthScreen4 = ({ onContinue }: ScreenProps) => {
         <View style={styles.imageContainer}>
           <View style={styles.glowCircle} />
           <View style={[styles.mainCircle, { borderColor: theme.border }]}>
-            <View style={[styles.iconBox, { backgroundColor: '#FFCCBC' }]}>
-              <MaterialCommunityIcons name="check" size={40} color="#E64A19" />
+            <View style={[styles.iconBox, { backgroundColor: tileFill('#E64A19', '#FFCCBC') }]}>
+              <MaterialCommunityIcons name="check" size={40} color={tileInk('#E64A19', '#FFCCBC')} />
             </View>
-            <View style={[styles.smallIcon, styles.pos1, { backgroundColor: '#C8E6C9' }]}>
-              <MaterialCommunityIcons name="check-circle" size={12} color="#43A047" />
+            <View style={[styles.smallIcon, styles.pos1, { backgroundColor: tileFill('#43A047', '#C8E6C9'), borderColor: theme.background }]}>
+              <MaterialCommunityIcons name="check-circle" size={12} color={tileInk('#43A047', '#C8E6C9')} />
             </View>
-            <View style={[styles.smallIcon, styles.pos2, { backgroundColor: '#BBDEFB' }]}>
-              <MaterialCommunityIcons name="piggy-bank" size={16} color="#1976D2" />
+            <View style={[styles.smallIcon, styles.pos2, { backgroundColor: tileFill('#1976D2', '#BBDEFB'), borderColor: theme.background }]}>
+              <MaterialCommunityIcons name="piggy-bank" size={16} color={tileInk('#1976D2', '#BBDEFB')} />
             </View>
-            <View style={[styles.smallIcon, styles.pos3, { backgroundColor: '#FFF9C4' }]}>
-              <MaterialCommunityIcons name="lock" size={12} color="#FBC02D" />
+            <View style={[styles.smallIcon, styles.pos3, { backgroundColor: tileFill('#FBC02D', '#FFF9C4'), borderColor: theme.background }]}>
+              <MaterialCommunityIcons name="lock" size={12} color={tileInk('#FBC02D', '#FFF9C4')} />
             </View>
           </View>
         </View>

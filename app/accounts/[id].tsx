@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -27,11 +27,11 @@ import { PressableView } from '@/components/ui/PressableView';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { StateView } from '@/components/ui/StateView';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
-import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import {
-  accountTypeLabels,
+  getAccountTypeLabel,
   accountVisuals,
   formatAccountIdentifier,
   getAccountSetupItems,
@@ -43,7 +43,6 @@ import {
   getCreditUsage,
   getCurrentStatement,
   getLastActivityLabel,
-  getRunningBalance,
 } from '@/lib/account-display';
 import { formatMoney } from '@/lib/money';
 import {
@@ -155,7 +154,10 @@ function SectionTitle({ title, action }: { title: string; action?: ReactNode }) 
 }
 
 export default function AccountDetailsScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  // `add=statement` arrives from the card-added screen: open the Add
+  // statement sheet as soon as the card has loaded, once.
+  const { id, add } = useLocalSearchParams<{ id?: string; add?: string }>();
+  const sheetBottom = useBottomInset(28);
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -191,6 +193,7 @@ export default function AccountDetailsScreen() {
    * server is the real gate, and a wrong lock is worse than a late message.
    */
   const [hasPaidPlan, setHasPaidPlan] = useState<boolean | null>(null);
+  const [readPrices, setReadPrices] = useState<{ pdf?: number; screenshots?: number }>();
   useEffect(() => {
     if (!token) return;
     let active = true;
@@ -200,6 +203,10 @@ export default function AccountDetailsScreen() {
           setHasPaidPlan(
             status.subscription_status === 'active' || status.subscription_status === 'cancelled'
           );
+          setReadPrices({
+            pdf: status.credits.capture_credits?.statement_pdf,
+            screenshots: status.credits.capture_credits?.statement_screenshots,
+          });
         }
       })
       .catch(() => undefined);
@@ -270,6 +277,13 @@ export default function AccountDetailsScreen() {
 
   const accountType = account ? normalizeAccountType(account.type) : 'other';
   const isCreditCard = accountType === 'credit_card';
+  const openedFromAdd = useRef(false);
+  useEffect(() => {
+    if (add !== 'statement' || !isCreditCard || openedFromAdd.current) return;
+    openedFromAdd.current = true;
+    setStatementError(null);
+    setIsStatementSheetVisible(true);
+  }, [add, isCreditCard]);
   const dueLabel = account ? getCreditDueLabel(account.due_day) : null;
   const reminderLabel = account ? getCreditReminderLabel(account) : null;
   // The hero was labelled "Balance"/"Total Due" over a number that was neither:
@@ -284,7 +298,6 @@ export default function AccountDetailsScreen() {
     cardLimit?.outstanding_source === 'ledger' &&
     cardLimit.outstanding > 0
   );
-  const runningBalance = account ? getRunningBalance(account) : null;
   const lastActivity = account ? getLastActivityLabel(account) : null;
   const setupItems = useMemo(() => (account ? getAccountSetupItems(account) : []), [account]);
   const setupComplete = setupItems.every((item) => item.complete);
@@ -474,7 +487,7 @@ export default function AccountDetailsScreen() {
     return (
       <SafeAreaView
         style={{ flex: 1, backgroundColor: theme.background }}
-        edges={['top', 'left', 'right']}>
+        edges={['top', 'left', 'right', 'bottom']}>
         <ScreenHeader title="Account" onBack={() => router.back()} />
         <AccountDetailSkeleton />
       </SafeAreaView>
@@ -502,13 +515,13 @@ export default function AccountDetailsScreen() {
   // Nothing spent reads as a quiet ₹0 (board R5-AcctBank); the line under the
   // name already says there are no transactions yet.
   const isZeroHeadline = Boolean(headline?.placeholder) || (headline?.amount ?? 0) === 0;
-  const extraFigures = account.summary ? accountFigureRows(account, runningBalance) : [];
+  const extraFigures = account.summary ? accountFigureRows(account) : [];
   const usedNoun = isCreditCard ? 'card' : 'account';
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: theme.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader
-        title={accountTypeLabels[accountType]}
+        title={getAccountTypeLabel(account)}
         onBack={() => router.back()}
         rightIcon="dots-horizontal"
         rightAccessibilityLabel="Account actions"
@@ -766,7 +779,7 @@ export default function AccountDetailsScreen() {
       <AnimatedBottomSheet
         visible={isActionsSheetVisible}
         onClose={() => setIsActionsSheetVisible(false)}
-        sheetStyle={[styles.sheet, { backgroundColor: theme.card }]}>
+        sheetStyle={[styles.sheet, { backgroundColor: theme.card, paddingBottom: sheetBottom }]}>
         <View style={[styles.handle, { backgroundColor: theme.borderStrong }]} />
         <View style={styles.sheetHead}>
           <View style={styles.flexText}>
@@ -800,34 +813,22 @@ export default function AccountDetailsScreen() {
             handleEdit();
           }}
         />
-        <PressableView
-          accessibilityRole="button"
-          accessibilityState={{ disabled: entriesUsingAccount > 0 }}
+        <SettingsRow
+          tone="danger"
+          icon="delete-outline"
+          title="Delete account"
+          divider
           disabled={entriesUsingAccount > 0}
+          subtitle={
+            entriesUsingAccount > 0
+              ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
+              : 'Removes it from Finnri for good'
+          }
           onPress={() => {
             setIsActionsSheetVisible(false);
             setIsDeleteDialogVisible(true);
           }}
-          style={[
-            styles.deleteRow,
-            { borderTopColor: theme.border },
-            entriesUsingAccount > 0 && styles.disabled,
-          ]}
-          pressedStyle={styles.pressed}>
-          <View style={[styles.tile, { backgroundColor: withAlpha(theme.negative, 0.12) }]}>
-            <MaterialCommunityIcons name="delete-outline" size={18} color={theme.negative} />
-          </View>
-          <View style={styles.flexText}>
-            <ThemedText tone="negative" style={styles.rowTitle}>
-              Delete account
-            </ThemedText>
-            <ThemedText tone="muted" style={styles.caption}>
-              {entriesUsingAccount > 0
-                ? `${entriesUsingAccount} transaction${entriesUsingAccount === 1 ? ' uses' : 's use'} this ${usedNoun}. Move ${entriesUsingAccount === 1 ? 'it' : 'them'} to another account first.`
-                : 'Removes it from Finnri for good'}
-            </ThemedText>
-          </View>
-        </PressableView>
+        />
       </AnimatedBottomSheet>
 
         <ThemedDeleteDialog
@@ -874,6 +875,7 @@ export default function AccountDetailsScreen() {
                 return readStatementFile(token, account.id, source, password);
               }}
               screenshotsLocked={hasPaidPlan === false}
+              prices={readPrices}
               onSeePlans={() => {
                 setIsStatementSheetVisible(false);
                 router.push('/billing');
@@ -915,10 +917,12 @@ export default function AccountDetailsScreen() {
 }
 
 /**
- * The figures beyond the three in "This month": money in, the opening balance
- * the user typed, and the balance run forward from it.
+ * The figures beyond the three in "This month": money in, and on a card what
+ * was owed before tracking. A wallet's or bank account's balance is the hero
+ * figure now (getAccountHeadline), so it is not repeated here, and the opening
+ * balance behind it is bookkeeping the user never typed.
  */
-function accountFigureRows(account: Account, runningBalance: number | null) {
+function accountFigureRows(account: Account) {
   const summary = account.summary;
   if (!summary) return [];
   const isCreditCard = normalizeAccountType(account.type) === 'credit_card';
@@ -930,10 +934,9 @@ function accountFigureRows(account: Account, runningBalance: number | null) {
       value: formatMoney(summary.received_this_month),
     });
   }
-  if (opening !== 0) {
-    rows.push({ label: isCreditCard ? 'Owed before tracking' : 'Opening balance', value: formatMoney(opening) });
+  if (isCreditCard && opening !== 0) {
+    rows.push({ label: 'Owed before tracking', value: formatMoney(opening) });
   }
-  if (runningBalance !== null) rows.push({ label: 'Running balance', value: formatMoney(runningBalance) });
   return rows;
 }
 
@@ -1137,7 +1140,6 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingBottom: 28,
   },
   handle: {
     width: 36,
@@ -1160,19 +1162,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
-  },
-  deleteRow: {
-    minHeight: 60,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 8,
-    paddingLeft: 14,
-    paddingRight: 12,
-    borderTopWidth: 1,
-  },
-  disabled: {
-    opacity: 0.6,
   },
   pressed: {
     opacity: 0.7,

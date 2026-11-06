@@ -107,7 +107,7 @@ describe('split theme compliance', () => {
     for (const modal of [
       join('expense', 'AddExpenseModal.tsx'),
       join('modals', 'GroupDetailModal.tsx'),
-      join('modals', 'GroupMembersModal.tsx'),
+      join('modals', 'PeoplePickerModal.tsx'),
       join('modals', 'GroupSettingsModal.tsx'),
     ]) {
       const source = readFileSync(join(splitDirectory, modal), 'utf8');
@@ -126,7 +126,7 @@ describe('split theme compliance', () => {
 
     for (const modal of [
       'GroupDetailModal.tsx',
-      'GroupMembersModal.tsx',
+      'PeoplePickerModal.tsx',
       'GroupSettingsModal.tsx',
     ]) {
       const source = readFileSync(join(splitDirectory, 'modals', modal), 'utf8');

@@ -157,6 +157,11 @@ export type ParseDraft = {
   refund_expected_on?: string | null;
   /** A refund the user says already came back; a separate income, not a Refundable tag. */
   refund_received?: { amount: number; date?: string | null } | null;
+  /**
+   * The balance a receipt prints after this transaction, e.g. a wallet
+   * top-up's "current balance". Receipt reads only.
+   */
+  balance_after?: number | null;
   emi_tenure_months?: number | null;
   emi_rate_pct?: number | null;
   currency: string | null;

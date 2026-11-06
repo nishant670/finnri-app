@@ -34,6 +34,7 @@ import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { ThemedDeleteDialog } from '@/components/ui/ThemedConfirmDialog';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { CURRENCY_SYMBOL, DEFAULT_CURRENCY } from '@/constants/Currency';
@@ -69,7 +70,13 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
 import { lastPaymentFor, rememberLastPayment, type LastPayment } from '@/lib/last-payment';
-import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
+import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
+import {
+  DEFAULT_PAYMENT_MODE,
+  PAYMENT_MODES,
+  paymentModeVisual,
+  usualModeForCategory,
+} from '@/lib/payment-modes';
 import {
   buildDraftReviewPlan,
   type DraftFieldKey,
@@ -90,6 +97,8 @@ import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
 import { TransactionTagPicker, tagIcon } from './TransactionTagPicker';
+import { EventPickerSheet } from '@/components/events/EventPickerSheet';
+import { eventLabel, useEvents } from '@/lib/events';
 import {
   shareFromPercent,
   TransactionSplitFields,
@@ -134,6 +143,12 @@ export type EntryForm = {
   accountId: number | null;
   account: string;
   merchant: string;
+  /**
+   * The event (occasion) this expense belongs to. `undefined` means the form
+   * never knew it — a surface that does not show the field — and the save
+   * leaves it alone; `null` takes the entry out of its event.
+   */
+  eventId?: number | null;
   attachment: string | null;
   splitEnabled: boolean;
   splitGroupId: number | null;
@@ -467,6 +482,14 @@ export function TransactionFormModal({
    * creation is a form for a shortcut, not a transaction.
    */
   const fastEntry = mode === 'manual' && !isEdit;
+  /**
+   * Whether the category follows the title ("E rickshaw" is Transport) and the
+   * mode follows the category. Wider than `fastEntry`: a new quick prompt has
+   * the full layout but is still a blank form being filled in, and it used to
+   * keep whatever category it opened on — every new prompt was Food & Drinks.
+   * Editing anything saved keeps what was saved.
+   */
+  const followsTitle = !isEdit && (mode === 'manual' || mode === 'quick-prompt');
 
   /**
    * The AI draft review: the same sheet, but ranked by how sure the parser
@@ -530,6 +553,8 @@ export function TransactionFormModal({
   // windows are not reliably resized, so their inset belongs at the end of the
   // scroll content—not inside the mid-list split section.
   const keyboardInset = useKeyboardInset(showModal && Platform.OS === 'android');
+  // Save is pinned to the bottom of a modal that draws under the nav bar.
+  const footerBottom = useBottomInset(16);
   const resolveEntryFormAccount = useCallback(
     (nextForm: EntryForm): EntryForm => {
       if (!personalPayment) return { ...nextForm, accountId: null, account: '' };
@@ -604,6 +629,7 @@ export function TransactionFormModal({
    */
   const [moreDetailsToggled, setMoreDetailsToggled] = useState<boolean | null>(null);
   const [isTagPickerVisible, setIsTagPickerVisible] = useState(false);
+  const [isEventPickerVisible, setIsEventPickerVisible] = useState(false);
   const [isSubscriptionOptionsOpen, setIsSubscriptionOptionsOpen] = useState(false);
   const [isTitleFocused, setIsTitleFocused] = useState(false);
   /**
@@ -614,8 +640,38 @@ export function TransactionFormModal({
    */
   const [isSystemKeyboardUp, setIsSystemKeyboardUp] = useState(false);
   const titleInputRef = useRef<TextInput>(null);
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  const splitCardRef = useRef<View>(null);
+  /** Set when the split switch is turned on; the card's next layout scrolls to it. */
+  const revealSplitRef = useRef(false);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
+  /** The same for the mode and account: once the user picks either, it stays. */
+  const modeChosenRef = useRef(false);
+  /** What the form opened on, for when a category stops implying a mode. */
+  const seededModeRef = useRef<string>(DEFAULT_PAYMENT_MODE);
+
+  /**
+   * A new transaction's mode follows its category until the user picks one:
+   * "Vedanta dividend" moves Received in from Cash to the bank account, and
+   * back again if the title stops saying dividend. Only when there is a bank
+   * account to put it in — Bank Account with no account behind it is worse
+   * than the Cash the form started on.
+   */
+  const followCategoryMode = useCallback(
+    (next: EntryForm): EntryForm => {
+      if (!followsTitle || modeChosenRef.current) return next;
+      const usual = usualModeForCategory(next.category, next.type);
+      const mode =
+        usual && getAccountsForPaymentMode(accounts, usual).length > 0
+          ? usual
+          : seededModeRef.current;
+      if (mode === next.mode) return next;
+      return resolveEntryFormAccount({ ...next, mode, accountId: null, account: '' });
+    },
+    [accounts, followsTitle, resolveEntryFormAccount]
+  );
   const [draftPlan, setDraftPlan] = useState<DraftReviewPlan | null>(null);
   /** Flagged fields the user has since opened or edited. */
   const [checkedDraftFields, setCheckedDraftFields] = useState<DraftFieldKey[]>([]);
@@ -630,6 +686,28 @@ export function TransactionFormModal({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [splitShareMode, setSplitShareMode] = useState<TransactionSplitShareMode>('amount');
   const [isDiscardDialogVisible, setIsDiscardDialogVisible] = useState(false);
+  /**
+   * Deleting a prompt asks first and reports a failure here. It used to fire
+   * on the tap — one stray touch under Save removed the prompt — and a failed
+   * request was an unhandled rejection with nothing on screen.
+   */
+  const [isDeleteDialogVisible, setIsDeleteDialogVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const confirmDelete = async () => {
+    setIsDeleteDialogVisible(false);
+    if (!onDelete || isDeleting) return;
+    setIsDeleting(true);
+    setFormError(null);
+    try {
+      await onDelete();
+      haptics.removed();
+    } catch (error) {
+      haptics.rejected();
+      setFormError(getFriendlyErrorMessage(error, 'Unable to delete this prompt right now.'));
+    } finally {
+      setIsDeleting(false);
+    }
+  };
   const [customCategory, setCustomCategory] = useState('');
   const autoFocusedFieldRef = useRef<string | null>(null);
   const amountInputRef = useRef<TextInput>(null);
@@ -643,6 +721,10 @@ export function TransactionFormModal({
       Keyboard.addListener('keyboardDidHide', () => {
         setIsSystemKeyboardUp(false);
         setIsTitleFocused(false);
+        // Android's back gesture hides the keyboard but leaves the field
+        // focused, caret and all, while the keypad comes back under it: two
+        // inputs that both look live. Blur it so the amount is the only one.
+        if (visibleRef.current) Keyboard.dismiss();
       }),
     ];
     return () => subscriptions.forEach((subscription) => subscription.remove());
@@ -955,6 +1037,16 @@ export function TransactionFormModal({
   useEffect(() => {
     if (visible && sessionToken) void loadCustomCategories(sessionToken);
   }, [loadCustomCategories, sessionToken, visible]);
+  const events = useEvents((state) => state.events);
+  const loadEvents = useEvents((state) => state.load);
+  // Loaded with the sheet so an edit's event has a name to show at once.
+  useEffect(() => {
+    if (visible && sessionToken && form.eventId != null) void loadEvents(sessionToken);
+  }, [form.eventId, loadEvents, sessionToken, visible]);
+  const selectedEvent = useMemo(
+    () => (form.eventId != null ? (events.find((event) => event.id === form.eventId) ?? null) : null),
+    [events, form.eventId]
+  );
   const selectableCategoryOptions = useMemo(
     () => mergeCategoryOptions(form.category, form.type, customCategories),
     [customCategories, form.category, form.type]
@@ -997,17 +1089,11 @@ export function TransactionFormModal({
   );
   const displayedCategoryVisual = categoryVisual(displayedCategory, form.type);
 
-  const dateChoices = useMemo(() => {
-    const today = new Date();
-    const yesterday = new Date();
-    // setDate rather than subtracting 24h, so the DST day that is 23 hours
-    // long still resolves to yesterday's date.
-    yesterday.setDate(yesterday.getDate() - 1);
-    return [
-      { key: 'today', label: 'Today', value: formatDateLabel(today) },
-      { key: 'yesterday', label: 'Yesterday', value: formatDateLabel(yesterday) },
-    ];
-  }, []);
+  // Worked out on every render, not memoised: the sheet stays mounted for the
+  // life of the screen, and a memo pinned "Today" to the day it first drew.
+  // After midnight, Today and Yesterday each meant a day earlier than they
+  // said, so an entry picked as Yesterday saved two days back.
+  const dateChoices = buildDateChoices(new Date());
   const isCustomDate = !dateChoices.some((choice) => choice.value === form.date);
 
   /**
@@ -1079,35 +1165,58 @@ export function TransactionFormModal({
     setForm((prev) => ({ ...prev, amount }));
   }, []);
 
+  /** The title is the stronger clue; the merchant fills in when it has none. */
+  const inferCategory = (title: string, merchant: string, type: string) =>
+    inferTransactionCategory(title, type) ??
+    inferTransactionCategory(merchant, type) ??
+    defaultCategoryForType(type);
+
   const handleTitleChange = (title: string) => {
-    const shouldInfer = fastEntry && !categoryChosenRef.current;
+    const shouldInfer = followsTitle && !categoryChosenRef.current;
     setFormError(null);
-    setForm((previous) => ({
-      ...previous,
-      title,
-      category: shouldInfer
-        ? (inferTransactionCategory(title, previous.type) ?? defaultCategoryForType(previous.type))
-        : previous.category,
-    }));
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        title,
+        category: shouldInfer
+          ? inferCategory(title, previous.merchant, previous.type)
+          : previous.category,
+      })
+    );
+  };
+
+  const handleMerchantChange = (merchant: string) => {
+    const shouldInfer = followsTitle && !categoryChosenRef.current;
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        merchant,
+        category: shouldInfer
+          ? inferCategory(previous.title, merchant, previous.type)
+          : previous.category,
+      })
+    );
   };
 
   const selectCategory = (category: string) => {
     categoryChosenRef.current = true;
-    setForm((previous) => ({ ...previous, category }));
+    setForm((previous) => followCategoryMode({ ...previous, category }));
   };
 
   const selectTransactionType = (type: 'Expense' | 'Income') => {
     if (form.type === type) return;
     categoryChosenRef.current = false;
-    setForm((previous) => ({
-      ...previous,
-      type,
-      category:
-        (fastEntry ? inferTransactionCategory(previous.title, type) : null) ??
-        defaultCategoryForType(type),
-      // See `tagsApply`: an expense's tag has nothing to mean on income.
-      tag: type === 'Income' ? 'General' : previous.tag,
-    }));
+    setForm((previous) =>
+      followCategoryMode({
+        ...previous,
+        type,
+        category:
+          (followsTitle ? inferTransactionCategory(previous.title, type) : null) ??
+          defaultCategoryForType(type),
+        // See `tagsApply`: an expense's tag has nothing to mean on income.
+        tag: type === 'Income' ? 'General' : previous.tag,
+      })
+    );
   };
 
   const focusAmountKeypad = () => {
@@ -1153,6 +1262,7 @@ export function TransactionFormModal({
       setForm((prev) => {
         const next: EntryForm = { ...prev, category: fill.category };
         if (fill.kind === 'merchant') {
+          if (fill.mode || fill.accountId != null) modeChosenRef.current = true;
           next.title = fill.title ?? fill.label;
           next.merchant = fill.merchant ?? '';
           if (fill.mode) {
@@ -1177,6 +1287,7 @@ export function TransactionFormModal({
    * still ignores `initialData` itself — see the note at the bottom, which is
    * the original reason this is not a plain dependency.
    */
+  const seededFormRef = useRef<EntryForm | null>(null);
   const seedForm = useCallback(() => {
     // Read through the ref, never the closure. `seedForm` is memoized on
     // things that rarely change, so a captured `initialData` would be
@@ -1239,19 +1350,30 @@ export function TransactionFormModal({
     setPaymentFromMemory(remembered && rememberedAllowed ? remembered : null);
     categoryChosenRef.current =
       normalizeCategoryValue(seeded.category, seeded.type) !== defaultCategoryForType(seeded.type);
-    if (fastEntry && !categoryChosenRef.current) {
+    if (followsTitle && !categoryChosenRef.current) {
       seeded.category =
         inferTransactionCategory(seeded.title, seeded.type) ?? defaultCategoryForType(seeded.type);
     }
+    // A mode or account the caller brought (a quick prompt, a draft) was chosen
+    // by someone; the blank form's Cash was not. A caller that settled the
+    // category settled the mode with it — a Cash salary prompt stays Cash.
+    modeChosenRef.current =
+      categoryChosenRef.current ||
+      initialData?.accountId != null ||
+      (initialData?.mode != null && initialData.mode !== DEFAULT_PAYMENT_MODE);
+    seededModeRef.current = seeded.mode;
+    const followed = followCategoryMode(seeded);
     // A quick prompt seeds "120.00"; the keypad would then refuse every
     // further digit because both decimal places are already spent.
-    setForm(fastEntry ? { ...seeded, amount: toKeypadValue(seeded.amount) } : seeded);
+    const nextForm = fastEntry ? { ...followed, amount: toKeypadValue(followed.amount) } : followed;
+    seededFormRef.current = nextForm;
+    setForm(nextForm);
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
     // genuinely does not close over it. That is the point — reseeding on every
     // parent re-render would wipe in-progress edits, and the two moments that
     // *should* reseed call this deliberately.
-  }, [fastEntry, resolveEntryFormAccount]);
+  }, [fastEntry, followCategoryMode, followsTitle, resolveEntryFormAccount]);
 
   useEffect(() => {
     if (visible) {
@@ -1369,11 +1491,22 @@ export function TransactionFormModal({
     }
   };
 
+  /**
+   * Events hold expenses only, like tags. A quick prompt is a template rather
+   * than one occasion's spending, so it has none either.
+   */
+  const eventsApply = tagsApply && mode !== 'quick-prompt';
+  const eventDay = (() => {
+    const parsed = parseDateLabel(form.date);
+    return parsed ? formatApiDate(parsed) : null;
+  })();
+
   /** Whether anything folded under More details holds a value. */
   const detailsHaveValues =
     form.merchant.trim().length > 0 ||
     form.notes.trim().length > 0 ||
     (tagsApply && form.tag.trim().length > 0 && form.tag !== 'General') ||
+    (eventsApply && form.eventId != null) ||
     Boolean(form.attachment) ||
     (form.splitEnabled && !splitContext);
   const isMoreDetailsOpen = moreDetailsToggled ?? detailsHaveValues;
@@ -1599,6 +1732,10 @@ export function TransactionFormModal({
       if (captureEntitlement(error)) {
         return;
       }
+      // Backed out at the duplicate warning: a choice, not a failure.
+      if (error instanceof DuplicateSaveCancelled) {
+        return;
+      }
       rejectSave(
         getFriendlyErrorMessage(error, "Couldn't save this. Check your connection and try again.")
       );
@@ -1713,14 +1850,64 @@ export function TransactionFormModal({
     }));
   };
 
-  const requestClose = useCallback(() => {
+  /**
+   * Switching split on adds its fields under the switch, which sits at the
+   * bottom of the sheet and mostly behind the keypad — so they appeared off
+   * screen and looked like nothing had happened. Once the card has grown,
+   * bring its top up to the top of the scroll area.
+   */
+  const revealSplitCard = useCallback(() => {
+    if (!revealSplitRef.current) return;
+    revealSplitRef.current = false;
+    const scroll = scrollRef.current;
+    const scrollHost = scroll?.getNativeScrollRef();
+    const card = splitCardRef.current;
+    if (!scroll || !scrollHost || !card) return;
+    requestAnimationFrame(() => {
+      scrollHost.measureInWindow((_scrollX, scrollTop) => {
+        card.measureInWindow((_cardX, cardTop) => {
+          const y = Math.max(0, scrollOffsetRef.current + cardTop - scrollTop - 12);
+          scroll.scrollTo({ y, animated: true });
+        });
+      });
+    });
+  }, []);
+
+  /**
+   * Two or more fields typed since the sheet opened — the point the user
+   * chose, where enough work is at stake to be worth a question. The seeded
+   * form is the baseline, so an edit or a draft only counts what has been
+   * changed in it. Picking a category or a date alone is quick to redo and
+   * does not count.
+   */
+  const isFormDirty = () => {
+    const seeded = seededFormRef.current;
+    if (!seeded) return false;
+    const changed = [
+      form.amount !== seeded.amount,
+      form.title.trim() !== seeded.title.trim(),
+      form.merchant.trim() !== seeded.merchant.trim(),
+      form.notes.trim() !== seeded.notes.trim(),
+      form.attachment !== seeded.attachment,
+      form.splitEnabled !== seeded.splitEnabled,
+    ].filter(Boolean).length;
+    return changed >= 2;
+  };
+
+  /**
+   * Every way out — the ×, dragging the sheet down, Android's back gesture —
+   * comes through here. Back is the one that bit: the first swipe closes the
+   * keyboard and the second closed the sheet, taking everything typed with it.
+   * So once two fields have been entered, closing asks first.
+   */
+  const requestClose = () => {
     if (isSaving) return;
-    if (mode !== 'audio') {
+    if (mode !== 'audio' && !isFormDirty()) {
       onClose();
       return;
     }
     setIsDiscardDialogVisible(true);
-  }, [isSaving, mode, onClose]);
+  };
 
   const backdropStyle = useAnimatedStyle(() => ({ opacity: backdropAnim.value }));
 
@@ -1734,15 +1921,18 @@ export function TransactionFormModal({
    * is somehow out of place back where it belongs. A draft review asks before
    * discarding, so it springs back and leaves the choice to that dialog.
    */
-  const closeFromDrag = useCallback(() => {
+  const closeFromDragRef = useRef(() => {});
+  closeFromDragRef.current = () => {
     if (splitContext?.onBack) {
       settlePanel();
       splitContext.onBack();
       return;
     }
-    if (isSaving || mode === 'audio') settlePanel();
+    if (isSaving || mode === 'audio' || isFormDirty()) settlePanel();
     requestClose();
-  }, [isSaving, mode, requestClose, settlePanel, splitContext]);
+  };
+  // The gesture is built once; it reaches the current form through the ref.
+  const closeFromDrag = useCallback(() => closeFromDragRef.current(), []);
 
   const dragToClose = useMemo(() => {
     const springBack = motion.enter('base');
@@ -1780,7 +1970,10 @@ export function TransactionFormModal({
         : 'New quick prompt'
       : splitContext
         ? 'New split expense'
-        : null);
+        : // Follows the picker, so choosing "No event" drops the title too.
+          !isEdit && eventsApply && selectedEvent
+          ? `Add to ${selectedEvent.name}`
+          : null);
   const canSplit = !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
   const canAttach = mode !== 'quick-prompt';
   const modeVisual = paymentModeVisual(form.mode);
@@ -1797,6 +1990,7 @@ export function TransactionFormModal({
     form.merchant.trim(),
     form.notes.trim() ? 'Note' : '',
     tagsApply && form.tag && form.tag !== 'General' ? form.tag : '',
+    eventsApply && selectedEvent ? eventLabel(selectedEvent) : eventsApply && form.eventId != null ? 'Event' : '',
     form.attachment ? 'Receipt' : '',
     canSplit && form.splitEnabled ? 'Split' : '',
   ].filter(Boolean);
@@ -1804,6 +1998,7 @@ export function TransactionFormModal({
     'Merchant',
     'note',
     tagsApply ? 'tag' : '',
+    eventsApply ? 'event' : '',
     canAttach ? 'receipt' : '',
     canSplit ? 'split' : '',
   ]
@@ -1881,6 +2076,11 @@ export function TransactionFormModal({
               </GestureDetector>
 
               <ScrollView
+                ref={scrollRef}
+                onScroll={(event) => {
+                  scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
+                }}
+                scrollEventThrottle={32}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 style={{ flex: 1 }}
@@ -1927,7 +2127,7 @@ export function TransactionFormModal({
                           accessibilityLabel="Edit amount"
                           onPress={focusAmountKeypad}
                           style={formStyles.amountTouch}>
-                          <AmountDisplay value={form.amount} />
+                          <AmountDisplay value={form.amount} active={isKeypadVisible} />
                         </Pressable>
                       ) : (
                         <Pressable
@@ -2255,7 +2455,7 @@ export function TransactionFormModal({
                               value={form.merchant}
                               onChangeText={(merchant) => {
                                 markDraftFieldChecked('merchant');
-                                setForm((p) => ({ ...p, merchant }));
+                                handleMerchantChange(merchant);
                               }}
                               placeholder="Shop or service"
                               placeholderTextColor={theme.muted}
@@ -2294,6 +2494,25 @@ export function TransactionFormModal({
                               }}
                             />
                           ) : null}
+                          {eventsApply ? (
+                            <LabelRow
+                              testID="entry-event-picker"
+                              label="Event"
+                              value={
+                                selectedEvent
+                                  ? eventLabel(selectedEvent)
+                                  : form.eventId != null
+                                    ? 'Event'
+                                    : 'None'
+                              }
+                              // The event's own emoji leads its name, so the
+                              // generic icon is only for "None".
+                              icon={selectedEvent?.emoji ? undefined : 'party-popper'}
+                              iconColor={theme.text}
+                              divider
+                              onPress={() => setIsEventPickerVisible(true)}
+                            />
+                          ) : null}
                           {canAttach ? (
                             <TransactionReceiptField
                               attachment={form.attachment}
@@ -2305,10 +2524,16 @@ export function TransactionFormModal({
                           ) : null}
                         </View>
                         {canSplit ? (
-                          <View style={formStyles.splitCard}>
+                          <View
+                            ref={splitCardRef}
+                            onLayout={revealSplitCard}
+                            style={formStyles.splitCard}>
                             <TransactionSplitFields
                               form={form}
                               setForm={setForm}
+                              onTurnedOn={() => {
+                                revealSplitRef.current = true;
+                              }}
                               friends={splitFriends}
                               groups={splitGroups}
                               shareMode={splitShareMode}
@@ -2406,7 +2631,8 @@ export function TransactionFormModal({
 
               {/* Pinned under the scroll: the keypad on the capture path, and
                   Save everywhere, so saving never needs a scroll. */}
-              <View style={[formStyles.footer, { backgroundColor: theme.background }]}>
+              <View
+                style={[formStyles.footer, { backgroundColor: theme.background, paddingBottom: footerBottom }]}>
                 {isKeypadVisible && (
                   <>
                     {quickFills.length > 0 && (
@@ -2452,7 +2678,9 @@ export function TransactionFormModal({
                 {onDelete && (
                   <Pressable
                     accessibilityRole="button"
-                    onPress={onDelete}
+                    accessibilityState={{ disabled: isDeleting || isSaving, busy: isDeleting }}
+                    disabled={isDeleting || isSaving}
+                    onPress={() => setIsDeleteDialogVisible(true)}
                     style={formStyles.deleteLink}>
                     <ThemedText tone="negative" style={formStyles.deleteLabel}>
                       Delete prompt
@@ -2523,6 +2751,7 @@ export function TransactionFormModal({
           onClose={() => setIsModePickerVisible(false)}
           onSelect={(nextMode, account) => {
             haptics.select();
+            modeChosenRef.current = true;
             setPaymentFromMemory(null);
             setForm((p) =>
               account
@@ -2589,10 +2818,36 @@ export function TransactionFormModal({
           }}
         />
 
+        <EventPickerSheet
+          visible={isEventPickerVisible}
+          selectedId={form.eventId}
+          day={eventDay}
+          onClose={() => setIsEventPickerVisible(false)}
+          onSelect={(event) => {
+            haptics.select();
+            setForm((p) => ({ ...p, eventId: event?.id ?? null }));
+            setIsEventPickerVisible(false);
+          }}
+        />
+
         <ThemedDeleteDialog
           visible={isDiscardDialogVisible}
-          title="Discard this draft?"
-          message="What Finnri picked up, and any changes you made, won't be saved."
+          title={
+            mode === 'audio'
+              ? 'Discard this draft?'
+              : isEdit
+                ? 'Discard your changes?'
+                : mode === 'quick-prompt'
+                  ? 'Discard this prompt?'
+                  : `Discard this ${form.type === 'Income' ? 'income' : 'expense'}?`
+          }
+          message={
+            mode === 'audio'
+              ? "What Finnri picked up, and any changes you made, won't be saved."
+              : isEdit
+                ? "Your changes won't be saved."
+                : "What you've entered won't be saved."
+          }
           cancelLabel="Keep editing"
           confirmLabel="Discard"
           onCancel={() => setIsDiscardDialogVisible(false)}
@@ -2600,6 +2855,16 @@ export function TransactionFormModal({
             setIsDiscardDialogVisible(false);
             onClose();
           }}
+        />
+
+        <ThemedDeleteDialog
+          visible={isDeleteDialogVisible}
+          title="Delete this prompt?"
+          message="It goes from Home. Transactions you already added with it stay."
+          cancelLabel="Keep it"
+          confirmLabel="Delete"
+          onCancel={() => setIsDeleteDialogVisible(false)}
+          onConfirm={() => void confirmDelete()}
         />
 
         <UpgradeSheet
@@ -2658,6 +2923,18 @@ function DateChip({
 }
 
 /** Boards R2-Entry, R2-Draft, R2-Split and R4-Edit; 1px on a board is 1dp. */
+/** The Today · Yesterday chips, as of `now`. */
+export const buildDateChoices = (now: Date) => {
+  const yesterday = new Date(now);
+  // setDate rather than subtracting 24h, so the DST day that is 23 hours
+  // long still resolves to yesterday's date.
+  yesterday.setDate(yesterday.getDate() - 1);
+  return [
+    { key: 'today', label: 'Today', value: formatDateLabel(now) },
+    { key: 'yesterday', label: 'Yesterday', value: formatDateLabel(yesterday) },
+  ];
+};
+
 const formStyles = StyleSheet.create({
   panel: {
     flex: 1,
@@ -2887,7 +3164,6 @@ const formStyles = StyleSheet.create({
     gap: 10,
     paddingTop: 10,
     paddingHorizontal: 16,
-    paddingBottom: 16,
   },
   quickFills: {
     gap: 8,

@@ -18,14 +18,36 @@ describe('getAccountSetupItems (boards R5-AcctCard, R5-AcctBank)', () => {
 
   it('names a bank account’s details for a bank', () => {
     const items = getAccountSetupItems(account({ type: 'bank', provider: 'ICICI Bank' }));
-    expect(items.map((item) => item.label)).toEqual(['Bank', 'Last 4 digits', 'Opening balance']);
+    expect(items.map((item) => item.label)).toEqual(['Bank', 'Last 4 digits', 'Current balance']);
     expect(items.filter((item) => item.complete)).toHaveLength(1);
     expect(items[1].detail).toBe('Tell it apart from your other accounts');
   });
 
-  it('asks cash for its opening balance only', () => {
+  it('asks cash for what is in hand only', () => {
     expect(getAccountSetupItems(account({ type: 'cash', balance: 500 }))).toEqual([
-      expect.objectContaining({ label: 'Opening cash balance', complete: true, detail: '₹500' }),
+      expect.objectContaining({ label: 'Cash in hand', complete: true, detail: '₹500' }),
     ]);
+  });
+
+  it('shows the running balance once a wallet has one, even from a ₹0 opening', () => {
+    const items = getAccountSetupItems(
+      account({
+        type: 'wallet',
+        provider: 'Pluxee',
+        balance: 0,
+        balance_tracked: true,
+        summary: { running_balance: 33184.16 } as Account['summary'],
+      })
+    );
+    expect(items[2]).toEqual(
+      expect.objectContaining({ label: 'Current balance', complete: true, detail: '₹33,184' })
+    );
+  });
+
+  it('asks a pay-later line for a lender, a limit and a repay day', () => {
+    const items = getAccountSetupItems(
+      account({ type: 'credit_card', credit_kind: 'pay_later', provider: 'CRED flash' })
+    );
+    expect(items.map((item) => item.label)).toEqual(['Lender', 'Limit', 'Repay by']);
   });
 });

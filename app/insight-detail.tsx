@@ -218,7 +218,7 @@ export default function InsightDetailScreen() {
   return (
     <SafeAreaView
       style={{ flex: 1, backgroundColor: colors.background }}
-      edges={['top', 'left', 'right']}>
+      edges={['top', 'left', 'right', 'bottom']}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
         title={title}

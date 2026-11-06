@@ -6,6 +6,7 @@ import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { haptics } from '@/lib/haptics';
 import type { SplitGroupEntryDisposition } from '@/lib/splits';
 
@@ -52,6 +53,7 @@ export function DeleteGroupSheet({
   onConfirm: () => void;
 }) {
   const theme = useThemeTokens().colors;
+  const sheetBottom = useBottomInset(32);
 
   const options: {
     value: SplitGroupEntryDisposition;
@@ -76,8 +78,8 @@ export function DeleteGroupSheet({
   return (
     <AnimatedBottomSheet visible={visible} onClose={saving ? () => {} : onCancel}>
       <View
-        className="rounded-t-[28px] border px-5 pb-8 pt-5"
-        style={{ backgroundColor: theme.card, borderColor: theme.border }}>
+        className="rounded-t-[28px] border px-5 pt-5"
+        style={{ backgroundColor: theme.card, borderColor: theme.border, paddingBottom: sheetBottom }}>
         <View className="mb-2 flex-row items-start justify-between gap-3">
           <View className="min-w-0 flex-1">
             <TText variant="sectionTitle" numberOfLines={2}>

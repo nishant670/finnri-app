@@ -5,16 +5,18 @@ import {
   setAudioModeAsync,
   useAudioRecorder,
 } from 'expo-audio';
+import Constants from 'expo-constants';
 import { File } from 'expo-file-system';
 import { useRouter, useFocusEffect, useLocalSearchParams, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated as RNAnimated, Easing, Linking, Platform, View } from 'react-native';
+import { AppState, Animated as RNAnimated, Easing, Linking, Platform, View } from 'react-native';
 import Animated, {
   useAnimatedRef,
   useAnimatedScrollHandler,
   useSharedValue,
 } from 'react-native-reanimated';
 
+import { GiftPassModal } from '@/components/billing/GiftPassModal';
 import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
 import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
 import { HomeRecentActivity } from '@/components/home/HomeRecentActivity';
@@ -33,8 +35,9 @@ import {
   type CaptureCreditNote,
 } from '@/components/home/VoiceInputCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
-import { useAppDialog } from '@/components/ui/AppDialogProvider';
+import { useAppDialog, type AppConfirmOptions } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
+import { useGiftPassAnnouncement } from '@/hooks/use-gift-pass-announcement';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Screen } from '@/components/ui/theme-primitives';
@@ -42,6 +45,7 @@ import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
+  isBillingActionURL,
   fetchNotifications,
   fetchNewUnreadBudgetNotification,
   fetchUnreadBudgetNotificationIds,
@@ -60,15 +64,16 @@ import {
   shouldShowGuestUpgradePrompt,
   snoozeGuestUpgradePrompt,
 } from '@/lib/guest-upgrade';
-import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, suggestAccountFromTransaction, saveAccount, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
+import { fetchAccounts as loadAccounts, getAutoAccountPayloadForPaymentMode, normalizeAccountType, matchAccountsToHint, accountForParsedDraft, suggestAccountFromTransaction, saveAccount, setAccountBalance, type Account, type AccountSuggestionHint, type AccountType } from '@/lib/accounts';
 import {
+  describeLikelyDuplicate,
   saveNewTransaction,
   type ReceivedRefund,
   type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formToQuickPromptPayload } from '@/lib/quick-prompts';
-import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
+import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, ParseApiError, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
 import { pickReceiptPhoto, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
 import { ReceiptSourceSheet } from '@/components/transactions/ReceiptSourceSheet';
 import {
@@ -83,10 +88,18 @@ import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubs
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { fetchBudgets } from '@/lib/budgets';
-import { creditGateFor } from '@/lib/credit-gate';
-import { getFriendlyErrorMessage } from '@/lib/api-error';
-import { updateAndroidMonthWidget } from '@/lib/android-widget';
+import {
+  captureCreditsFor,
+  creditBlockFor,
+  creditBlockLifted,
+  creditGateFor,
+  type CaptureKind,
+  type CreditBlock,
+} from '@/lib/credit-gate';
+import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
+import { describeReceiptBalanceUpdate } from '@/lib/receipt-balance';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
+import { requestMicAccess } from '@/lib/microphone-access';
 import {
   applyParsedDraftToForm,
   buildAiReview,
@@ -157,6 +170,8 @@ const RECORDING_OPTIONS = {
  * harder to read rather than calmer.
  */
 const SAVE_TOAST_DWELL_MS = 2200;
+/** How often a return to the foreground refreshes credits, notifications and gifts. */
+const FOREGROUND_REFRESH_INTERVAL_MS = 60_000;
 
 /** Legacy `Animated` needs the curve as a plain function; see AnimatedBottomSheet. */
 const TOAST_IN_EASING = Easing.bezier(...Motion.ease.standard);
@@ -199,8 +214,6 @@ export default function HomeScreen() {
   const smartSorting = useAppSettingsStore((state) => state.smartSorting);
   const isStealthMode = !!user?.stealth_mode;
 
-  const defaultForm = useMemo<EntryForm>(() => createDefaultEntryForm(), []);
-
   const [accounts, setAccounts] = useState<Account[]>([]);
   // A refund the user said already came back, and whether to record it with the
   // purchase. It travels beside the form because it becomes a second entry.
@@ -219,6 +232,8 @@ export default function HomeScreen() {
    * matching alone would keep asking for the account they just made.
    */
   const pendingSuggestionSetup = useRef<{ type: AccountType; count: number } | null>(null);
+  /** The balance the scanned receipt printed, offered to its account after saving. */
+  const receiptBalance = useRef<number | null>(null);
   const accountSuggestion = useMemo(
     () =>
       accountSuggestionHint ? suggestAccountFromTransaction(accountSuggestionHint, accounts) : null,
@@ -255,19 +270,25 @@ export default function HomeScreen() {
   }, [accounts]);
   const [splitFriends, setSplitFriends] = useState<SplitFriend[]>([]);
   const [splitGroups, setSplitGroups] = useState<SplitGroup[]>([]);
+  /**
+   * Dated the moment it is called. This used to spread a form built once when
+   * Home mounted, so after midnight every new entry was still dated — and
+   * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
+   * until the app was restarted.
+   */
   const createBlankForm = useCallback(
     (): EntryForm => ({
-      ...defaultForm,
+      ...createDefaultEntryForm(),
       accountId: null,
       account: '',
       merchant: '',
       notes: '',
     }),
-    [defaultForm]
+    []
   );
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [form, setForm] = useState<EntryForm>(defaultForm);
+  const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
   const [inputText, setInputText] = useState('');
   const audioRecorder = useAudioRecorder(RECORDING_OPTIONS);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
@@ -339,7 +360,10 @@ export default function HomeScreen() {
    */
   const [newTransactionId, setNewTransactionId] = useState<string | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
-  const [creditAction, setCreditAction] = useState<CreditActionState | null>(null);
+  // `block` is what lets the card step aside once credits come back.
+  const [creditAction, setCreditAction] = useState<(CreditActionState & { block?: CreditBlock }) | null>(
+    null
+  );
   const [aiSourceText, setAiSourceText] = useState('');
   const [aiInputSource, setAiInputSource] = useState<'text' | 'voice' | 'receipt'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
@@ -391,7 +415,9 @@ export default function HomeScreen() {
    * server refused shows the same way until it is dismissed or retried.
    */
   const creditGate = useMemo(
-    () => creditGateFor(billingStatus, { isGuest: !!user?.is_guest }),
+    // Typed notes are the cheapest capture: when they can't be paid for,
+    // nothing the card offers can.
+    () => creditGateFor(billingStatus, { isGuest: !!user?.is_guest, kind: 'text' }),
     [billingStatus, user?.is_guest]
   );
   const shownCreditAction = creditGate ?? creditAction;
@@ -422,15 +448,18 @@ export default function HomeScreen() {
    * rather than after the clip exists. Returns true when it has taken over,
    * so callers can bail. The decision itself lives in `creditGateFor`.
    */
-  const blockCaptureWithoutCredits = useCallback(() => {
-    const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest });
-    if (!gate) return false;
-    setCreditAction(gate);
-    // The card says what happened; the sheet is the way past it, offered at
-    // the moment it is needed. A guest's card already points at sign-in.
-    if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
-    return true;
-  }, [billingStatus, offerPlansForBlockedAI, user?.is_guest]);
+  const blockCaptureWithoutCredits = useCallback(
+    (kind: CaptureKind) => {
+      const gate = creditGateFor(billingStatus, { isGuest: !!user?.is_guest, kind });
+      if (!gate) return false;
+      setCreditAction({ ...gate, block: creditBlockFor(billingStatus, captureCreditsFor(billingStatus, kind)) });
+      // The card says what happened; the sheet is the way past it, offered at
+      // the moment it is needed. A guest's card already points at sign-in.
+      if (gate.action === 'upgrade') void offerPlansForBlockedAI(gate.reason);
+      return true;
+    },
+    [billingStatus, offerPlansForBlockedAI, user?.is_guest]
+  );
 
   const handleQuickPromptSelect = useCallback(
     (prompt: import('@/components/home/QuickPrompts').QuickPrompt) => {
@@ -472,15 +501,16 @@ export default function HomeScreen() {
       body: JSON.stringify(payload),
     });
 
-    if (resp.ok) {
-      setIsPromptModalOpen(false);
-      // We need to trigger a re-fetch in the QuickPrompts component.
-      // In a real app we might use a global store or a key to force re-render.
-      // For now, let's just use a simple key state.
-      setQuickPromptKey((prev) => prev + 1);
-    } else {
-      throw new Error('Failed to save prompt');
+    if (!resp.ok) {
+      // What the server said, field by field, rather than one line that
+      // leaves the user guessing which field to fix.
+      throw await readApiError(resp, 'Unable to save this prompt right now.', {
+        account_id: 'Account',
+      });
     }
+    setIsPromptModalOpen(false);
+    // Remounts QuickPrompts, which re-reads the list.
+    setQuickPromptKey((prev) => prev + 1);
   };
 
   const handleDeletePrompt = async () => {
@@ -491,12 +521,9 @@ export default function HomeScreen() {
       headers: { Authorization: `Bearer ${token}` },
     });
 
-    if (resp.ok) {
-      setIsPromptModalOpen(false);
-      setQuickPromptKey((prev) => prev + 1);
-    } else {
-      throw new Error('Failed to delete prompt');
-    }
+    if (!resp.ok) throw await readApiError(resp, 'Unable to delete this prompt right now.');
+    setIsPromptModalOpen(false);
+    setQuickPromptKey((prev) => prev + 1);
   };
 
   const [quickPromptKey, setQuickPromptKey] = useState(0);
@@ -544,7 +571,6 @@ export default function HomeScreen() {
       try {
         const dashboard = await fetchDashboard(token);
         setMonthDashboard(dashboard);
-        updateAndroidMonthWidget(dashboard.summary.total_spent, dashboard.period.start);
       } catch {
         setMonthDashboard(null);
       } finally {
@@ -606,6 +632,71 @@ export default function HomeScreen() {
     setUnreadNotifications(count);
   }, [token]);
 
+  // A refusal's card steps aside once fresh billing data shows the credits are
+  // back — a gifted pass, a purchase, tomorrow's allowance — rather than
+  // waiting for the next capture or a restart.
+  useEffect(() => {
+    if (creditAction?.block && creditBlockLifted(creditAction.block, billingStatus)) {
+      setCreditAction(null);
+    }
+  }, [billingStatus, creditAction]);
+
+  // The gift pop-up waits for the entry sheet, the prompt editor and the plans
+  // sheet. Unlike the plans prompt it does not wait for the credit card: that
+  // card is often exactly what the gift answers.
+  const giftBlockedRef = useRef(false);
+  giftBlockedRef.current = isEditOpen || isPromptModalOpen || plansPrompt.sheet.visible;
+  const giftAnnouncement = useGiftPassAnnouncement({
+    token,
+    enabled: !user?.is_guest,
+    canInterrupt: useCallback(() => !giftBlockedRef.current, []),
+    onAnnounce: useCallback(() => {
+      void fetchCredits(true);
+    }, [fetchCredits]),
+  });
+  const checkForGift = giftAnnouncement.check;
+
+  // Coming back to the app is when news arrives: a gift given while it was in
+  // the background, or credits bought on the web. Focus alone misses it,
+  // because Home never lost focus. At most once a minute: the camera, the
+  // gallery and permission prompts all leave and re-enter the app too, and a
+  // bill scan should not share the connection with three refreshes each time.
+  const lastForegroundRefreshRef = useRef(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      const now = Date.now();
+      if (now - lastForegroundRefreshRef.current < FOREGROUND_REFRESH_INTERVAL_MS) return;
+      lastForegroundRefreshRef.current = now;
+      void fetchCredits(true);
+      void fetchNotificationCount();
+      void checkForGift();
+    });
+    return () => subscription.remove();
+  }, [checkForGift, fetchCredits, fetchNotificationCount]);
+
+  // A gift's push, arriving while the app is open, opens the pop-up straight
+  // away. Expo Go has no push, which is why this is imported, not required.
+  useEffect(() => {
+    if (!token || Constants.appOwnership === 'expo') return;
+    let subscription: { remove: () => void } | undefined;
+    let cancelled = false;
+    void import('expo-notifications')
+      .then((Notifications) => {
+        if (cancelled) return;
+        subscription = Notifications.addNotificationReceivedListener((event) => {
+          if (isBillingActionURL(event?.request?.content?.data?.action_url as string | undefined)) {
+            void checkForGift();
+          }
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      subscription?.remove();
+    };
+  }, [checkForGift, token]);
+
   const showNewBudgetAlert = useCallback(
     async (previousBudgetNotificationIds: Set<number>) => {
       if (!token) return;
@@ -662,6 +753,7 @@ export default function HomeScreen() {
       void fetchCredits();
       void fetchNotificationCount();
       void fetchBudgetPresence();
+      void checkForGift();
       void isGuestUpgradePromptSnoozed().then(setIsGuestUpgradeSnoozed);
       if (token) {
         void syncSubscriptionAutomation(token)
@@ -670,6 +762,7 @@ export default function HomeScreen() {
           .catch(() => undefined);
       }
     }, [
+      checkForGift,
       fetchAccountOptions,
       fetchBudgetPresence,
       fetchCredits,
@@ -748,19 +841,30 @@ export default function HomeScreen() {
     isSnoozed: isGuestUpgradeSnoozed,
   });
 
-  const ensureMicPermission = useCallback(async () => {
-    const currentPermission = await getRecordingPermissionsAsync();
-    if (currentPermission.status === 'granted') {
-      return true;
-    }
-    const permission = await requestRecordingPermissionsAsync();
-    return permission.status === 'granted';
-  }, []);
-
   const startRecording = useCallback(async () => {
-    const hasPermission = await ensureMicPermission();
-    if (!hasPermission) {
-      setErrorMessage('Finnri needs microphone access to hear you. You can turn it on in Settings.');
+    const access = await requestMicAccess({
+      get: getRecordingPermissionsAsync,
+      request: requestRecordingPermissionsAsync,
+    });
+    if (access === 'denied') {
+      // The system prompt was just answered no; another tap asks again.
+      setErrorMessage("Finnri can't hear you without the microphone. Tap the mic to allow it, or type instead.");
+      return;
+    }
+    if (access === 'blocked') {
+      // The system will not ask again, so the way back is Settings — the same
+      // offer the camera makes for a bill photo.
+      setErrorMessage(null);
+      const openSettings = await dialog.confirm({
+        title: 'Microphone is off for Finnri',
+        message:
+          Platform.OS === 'ios'
+            ? 'Turn on Microphone for Finnri in Settings to log by voice. You can still type or scan a bill.'
+            : 'In Settings, open Permissions › Microphone and choose "Allow only while using the app" to log by voice. You can still type or scan a bill.',
+        confirmLabel: 'Open Settings',
+        cancelLabel: 'Not now',
+      });
+      if (openSettings) void Linking.openSettings();
       return;
     }
     try {
@@ -779,7 +883,7 @@ export default function HomeScreen() {
       setErrorMessage("Couldn't start recording. Try again.");
       setIsRecording(false);
     }
-  }, [audioRecorder, ensureMicPermission]);
+  }, [audioRecorder, dialog]);
 
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
@@ -805,7 +909,7 @@ export default function HomeScreen() {
       return;
     }
     // Checked before the microphone opens, not after the clip exists.
-    if (blockCaptureWithoutCredits()) return;
+    if (blockCaptureWithoutCredits('voice')) return;
     await startRecording();
   }, [blockCaptureWithoutCredits, isRecording, startRecording, stopRecording]);
 
@@ -838,6 +942,16 @@ export default function HomeScreen() {
     // card is already where it belongs.
     setTimeout(() => setIsTextInputVisible(true), CAPTURE_EXPAND_MS);
   }, [scrollRef]);
+
+  /**
+   * "Type" on the home-screen widget (board R14-Widget) opens Home with
+   * `compose=type`: the capture card, open, with the cursor in it.
+   */
+  useEffect(() => {
+    if (compose !== 'type') return;
+    router.setParams({ compose: '' });
+    handleExpandCapture();
+  }, [compose, handleExpandCapture, router]);
 
   /** Recording from the pill brings the card back with it, same as expanding. */
   const handlePillMicPress = useCallback(() => {
@@ -1002,6 +1116,30 @@ export default function HomeScreen() {
     [accounts]
   );
 
+  /**
+   * Asks to bring an account's balance in line with the one its receipt
+   * printed, and does it on a yes. Runs after the save, so a refusal or a
+   * failure here never touches the transaction.
+   */
+  const offerReceiptBalance = useCallback(
+    async (accountId: number, balance: number, question: AppConfirmOptions) => {
+      if (!token || !(await dialog.confirm(question))) return;
+      try {
+        const updated = await setAccountBalance(token, accountId, balance);
+        setAccounts((current) =>
+          current.map((account) => (account.id === accountId ? updated : account))
+        );
+      } catch (error) {
+        void dialog.alert({
+          title: "Couldn't update the balance",
+          message: getFriendlyErrorMessage(error, 'Try again from the account screen.'),
+          tone: 'danger',
+        });
+      }
+    },
+    [dialog, token]
+  );
+
   const handleConfirmEntry = useCallback(
     async (formData: EntryForm) => {
       try {
@@ -1026,6 +1164,7 @@ export default function HomeScreen() {
           sourceText: modalMode === 'audio' ? aiSourceText : '',
           progress: createSaveProgress.current,
           refund: modalMode === 'audio' && recordRefund ? refundReceived : null,
+          confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
         });
         if (convertedToEMI) {
           setTransactions((current) =>
@@ -1057,6 +1196,15 @@ export default function HomeScreen() {
         setRefundReceived(null);
         setIsEditOpen(false);
         notifyTransactionsChanged();
+        const printedBalance = modalMode === 'audio' ? receiptBalance.current : null;
+        receiptBalance.current = null;
+        const balanceQuestion = describeReceiptBalanceUpdate(resolvedAccount, printedBalance, {
+          type: createdEntry.type ?? formData.type,
+          amount: Number(createdEntry.amount),
+        });
+        if (balanceQuestion && resolvedAccount && printedBalance != null) {
+          void offerReceiptBalance(resolvedAccount.id, printedBalance, balanceQuestion);
+        }
         // The moment Finnri just did something useful is the one moment a
         // plans prompt reads as help rather than a toll — see usePlansPrompt.
         considerPlansPrompt();
@@ -1081,9 +1229,11 @@ export default function HomeScreen() {
       aiSourceText,
       considerPlansPrompt,
       createBlankForm,
+      dialog,
       ensureAccountForEntry,
       fetchSplitOptions,
       modalMode,
+      offerReceiptBalance,
       recordRefund,
       refundReceived,
       router,
@@ -1097,14 +1247,18 @@ export default function HomeScreen() {
    * message. True when it took the error, so the caller shows nothing else.
    */
   const showCreditParseError = useCallback(
-    (error: unknown): boolean => {
+    (error: unknown, kind: CaptureKind): boolean => {
       const creditAction = creditActionForParseError(error, {
         isGuestUser: !!user?.is_guest,
+        kind,
         dailyCreditsUsed: billingStatus?.credits.daily_credits_used,
         dailyLimit: billingStatus?.credits.daily_limit,
       });
       if (creditAction) {
-        setCreditAction(creditAction);
+        const required =
+          (error instanceof ParseApiError ? error.requiredCredits : undefined) ??
+          captureCreditsFor(billingStatus, kind);
+        setCreditAction({ ...creditAction, block: creditBlockFor(billingStatus, required) });
         if (!user?.is_guest) void offerPlansForBlockedAI(creditAction.reason);
         void fetchCredits(true);
         return true;
@@ -1112,8 +1266,7 @@ export default function HomeScreen() {
       return false;
     },
     [
-      billingStatus?.credits.daily_credits_used,
-      billingStatus?.credits.daily_limit,
+      billingStatus,
       fetchCredits,
       offerPlansForBlockedAI,
       user?.is_guest,
@@ -1132,6 +1285,7 @@ export default function HomeScreen() {
       attachment?: string
     ) => {
       setAiSourceText(data.source_text ?? fallbackText);
+      receiptBalance.current = inputSource === 'receipt' ? (data.balance_after ?? null) : null;
       setAiInputSource(inputSource);
       pendingSuggestionSetup.current = null;
       setRefundReceived(
@@ -1144,11 +1298,7 @@ export default function HomeScreen() {
         cardNetwork: data.card_network,
       });
       const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
-      const hintedAccount =
-        matchAccountsToHint(
-          { mode: data.mode, accountHint: data.account_hint, cardNetwork: data.card_network },
-          accounts
-        )[0]?.account ?? null;
+      const hintedAccount = accountForParsedDraft(data, accounts);
       setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
       setForm((prev) =>
         applyParsedDraftToForm(prev, data, {
@@ -1181,7 +1331,7 @@ export default function HomeScreen() {
   const scanReceipt = useCallback(
     async (uri: string) => {
       if (isSubmitting) return;
-      if (blockCaptureWithoutCredits()) {
+      if (blockCaptureWithoutCredits('receipt')) {
         // The credit card lives on Home, behind the sheet.
         setIsEditOpen(false);
         return;
@@ -1218,7 +1368,7 @@ export default function HomeScreen() {
       } catch (error) {
         void fetchCredits(true);
         if (abandoned()) return;
-        if (showCreditParseError(error)) {
+        if (showCreditParseError(error, 'receipt')) {
           setIsEditOpen(false);
           return;
         }
@@ -1248,8 +1398,9 @@ export default function HomeScreen() {
   const [isReceiptSourceOpen, setIsReceiptSourceOpen] = useState(false);
 
   const openReceiptScan = useCallback(() => {
-    // No point taking a photo that cannot be read: say so before the camera opens.
-    if (blockCaptureWithoutCredits()) {
+    // No point taking a photo that cannot be paid for: say so before the
+    // camera opens, and before the photo is chosen.
+    if (blockCaptureWithoutCredits('receipt')) {
       setIsEditOpen(false);
       return;
     }
@@ -1311,8 +1462,9 @@ export default function HomeScreen() {
         return;
       }
       // The same gate as the microphone, for the typed and quick-prompt paths
-      // that never touch it.
-      if (blockCaptureWithoutCredits()) return;
+      // that never touch it. Typed text wins over a recording, as below.
+      const kind: CaptureKind = trimmed ? 'text' : 'voice';
+      if (blockCaptureWithoutCredits(kind)) return;
       setIsSubmitting(true);
       setErrorMessage(null);
       setParseFailure(null);
@@ -1395,7 +1547,7 @@ export default function HomeScreen() {
         // behind it.
         setIsEditOpen(false);
         setPendingQuestion(null);
-        if (showCreditParseError(error)) return;
+        if (showCreditParseError(error, kind)) return;
         setParseFailure(describeParseFailure(error));
       } finally {
         setIsParsing(false);
@@ -1777,6 +1929,18 @@ export default function HomeScreen() {
         onClose={() => setIsReceiptSourceOpen(false)}
       />
       <PlansOfferSheet {...plansPrompt.sheet} />
+      <GiftPassModal
+        visible={giftAnnouncement.gift !== null}
+        title={giftAnnouncement.gift?.title ?? ''}
+        body={giftAnnouncement.gift?.body ?? ''}
+        onSeePass={() => {
+          void giftAnnouncement.close().then(fetchNotificationCount);
+          router.push('/billing');
+        }}
+        onClose={() => {
+          void giftAnnouncement.close().then(fetchNotificationCount);
+        }}
+      />
       <TransactionFormModal
         visible={isPromptModalOpen}
         onClose={() => setIsPromptModalOpen(false)}

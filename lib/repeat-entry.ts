@@ -44,6 +44,8 @@ export function buildRepeatForm(
     time: formatTime(now) ?? '',
     tag,
     attachment: null,
+    // A repeat is a new occasion as often as the same one; it starts in none.
+    eventId: undefined,
     splitEnabled: false,
     splitGroupId: null,
     splitGroupName: '',

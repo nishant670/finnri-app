@@ -274,11 +274,12 @@ describe('creditActionForParseError', () => {
   it('explains low credits to a signed-in user and points at plans', () => {
     const action = creditActionForParseError(
       err({ error: 'insufficient_ai_credits', required_credits: 5, available_credits: 2 }),
-      ctx
+      { ...ctx, kind: 'text' }
     );
     expect(action).toEqual({
       title: 'AI credits are low',
-      message: 'This capture needs 5 credits. You have 2 available.',
+      message:
+        'A typed entry needs 5 credits and you have 2 left. Get a pass to keep using AI. Manual entry stays free and unlimited.',
       actionLabel: 'View plans',
       action: 'upgrade',
       reason: 'out_of_credits',
@@ -291,34 +292,50 @@ describe('creditActionForParseError', () => {
     });
     expect(action?.action).toBe('login');
     expect(action?.actionLabel).toBe('Sign in for more credits');
-    expect(action?.message).toContain('needs 5 credits and you have 0 left');
+    expect(action?.title).toBe('You have used up your guest AI credits');
   });
 
-  it('reports the daily limit from the error, falling back to the billing figures', () => {
+  it('reports a spent day from the error, falling back to the billing figures', () => {
     const fromError = creditActionForParseError(
-      err({ error: 'daily_ai_limit_reached', used_today: 8, daily_limit: 10 }),
+      err({ error: 'daily_ai_limit_reached', used_today: 10, daily_limit: 10 }),
       { isGuestUser: false, dailyCreditsUsed: 1, dailyLimit: 99 }
     );
-    expect(fromError?.message).toBe('You used 8 of 10 credits today.');
+    expect(fromError?.message).toMatch(/^You have used all 10 AI credits for today\./);
     expect(fromError?.reason).toBe('daily_limit');
     const fromBilling = creditActionForParseError(err({ error: 'daily_ai_limit_reached' }), {
       isGuestUser: false,
-      dailyCreditsUsed: 3,
+      dailyCreditsUsed: 12,
       dailyLimit: 12,
     });
-    expect(fromBilling?.message).toBe('You used 3 of 12 credits today.');
+    expect(fromBilling?.message).toMatch(/^You have used all 12 AI credits for today\./);
     const none = creditActionForParseError(err({ error: 'daily_ai_limit_reached' }), ctx);
-    expect(none?.message).toBe('You used 0 of 0 credits today.');
+    expect(none?.message).toMatch(/^You have used all of today's AI credits\./);
   });
 
-  it('words the daily limit for a guest', () => {
+  it('says what a refused bill scan cost rather than that the day was spent', () => {
+    // The device report: a guest with 15 of 15 left was told they had "used
+    // all 15 AI credits for today" when the scan simply cost 25.
     const action = creditActionForParseError(
-      err({ error: 'daily_ai_limit_reached', daily_limit: 10 }),
-      { isGuestUser: true }
+      err({
+        error: 'daily_ai_limit_reached',
+        used_today: 0,
+        daily_limit: 15,
+        required_credits: 25,
+      }),
+      { isGuestUser: true, kind: 'receipt' }
     );
-    expect(action?.title).toBe('You have reached your guest AI limit');
-    expect(action?.message).toContain('all 10 AI credits');
+    expect(action?.title).toBe('Not enough AI credits left today');
+    expect(action?.message).toMatch(/^A bill scan needs 25 credits and you have 15 left today\./);
+    expect(action?.message).not.toMatch(/used all/);
     expect(action?.action).toBe('login');
+  });
+
+  it('prices a refused scan from the capture when an older server leaves the cost out', () => {
+    const action = creditActionForParseError(
+      err({ error: 'daily_ai_limit_reached', used_today: 0, daily_limit: 15 }),
+      { isGuestUser: false, kind: 'receipt' }
+    );
+    expect(action?.message).toMatch(/^A bill scan needs 25 credits and you have 15 left today\./);
   });
 });
 
@@ -388,12 +405,10 @@ describe('quick prompts', () => {
     expect(form.date).toContain('2026');
   });
 
-  it('gives the editor defaults for a new prompt', () => {
-    expect(quickPromptEditorData(null, accounts, now)).toMatchObject({
-      category: 'Food & Drinks',
-      mode: 'Cash',
-      type: 'Expense',
-    });
+  it('gives the editor defaults for a new prompt, leaving the category to the title', () => {
+    const data = quickPromptEditorData(null, accounts, now);
+    expect(data).toMatchObject({ mode: 'Cash', type: 'Expense' });
+    expect(data).not.toHaveProperty('category');
   });
 
   it('fills the editor from an existing prompt, account and all', () => {
@@ -405,5 +420,30 @@ describe('quick prompts', () => {
       accountId: 4,
       notes: 'Oat milk',
     });
+  });
+});
+
+describe('a wallet top-up scan', () => {
+  // "Your Pluxee Card has been credited" never says how the money moved, so
+  // the read has no mode; the user's Pluxee wallet is still the account.
+  const sodexo = {
+    id: 9,
+    type: 'wallet',
+    name: 'Sodexo',
+    provider: 'Pluxee',
+    color: '#FF9F43',
+  } as Account;
+
+  it('lands in the saved wallet the payer names, in Wallets', () => {
+    const form = apply(
+      draft({ type: 'income', mode: null, merchant: 'Pluxee', missing_fields: ['mode'] }),
+      { hintedAccount: sodexo }
+    );
+    expect(form).toMatchObject({ mode: 'Wallets', accountId: 9, account: 'Sodexo' });
+  });
+
+  it('still leaves the mode to the user when no account was named', () => {
+    const form = apply(draft({ type: 'income', mode: null, missing_fields: ['mode'] }));
+    expect(form.mode).toBe('');
   });
 });

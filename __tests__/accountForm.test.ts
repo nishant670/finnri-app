@@ -6,6 +6,7 @@ import {
   DEFAULT_ACCOUNT_COLORS,
   DEFAULT_ACCOUNT_NAMES,
   MONTHS,
+  PAY_LATER_DETAIL_COPY,
   getMissingSetupCount,
   providerIcon,
   typeOptions,
@@ -76,13 +77,23 @@ describe('account form config', () => {
   });
 
   it('offers each type once, with "other" last (the success screen falls back to it)', () => {
-    expect(typeOptions.map((o) => o.key).sort()).toEqual([...types].sort());
+    // Pay later is the one second tile: a credit_card account of another kind.
+    const tiles = typeOptions.map((o) => (o.creditKind ? `${o.key}:${o.creditKind}` : o.key));
+    expect(tiles.sort()).toEqual([...types, 'credit_card:pay_later'].sort());
     expect(typeOptions[typeOptions.length - 1].key).toBe('other');
   });
 
   it('labels a card balance as an outstanding amount and everything else as a balance', () => {
     expect(ACCOUNT_DETAIL_COPY.credit_card.balanceLabel).toBe('Opening outstanding');
-    expect(ACCOUNT_DETAIL_COPY.bank.balanceLabel).toBe('Opening balance');
+    // Today's balance, which people know, not what it held before the first
+    // logged transaction, which nobody does.
+    expect(ACCOUNT_DETAIL_COPY.bank.balanceLabel).toBe('Current balance');
+    expect(ACCOUNT_DETAIL_COPY.wallet.balanceLabel).toBe('Current balance');
+  });
+
+  it('asks a pay-later line for a lender, limit and repay day, not card digits', () => {
+    expect(PAY_LATER_DETAIL_COPY.providerLabel).toBe('Lender');
+    expect(PAY_LATER_DETAIL_COPY.identifierLabel).toBeUndefined();
   });
 
   it('only asks for a provider on types that have one', () => {

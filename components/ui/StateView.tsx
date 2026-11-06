@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { Colors, Fonts } from '@/constants/theme';
@@ -28,6 +28,8 @@ type StateViewProps = {
   secondaryActionLabel?: string;
   onSecondaryAction?: () => void;
   compact?: boolean;
+  /** For a screen whose content sits on a different gutter than the default 24. */
+  style?: StyleProp<ViewStyle>;
 };
 
 export function StateView({
@@ -39,6 +41,7 @@ export function StateView({
   secondaryActionLabel,
   onSecondaryAction,
   compact = false,
+  style,
 }: StateViewProps) {
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
@@ -55,6 +58,7 @@ export function StateView({
           backgroundColor: surfaceColor,
           borderColor: theme.border,
         },
+        style,
       ]}>
       <View style={[styles.iconCircle, { backgroundColor: theme.secondary }]}>
         <MaterialCommunityIcons name={icon} size={compact ? 26 : 34} color={theme.accent} />

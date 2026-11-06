@@ -24,6 +24,99 @@ export const groupKindOptions: {
 export const getGroupKindConfig = (kind: GroupKind) =>
   groupKindOptions.find((option) => option.kind === kind) ?? groupKindOptions[3];
 
+type GroupIconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+/** The longest custom label the server keeps for an "other" group. */
+export const GROUP_KIND_LABEL_MAX = 32;
+
+/**
+ * Icons offered for an "other" group's own label, in the order they are drawn.
+ * The first one is the plain Other icon, so a label with no better match keeps
+ * the look the group already had.
+ */
+export const groupKindIconChoices: GroupIconName[] = [
+  'format-list-bulleted',
+  'briefcase-outline',
+  'party-popper',
+  'silverware-fork-knife',
+  'school-outline',
+  'soccer',
+  'gift-outline',
+  'account-group-outline',
+  'office-building-outline',
+  'cart-outline',
+  'car-outline',
+  'star-outline',
+];
+
+/**
+ * Words that point at an icon, checked in order against the label. Each entry
+ * is matched as the start of a word, so "Office team" and "officemates" both
+ * find the briefcase.
+ */
+const groupKindIconKeywords: [GroupIconName, string[]][] = [
+  ['briefcase-outline', ['office', 'work', 'team', 'company', 'corporate', 'colleague', 'job', 'project', 'client']],
+  ['party-popper', ['party', 'diwali', 'holi', 'eid', 'christmas', 'xmas', 'festival', 'celebrat', 'birthday', 'bday', 'anniversary', 'new year', 'wedding', 'shaadi', 'reunion']],
+  ['silverware-fork-knife', ['lunch', 'dinner', 'breakfast', 'food', 'meal', 'brunch', 'restaurant', 'cafe', 'treat', 'potluck']],
+  ['school-outline', ['school', 'college', 'class', 'batch', 'hostel', 'university', 'uni', 'alumni', 'study']],
+  ['soccer', ['sport', 'football', 'cricket', 'gym', 'game', 'match', 'badminton', 'turf', 'club']],
+  ['gift-outline', ['gift', 'present', 'farewell', 'contribution']],
+  ['account-group-outline', ['family', 'friends', 'gang', 'squad', 'cousins', 'flatmates', 'roommates']],
+  ['office-building-outline', ['society', 'building', 'apartment', 'pg', 'rent']],
+  ['cart-outline', ['grocer', 'shopping', 'market', 'supplies']],
+  ['car-outline', ['car', 'cab', 'commute', 'carpool', 'ride', 'fuel', 'petrol']],
+];
+
+/**
+ * Suggest an icon for a label the user typed. Returns the plain Other icon
+ * when nothing matches, so the suggestion never invents a meaning.
+ */
+export function suggestGroupKindIcon(label: string): GroupIconName {
+  const text = ` ${label.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()}`;
+  for (const [icon, words] of groupKindIconKeywords) {
+    if (words.some((word) => text.includes(` ${word}`))) return icon;
+  }
+  return groupKindIconChoices[0];
+}
+
+/**
+ * Whether a balance in this group has reached its alert, as the viewer sees
+ * it: the same per-person balances the server checks before it notifies.
+ */
+export function groupBalanceAlertReached(
+  group: Pick<SplitGroup, 'balance_alert_amount' | 'viewer_balances'>,
+): boolean {
+  const limit = Number(group.balance_alert_amount ?? 0);
+  if (!(limit > 0)) return false;
+  return (group.viewer_balances ?? []).some((entry) => Math.abs(entry.net_balance) >= limit);
+}
+
+/** `groupKindDisplay` for a group summary, whose kind is already resolved. */
+export function summaryKindDisplay(summary: Pick<SplitGroupSummary, 'group' | 'kind'>) {
+  return groupKindDisplay({ ...summary.group, kind: summary.kind });
+}
+
+/**
+ * Only icons this build offers are drawn. A newer build may offer more; an
+ * older one shows the Other icon for those rather than a missing glyph.
+ */
+function isGroupIconName(name: string | undefined): name is GroupIconName {
+  return !!name && (groupKindIconChoices as string[]).includes(name);
+}
+
+/**
+ * The name and icon a group is shown with: the built-in kind's, or for an
+ * "other" group with a label of its own, that label and its icon.
+ */
+export function groupKindDisplay(
+  group: Pick<SplitGroup, 'kind' | 'kind_label' | 'kind_icon'>,
+): { label: string; icon: GroupIconName } {
+  const base = getGroupKindConfig(group.kind ?? 'other');
+  const label = group.kind_label?.trim();
+  if (base.kind !== 'other' || !label) return { label: base.label, icon: base.icon };
+  return { label, icon: isGroupIconName(group.kind_icon) ? group.kind_icon : base.icon };
+}
+
 // Split balances are always drawn with their own directional wording
 // ("owes you" / "you owe"), so the sign would be redundant noise.
 export const formatBalance = (value: number) => formatMoney(value, { sign: 'never' });
@@ -36,7 +129,11 @@ export const formatMonthYear = (value: string) => {
 
 export const getFirstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
-const normalizePhone = (value?: string) => value?.replace(/\D/g, '') ?? '';
+/**
+ * The last ten digits: a phone book writes "+91 98718 01518" where a friend
+ * was saved as "9871801518", and comparing every digit never matched the two.
+ */
+const normalizePhone = (value?: string) => (value?.replace(/\D/g, '') ?? '').slice(-10);
 
 const normalizeEmail = (value?: string) => value?.trim().toLowerCase() ?? '';
 
@@ -344,6 +441,8 @@ export function groupMatchesSearch(summary: SplitGroupSummary, normalizedSearch:
   if (!normalizedSearch) return true;
   return [
     summary.group.name,
+    // An "other" group's own label, so "office" finds the office groups.
+    summary.group.kind_label ?? '',
     ...summary.detailLines,
     // The roster rather than `memberIds`: those are the owner's friend rows,
     // which resolve to nothing at all in a member's own list, so searching a

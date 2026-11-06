@@ -165,6 +165,75 @@ describe('Uploading a statement from the Add statement sheet', () => {
     expect(onSeePlans).toHaveBeenCalled();
   });
 
+  it('says when the PDF gave the bill but no transactions, and what it cost', async () => {
+    picker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///cache/oct.pdf', name: 'oct.pdf', lastModified: 0 }],
+    } as DocumentPicker.DocumentPickerResult);
+    const onReadSource = jest.fn().mockResolvedValue({
+      summary: { total_due: 7340 },
+      lines: [],
+      card_updates: [],
+      warnings: [],
+      source: 'pdf',
+      credits_charged: 50,
+    } satisfies StatementRead);
+    const { findByTestId, findByText } = await renderSheet({ onReadSource });
+
+    await fireEvent.press(await findByTestId('statement-upload-pdf'));
+
+    await findByText(/No transactions could be read from this file\. .*Used 50 AI credits\./);
+  });
+
+  it('counts the rows it read and promises only the missing ones', async () => {
+    picker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///cache/oct.pdf', name: 'oct.pdf', lastModified: 0 }],
+    } as DocumentPicker.DocumentPickerResult);
+    const onReadSource = jest.fn().mockResolvedValue({
+      summary: {},
+      lines: [
+        { date: '2026-10-12', description: 'AMAZON PAY', amount: 1250, type: 'expense' },
+        { date: '2026-10-14', description: 'UBER', amount: 340.5, type: 'expense' },
+      ],
+      card_updates: [],
+      warnings: [],
+      source: 'pdf',
+    } as StatementRead);
+    const { findByTestId, findByText } = await renderSheet({ onReadSource });
+
+    await fireEvent.press(await findByTestId('statement-upload-pdf'));
+
+    await findByText(/Found 2 transactions; after saving, Finnri adds only the ones you haven't logged\./);
+  });
+
+  it('shows the price of each read before anything is picked', async () => {
+    const { findByText } = await renderSheet({
+      onReadSource: jest.fn(),
+      prices: { pdf: 50, screenshots: 100 },
+    });
+
+    await findByText(/read by an AI service \(PDF 50 credits, screenshots 100\)/);
+  });
+
+  it('offers plans when a PDF read is refused for credits', async () => {
+    picker.getDocumentAsync.mockResolvedValue({
+      canceled: false,
+      assets: [{ uri: 'file:///cache/oct.pdf', name: 'oct.pdf', lastModified: 0 }],
+    } as DocumentPicker.DocumentPickerResult);
+    const onSeePlans = jest.fn();
+    const onReadSource = jest
+      .fn()
+      .mockRejectedValue(new StatementApiError('', 402, 'insufficient_ai_credits'));
+    const { findByTestId, findByText } = await renderSheet({ onReadSource, onSeePlans });
+
+    await fireEvent.press(await findByTestId('statement-upload-pdf'));
+
+    await findByText("You don't have enough AI credits left to read this statement.");
+    await fireEvent.press(await findByTestId('statement-credits-see-plans'));
+    expect(onSeePlans).toHaveBeenCalled();
+  });
+
   it('does not offer an upload when editing a bill', async () => {
     const { queryByTestId } = await renderSheet({
       initial: {

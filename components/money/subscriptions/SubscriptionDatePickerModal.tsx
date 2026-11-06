@@ -4,6 +4,7 @@ import { Modal, StyleSheet, View } from 'react-native';
 import { PressableView } from '@/components/ui/PressableView';
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 
 type SubscriptionDatePickerModalProps = {
   visible: boolean;
@@ -36,10 +37,11 @@ export function SubscriptionDatePickerModal({
       : datePickerTarget === 'start'
         ? 'Started on'
         : 'Next payment on';
+  const bottomInset = useBottomInset(24);
   return (
     <Modal transparent animationType="slide" visible={visible} onRequestClose={onClose}>
       <View style={styles.scrim}>
-        <View style={[styles.sheet, { backgroundColor: colors.background }]}>
+        <View style={[styles.sheet, { backgroundColor: colors.background, paddingBottom: bottomInset }]}>
           <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
           <View style={styles.header}>
             <PressableView accessibilityRole="button" onPress={onClose} style={styles.action} pressedStyle={styles.pressed}>
@@ -79,7 +81,6 @@ const styles = StyleSheet.create({
   },
   sheet: {
     paddingHorizontal: 16,
-    paddingBottom: 24,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
   },

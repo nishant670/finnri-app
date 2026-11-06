@@ -23,6 +23,7 @@ import { PrimaryButton } from '@/components/ui/Button';
 import { ThemedAlertDialog } from '@/components/ui/ThemedConfirmDialog';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import {
   updateProfile,
@@ -47,6 +48,7 @@ type AlertState = {
 
 export default function EditProfileScreen() {
   const router = useRouter();
+  const sheetBottom = useBottomInset(28);
   const { colors } = useThemeTokens();
   const { user, token, updateUser } = useAuthStore();
 
@@ -369,7 +371,7 @@ export default function EditProfileScreen() {
         * without it the number pad slid straight over the boxes being typed in.
         */}
       <AnimatedBottomSheet visible={showOtp} onClose={() => setShowOtp(false)} avoidKeyboard>
-          <View style={[styles.sheet, { backgroundColor: colors.background }]}>
+          <View style={[styles.sheet, { backgroundColor: colors.background, paddingBottom: sheetBottom }]}>
             <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
             <View style={[styles.sheetIcon, { backgroundColor: colors.selectedFill }]}>
               <MaterialCommunityIcons name="shield-check-outline" size={26} color={colors.text} />
@@ -551,7 +553,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     paddingHorizontal: 20,
-    paddingBottom: 28,
   },
   handle: {
     width: 36,

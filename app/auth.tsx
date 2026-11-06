@@ -670,7 +670,6 @@ const styles = StyleSheet.create({
   promptCard: {
     borderRadius: 28,
     padding: 24,
-    backgroundColor: 'white',
   },
   promptTitle: {
     fontSize: 28,
@@ -725,7 +724,7 @@ function ExistingAccountPrompt({
 }: ExistingAccountPromptProps) {
   return (
     <View style={styles.promptContainer}>
-      <View style={styles.promptCard}>
+      <View style={[styles.promptCard, { backgroundColor: theme.card }]}>
         <Text style={[styles.promptTitle, { color: theme.text }]}>Account already exists</Text>
         <Text style={[styles.promptBody, { color: theme.text, opacity: 0.65 }]}>
           {identifier} is already registered. Sign in with that account to continue, or use a

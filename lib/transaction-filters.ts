@@ -19,6 +19,8 @@ export type TransactionFilterState = {
   category: string | null;
   mode: string | null;
   accountId: number | null;
+  /** Only the expenses in this event (occasion). */
+  eventId: number | null;
   /** Rupees. `null` on either end means that end is open. */
   minAmount: number | null;
   maxAmount: number | null;
@@ -35,6 +37,7 @@ export const emptyFilterState: TransactionFilterState = {
   category: null,
   mode: null,
   accountId: null,
+  eventId: null,
   minAmount: null,
   maxAmount: null,
   startDate: null,
@@ -49,6 +52,7 @@ export const isFilterActive = (state: TransactionFilterState) =>
   state.category !== null ||
   state.mode !== null ||
   state.accountId !== null ||
+  state.eventId !== null ||
   state.minAmount !== null ||
   state.maxAmount !== null ||
   state.startDate !== null ||
@@ -60,6 +64,7 @@ export const toTransactionFilters = (state: TransactionFilterState): Transaction
   category: state.category ?? undefined,
   mode: state.mode ?? undefined,
   account_id: state.accountId ?? undefined,
+  event_id: state.eventId ?? undefined,
   min_amount: state.minAmount ?? undefined,
   max_amount: state.maxAmount ?? undefined,
   start_date: state.startDate ?? undefined,
@@ -172,7 +177,8 @@ const shortDate = (value: string) => {
  */
 export const describeFilters = (
   state: TransactionFilterState,
-  accountName?: (id: number) => string | undefined
+  accountName?: (id: number) => string | undefined,
+  eventName?: (id: number) => string | undefined
 ): AppliedFilterChip[] => {
   const chips: AppliedFilterChip[] = [];
 
@@ -193,6 +199,13 @@ export const describeFilters = (
       key: 'accountId',
       label: accountName?.(state.accountId) ?? 'Account',
       clears: ['accountId'],
+    });
+  }
+  if (state.eventId !== null) {
+    chips.push({
+      key: 'eventId',
+      label: eventName?.(state.eventId) ?? 'Event',
+      clears: ['eventId'],
     });
   }
   if (state.minAmount !== null || state.maxAmount !== null) {

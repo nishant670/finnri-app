@@ -13,12 +13,10 @@ import type { ReactNode } from 'react';
 
 type SplitGroupsSectionProps = {
   groups: SplitGroupSummary[];
-  showNonGroupSummary: boolean;
   hiddenSettledCount: number;
   normalizedSearch: string;
   /** `divider`: the rule above the row — every row in the card but the first. */
   renderGroupCard: (summary: SplitGroupSummary, entranceIndex: number, divider: boolean) => ReactNode;
-  renderNonGroupRow: (entranceIndex: number, divider: boolean) => ReactNode;
   onShowSettled: () => void;
   onNewGroup: () => void;
   /** A balance filter other than the default "open" is set. */
@@ -31,18 +29,16 @@ type SplitGroupsSectionProps = {
 /** Groups (board R6-Groups): "Groups · N" over one card of rows, or R6-Empty's card. */
 export function SplitGroupsSection({
   groups,
-  showNonGroupSummary,
   hiddenSettledCount,
   normalizedSearch,
   renderGroupCard,
-  renderNonGroupRow,
   onShowSettled,
   onNewGroup,
   filterActive,
   onOpenFilter,
   hideFilter = false,
 }: SplitGroupsSectionProps) {
-  const hasRows = groups.length > 0 || showNonGroupSummary;
+  const hasRows = groups.length > 0;
   return (
     <View>
       {hasRows || filterActive || hiddenSettledCount > 0 ? (
@@ -57,7 +53,6 @@ export function SplitGroupsSection({
         <>
           <SplitListCard>
             {groups.map((summary, index) => renderGroupCard(summary, index, index > 0))}
-            {showNonGroupSummary ? renderNonGroupRow(groups.length, groups.length > 0) : null}
           </SplitListCard>
           <SettledHint settledCount={hiddenSettledCount} onShowSettled={onShowSettled} />
         </>

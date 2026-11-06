@@ -33,7 +33,7 @@ export default function AboutFinnriScreen() {
   const { colors } = useThemeTokens();
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
       <ScreenHeader title="About Finnri" onBack={() => router.back()} />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>

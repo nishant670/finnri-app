@@ -11,6 +11,7 @@ import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { Account } from '@/lib/accounts';
 import { formatMoney } from '@/lib/money';
 import {
@@ -78,6 +79,7 @@ export function MarkPaidSheet({
   onAddAccount,
 }: MarkPaidSheetProps) {
   const { colors } = useThemeTokens();
+  const sheetBottom = useBottomInset(24);
   const [logTransaction, setLogTransaction] = useState(true);
   const [payment, setPayment] = useState(() =>
     usablePayment(accounts, subscription?.payment_mode ?? '', subscription?.account_id ?? null)
@@ -101,7 +103,7 @@ export function MarkPaidSheet({
           testID="mark-paid-sheet"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.sheet}>
+          contentContainerStyle={[styles.sheet, { paddingBottom: sheetBottom }]}>
           <View style={[styles.handle, { backgroundColor: colors.borderStrong }]} />
           <View style={styles.header}>
             <ThemedText
@@ -170,7 +172,6 @@ export function MarkPaidSheet({
 const styles = StyleSheet.create({
   sheet: {
     paddingHorizontal: 16,
-    paddingBottom: 24,
   },
   handle: {
     width: 36,

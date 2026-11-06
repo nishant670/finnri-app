@@ -4,7 +4,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
-import { getMoodIconName } from '@/constants/theme';
+import { getMoodIconName, withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 /** A 36dp neutral tile with its glyph in ink, the Profile screens' row icon (boards R8-*). */
@@ -31,6 +31,7 @@ export function SettingsRow({
   accessory,
   divider = false,
   tone = 'default',
+  disabled = false,
   testID,
   accessibilityLabel,
 }: {
@@ -40,25 +41,41 @@ export function SettingsRow({
   onPress?: () => void;
   accessory?: ReactNode;
   divider?: boolean;
-  /** `negative` for a destructive row: red title and icon, no tile tint. */
-  tone?: 'default' | 'negative';
+  /**
+   * `negative` for a destructive row in a list: red title and icon, no tile
+   * tint. `danger` for one in an actions sheet (boards R5-AcctActions,
+   * R5-RecurringActions): a red-tinted tile, a red title, and a chevron.
+   */
+  tone?: 'default' | 'negative' | 'danger';
+  /** Greys the row out and ignores presses; say why in `subtitle`. */
+  disabled?: boolean;
   testID?: string;
   accessibilityLabel?: string;
 }) {
   const { colors } = useThemeTokens();
   const negative = tone === 'negative';
+  const danger = tone === 'danger';
   return (
     <PressableView
       testID={testID}
       accessibilityRole={onPress ? 'button' : undefined}
       accessibilityLabel={accessibilityLabel}
-      disabled={!onPress}
+      accessibilityState={disabled ? { disabled: true } : undefined}
+      disabled={!onPress || disabled}
       onPress={onPress}
-      style={[styles.row, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}
+      style={[
+        styles.row,
+        divider && { borderTopWidth: 1, borderTopColor: colors.border },
+        disabled && styles.disabled,
+      ]}
       pressedStyle={styles.pressed}>
       {negative ? (
         <View style={styles.bareIcon}>
           <MaterialCommunityIcons name={icon} size={20} color={colors.negative} />
+        </View>
+      ) : danger ? (
+        <View style={[styles.tile, { width: 36, height: 36, backgroundColor: withAlpha(colors.negative, 0.12) }]}>
+          <MaterialCommunityIcons name={icon} size={18} color={colors.negative} />
         </View>
       ) : (
         <NeutralTile icon={icon} />
@@ -66,7 +83,7 @@ export function SettingsRow({
       <View style={styles.text}>
         <ThemedText
           numberOfLines={1}
-          style={[styles.title, { color: negative ? colors.negative : colors.text, fontWeight: negative ? '600' : '500' }]}>
+          style={[styles.title, { color: negative || danger ? colors.negative : colors.text, fontWeight: negative ? '600' : '500' }]}>
           {title}
         </ThemedText>
         {subtitle ? (
@@ -75,7 +92,10 @@ export function SettingsRow({
           </ThemedText>
         ) : null}
       </View>
-      {accessory ?? (onPress && !negative ? <MaterialCommunityIcons name="chevron-right" size={18} color={colors.muted} /> : null)}
+      {accessory ??
+        (onPress && !negative && !disabled ? (
+          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.muted} />
+        ) : null)}
     </PressableView>
   );
 }
@@ -139,6 +159,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 16,
     overflow: 'hidden',
+  },
+  disabled: {
+    opacity: 0.6,
   },
   pressed: {
     opacity: 0.7,

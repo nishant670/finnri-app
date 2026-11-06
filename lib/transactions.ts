@@ -8,6 +8,9 @@ import { formatApiDate, formatTime } from './datetime';
 export type ApiEntry = {
   id?: string | number;
   account_id?: number | null;
+  event_id?: number | null;
+  /** `card_payment` for a credit-card bill payment; such an entry is never in an event. */
+  purpose_type?: string | null;
   account?: {
     id: number;
     name: string;
@@ -64,6 +67,7 @@ export interface TransactionFilters {
   category?: string;
   mode?: string;
   account_id?: number;
+  event_id?: number;
   min_amount?: number;
   max_amount?: number;
   start_date?: string;
@@ -191,9 +195,9 @@ const deriveSectionMeta = (value?: string | null) => {
     if (diffDays === 1) {
       return { section: 'Yesterday', timestamp: entryDay.getTime() };
     }
-    if (diffDays > 1 && diffDays < 7) {
-      return { section: `${diffDays} days ago`, timestamp: entryDay.getTime() };
-    }
+    // Past yesterday the heading is the date itself. "4 days ago" made the
+    // user count back to find 30 October, and a gap between two such headings
+    // hid how many days were missing.
     return { section: formatDateLabel(entryDay), timestamp: entryDay.getTime() };
   }
   return { section: 'Recent', timestamp: todayStart.getTime() };
@@ -269,6 +273,8 @@ export const mapEntryToTransaction = (entry: ApiEntry): Transaction => {
     mode: entry.mode ?? null,
     accountId: entry.account_id ?? null,
     accountName: entry.account?.name ?? null,
+    eventId: entry.event_id ?? null,
+    purposeType: entry.purpose_type ?? null,
     notes: entry.notes ?? null,
     merchant: entry.merchant ?? null,
     timeLabel,

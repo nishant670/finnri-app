@@ -201,11 +201,13 @@ describe('the friend page', () => {
     render(
       <FriendDetailModal
         summary={summary}
+        friendById={new Map([[biwi.id, biwi]])}
         currentUserName="Me"
         onClose={jest.fn()}
         onAddExpense={jest.fn()}
         onSettleUp={jest.fn()}
         onOpenGroup={jest.fn()}
+        onOpenExpense={jest.fn()}
         onOpenOptions={jest.fn()}
       />
     );

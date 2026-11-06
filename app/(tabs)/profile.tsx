@@ -178,6 +178,13 @@ export default function ProfileScreen() {
         <SettingsSection title="Plan & AI">
           <SettingsRow icon="creation" title="Plans & credits" subtitle={creditLine} onPress={() => router.push('/billing')} />
           <SettingsRow
+            icon="tag-outline"
+            title="What uses AI credits"
+            subtitle="The price of each AI read, and what's free"
+            onPress={() => router.push('/ai-credits')}
+            divider
+          />
+          <SettingsRow
             icon="history"
             title="AI usage history"
             subtitle="What each AI action was spent on"
