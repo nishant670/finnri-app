@@ -205,9 +205,14 @@ export const buildAiReview = (
 ): AiReviewMetadata => ({
   confidence: data.confidence,
   needsConfirmation: data.needs_confirmation,
-  missingFields: smartSorting
-    ? data.missing_fields
-    : Array.from(new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])),
+  // A bill that never said how it was paid comes back as Cash with nothing
+  // flagged, and a card payment was saved as Cash that way (2026-11-06). Ask
+  // for a look instead; a payment rule or habit that fills it in clears it.
+  missingFields: !smartSorting
+    ? Array.from(new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag']))
+    : inputSource === 'receipt' && data.mode_source === 'default'
+      ? Array.from(new Set([...(data.missing_fields ?? []), 'mode']))
+      : data.missing_fields,
   clarifications: [
     ...(data.clarifications ?? []),
     ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
@@ -218,6 +223,8 @@ export const buildAiReview = (
   // place that is visible.
   sourceText: data.source_text ?? fallbackText,
   inputSource,
+  modeSource: data.mode_source,
+  accountNamed: Boolean(data.account_hint?.trim()),
 });
 
 /**
