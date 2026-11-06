@@ -182,8 +182,11 @@ export default function NotificationsScreen() {
     setDeciding(id);
     setActionError(null);
     try {
-      await decideSplitSettlement(token, id, decision);
+      const decided = await decideSplitSettlement(token, id, decision);
       decision === 'confirm' ? haptics.saved() : haptics.select();
+      // Null: already answered elsewhere, or gone. Nothing is left to do,
+      // so the prompt goes rather than staying in Needs you for good.
+      if (!decided) await deleteNotification(token, notification.id).catch(() => undefined);
       await load(true);
     } catch (decideError) {
       haptics.rejected();
@@ -306,9 +309,14 @@ export default function NotificationsScreen() {
                 <ThemedText style={[styles.title, { fontWeight: unread ? '700' : '500' }]}>{title}</ThemedText>
                 {/* P48: the amount on the right, where amounts are everywhere else. */}
                 {amount !== null ? (
-                  <ThemedText testID={`notification-amount-${notification.id}`} style={styles.amount}>
-                    {formatMoney(amount)}
-                  </ThemedText>
+                  <View style={styles.time}>
+                    <ThemedText testID={`notification-amount-${notification.id}`} style={styles.amount}>
+                      {formatMoney(amount)}
+                    </ThemedText>
+                    {unread ? (
+                      <View accessibilityElementsHidden style={[styles.dot, { backgroundColor: colors.accent }]} />
+                    ) : null}
+                  </View>
                 ) : (
                   <View style={styles.time}>
                     <ThemedText tone="muted" style={styles.timeLabel}>
@@ -348,9 +356,10 @@ export default function NotificationsScreen() {
                   <View key={item.id} style={[styles.inlineItem, { borderTopColor: colors.border }]}>
                     <View style={styles.rowText}>
                       <ThemedText numberOfLines={1} style={styles.inlineTitle}>
-                        {job.items.length > 1 ? item.title : 'Did this payment reach you?'}
+                        {job.items.length > 1 ? item.title : 'Did it reach you?'}
                       </ThemedText>
-                      {itemAmount !== null ? (
+                      {/* A lone settle-up has its amount on the row already. */}
+                      {itemAmount !== null && job.items.length > 1 ? (
                         <ThemedText tone="muted" style={styles.meta}>
                           {formatMoney(itemAmount)}
                         </ThemedText>
@@ -599,6 +608,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 12,
     marginBottom: 6,
+    // In line with the cards under it.
+    marginHorizontal: 16,
     paddingHorizontal: 4,
   },
   sectionTitle: {
