@@ -94,10 +94,14 @@ export function Slider({
     }
   };
 
+  // Only a sideways drag moves the thumb: a page scroll that starts on the
+  // track fails the pan (found on the device, where scrolling the calculator
+  // changed its tenure). A tap jumps the thumb to where it landed.
   const pan = Gesture.Pan()
-    .minDistance(0)
+    .activeOffsetX([-6, 6])
+    .failOffsetY([-10, 10])
     .hitSlop({ top: 12, bottom: 12 })
-    .onBegin((event) => {
+    .onStart((event) => {
       dragging.value = true;
       position.value = clamp(event.x - THUMB / 2, 0, travel.value);
       runOnJS(emit)(position.value);
@@ -109,6 +113,13 @@ export function Slider({
     .onFinalize(() => {
       dragging.value = false;
     });
+  const tap = Gesture.Tap()
+    .hitSlop({ top: 12, bottom: 12 })
+    .onEnd((event) => {
+      position.value = clamp(event.x - THUMB / 2, 0, travel.value);
+      runOnJS(emit)(position.value);
+    });
+  const gesture = Gesture.Race(pan, tap);
 
   const thumbStyle = useAnimatedStyle(() => ({ transform: [{ translateX: position.value }] }));
   const fillStyle = useAnimatedStyle(() => ({ width: position.value + THUMB / 2 }));
@@ -120,7 +131,7 @@ export function Slider({
 
   return (
     <View testID={testID}>
-      <GestureDetector gesture={pan}>
+      <GestureDetector gesture={gesture}>
         <View
           accessible
           accessibilityRole="adjustable"
