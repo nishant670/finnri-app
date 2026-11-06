@@ -1227,7 +1227,9 @@ export default function TransactionsScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
-        startOnLastPayment
+        // A form opened for one account (P61, compose=1) stays on it; only a
+        // blank form starts on the last method used (P9).
+        startOnLastPayment={addForm.accountId == null}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
