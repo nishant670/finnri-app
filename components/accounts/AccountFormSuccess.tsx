@@ -63,7 +63,10 @@ export function AccountFormSuccess({
         </PressableView>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        // A setup row's Save must save on the first tap, keyboard up (P62).
+        keyboardShouldPersistTaps="handled"
+        style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <View>
             <View style={[styles.tile, { backgroundColor: visual.bgColor }]}>

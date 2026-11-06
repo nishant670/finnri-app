@@ -561,7 +561,10 @@ export default function AccountDetailsScreen() {
         onRightPress={openSettings}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        // A setup row's Save must save on the first tap, keyboard up (P62).
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         {error && <ErrorBanner message={error} style={{ marginBottom: 12 }} />}
 
         {/* Board R5-AcctCard / R5-AcctBank: no card around the hero, the
