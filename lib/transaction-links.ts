@@ -15,6 +15,8 @@ import { parseDateLabel } from '@/lib/transactions';
  */
 
 export type TransactionFilterLink = {
+  /** One account's rows only (P63: a category tapped on an account's page). */
+  accountId?: number;
   category?: string;
   /**
    * The list's free-text search, which spans title, merchant and notes.
@@ -39,6 +41,7 @@ export const openFilteredTransactions = (filter: TransactionFilterLink) => {
   router.push({
     pathname: '/transactions',
     params: {
+      accountId: filter.accountId != null ? String(filter.accountId) : undefined,
       category: filter.category ?? undefined,
       q: filter.q ?? undefined,
       mode: filter.mode ?? undefined,

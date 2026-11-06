@@ -358,3 +358,86 @@ export const getAccountSetupItems = (account: Account): AccountSetupItem[] => {
     balanceItem('Current balance'),
   ];
 };
+
+/** How a missing detail can be filled in where it is listed (P62). */
+export type SetupInlineField = {
+  keyboard: 'number' | 'text';
+  placeholder: string;
+  /** "₹" on money fields. */
+  prefix?: string;
+  /** What is wrong with the value, or null when it can be saved. */
+  validate: (value: string) => string | null;
+};
+
+const digitsOnly = (value: string) => value.replace(/[^0-9]/g, '');
+const money = (value: string) => Number(value.replace(/[^0-9.]/g, ''));
+
+/**
+ * The field a setup row opens into (P62, boards R5-AcctCard-Proposals and
+ * R5-AcctAdded-Proposals), or null when the detail needs the full form — a
+ * bank or card issuer is picked from a list there.
+ */
+export const setupInlineField = (account: Account, item: AccountSetupItem): SetupInlineField | null => {
+  const type = normalizeAccountType(account.type);
+  switch (item.key) {
+    case 'identifier':
+      if (type === 'upi' || type === 'wallet') {
+        return {
+          keyboard: 'text',
+          placeholder: type === 'upi' ? 'name@bank or a nickname' : 'A nickname',
+          validate: (value) => (value.trim() ? null : 'Enter something to tell it apart'),
+        };
+      }
+      return {
+        keyboard: 'number',
+        placeholder: '1234',
+        validate: (value) => (digitsOnly(value).length === 4 ? null : 'Enter the last 4 digits'),
+      };
+    case 'limit':
+      return {
+        keyboard: 'number',
+        prefix: '₹',
+        placeholder: isPayLater(account) ? 'Your limit' : 'Your card’s limit',
+        validate: (value) => (money(value) > 0 ? null : 'Enter a limit above zero'),
+      };
+    case 'due':
+      return {
+        keyboard: 'number',
+        placeholder: 'Day of the month, 1–31',
+        validate: (value) => {
+          const day = Number(digitsOnly(value));
+          return day >= 1 && day <= 31 ? null : 'Enter a day from 1 to 31';
+        },
+      };
+    case 'balance':
+      return {
+        keyboard: 'number',
+        prefix: '₹',
+        placeholder: 'What it holds today',
+        validate: (value) => (value.trim() && Number.isFinite(money(value)) ? null : 'Enter an amount'),
+      };
+    default:
+      return null;
+  }
+};
+
+/**
+ * The account with one detail set, ready for `updateAccount` — for every
+ * detail but the balance, which goes through `setAccountBalance` so the
+ * server works back to the opening.
+ */
+export const withSetupDetail = (account: Account, key: string, raw: string): Account => {
+  const type = normalizeAccountType(account.type);
+  switch (key) {
+    case 'identifier':
+      if (type === 'upi') return { ...account, upi_handle: raw.trim() };
+      if (type === 'wallet') return { ...account, wallet_nickname: raw.trim() };
+      return { ...account, last4: digitsOnly(raw).slice(-4) };
+    case 'limit':
+      return { ...account, credit_limit: money(raw) };
+    case 'due':
+      return { ...account, due_day: Number(digitsOnly(raw)) };
+    default:
+      return account;
+  }
+};

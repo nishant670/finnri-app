@@ -40,7 +40,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useTransactionPages } from '@/hooks/use-transaction-pages';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, paymentModeForAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { shareTransactionExport, type ExportFormat } from '@/lib/export';
 import { haptics } from '@/lib/haptics';
@@ -128,8 +128,14 @@ export default function TransactionsScreen() {
     mode: routeMode,
     event_id: routeEventIdParam,
     pickFor: pickForParam,
+    compose: composeParam,
   } = useLocalSearchParams<{
     accountId?: string;
+    /**
+     * "1" opens the add form straight away, on `accountId`'s account when
+     * there is one (P61: "Add a transaction" on an account's page).
+     */
+    compose?: string;
     review?: string;
     start_date?: string;
     end_date?: string;
@@ -535,6 +541,29 @@ export default function TransactionsScreen() {
         });
     }
   }, [token]);
+
+  /**
+   * P61: arriving with `compose=1` opens the add form at once, already paid
+   * from (or into) the account the user came from. Waits for the accounts so
+   * the method follows the account's kind — a card's Credit Card, a wallet's
+   * Wallets — and only ever runs once per arrival.
+   */
+  const composedFromRoute = useRef(false);
+  useEffect(() => {
+    if (composeParam !== '1' || composedFromRoute.current) return;
+    const account = routeAccountId ? accounts.find((item) => item.id === routeAccountId) : null;
+    if (routeAccountId && !account) return;
+    composedFromRoute.current = true;
+    openAdd();
+    if (account) {
+      setAddForm((form) => ({
+        ...form,
+        accountId: account.id,
+        account: account.name,
+        mode: paymentModeForAccountType(account.type) ?? form.mode,
+      }));
+    }
+  }, [accounts, composeParam, openAdd, routeAccountId]);
 
   const offerBudgetAlert = useCallback(
     async (budgetNotificationIds: Set<number>) => {

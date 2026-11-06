@@ -20,12 +20,15 @@ import {
   fetchAccounts,
   normalizeAccountType,
   saveAccount,
+  setAccountBalance,
+  toAccountPayload,
   updateAccount,
   type AccountPayload,
   type AccountType,
   type CreditKind,
 } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { withSetupDetail, type AccountSetupItem } from '@/lib/account-display';
 import { haptics } from '@/lib/haptics';
 
 import { styles } from '@/components/accounts/account-form-styles';
@@ -470,6 +473,20 @@ export default function ManageAccountScreen() {
           />
   );
 
+  /** P62: a detail filled in on the Account added screen. */
+  const saveCreatedDetail = async (item: AccountSetupItem, value: string) => {
+    if (!token || !createdAccount) return;
+    const updated =
+      item.key === 'balance'
+        ? await setAccountBalance(token, createdAccount.id, Number(value.replace(/[^0-9.-]/g, '')))
+        : await updateAccount(
+            token,
+            createdAccount.id,
+            toAccountPayload(withSetupDetail(createdAccount, item.key, value))
+          );
+    setCreatedAccount(updated);
+  };
+
   return (
     <SafeAreaView
       style={[styles.safeArea, { backgroundColor: theme.background }]}
@@ -549,6 +566,7 @@ export default function ManageAccountScreen() {
           </>
         ) : (
           <AccountFormSuccess
+            onSaveDetail={saveCreatedDetail}
             createdAccount={createdAccount}
             handleSetCreatedDefault={handleSetCreatedDefault}
             isSaving={isSaving}
