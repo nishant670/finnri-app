@@ -36,7 +36,26 @@ export type NotificationJob = {
   stackTitle: string | null;
 };
 
-const familyOf = (type: string) => type.split('.')[0];
+/**
+ * The reminders that are the same job at different stages: a bill coming up,
+ * due today and overdue is one bill to pay. Anything else about the same
+ * thing (a card's statement to add, a subscription's cancel-by) is a job of
+ * its own.
+ */
+const STAGE_OF_SAME_JOB: Record<string, string> = {
+  'subscription.due': 'subscription.payment',
+  'subscription.overdue': 'subscription.payment',
+  'card_statement.due_soon': 'card_statement.payment',
+  'card_statement.due_today': 'card_statement.payment',
+  'card_statement.overdue': 'card_statement.payment',
+};
+
+/**
+ * Links that do not name one thing. Reminders from before subscription links
+ * named their subscription all point at "/subscriptions", so they must not be
+ * stacked as if they were about one payment.
+ */
+const GENERIC_LINKS = new Set(['/subscriptions', '/notifications']);
 
 /** What makes two notifications the same job. */
 const jobKey = (notification: AppNotification) => {
@@ -48,10 +67,11 @@ const jobKey = (notification: AppNotification) => {
     case 'subscription.autopay':
       // Each autopay charge has its own Confirm / Fix it.
       return `autopay:${notification.id}`;
-    default:
-      return notification.action_url
-        ? `${familyOf(notification.type)}:${notification.action_url}`
-        : `id:${notification.id}`;
+    default: {
+      const url = notification.action_url;
+      if (!url || GENERIC_LINKS.has(url)) return `id:${notification.id}`;
+      return `${STAGE_OF_SAME_JOB[notification.type] ?? notification.type}:${url}`;
+    }
   }
 };
 

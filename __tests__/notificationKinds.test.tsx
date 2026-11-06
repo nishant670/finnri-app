@@ -186,6 +186,18 @@ describe('Notifications with proposals (P45–P49)', () => {
     expect(updates.map((item: AppNotification) => item.id)).toEqual([5]);
   });
 
+  it('never stacks different payments that share an old generic link, or different jobs', () => {
+    const { needs } = buildNotificationSections([
+      notification({ id: 21, type: 'subscription.overdue', action_url: '/subscriptions', title: 'Netflix is overdue' }),
+      notification({ id: 22, type: 'subscription.due', action_url: '/subscriptions', title: 'Spotify is due' }),
+      notification({ id: 23, type: 'card_statement.statement_expected', action_url: '/accounts/9', title: 'Statement is out' }),
+      notification({ id: 24, type: 'card_statement.due_soon', action_url: '/accounts/9', title: 'Bill due soon' }),
+      notification({ id: 25, type: 'subscription.cancel', action_url: '/recurring/3', title: 'Cancel Zee' }),
+      notification({ id: 26, type: 'subscription.due', action_url: '/recurring/3', title: 'Zee is due' }),
+    ]);
+    expect(needs).toHaveLength(6);
+  });
+
   it('shows the amount on the right and answers settle-ups in place', async () => {
     mockFetchNotifications.mockResolvedValue({
       notifications: [

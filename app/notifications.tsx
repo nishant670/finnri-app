@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Fragment, useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -119,6 +119,7 @@ export default function NotificationsScreen() {
   const [payAccounts, setPayAccounts] = useState<Account[]>([]);
   const [isPaying, setIsPaying] = useState(false);
   const [payError, setPayError] = useState<string | null>(null);
+  const payLists = useRef<[Subscription[], Account[]] | null>(null);
 
   const markRead = async (notification: AppNotification) => {
     if (!token || notification.read_at) return;
@@ -199,7 +200,9 @@ export default function NotificationsScreen() {
     setPayError(null);
     setActionError(null);
     try {
-      const [subscriptions, accounts] = await Promise.all([fetchSubscriptions(token), fetchAccounts(token)]);
+      // Read once per visit: a second Mark paid opens straight away.
+      payLists.current ??= await Promise.all([fetchSubscriptions(token), fetchAccounts(token)]);
+      const [subscriptions, accounts] = payLists.current;
       const subscription = subscriptions.find((item) => item.id === id);
       if (!subscription) {
         setActionError('That payment is no longer in Recurring.');
@@ -219,6 +222,8 @@ export default function NotificationsScreen() {
     try {
       await markSubscriptionPaid(token, payingFor.id, todayISO(), choice);
       haptics.saved();
+      // Its next due date moved; read it again next time.
+      payLists.current = null;
       setPayingFor(null);
       await load(true);
     } catch (paidError) {
