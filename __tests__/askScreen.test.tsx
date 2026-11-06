@@ -154,3 +154,13 @@ describe('Ask Finnri proposals (P64–P67)', () => {
     });
   });
 });
+
+describe('Follow-up threads stay short (P67)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { threadOf } = require('@/app/ask');
+  it('keeps the first question and the last two', () => {
+    expect(threadOf(null, 'A')).toBe('A');
+    expect(threadOf('A → B', 'C')).toBe('A → B → C');
+    expect(threadOf('A → B → C', 'D')).toBe('A → C → D');
+  });
+});

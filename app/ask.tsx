@@ -44,6 +44,18 @@ const STARTERS: { question: string; icon: keyof typeof MaterialCommunityIcons.gl
   { question: 'Where did my money go this month?', icon: 'chart-pie' },
 ];
 
+/**
+ * A follow-up's thread, kept short: the question that started it (its
+ * subject) and the last two asked. The server reads only so much context, and
+ * the question just before a follow-up is the one it most needs (P67).
+ */
+export const threadOf = (context: string | null, question: string) => {
+  if (!context) return question;
+  const steps = [...context.split(' → '), question];
+  const kept = steps.length <= 3 ? steps : [steps[0], ...steps.slice(-2)];
+  return kept.join(' → ');
+};
+
 export default function AskFinnriScreen() {
   const router = useRouter();
   const theme = useThemeTokens();
@@ -146,7 +158,7 @@ export default function AskFinnriScreen() {
     const id = nextID.current++;
     setTurns((current) => [
       ...current,
-      { id, question, asked: contextQuestion ? `${contextQuestion} → ${question}` : question },
+      { id, question, asked: threadOf(contextQuestion, question) },
     ]);
     setInput('');
     setIsSending(true);
