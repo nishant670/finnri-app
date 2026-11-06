@@ -89,7 +89,7 @@ import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubs
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { fetchBudgets } from '@/lib/budgets';
-import { FIRST_ENTRY_PHRASE, useSpeakLanguage } from '@/lib/speak-language';
+import { FIRST_ENTRY_PHRASE, loadSpeakLanguage, useSpeakLanguage } from '@/lib/speak-language';
 import { isFirstEntryDismissed, dismissFirstEntry } from '@/lib/first-entry';
 import {
   captureCreditsFor,
@@ -874,8 +874,12 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!showFirstEntry || firstEntrySeeded.current) return;
     firstEntrySeeded.current = true;
-    setInputText((current) => current || FIRST_ENTRY_PHRASE[speakLanguage]);
-  }, [showFirstEntry, speakLanguage]);
+    // The saved language, not the English the hook starts on before storage
+    // answers: a Hindi speaker must not get the English sentence for good.
+    void loadSpeakLanguage().then((language) =>
+      setInputText((current) => current || FIRST_ENTRY_PHRASE[language])
+    );
+  }, [showFirstEntry]);
   const putAwayFirstEntry = useCallback(() => {
     setFirstEntryDismissed(true);
     void dismissFirstEntry();
