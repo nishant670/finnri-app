@@ -24,14 +24,20 @@ const listeners = new Set<(language: SpeakLanguage) => void>();
 
 const isLanguage = (value: unknown): value is SpeakLanguage => value === 'en' || value === 'hi';
 
-export const loadSpeakLanguage = () => {
+/**
+ * The language as it is now: read from storage once, then whatever was last
+ * chosen. Not the value the first read resolved to — choosing हिंदी after
+ * that read must still reach Home (found on the device: the first entry came
+ * up in English).
+ */
+export const loadSpeakLanguage = (): Promise<SpeakLanguage> => {
   loaded ??= AsyncStorage.getItem(STORAGE_KEY)
     .then((stored) => {
       if (isLanguage(stored)) cache = stored;
       return cache;
     })
     .catch(() => cache);
-  return loaded;
+  return loaded.then(() => cache);
 };
 
 export const setSpeakLanguage = (language: SpeakLanguage) => {

@@ -59,3 +59,17 @@ describe('First entry on Home (P70)', () => {
     expect(props.onSend).not.toHaveBeenCalled();
   });
 });
+
+describe('The chosen language reaches Home (P69, P70)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const languages = require('@/lib/speak-language');
+  it('answers with the latest choice, not the first read', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const storage = require('@react-native-async-storage/async-storage');
+    await (storage.default ?? storage).clear();
+    languages.resetSpeakLanguageForTests();
+    expect(await languages.loadSpeakLanguage()).toBe('en');
+    languages.setSpeakLanguage('hi');
+    expect(await languages.loadSpeakLanguage()).toBe('hi');
+  });
+});
