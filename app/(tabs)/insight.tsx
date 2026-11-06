@@ -152,9 +152,13 @@ export default function InsightScreen() {
       },
     });
   };
-  const monthName = (currentRange.start ?? new Date()).toLocaleDateString('en-GB', {
-    month: 'long',
-  });
+  const windowStart = currentRange.start ?? new Date();
+  const monthName = windowStart.toLocaleDateString('en-GB', { month: 'long' });
+  const previousMonthName = new Date(
+    windowStart.getFullYear(),
+    windowStart.getMonth() - 1,
+    1
+  ).toLocaleDateString('en-GB', { month: 'long' });
   const glanceHeading =
     currentRange.preset === 'this_month' ? `Spent in ${monthName} so far` : `Spent · ${currentRange.label}`;
 
@@ -297,7 +301,7 @@ export default function InsightScreen() {
         {/* P32 */}
         {insightLevel >= 2 ? (
           <Reflow>
-            <AskSuggestions monthName={monthName} />
+            <AskSuggestions monthName={monthName} previousMonthName={previousMonthName} />
           </Reflow>
         ) : null}
 

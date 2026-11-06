@@ -347,7 +347,9 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
                 meta={
                   group.key === 'cards'
                     ? `${group.accounts.length} card${group.accounts.length === 1 ? '' : 's'}`
-                    : `${group.accounts.length} account${group.accounts.length === 1 ? '' : 's'}`
+                    : group.key === 'paylater'
+                      ? `${group.accounts.length} line${group.accounts.length === 1 ? '' : 's'}`
+                      : `${group.accounts.length} account${group.accounts.length === 1 ? '' : 's'}`
                 }
                 amount={group.amount !== null ? formatMoney(group.amount) : undefined}
                 status={group.amount !== null ? group.amountLabel : undefined}

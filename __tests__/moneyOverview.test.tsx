@@ -64,6 +64,22 @@ describe('Honest card total (P19)', () => {
   });
 });
 
+describe('Pay later is not a card', () => {
+  it('keeps pay-later lines out of the card total and gives them their own row', () => {
+    const lazyPay = { ...card(3, 700, 0), name: 'LazyPay', credit_kind: 'pay_later' } as Account;
+    expect(cardTotalSummary([card(1, 1000, 50000), lazyPay])).toMatchObject({
+      cards: 1,
+      outstanding: 1000,
+      headline: '₹1,000 owed on 1 card',
+      caption: 'of ₹50,000 limit',
+    });
+    expect(accountKindGroups([card(1, 1000, 50000), lazyPay]).map((group) => [group.label, group.amount])).toEqual([
+      ['Credit cards', 1000],
+      ['Pay later', 700],
+    ]);
+  });
+});
+
 describe('Accounts by kind (P17)', () => {
   it('sums what the cards owe and leaves a balance out when one is unknown', () => {
     const bank = { id: 9, type: 'bank', name: 'SBI', summary: {} } as unknown as Account;

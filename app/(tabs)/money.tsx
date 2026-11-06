@@ -105,12 +105,13 @@ export default function MoneyScreen() {
       {list === 'bills' && (
         <SubscriptionsPanel
           embedded
-          header={({ reload, version }) => (
+          header={({ reload, version, add, open }) => (
             <UpcomingPanel
               scroll={false}
               reloadKey={version}
               onChanged={reload}
-              onOpenRecurring={() => undefined}
+              onOpenRecurring={open}
+              onAddRecurring={add}
             />
           )}
         />

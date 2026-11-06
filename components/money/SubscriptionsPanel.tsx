@@ -97,7 +97,14 @@ export function SubscriptionsPanel({
    * there (P18). `version` moves after every load, and `reload` refreshes
    * the list after the header changes something.
    */
-  header?: (controls: { reload: () => void; version: number }) => ReactNode;
+  header?: (controls: {
+    reload: () => void;
+    version: number;
+    /** Opens the add sheet, for the header's own empty state. */
+    add: () => void;
+    /** Opens a recurring payment's actions, for a due the header lists. */
+    open: (subscriptionId: number) => void;
+  }) => ReactNode;
 }) {
   const router = useRouter();
   const sheetBottom = useBottomInset(24);
@@ -744,7 +751,17 @@ export function SubscriptionsPanel({
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
-        {header ? header({ reload: () => void load(), version: loadVersion }) : null}
+        {header
+          ? header({
+              reload: () => void load(),
+              version: loadVersion,
+              add: () => openCreateForm(),
+              open: (subscriptionId) => {
+                const item = subscriptions.find((candidate) => candidate.id === subscriptionId);
+                if (item) openActions(item);
+              },
+            })
+          : null}
         {visibleCandidates.length > 0 && (
           <View style={styles.gutter}>
             <RecurringCandidatesCard

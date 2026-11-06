@@ -148,8 +148,10 @@ describe('What stands out (P30, P34)', () => {
 
 describe('Ask Finnri suggestions (P32)', () => {
   it('asks the tapped question on the Ask screen', async () => {
-    const screen = await render(<AskSuggestions monthName="October" />);
+    const screen = await render(<AskSuggestions monthName="October" previousMonthName="September" />);
     expect(screen.getByText('Uses AI credits')).toBeTruthy();
+    // The month before the one on screen, not before today.
+    expect(screen.getByText('How does October compare to September?')).toBeTruthy();
     await fireEvent.press(screen.getByText('Where did my money go this week?'));
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/ask',

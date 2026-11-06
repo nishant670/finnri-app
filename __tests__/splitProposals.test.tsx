@@ -75,6 +75,14 @@ describe('Your side of an activity row (P26)', () => {
     ).toMatchObject({ label: 'you owe ₹300', tone: 'negative' });
   });
 
+  it('says nothing on a row someone else recorded, whose directions face them', () => {
+    const theirs = {
+      ...bill([{ friend_id: 1, share_amount: 300, direction: 'friend_owes_user' }]),
+      actor_name: 'Asha',
+    } as SplitActivityItem;
+    expect(activityYourSide(theirs)).toBeNull();
+  });
+
   it('says which way a settlement went', () => {
     const settlement = {
       id: 's',

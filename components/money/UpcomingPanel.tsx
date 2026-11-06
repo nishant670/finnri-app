@@ -26,8 +26,10 @@ import {
 const HORIZON_DAYS = 30;
 
 type UpcomingPanelProps = {
-  /** Where a recurring payment's row, and the empty state's Add, lead. */
-  onOpenRecurring: () => void;
+  /** Where a recurring payment's row leads, given its subscription id. */
+  onOpenRecurring: (subscriptionId: number) => void;
+  /** The empty state's "Add a subscription". */
+  onAddRecurring: () => void;
   prefetchedAccounts?: Account[];
   prefetchedSubscriptions?: Subscription[];
   /**
@@ -51,6 +53,7 @@ type UpcomingPanelProps = {
  */
 export function UpcomingPanel({
   onOpenRecurring,
+  onAddRecurring,
   prefetchedAccounts,
   prefetchedSubscriptions,
   scroll = true,
@@ -144,7 +147,7 @@ export function UpcomingPanel({
       router.push({ pathname: '/entry/[id]', params: { id: String(due.sourceID) } });
       return;
     }
-    onOpenRecurring();
+    onOpenRecurring(due.sourceID);
   };
 
   const visualFor = (due: UpcomingDue) => {
@@ -255,7 +258,7 @@ export function UpcomingPanel({
               title="Nothing due yet"
               message="Renewals, credit card due dates, and money expected back land here once Finnri knows about them."
               actionLabel="Add a subscription"
-              onAction={onOpenRecurring}
+              onAction={onAddRecurring}
             />
           </View>
         ) : (

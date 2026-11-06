@@ -1,3 +1,4 @@
+import { isPayLater } from './account-display';
 import { normalizeAccountType, type Account, type AccountType } from './accounts';
 import { formatMoney } from './money';
 import type { UpcomingDue } from './upcoming';
@@ -8,7 +9,11 @@ import type { UpcomingDue } from './upcoming';
  * against the debt on all of them made a ₹1L balance read as nearly nothing.
  */
 export const cardTotalSummary = (accounts: Account[]) => {
-  const cards = accounts.filter((account) => normalizeAccountType(account.type) === 'credit_card');
+  // A pay-later line runs on the card machinery but is not a card: it has its
+  // own row on Money, so "owed on 2 cards" never counts LazyPay as one.
+  const cards = accounts.filter(
+    (account) => normalizeAccountType(account.type) === 'credit_card' && !isPayLater(account)
+  );
   const outstanding = cards.reduce(
     (sum, card) => sum + (card.summary?.outstanding ?? card.balance ?? 0),
     0
@@ -35,7 +40,7 @@ export const cardTotalSummary = (accounts: Account[]) => {
 };
 
 export type AccountKindGroup = {
-  key: 'cards' | 'bank' | 'wallets' | 'cash' | 'other';
+  key: 'cards' | 'paylater' | 'bank' | 'wallets' | 'cash' | 'other';
   label: string;
   icon: string;
   hue: string;
@@ -54,6 +59,7 @@ const KIND_GROUPS: {
   types: AccountType[];
 }[] = [
   { key: 'cards', label: 'Credit cards', icon: 'credit-card-outline', hue: '#8257E5', types: ['credit_card'] },
+  { key: 'paylater', label: 'Pay later', icon: 'timer-sand', hue: '#8257E5', types: ['credit_card'] },
   { key: 'bank', label: 'Bank', icon: 'bank-outline', hue: '#1E6FB8', types: ['bank', 'debit_card'] },
   { key: 'wallets', label: 'Wallets & UPI', icon: 'wallet-outline', hue: '#64748B', types: ['wallet', 'upi'] },
   { key: 'cash', label: 'Cash', icon: 'cash', hue: '#1F9D63', types: ['cash'] },
@@ -66,11 +72,18 @@ const KIND_GROUPS: {
  */
 export const accountKindGroups = (accounts: Account[]): AccountKindGroup[] =>
   KIND_GROUPS.map((group) => {
-    const members = accounts.filter((account) =>
-      group.types.includes(normalizeAccountType(account.type))
+    const members = accounts.filter(
+      (account) =>
+        group.types.includes(normalizeAccountType(account.type)) &&
+        (group.key === 'cards'
+          ? !isPayLater(account)
+          : group.key === 'paylater'
+            ? isPayLater(account)
+            : true)
     );
+    const owes = group.key === 'cards' || group.key === 'paylater';
     let amount: number | null = null;
-    if (group.key === 'cards') {
+    if (owes) {
       amount = members.reduce(
         (sum, card) => sum + (card.summary?.outstanding ?? card.balance ?? 0),
         0
@@ -88,7 +101,7 @@ export const accountKindGroups = (accounts: Account[]): AccountKindGroup[] =>
       hue: group.hue,
       accounts: members,
       amount,
-      amountLabel: group.key === 'cards' ? 'owed' : 'balance',
+      amountLabel: owes ? 'owed' : 'balance',
     };
   }).filter((group) => group.accounts.length > 0);
 

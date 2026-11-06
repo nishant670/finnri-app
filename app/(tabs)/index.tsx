@@ -612,8 +612,7 @@ export default function HomeScreen() {
   }, [token]);
 
   const fetchCredits = useCallback(
-    // `silent` is kept for callers; the card no longer shows a loading state.
-    async (_silent = false) => {
+    async () => {
       if (!token) {
         setBillingStatus(null);
         return;
@@ -651,7 +650,7 @@ export default function HomeScreen() {
     enabled: !user?.is_guest,
     canInterrupt: useCallback(() => !giftBlockedRef.current, []),
     onAnnounce: useCallback(() => {
-      void fetchCredits(true);
+      void fetchCredits();
     }, [fetchCredits]),
   });
   const checkForGift = giftAnnouncement.check;
@@ -668,7 +667,7 @@ export default function HomeScreen() {
       const now = Date.now();
       if (now - lastForegroundRefreshRef.current < FOREGROUND_REFRESH_INTERVAL_MS) return;
       lastForegroundRefreshRef.current = now;
-      void fetchCredits(true);
+      void fetchCredits();
       void fetchNotificationCount();
       void checkForGift();
     });
@@ -731,13 +730,23 @@ export default function HomeScreen() {
    * plan that can't read budgets counts as none set.
    */
   const [hasBudget, setHasBudget] = useState<boolean | null>(null);
+  /**
+   * Once a budget exists, or Home has outgrown "Get started", the answer can
+   * no longer change what is drawn — so stop asking on every focus.
+   */
+  const budgetPresenceSettled = useRef(false);
   const fetchBudgetPresence = useCallback(async () => {
-    if (!token) return;
+    if (!token || budgetPresenceSettled.current) return;
     try {
-      setHasBudget((await fetchBudgets(token)).length > 0);
+      const found = (await fetchBudgets(token)).length > 0;
+      if (found) budgetPresenceSettled.current = true;
+      setHasBudget(found);
     } catch {
       setHasBudget(false);
     }
+  }, [token]);
+  useEffect(() => {
+    budgetPresenceSettled.current = false;
   }, [token]);
 
   useFocusEffect(
@@ -823,11 +832,15 @@ export default function HomeScreen() {
    * "Get started" belongs to a new Home (P5): it shows until every step is
    * done or a handful of entries say the app is already in use.
    */
+  const outgrewGetStarted = Math.max(entryTotal, transactions.length) >= GET_STARTED_MAX_ENTRIES;
+  useEffect(() => {
+    if (outgrewGetStarted) budgetPresenceSettled.current = true;
+  }, [outgrewGetStarted]);
   const showGetStarted =
     !isEntriesLoading &&
     !entriesError &&
     hasBudget !== null &&
-    Math.max(entryTotal, transactions.length) < GET_STARTED_MAX_ENTRIES &&
+    !outgrewGetStarted &&
     startSteps.some((step) => !step.done);
 
   /**
@@ -1260,7 +1273,7 @@ export default function HomeScreen() {
           captureCreditsFor(billingStatus, kind);
         setCreditAction({ ...creditAction, block: creditBlockFor(billingStatus, required) });
         if (!user?.is_guest) void offerPlansForBlockedAI(creditAction.reason);
-        void fetchCredits(true);
+        void fetchCredits();
         return true;
       }
       return false;
@@ -1360,13 +1373,13 @@ export default function HomeScreen() {
       const abandoned = () => scanId !== receiptScanId.current;
       try {
         const data = await parseReceiptDraft({ token, uri });
-        void fetchCredits(true);
+        void fetchCredits();
         if (abandoned()) return;
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
         applyParsedDraft(data, 'Receipt photo', 'receipt', uri);
       } catch (error) {
-        void fetchCredits(true);
+        void fetchCredits();
         if (abandoned()) return;
         if (showCreditParseError(error, 'receipt')) {
           setIsEditOpen(false);
@@ -1509,7 +1522,7 @@ export default function HomeScreen() {
           };
         }
         const result = await parseEntryDraft({ token, hintText: trimmed, audio });
-        void fetchCredits(true);
+        void fetchCredits();
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
 

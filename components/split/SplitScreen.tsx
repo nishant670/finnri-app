@@ -1038,9 +1038,20 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           ? undefined
           : ((await resolveAttachmentForSave(token, groupPhotoUri || null)) ?? '');
       // New names become friends first, so the group can hold them (P28).
-      const createdFriends = await Promise.all(
-        newGroupMemberNames.map((name) => createSplitFriend(token, newMemberPayload(name)))
-      );
+      // Each one moves over to the picked friends as soon as it exists, so a
+      // retry after a later failure reuses it instead of making it twice.
+      const createdFriendIds: number[] = [];
+      for (const name of newGroupMemberNames) {
+        const friend = await createSplitFriend(token, newMemberPayload(name));
+        createdFriendIds.push(friend.id);
+        setFriends((current) =>
+          current.some((existing) => existing.id === friend.id) ? current : [...current, friend]
+        );
+        setSelectedGroupFriendIds((current) =>
+          current.includes(friend.id) ? current : [...current, friend.id]
+        );
+        setNewGroupMemberNames((current) => current.filter((candidate) => candidate !== name));
+      }
       const payload = {
         name: groupName.trim(),
         kind: groupKind,
@@ -1054,7 +1065,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           ? Math.round(balanceAlertAmount * 100) / 100
           : 0,
         ...(photoUrl === undefined ? {} : { photo_url: photoUrl }),
-        friend_ids: [...selectedGroupFriendIds, ...createdFriends.map((friend) => friend.id)],
+        friend_ids: [...selectedGroupFriendIds, ...createdFriendIds],
       };
       const savedGroup = editingGroupId
         ? await updateSplitGroup(token, editingGroupId, payload)

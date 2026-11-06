@@ -335,9 +335,16 @@ function CandidateRow({
 }
 
 /** "Ask Finnri" suggestions (P32): each one asks, so the section says it costs. */
-export function AskSuggestions({ monthName }: { monthName: string }) {
+export function AskSuggestions({
+  monthName,
+  previousMonthName,
+}: {
+  monthName: string;
+  /** The month before the one on screen — not before today. */
+  previousMonthName: string;
+}) {
   const { colors } = useThemeTokens();
-  const questions = askSuggestions(monthName, lastMonth().name);
+  const questions = askSuggestions(monthName, previousMonthName);
   return (
     <View>
       <View style={styles.askHead}>

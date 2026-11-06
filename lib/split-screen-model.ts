@@ -206,6 +206,11 @@ export const activityDateLabel = (item: SplitActivityItem, now: Date = new Date(
 export const activityYourSide = (
   item: SplitActivityItem
 ): { amount: number; label: string; tone: 'positive' | 'negative' } | null => {
+  // A row someone else recorded states its participants' `direction` (and a
+  // settlement's) from that person's side, not the caller's. Read literally it
+  // tells you that you lent money you in fact owe, so say nothing rather than
+  // the opposite of the truth.
+  if (item.actor_name) return null;
   if (item.type === 'bill') {
     const lent = (item.participants ?? [])
       .filter((participant) => participant.direction === 'friend_owes_user')
