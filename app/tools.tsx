@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -14,33 +14,29 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
-import { PrimaryButton } from '@/components/ui/Button';
-import { ErrorBanner } from '@/components/ui/ErrorBanner';
+import { EMIYearsChart, SIPGrowthChart } from '@/components/tools/CalculatorCharts';
+import { Button } from '@/components/ui/Button';
 import { PressableView } from '@/components/ui/PressableView';
 import { Segments } from '@/components/ui/Segments';
-import { StateView } from '@/components/ui/StateView';
+import { Slider } from '@/components/ui/Slider';
 import { Fonts, mixHex } from '@/constants/theme';
-import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { CURRENCY_SYMBOL } from '@/constants/Currency';
-import { getFriendlyErrorMessage } from '@/lib/api-error';
-import { formatMoney } from '@/lib/money';
-import { calculateEMI, type EMICalculation, type EMIScheduleMonth } from '@/lib/emi';
+import { formatMoney, toAmountString } from '@/lib/money';
 import {
+  calculateEMILocal,
+  emiYears,
+  prepaymentWhatIf,
+  type EMIScheduleMonth,
+} from '@/lib/emi';
+import {
+  SIP_INFLATION_PERCENT,
   calculateSIP,
+  inTodaysMoney,
   sipPresets,
-  type SIPCalculation,
   type SIPPreset,
   type SIPPresetID,
 } from '@/lib/sip';
-
-const ratePresets = [8.5, 9.5, 10.5, 12];
-const tenurePresets = [
-  { label: '1 yr', months: 12 },
-  { label: '3 yrs', months: 36 },
-  { label: '5 yrs', months: 60 },
-  { label: '20 yrs', months: 240 },
-];
 
 type ToolID = 'sip' | 'emi';
 
@@ -48,6 +44,20 @@ const toolOptions = [
   { key: 'sip', label: 'SIP · Investments', testID: 'tools-tab-sip' },
   { key: 'emi', label: 'EMI · Loans', testID: 'tools-tab-emi' },
 ] as const;
+
+/** Each slider's range and step (boards R11-SIP-Proposals, R11-EMI-Proposals). */
+const RANGES = {
+  sipMonthly: { min: 500, max: 250000, step: 500 },
+  sipReturn: { min: 1, max: 30, step: 0.5 },
+  sipYears: { min: 1, max: 40, step: 1 },
+  sipStepUp: { min: 0, max: 25, step: 1 },
+  emiPrincipal: { min: 10000, max: 5000000, step: 10000 },
+  emiRate: { min: 5, max: 24, step: 0.1 },
+  emiMonths: { min: 6, max: 360, step: 6 },
+} as const;
+
+/** What the "pay more each month" line can try (P54). */
+const EXTRA_CHOICES = [1000, 2000, 5000, 10000, 25000];
 
 /** `about ₹3.34 crore`, `about ₹12.5 lakh`; nothing under a lakh, where the figure says it all. */
 const inWords = (amount: number) => {
@@ -63,9 +73,25 @@ const yearsLabel = (months: number) => {
   return `${years} year${years === 1 ? '' : 's'}`;
 };
 
+const monthsLabel = (months: number) => {
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'}`;
+  const years = Math.floor(months / 12);
+  const rest = months % 12;
+  return [`${years} yr${years === 1 ? '' : 's'}`, rest ? `${rest} mo` : null].filter(Boolean).join(' ');
+};
+
 const parseDecimalInput = (value: string) => Number(value.replace(/,/g, '').trim());
 
 const sanitizeNumericInput = (value: string) => value.replace(/[^0-9.]/g, '');
+
+/** A slider's value as the field's text: `12.5`, not `12.500000001`. */
+const fieldText = (value: number) => String(Number(value.toFixed(2)));
+
+/** A sensible first "pay more" amount: about a third of the EMI, from the choices. */
+const defaultExtra = (emi: number) =>
+  EXTRA_CHOICES.reduce((best, choice) =>
+    Math.abs(choice - emi / 3) < Math.abs(best - emi / 3) ? choice : best
+  );
 
 /**
  * `100000` as `1,00,000` while it is typed (board R11-SIP), the way the amount
@@ -80,12 +106,22 @@ const groupIndian = (raw: string) => {
   return [`${head},${last}`, ...rest].join('.');
 };
 
+/**
+ * SIP and EMI calculators (boards R11-SIP-Proposals and R11-EMI-Proposals).
+ *
+ * The answer sits on top and moves as the inputs do (P50): both are worked
+ * out on the phone, so there is no Calculate button, no sign-in and no
+ * connection to wait for. Every input has a slider as well as its field
+ * (P51). Each answer leads with a chart and keeps the table a tap away (P52),
+ * ends with a way to track it in Finnri (P53), and carries one what-if line
+ * (P54): today's money for a SIP, paying a little more for a loan.
+ */
 export default function ToolsScreen() {
   const router = useRouter();
-  const { token } = useAuthStore();
   const { colors } = useThemeTokens();
 
   const [activeTool, setActiveTool] = useState<ToolID>('sip');
+  const [showTable, setShowTable] = useState(false);
 
   const [activeSIPPresetID, setActiveSIPPresetID] = useState<SIPPresetID>('mutual_fund');
   const [sipMonthlyInvestment, setSipMonthlyInvestment] = useState('10000');
@@ -93,35 +129,53 @@ export default function ToolsScreen() {
   const [sipTenureYears, setSipTenureYears] = useState('10');
   const [sipAnnualStepUp, setSipAnnualStepUp] = useState('10');
   const [sipCurrentCorpus, setSipCurrentCorpus] = useState('0');
-  const [sipResult, setSipResult] = useState<SIPCalculation | null>(null);
-  const [sipError, setSipError] = useState<string | null>(null);
 
   const [principal, setPrincipal] = useState('500000');
   const [rate, setRate] = useState('10.5');
   const [tenure, setTenure] = useState('60');
-  const [result, setResult] = useState<EMICalculation | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [calculating, setCalculating] = useState(false);
-  const [showFullSchedule, setShowFullSchedule] = useState(false);
+  const [extra, setExtra] = useState<number | null>(null);
+  const [isChoosingExtra, setIsChoosingExtra] = useState(false);
 
-  const visibleSchedule = result?.schedule.slice(0, showFullSchedule ? undefined : 12) ?? [];
-  const visibleSIPBreakdown = sipResult?.breakdown.slice(0, showFullSchedule ? undefined : 10) ?? [];
+  const sipInputs = {
+    monthlyInvestment: parseDecimalInput(sipMonthlyInvestment),
+    expectedAnnualReturnPercent: parseDecimalInput(sipExpectedReturn),
+    tenureYears: parseDecimalInput(sipTenureYears),
+    annualStepUpPercent: parseDecimalInput(sipAnnualStepUp || '0'),
+    currentCorpus: parseDecimalInput(sipCurrentCorpus || '0'),
+  };
+  const sipProblem = sipInputProblem(sipInputs);
+  const sipResult = useMemo(
+    () => (sipProblem ? null : calculateSIP(sipInputs)),
+    // The parsed numbers are what matters; the object is rebuilt each render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [sipProblem, sipMonthlyInvestment, sipExpectedReturn, sipTenureYears, sipAnnualStepUp, sipCurrentCorpus]
+  );
 
-  /*
-   * A result describes the inputs it was worked out from. Changing any of them
-   * used to leave the old answer on screen under the new numbers (a fix drawn
-   * into board R11-SIP), so an edit now clears it until Calculate is pressed.
-   */
+  const emiPrincipal = parseDecimalInput(principal);
+  const emiRate = parseDecimalInput(rate);
+  const emiMonths = Math.round(parseDecimalInput(tenure));
+  const emiResult = useMemo(
+    () => calculateEMILocal(emiPrincipal, emiRate, emiMonths),
+    [emiMonths, emiPrincipal, emiRate]
+  );
+  const emiProblem = emiResult ? null : emiInputProblem(emiPrincipal, emiRate, emiMonths);
+  const extraAmount = extra ?? (emiResult ? defaultExtra(emiResult.monthly_emi) : 0);
+  const whatIf = useMemo(
+    () => (emiResult ? prepaymentWhatIf(emiResult, extraAmount) : null),
+    [emiResult, extraAmount]
+  );
+
   const editSIP = (setter: (value: string) => void) => (value: string) => {
     setter(sanitizeNumericInput(value));
-    setSipResult(null);
-    setShowFullSchedule(false);
+    setActiveSIPPresetID('custom');
   };
-  const editEMI = (setter: (value: string) => void) => (value: string) => {
+  const slideSIP = (setter: (value: string) => void) => (value: number) => {
+    setter(fieldText(value));
+    setActiveSIPPresetID('custom');
+  };
+  const editEMI = (setter: (value: string) => void) => (value: string) =>
     setter(sanitizeNumericInput(value));
-    setResult(null);
-    setShowFullSchedule(false);
-  };
+  const slideEMI = (setter: (value: string) => void) => (value: number) => setter(fieldText(value));
 
   const applySIPPreset = (preset: SIPPreset) => {
     setActiveSIPPresetID(preset.id);
@@ -130,114 +184,41 @@ export default function ToolsScreen() {
     setSipTenureYears(String(preset.tenureYears));
     setSipAnnualStepUp(String(preset.annualStepUpPercent));
     setSipCurrentCorpus(String(preset.currentCorpus));
-    setSipError(null);
-    setSipResult(null);
-    setShowFullSchedule(false);
   };
 
-  const handleCalculateSIP = () => {
-    const monthlyInvestment = parseDecimalInput(sipMonthlyInvestment);
-    const expectedAnnualReturnPercent = parseDecimalInput(sipExpectedReturn);
-    const tenureYears = parseDecimalInput(sipTenureYears);
-    const annualStepUpPercent = parseDecimalInput(sipAnnualStepUp || '0');
-    const currentCorpus = parseDecimalInput(sipCurrentCorpus || '0');
-    const clientErrors: string[] = [];
-
-    if (!Number.isFinite(monthlyInvestment) || monthlyInvestment <= 0) {
-      clientErrors.push('Monthly investment must be positive.');
-    }
-    if (
-      !Number.isFinite(expectedAnnualReturnPercent) ||
-      expectedAnnualReturnPercent < 0 ||
-      expectedAnnualReturnPercent > 100
-    ) {
-      clientErrors.push('Expected return must be between 0 and 100.');
-    }
-    if (!Number.isFinite(tenureYears) || tenureYears <= 0 || tenureYears > 60) {
-      clientErrors.push('Tenure must be between 1 month and 60 years.');
-    }
-    if (!Number.isFinite(annualStepUpPercent) || annualStepUpPercent < 0 || annualStepUpPercent > 100) {
-      clientErrors.push('Annual step-up must be between 0 and 100.');
-    }
-    if (!Number.isFinite(currentCorpus) || currentCorpus < 0) {
-      clientErrors.push('Current corpus cannot be negative.');
-    }
-
-    if (clientErrors.length > 0) {
-      setSipError(clientErrors.join('\n'));
-      return;
-    }
-
-    setSipError(null);
-    setSipResult(
-      calculateSIP({
-        monthlyInvestment,
-        expectedAnnualReturnPercent,
-        tenureYears,
-        annualStepUpPercent,
-        currentCorpus,
-      })
-    );
-    setShowFullSchedule(false);
+  /** P53: the Recurring sheet, already filled in with what was worked out here. */
+  const trackSIP = () => {
+    if (!sipResult) return;
+    router.push({
+      pathname: '/(tabs)/money',
+      params: {
+        segment: 'subscriptions',
+        source: 'calculator',
+        kind: 'investment',
+        amount: toAmountString(sipInputs.monthlyInvestment),
+        stepUpPct: fieldText(sipInputs.annualStepUpPercent),
+      },
+    });
+  };
+  const trackLoan = () => {
+    if (!emiResult) return;
+    router.push({
+      pathname: '/(tabs)/money',
+      params: {
+        segment: 'subscriptions',
+        source: 'calculator',
+        kind: 'loan',
+        amount: toAmountString(emiResult.monthly_emi),
+        principal: toAmountString(emiResult.principal_amount),
+        ratePct: fieldText(emiResult.annual_interest_rate_percent),
+        totalEmis: String(emiResult.tenure_months),
+      },
+    });
   };
 
-  const handleCalculateEMI = async () => {
-    if (!token || calculating) return;
-
-    const principalAmount = parseDecimalInput(principal);
-    const annualRate = parseDecimalInput(rate);
-    const tenureMonths = Math.round(parseDecimalInput(tenure));
-    const clientErrors: string[] = [];
-
-    if (!Number.isFinite(principalAmount) || principalAmount <= 0) {
-      clientErrors.push('Loan amount must be positive.');
-    }
-    if (!Number.isFinite(annualRate) || annualRate < 0 || annualRate > 100) {
-      clientErrors.push('Interest rate must be between 0 and 100.');
-    }
-    if (!Number.isInteger(tenureMonths) || tenureMonths < 1 || tenureMonths > 360) {
-      clientErrors.push('Tenure must be between 1 and 360 months.');
-    }
-
-    if (clientErrors.length > 0) {
-      setError(clientErrors.join('\n'));
-      return;
-    }
-
-    setCalculating(true);
-    setError(null);
-    try {
-      const nextResult = await calculateEMI(token, {
-        principal_amount: principalAmount,
-        annual_interest_rate_percent: annualRate,
-        tenure_months: tenureMonths,
-      });
-      setResult(nextResult);
-      setShowFullSchedule(false);
-    } catch (calculationError) {
-      setError(getFriendlyErrorMessage(calculationError, 'Unable to calculate EMI.'));
-    } finally {
-      setCalculating(false);
-    }
-  };
-
-  if (!token) {
-    return (
-      <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
-        <ScreenHeader title="Calculators" onBack={() => router.back()} />
-        <View style={[styles.flex, { justifyContent: 'center' }]}>
-          <StateView
-            icon="calculator-variant-outline"
-            title="Sign in required"
-            message="Your session is needed before using financial tools."
-          />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  const sipMonthly = parseDecimalInput(sipMonthlyInvestment);
-  const emiPrincipal = parseDecimalInput(principal);
+  const sipYears = sipResult?.tenureYears ?? 0;
+  const todaysMoney = sipResult ? inTodaysMoney(sipResult.maturityValue, sipYears) : 0;
+  const emiYearRows = emiResult ? emiYears(emiResult.schedule) : [];
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right', 'bottom']}>
@@ -253,19 +234,66 @@ export default function ToolsScreen() {
             options={toolOptions}
             onChange={(tool) => {
               setActiveTool(tool);
-              setShowFullSchedule(false);
+              setShowTable(false);
             }}
           />
 
           {activeTool === 'sip' ? (
             <>
-              <ThemedText tone="muted" style={styles.intro}>
-                What a monthly investment could grow to. Pick a type to fill in typical values.
-              </ThemedText>
+              {sipResult ? (
+                <ResultCard
+                  testID="sip-result"
+                  eyebrow={`In ${sipYears} year${sipYears === 1 ? '' : 's'}, you could have`}
+                  figure={formatMoney(sipResult.maturityValue)}
+                  caption={inWords(sipResult.maturityValue)}
+                  parts={[
+                    { label: 'You put in', amount: sipResult.investedAmount, color: withInk(colors.text) },
+                    { label: 'Growth', amount: sipResult.estimatedReturns, color: colors.positive },
+                  ]}
+                  footnote={
+                    <ThemedText tone="muted" style={styles.whatIf}>
+                      {'In today’s money that is about '}
+                      <ThemedText style={[styles.whatIf, styles.whatIfStrong, { color: colors.text }]}>
+                        {inWords(todaysMoney) ?? formatMoney(todaysMoney)}
+                      </ThemedText>
+                      {`, if prices rise ${SIP_INFLATION_PERCENT}% a year.`}
+                    </ThemedText>
+                  }>
+                  <SIPGrowthChart years={sipResult.breakdown} />
+                </ResultCard>
+              ) : (
+                <ProblemNote text={sipProblem ?? 'Enter a monthly amount to see what it could grow to.'} />
+              )}
+
+              {sipResult ? (
+                <TableToggle
+                  label={showTable ? 'Hide year by year' : 'See year by year'}
+                  expanded={showTable}
+                  onPress={() => setShowTable((current) => !current)}
+                />
+              ) : null}
+              {sipResult && showTable ? (
+                // "Added that year", not "Invested": the column is each year's
+                // deposits beside a running value (a fix on board R11-SIP).
+                <Table
+                  columns={[
+                    { label: 'Year', flex: 0.6 },
+                    { label: 'Added that year', flex: 1.4, right: true },
+                    { label: 'Value at year end', flex: 1.6, right: true },
+                  ]}
+                  rows={sipResult.breakdown.map((year) => [
+                    String(year.year),
+                    formatMoney(year.yearlyInvestment),
+                    formatMoney(year.yearEndValue),
+                  ])}
+                />
+              ) : null}
+
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.chipRow}
+                style={styles.chipScroll}
                 accessibilityRole="radiogroup"
                 accessibilityLabel="Investment type">
                 {sipPresets.map((preset) => (
@@ -279,154 +307,228 @@ export default function ToolsScreen() {
               </ScrollView>
 
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <InputRow label="Monthly investment" prefix={CURRENCY_SYMBOL} value={sipMonthlyInvestment} onChangeText={editSIP(setSipMonthlyInvestment)} placeholder="10000" />
-                <InputRow label="Expected return" suffix="% a year" value={sipExpectedReturn} onChangeText={editSIP(setSipExpectedReturn)} placeholder="12" divider />
-                <InputRow label="Time period" suffix="years" value={sipTenureYears} onChangeText={editSIP(setSipTenureYears)} placeholder="10" divider />
-                <InputRow label="Yearly step-up" suffix="%" value={sipAnnualStepUp} onChangeText={editSIP(setSipAnnualStepUp)} placeholder="0" divider />
-                <InputRow label="Already invested" prefix={CURRENCY_SYMBOL} value={sipCurrentCorpus} onChangeText={editSIP(setSipCurrentCorpus)} placeholder="0" divider />
+                <InputRow
+                  label="Monthly investment"
+                  prefix={CURRENCY_SYMBOL}
+                  value={sipMonthlyInvestment}
+                  onChangeText={editSIP(setSipMonthlyInvestment)}
+                  placeholder="10000"
+                  slider={{
+                    ...RANGES.sipMonthly,
+                    value: sipInputs.monthlyInvestment,
+                    onChange: slideSIP(setSipMonthlyInvestment),
+                    format: formatMoney,
+                  }}
+                />
+                <InputRow
+                  label="Expected return"
+                  suffix="% a year"
+                  value={sipExpectedReturn}
+                  onChangeText={editSIP(setSipExpectedReturn)}
+                  placeholder="12"
+                  divider
+                  slider={{
+                    ...RANGES.sipReturn,
+                    value: sipInputs.expectedAnnualReturnPercent,
+                    onChange: slideSIP(setSipExpectedReturn),
+                    format: (value) => `${value}%`,
+                  }}
+                />
+                <InputRow
+                  label="Time period"
+                  suffix="years"
+                  value={sipTenureYears}
+                  onChangeText={editSIP(setSipTenureYears)}
+                  placeholder="10"
+                  divider
+                  slider={{
+                    ...RANGES.sipYears,
+                    value: sipInputs.tenureYears,
+                    onChange: slideSIP(setSipTenureYears),
+                    format: (value) => `${value} yr${value === 1 ? '' : 's'}`,
+                  }}
+                />
+                <InputRow
+                  label="Yearly step-up"
+                  suffix="%"
+                  value={sipAnnualStepUp}
+                  onChangeText={editSIP(setSipAnnualStepUp)}
+                  placeholder="0"
+                  divider
+                  slider={{
+                    ...RANGES.sipStepUp,
+                    value: sipInputs.annualStepUpPercent,
+                    onChange: slideSIP(setSipAnnualStepUp),
+                    format: (value) => `${value}%`,
+                  }}
+                />
+                <InputRow
+                  label="Already invested"
+                  prefix={CURRENCY_SYMBOL}
+                  value={sipCurrentCorpus}
+                  onChangeText={editSIP(setSipCurrentCorpus)}
+                  placeholder="0"
+                  divider
+                />
               </View>
 
-              {sipError ? <ErrorBanner message={sipError} /> : null}
-              <PrimaryButton testID="tools-calculate-sip" label="Calculate" onPress={handleCalculateSIP} />
-
-              {sipResult ? (
-                <>
-                  <ResultCard
-                    eyebrow={`In ${sipTenureYears} year${sipTenureYears === '1' ? '' : 's'}, you could have`}
-                    figure={formatMoney(sipResult.maturityValue)}
-                    caption={inWords(sipResult.maturityValue)}
-                    parts={[
-                      { label: 'You put in', amount: sipResult.investedAmount, color: withInk(colors.text) },
-                      { label: 'Growth', amount: sipResult.estimatedReturns, color: colors.positive },
-                    ]}
-                  />
-                  <TableHeading
-                    title="Year by year"
-                    total={sipResult.breakdown.length}
-                    visible={visibleSIPBreakdown.length}
-                    expanded={showFullSchedule}
-                    onToggle={() => setShowFullSchedule((current) => !current)}
-                  />
-                  {/* "Added that year", not "Invested": the column is each year's
-                      deposits beside a running value, and the old label made year
-                      10 read like everything put in (a fix on board R11-SIP). */}
-                  <Table
-                    columns={[
-                      { label: 'Year', flex: 0.6 },
-                      { label: 'Added that year', flex: 1.4, right: true },
-                      { label: 'Value at year end', flex: 1.6, right: true },
-                    ]}
-                    rows={visibleSIPBreakdown.map((year) => [
-                      String(year.year),
-                      formatMoney(year.yearlyInvestment),
-                      formatMoney(year.yearEndValue),
-                    ])}
-                  />
-                </>
-              ) : (
-                <StartNote
-                  text={
-                    Number.isFinite(sipMonthly) && sipMonthly > 0
-                      ? `Press Calculate to see what ${formatMoney(sipMonthly)} a month could grow to.`
-                      : 'Enter a monthly amount, then press Calculate.'
-                  }
-                />
-              )}
+              <Button
+                testID="tools-track-sip"
+                label="Track this SIP in Finnri"
+                icon="plus"
+                variant="outline"
+                height={48}
+                disabled={!sipResult}
+                onPress={trackSIP}
+              />
             </>
           ) : (
             <>
-              <ThemedText tone="muted" style={styles.intro}>
-                What a loan costs you each month, and how much of it is interest.
+              {emiResult ? (
+                <ResultCard
+                  testID="emi-result"
+                  eyebrow="Monthly EMI"
+                  figure={formatMoney(emiResult.monthly_emi)}
+                  caption={[`for ${emiResult.schedule.length} months`, yearsLabel(emiResult.schedule.length)]
+                    .filter(Boolean)
+                    .join(' · ')}
+                  parts={[
+                    { label: 'Loan', amount: emiResult.principal_amount, color: withInk(colors.text) },
+                    { label: 'Interest', amount: emiResult.total_interest, color: colors.warning },
+                  ]}
+                  total={{ label: 'You pay in total', amount: emiResult.total_payment }}
+                  footnote={
+                    whatIf ? (
+                      <View style={styles.whatIfBlock}>
+                        <ThemedText tone="muted" style={styles.whatIf}>
+                          {'Pay '}
+                          <ThemedText style={[styles.whatIf, styles.whatIfStrong, { color: colors.text }]}>
+                            {`${formatMoney(extraAmount)} more`}
+                          </ThemedText>
+                          {' a month: done '}
+                          <ThemedText style={[styles.whatIf, styles.whatIfStrong, { color: colors.text }]}>
+                            {`${monthsLabel(whatIf.monthsSooner)} sooner`}
+                          </ThemedText>
+                          {', '}
+                          <ThemedText style={[styles.whatIf, styles.whatIfStrong, { color: colors.positive }]}>
+                            {formatMoney(whatIf.interestSaved)}
+                          </ThemedText>
+                          {' less interest. '}
+                          <ThemedText
+                            accessibilityRole="button"
+                            onPress={() => setIsChoosingExtra((open) => !open)}
+                            style={[styles.whatIf, styles.whatIfLink, { color: colors.text }]}>
+                            Change
+                          </ThemedText>
+                        </ThemedText>
+                        {isChoosingExtra ? (
+                          <View style={styles.extraChoices} accessibilityRole="radiogroup" accessibilityLabel="Pay more each month">
+                            {EXTRA_CHOICES.map((choice) => (
+                              <Chip
+                                key={choice}
+                                small
+                                label={`+${formatMoney(choice)}`}
+                                selected={extraAmount === choice}
+                                onPress={() => {
+                                  setExtra(choice);
+                                  setIsChoosingExtra(false);
+                                }}
+                              />
+                            ))}
+                          </View>
+                        ) : null}
+                      </View>
+                    ) : null
+                  }>
+                  <ThemedText accessibilityRole="header" style={[styles.chartTitle, { color: colors.text }]}>
+                    Each year’s payments
+                  </ThemedText>
+                  <EMIYearsChart years={emiYearRows} />
+                </ResultCard>
+              ) : (
+                <ProblemNote text={emiProblem ?? 'Enter a loan amount to see the monthly EMI.'} />
+              )}
+
+              {emiResult ? (
+                <TableToggle
+                  label={showTable ? 'Hide month by month' : 'See month by month'}
+                  expanded={showTable}
+                  onPress={() => setShowTable((current) => !current)}
+                />
+              ) : null}
+              {emiResult && showTable ? (
+                <Table
+                  columns={[
+                    { label: 'Month', flex: 0.6 },
+                    { label: 'Principal', flex: 1.1, right: true },
+                    { label: 'Interest', flex: 1, right: true },
+                    { label: 'Balance', flex: 1.4, right: true },
+                  ]}
+                  rows={emiResult.schedule.map((month: EMIScheduleMonth) => [
+                    String(month.month),
+                    formatMoney(month.principal_amount),
+                    formatMoney(month.interest_amount),
+                    formatMoney(month.closing_balance),
+                  ])}
+                />
+              ) : null}
+
+              <ThemedText accessibilityRole="header" style={[styles.sectionTitle, { color: colors.text }]}>
+                Loan details
               </ThemedText>
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                <InputRow label="Loan amount" prefix={CURRENCY_SYMBOL} value={principal} onChangeText={editEMI(setPrincipal)} placeholder="500000" />
-                <InputRow label="Interest" suffix="% a year" value={rate} onChangeText={editEMI(setRate)} placeholder="10.5" divider>
-                  <View style={styles.presets} accessibilityRole="radiogroup" accessibilityLabel="Common rates">
-                    {ratePresets.map((preset) => (
-                      <Chip
-                        key={preset}
-                        small
-                        label={`${preset}%`}
-                        selected={Number(rate) === preset}
-                        onPress={() => editEMI(setRate)(String(preset))}
-                      />
-                    ))}
-                  </View>
-                </InputRow>
-                <InputRow label="Time period" suffix="months" value={tenure} onChangeText={editEMI(setTenure)} placeholder="60" divider>
-                  <View style={styles.presets} accessibilityRole="radiogroup" accessibilityLabel="Common periods">
-                    {tenurePresets.map((preset) => (
-                      <Chip
-                        key={preset.label}
-                        small
-                        label={preset.label}
-                        selected={Number(tenure) === preset.months}
-                        onPress={() => editEMI(setTenure)(String(preset.months))}
-                      />
-                    ))}
-                  </View>
-                </InputRow>
+                <InputRow
+                  label="Loan amount"
+                  prefix={CURRENCY_SYMBOL}
+                  value={principal}
+                  onChangeText={editEMI(setPrincipal)}
+                  placeholder="500000"
+                  slider={{
+                    ...RANGES.emiPrincipal,
+                    value: emiPrincipal,
+                    onChange: slideEMI(setPrincipal),
+                    format: formatMoney,
+                  }}
+                />
+                <InputRow
+                  label="Interest"
+                  suffix="% a year"
+                  value={rate}
+                  onChangeText={editEMI(setRate)}
+                  placeholder="10.5"
+                  divider
+                  slider={{
+                    ...RANGES.emiRate,
+                    value: emiRate,
+                    onChange: slideEMI(setRate),
+                    format: (value) => `${value}%`,
+                  }}
+                />
+                <InputRow
+                  label="Time period"
+                  suffix="months"
+                  value={tenure}
+                  onChangeText={editEMI(setTenure)}
+                  placeholder="60"
+                  divider
+                  slider={{
+                    ...RANGES.emiMonths,
+                    value: emiMonths,
+                    onChange: slideEMI(setTenure),
+                    format: (value) => (value < 12 ? `${value} mo` : monthsLabel(value)),
+                  }}
+                />
               </View>
 
-              {error ? <ErrorBanner message={error} /> : null}
-              <PrimaryButton
-                testID="tools-calculate-emi"
-                label={calculating ? 'Calculating' : 'Calculate'}
-                loading={calculating}
-                onPress={handleCalculateEMI}
+              <Button
+                testID="tools-track-loan"
+                label="Track this loan in Finnri"
+                icon="plus"
+                variant="outline"
+                height={48}
+                disabled={!emiResult}
+                onPress={trackLoan}
               />
-
-              {result ? (
-                <>
-                  <ResultCard
-                    eyebrow="Monthly EMI"
-                    figure={formatMoney(result.monthly_emi)}
-                    caption={[
-                      `for ${result.schedule.length} months`,
-                      yearsLabel(result.schedule.length),
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                    parts={[
-                      { label: 'Loan', amount: result.principal_amount, color: withInk(colors.text) },
-                      { label: 'Interest', amount: result.total_interest, color: colors.warning },
-                    ]}
-                    total={{ label: 'You pay in total', amount: result.total_payment }}
-                  />
-                  <TableHeading
-                    title="Month by month"
-                    total={result.schedule.length}
-                    visible={visibleSchedule.length}
-                    expanded={showFullSchedule}
-                    onToggle={() => setShowFullSchedule((current) => !current)}
-                  />
-                  {/* Interest has its own column now; the server always sent it
-                      and the table left it out (a fix on board R11-EMI). */}
-                  <Table
-                    columns={[
-                      { label: 'Month', flex: 0.6 },
-                      { label: 'Principal', flex: 1.1, right: true },
-                      { label: 'Interest', flex: 1, right: true },
-                      { label: 'Balance', flex: 1.4, right: true },
-                    ]}
-                    rows={visibleSchedule.map((month: EMIScheduleMonth) => [
-                      String(month.month),
-                      formatMoney(month.principal_amount),
-                      formatMoney(month.interest_amount),
-                      formatMoney(month.closing_balance),
-                    ])}
-                  />
-                </>
-              ) : (
-                <StartNote
-                  icon="calculator-variant-outline"
-                  text={
-                    Number.isFinite(emiPrincipal) && emiPrincipal > 0
-                      ? `Press Calculate to see the monthly EMI on ${formatMoney(emiPrincipal)}.`
-                      : 'Enter a loan amount, then press Calculate.'
-                  }
-                />
-              )}
             </>
           )}
         </ScrollView>
@@ -435,10 +537,64 @@ export default function ToolsScreen() {
   );
 }
 
+type SIPInputs = Parameters<typeof calculateSIP>[0];
+
+/** Why a SIP can't be worked out yet, in one line, or null when it can. */
+const sipInputProblem = (input: SIPInputs): string | null => {
+  if (!Number.isFinite(input.monthlyInvestment) || input.monthlyInvestment <= 0) {
+    return 'Enter a monthly amount to see what it could grow to.';
+  }
+  if (
+    !Number.isFinite(input.expectedAnnualReturnPercent) ||
+    input.expectedAnnualReturnPercent < 0 ||
+    input.expectedAnnualReturnPercent > 100
+  ) {
+    return 'Expected return must be between 0 and 100%.';
+  }
+  if (!Number.isFinite(input.tenureYears) || input.tenureYears <= 0 || input.tenureYears > 60) {
+    return 'Time period must be between 1 and 60 years.';
+  }
+  if (
+    !Number.isFinite(input.annualStepUpPercent) ||
+    input.annualStepUpPercent < 0 ||
+    input.annualStepUpPercent > 100
+  ) {
+    return 'Yearly step-up must be between 0 and 100%.';
+  }
+  if (!Number.isFinite(input.currentCorpus) || input.currentCorpus < 0) {
+    return 'Already invested can’t be negative.';
+  }
+  return null;
+};
+
+/** Why an EMI can't be worked out yet, in one line. */
+const emiInputProblem = (principalAmount: number, annualRate: number, months: number) => {
+  if (!Number.isFinite(principalAmount) || principalAmount <= 0) {
+    return 'Enter a loan amount to see the monthly EMI.';
+  }
+  if (!Number.isFinite(annualRate) || annualRate < 0 || annualRate > 100) {
+    return 'Interest must be between 0 and 100% a year.';
+  }
+  return 'Time period must be between 1 and 360 months.';
+};
+
 /** Ink at 22%, the quiet half of a split bar (what you put in, the loan itself). */
 const withInk = (ink: string) => `${ink}38`;
 
-/** One labelled value on the left, its field on the right (boards R11-SIP, R11-EMI). */
+type SliderSpec = {
+  min: number;
+  max: number;
+  step: number;
+  value: number;
+  onChange: (value: number) => void;
+  /** How the range's ends and the spoken value read. */
+  format: (value: number) => string;
+};
+
+/**
+ * One labelled value on the left, its field on the right, and under them the
+ * slider for it (boards R11-SIP-Proposals, R11-EMI-Proposals, P51).
+ */
 function InputRow({
   label,
   value,
@@ -447,7 +603,7 @@ function InputRow({
   prefix,
   suffix,
   divider = false,
-  children,
+  slider,
 }: {
   label: string;
   value: string;
@@ -456,8 +612,7 @@ function InputRow({
   prefix?: string;
   suffix?: string;
   divider?: boolean;
-  /** Under the row — its quick-pick chips. */
-  children?: React.ReactNode;
+  slider?: SliderSpec;
 }) {
   const { colors } = useThemeTokens();
   return (
@@ -481,7 +636,21 @@ function InputRow({
           {suffix ? <ThemedText tone="muted" numberOfLines={1} style={styles.suffix}>{suffix}</ThemedText> : null}
         </View>
       </View>
-      {children}
+      {slider ? (
+        <View style={styles.slider}>
+          <Slider
+            min={slider.min}
+            max={slider.max}
+            step={slider.step}
+            value={Number.isFinite(slider.value) ? slider.value : slider.min}
+            onChange={slider.onChange}
+            accessibilityLabel={`Adjust ${label.toLowerCase()}`}
+            accessibilityValueText={Number.isFinite(slider.value) ? slider.format(slider.value) : undefined}
+            minLabel={slider.format(slider.min)}
+            maxLabel={slider.format(slider.max)}
+          />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -518,15 +687,15 @@ function Chip({
   );
 }
 
-/** Before the first Calculate (board R11-SIP-Start): what pressing it will show. */
-function StartNote({ text, icon = 'chart-line-variant' }: { text: string; icon?: keyof typeof MaterialCommunityIcons.glyphMap }) {
+/** In place of the answer while the inputs can't make one: what to fix. */
+function ProblemNote({ text }: { text: string }) {
   const { colors } = useThemeTokens();
   return (
     <View style={[styles.note, { borderColor: colors.borderStrong }]}>
       <View style={[styles.noteIcon, { backgroundColor: mixHex(colors.card, colors.positive, 0.14) }]}>
-        <MaterialCommunityIcons name={icon} size={16} color={colors.positive} />
+        <MaterialCommunityIcons name="calculator-variant-outline" size={16} color={colors.positive} />
       </View>
-      <ThemedText tone="muted" style={[styles.noteText]}>
+      <ThemedText tone="muted" style={styles.noteText}>
         {text}
       </ThemedText>
     </View>
@@ -535,22 +704,33 @@ function StartNote({ text, icon = 'chart-line-variant' }: { text: string; icon?:
 
 /** The answer: the figure, what it is made of as one split bar, and the parts as rows. */
 function ResultCard({
+  testID,
   eyebrow,
   figure,
   caption,
   parts,
   total,
+  footnote,
+  children,
 }: {
+  testID?: string;
   eyebrow: string;
   figure: string;
   caption?: string | null;
   parts: { label: string; amount: number; color: string }[];
   total?: { label: string; amount: number };
+  /** The what-if line under the parts (P54). */
+  footnote?: ReactNode;
+  /** The chart, at the card's foot (P52). */
+  children?: ReactNode;
 }) {
   const { colors } = useThemeTokens();
   const sum = parts.reduce((acc, part) => acc + Math.max(0, part.amount), 0) || 1;
   return (
-    <View style={[styles.card, styles.result, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View
+      testID={testID}
+      accessibilityLiveRegion="polite"
+      style={[styles.card, styles.result, { backgroundColor: colors.card, borderColor: colors.border }]}>
       <ThemedText tone="muted" style={styles.resultEyebrow}>
         {eyebrow}
       </ThemedText>
@@ -588,38 +768,33 @@ function ResultCard({
           </View>
         ) : null}
       </View>
+      {footnote ? <View style={[styles.footnote, { borderTopColor: colors.border }]}>{footnote}</View> : null}
+      {children ? <View style={[styles.chartBlock, { borderTopColor: colors.border }]}>{children}</View> : null}
     </View>
   );
 }
 
-function TableHeading({
-  title,
-  total,
-  visible,
+/** "See year by year" under a chart: the table is there, one tap away (P52). */
+function TableToggle({
+  label,
   expanded,
-  onToggle,
+  onPress,
 }: {
-  title: string;
-  total: number;
-  visible: number;
+  label: string;
   expanded: boolean;
-  onToggle: () => void;
+  onPress: () => void;
 }) {
   const { colors } = useThemeTokens();
-  const canToggle = expanded || total > visible;
   return (
-    <View style={styles.tableHeading}>
-      <ThemedText accessibilityRole="header" style={[styles.tableTitle, { color: colors.text }]}>
-        {title}
-      </ThemedText>
-      {canToggle ? (
-        <Pressable accessibilityRole="button" onPress={onToggle} hitSlop={8} style={styles.toggle}>
-          <ThemedText style={[styles.toggleLabel, { color: colors.text }]}>
-            {expanded ? 'Show less' : `Show all ${total}`}
-          </ThemedText>
-        </Pressable>
-      ) : null}
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityState={{ expanded }}
+      onPress={onPress}
+      hitSlop={8}
+      style={styles.toggle}>
+      <ThemedText style={[styles.toggleLabel, { color: colors.text }]}>{label}</ThemedText>
+      <MaterialCommunityIcons name={expanded ? 'chevron-up' : 'chevron-down'} size={18} color={colors.text} />
+    </Pressable>
   );
 }
 
@@ -674,12 +849,58 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 48,
   },
-  intro: {
-    fontSize: 13,
-    lineHeight: 18,
-  },
   chipRow: {
     gap: 8,
+    paddingVertical: 2,
+  },
+  chipScroll: {
+    flexGrow: 0,
+    flexShrink: 0,
+    marginTop: 4,
+  },
+  slider: {
+    marginTop: 4,
+    paddingRight: 4,
+  },
+  sectionTitle: {
+    marginTop: 8,
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  chartTitle: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  footnote: {
+    borderTopWidth: 1,
+    paddingVertical: 12,
+  },
+  chartBlock: {
+    gap: 10,
+    borderTopWidth: 1,
+    paddingTop: 14,
+    paddingBottom: 14,
+  },
+  whatIfBlock: {
+    gap: 10,
+  },
+  whatIf: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  whatIfStrong: {
+    fontWeight: '700',
+  },
+  whatIfLink: {
+    fontWeight: '700',
+    textDecorationLine: 'underline',
+  },
+  extraChoices: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   chip: {
     height: 34,
@@ -756,12 +977,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '500',
-  },
-  presets: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginTop: 8,
   },
   note: {
     flexDirection: 'row',
@@ -842,20 +1057,12 @@ const styles = StyleSheet.create({
   bolder: {
     fontWeight: '700',
   },
-  tableHeading: {
+  toggle: {
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 10,
-  },
-  tableTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '700',
-  },
-  toggle: {
-    minHeight: 32,
     justifyContent: 'center',
+    gap: 4,
   },
   toggleLabel: {
     fontSize: 13,
