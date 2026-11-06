@@ -13,3 +13,8 @@
  */
 export const TERMS_URL = 'https://finnri.app/terms';
 export const PRIVACY_URL = 'https://finnri.app/privacy';
+export const REFUNDS_URL = 'https://finnri.app/refunds';
+export const SITE_URL = 'https://finnri.app';
+/** The Play listing of the production app, for "Rate Finnri" (P58). */
+export const PLAY_LISTING_URL = 'https://play.google.com/store/apps/details?id=com.finnri.app';
+export const PLAY_MARKET_URL = 'market://details?id=com.finnri.app';

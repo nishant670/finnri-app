@@ -225,7 +225,7 @@ export default function ProfileScreen() {
             icon="message-text-outline"
             title="Feedback & ideas"
             subtitle="Suggest features or report issues"
-            onPress={() => router.push('/feedback')}
+            onPress={() => router.push({ pathname: '/feedback', params: { from: 'Profile' } })}
             divider
           />
           <SettingsRow

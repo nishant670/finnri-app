@@ -365,6 +365,8 @@ export default function HomeScreen() {
     null
   );
   const [aiSourceText, setAiSourceText] = useState('');
+  /** The AI read behind the draft in the sheet, linked to the saved entry (P57). */
+  const [aiRequestId, setAiRequestId] = useState<string | null>(null);
   const [aiInputSource, setAiInputSource] = useState<'text' | 'voice' | 'receipt'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
   const [isGuestUpgradeSnoozed, setIsGuestUpgradeSnoozed] = useState(true);
@@ -1175,6 +1177,7 @@ export default function HomeScreen() {
           idempotencyKey: createIdempotencyKey.current,
           source: modalMode === 'audio' ? aiInputSource : 'manual',
           sourceText: modalMode === 'audio' ? aiSourceText : '',
+          aiRequestId: modalMode === 'audio' ? aiRequestId : null,
           progress: createSaveProgress.current,
           refund: modalMode === 'audio' && recordRefund ? refundReceived : null,
           confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
@@ -1239,6 +1242,7 @@ export default function HomeScreen() {
     },
     [
       aiInputSource,
+      aiRequestId,
       aiSourceText,
       considerPlansPrompt,
       createBlankForm,
@@ -1297,6 +1301,7 @@ export default function HomeScreen() {
       inputSource: 'voice' | 'text' | 'receipt',
       attachment?: string
     ) => {
+      setAiRequestId(data.ai_request_id ?? null);
       setAiSourceText(data.source_text ?? fallbackText);
       receiptBalance.current = inputSource === 'receipt' ? (data.balance_after ?? null) : null;
       setAiInputSource(inputSource);

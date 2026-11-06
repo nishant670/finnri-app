@@ -34,6 +34,8 @@ export async function buildTransactionPayload(
     accountId?: number | null;
     source?: 'manual' | 'text' | 'voice' | 'receipt';
     sourceText?: string;
+    /** The AI read this draft came from, so AI usage can open the entry (P57). */
+    aiRequestId?: string | null;
     refundStatus?: EntryMutationPayload['refund_status'];
   } = {}
 ): Promise<EntryMutationPayload> {
@@ -59,6 +61,7 @@ export async function buildTransactionPayload(
       ? { event_id: form.type === 'Expense' ? form.eventId : null }
       : {}),
     ...(options.source ? { source: options.source, source_text: options.sourceText ?? '' } : {}),
+    ...(options.aiRequestId ? { ai_request_id: options.aiRequestId } : {}),
     ...(tag === 'Refundable'
       ? {
           refundable_amount: form.refundableAmount.trim(),
@@ -218,6 +221,7 @@ export async function saveNewTransaction({
   idempotencyKey,
   source = 'manual',
   sourceText = '',
+  aiRequestId = null,
   progress = {},
   refund = null,
   confirmDuplicate,
@@ -228,6 +232,8 @@ export async function saveNewTransaction({
   idempotencyKey: string;
   source?: 'manual' | 'text' | 'voice' | 'receipt';
   sourceText?: string;
+  /** The AI read the draft came from (P57). */
+  aiRequestId?: string | null;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
   /**
@@ -265,6 +271,7 @@ export async function saveNewTransaction({
         accountId: account?.id ?? null,
         source,
         sourceText,
+        aiRequestId,
       }),
       idempotencyKey
     ));
