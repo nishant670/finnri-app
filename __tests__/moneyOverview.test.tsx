@@ -138,6 +138,21 @@ describe('Money overview (P17, P18, P22)', () => {
     expect(onOpenList).toHaveBeenCalledWith('accounts');
   });
 
+  it("counts spending logged without an account in Spent this month, as Home does", async () => {
+    jest.spyOn(accountsLib, 'fetchAccounts').mockResolvedValue([
+      { id: 5, type: 'cash', name: 'Cash', summary: { spent_this_month: 0 } } as unknown as Account,
+    ]);
+    jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({
+      budget_statuses: [],
+      summary: { total_spent: 2825, transaction_count: 14, expense_count: 12 },
+    } as never);
+    const ui = await render(<MoneyOverview onOpenList={jest.fn()} />);
+
+    expect(await ui.findByText('Spent this month')).toBeTruthy();
+    await waitFor(() => expect(ui.getByText('₹2,825')).toBeTruthy());
+    expect(ui.getByText('12 expenses so far')).toBeTruthy();
+  });
+
   it('offers a first budget when there is none', async () => {
     jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({ budget_statuses: [] } as never);
     const onOpenList = jest.fn();

@@ -55,6 +55,8 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [refundables, setRefundables] = useState<RefundableEntry[]>([]);
   const [budgets, setBudgets] = useState<DashboardBudgetStatus[]>([]);
+  /** This month's spending on the dashboard's terms (Home's figure); null until it loads. */
+  const [monthSpent, setMonthSpent] = useState<{ total: number; count: number } | null>(null);
   const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -80,7 +82,17 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
       if (nextAccounts) setAccounts(nextAccounts);
       if (nextSubscriptions) setSubscriptions(nextSubscriptions);
       if (nextRefundables) setRefundables(nextRefundables);
-      if (dashboard) setBudgets(dashboard.budget_statuses ?? []);
+      if (dashboard) {
+        setBudgets(dashboard.budget_statuses ?? []);
+        setMonthSpent(
+          dashboard.summary
+            ? {
+                total: dashboard.summary.total_spent,
+                count: dashboard.summary.expense_count ?? dashboard.summary.transaction_count,
+              }
+            : null
+        );
+      }
       setBilling(nextBilling);
       setLoading(false);
       setRefreshing(false);
@@ -103,10 +115,11 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
   const shownDues = overviewDues(dues);
   const cards = cardTotalSummary(accounts);
   const groups = accountKindGroups(accounts);
-  const spentThisMonth = accounts.reduce(
-    (sum, account) => sum + (account.summary?.spent_this_month ?? 0),
-    0
-  );
+  // The dashboard's total counts spending logged without an account too, so
+  // it matches Home; the accounts' own sums are only the fallback.
+  const spentThisMonth =
+    monthSpent?.total ??
+    accounts.reduce((sum, account) => sum + (account.summary?.spent_this_month ?? 0), 0);
   const access = describeAccess(billing);
   const hasPass = access.kind === 'pass' || access.kind === 'trial';
   // P22: one budget is free. Past it, the section's link is the way to more.
@@ -218,7 +231,9 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
                 {formatMoney(spentThisMonth)}
               </ThemedText>
               <ThemedText tone="muted" numberOfLines={2} style={styles.statCaption}>
-                across {accounts.length} account{accounts.length === 1 ? '' : 's'}
+                {monthSpent
+                  ? `${monthSpent.count} expense${monthSpent.count === 1 ? '' : 's'} so far`
+                  : `across ${accounts.length} account${accounts.length === 1 ? '' : 's'}`}
               </ThemedText>
             </View>
           )}

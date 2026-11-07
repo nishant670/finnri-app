@@ -65,7 +65,11 @@ export const buildQuickFacts = (dashboard: DashboardResponse): QuickFact[] => {
     });
   }
 
-  const paidWith = [...(dashboard.account_spending ?? [])].sort((a, b) => b.amount - a.amount)[0];
+  // Spending logged without an account comes back as "Unassigned": not an
+  // account anyone paid with, so the fact names the top real one.
+  const paidWith = [...(dashboard.account_spending ?? [])]
+    .filter((item) => item.account_id != null)
+    .sort((a, b) => b.amount - a.amount)[0];
   if (paidWith && paidWith.amount > 0) {
     facts.push({
       key: 'paidWith',

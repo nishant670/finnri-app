@@ -107,6 +107,18 @@ describe('At a glance and quick facts (P29)', () => {
     });
   });
 
+  it('names a real account under Paid most with, never "Unassigned"', () => {
+    const facts = buildQuickFacts({
+      ...dashboard,
+      account_spending: [
+        { account_id: null, account_name: 'Unassigned', amount: 9000, percentage: 60 },
+        { account_id: 4, account_name: 'HDFC Card', amount: 6000, percentage: 40 },
+      ],
+    } as typeof dashboard);
+    const paid = facts.find((fact) => fact.key === 'paidWith');
+    expect([paid?.value, paid?.caption]).toEqual(['HDFC Card', '40% of spend']);
+  });
+
   it('opens the biggest expense', async () => {
     const screen = await render(<QuickFacts dashboard={dashboard} />);
     await fireEvent.press(screen.getByLabelText('Biggest expense, ₹32,550, Rent · 5 Oct'));

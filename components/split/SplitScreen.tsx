@@ -1978,6 +1978,13 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     if (!friend) return;
     resetSettlementForm();
     setSettlementFriendId(friend.id);
+    // Start on what is owed, either way, so settling in full is one tap; a
+    // part payment is still a matter of changing the amount.
+    const net = balanceByFriendId.get(friend.id)?.net_balance ?? 0;
+    if (Number.isFinite(net) && net !== 0) {
+      setSettlementAmount(toAmountString(Math.abs(net)));
+      setSettlementDirection(net > 0 ? 'friend_paid_user' : 'user_paid_friend');
+    }
     setSelectedFriendDetailId(null);
     setModal('settlement');
   };
