@@ -177,6 +177,11 @@ export type ParseDraft = {
   emi_rate_pct?: number | null;
   currency: string | null;
   mode: string | null;
+  /**
+   * "default" when `mode` is the Cash the API fills in because nothing said
+   * how it was paid; "read" when the bill or sentence said. Older APIs omit it.
+   */
+  mode_source?: 'read' | 'default';
   card_network: string | null;
   account_hint: string | null;
   category: string | null;

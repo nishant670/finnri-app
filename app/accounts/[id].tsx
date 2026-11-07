@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountDetailSkeleton } from '@/components/accounts/AccountSkeletons';
 import { SetupChecklist } from '@/components/accounts/SetupChecklist';
+import { PaymentRulesSection } from '@/components/accounts/PaymentRulesSection';
 import { TransactionItem } from '@/components/home/TransactionItem';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { SettingsRow } from '@/components/profile/SettingsRow';
@@ -779,6 +780,9 @@ export default function AccountDetailsScreen() {
             ))}
           </View>
         ) : null}
+
+        <SectionTitle title={`Use this ${usedNoun} for`} />
+        <PaymentRulesSection token={token} account={account} accounts={accounts} usedNoun={usedNoun} />
 
         <SectionTitle
           title="Recent activity"

@@ -235,6 +235,32 @@ describe('buildAiReview', () => {
     });
   });
 
+  // 2026-11-06: a pump bill that never said how it was paid came back as Cash
+  // with nothing flagged, and a card payment was saved as Cash.
+  it('flags the mode of a scanned bill that never said how it was paid', () => {
+    const scanned = buildAiReview(
+      draft({ mode: 'Cash', mode_source: 'default', missing_fields: [] }),
+      'x',
+      'receipt',
+      split(),
+      true
+    );
+    expect(scanned.missingFields).toEqual(['mode']);
+    expect(scanned.modeSource).toBe('default');
+
+    // Typed or spoken, nobody says how they paid for lunch: no flag there.
+    const typed = buildAiReview(draft({ mode_source: 'default' }), 'x', 'text', split(), true);
+    expect(typed.missingFields).toEqual([]);
+    // A bill that did say is not flagged either.
+    const read = buildAiReview(draft({ mode_source: 'read' }), 'x', 'receipt', split(), true);
+    expect(read.missingFields).toEqual([]);
+  });
+
+  it('notes when the draft named the account, which no habit may replace', () => {
+    expect(buildAiReview(draft({ account_hint: 'HDFC' }), 'x', 'text', split(), true).accountNamed).toBe(true);
+    expect(buildAiReview(draft({ account_hint: '  ' }), 'x', 'text', split(), true).accountNamed).toBe(false);
+  });
+
   it('with Smart Sorting off adds the fields the user must now choose', () => {
     const review = buildAiReview(draft({ missing_fields: ['date'] }), 'x', 'text', split(), false);
     expect(review.smartSortingDisabled).toBe(true);
