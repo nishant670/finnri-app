@@ -139,7 +139,16 @@ export default function AIUsageScreen() {
                 {day.events.map((event, index) => {
                   const visual = actionVisual(event);
                   const statusLabel = statusLabels[event.status] ?? event.status;
+                  // P57: what the read made, and a way to it — or that it
+                  // was since deleted. Drafts never saved and Ask questions
+                  // made nothing, so they say nothing here.
+                  const made = event.entry
+                    ? event.entry.title || 'Untitled entry'
+                    : event.entry_id
+                      ? 'Entry deleted'
+                      : null;
                   const meta = [
+                    made,
                     event.status === 'succeeded' ? null : statusLabel,
                     formatTime(new Date(event.started_at)),
                     event.error_code ? event.error_code.replaceAll('_', ' ') : null,
@@ -155,6 +164,16 @@ export default function AIUsageScreen() {
                       meta={meta}
                       amount={`${event.final_credits} credit${event.final_credits === 1 ? '' : 's'}`}
                       divider={index > 0}
+                      testID={`ai-usage-${event.id}`}
+                      onPress={
+                        event.entry
+                          ? () =>
+                              router.push({
+                                pathname: '/entry/[id]',
+                                params: { id: String(event.entry!.id) },
+                              })
+                          : undefined
+                      }
                     />
                   );
                 })}

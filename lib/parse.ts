@@ -218,6 +218,8 @@ export type ParseDraft = {
   credits_remaining_today?: number;
   credits_remaining_total?: number;
   plan_code?: string;
+  /** This read's id, sent back with the saved entry so AI usage can open it (P57). */
+  ai_request_id?: string;
 };
 
 /** The draft shape, under the name the app has always used for it. */

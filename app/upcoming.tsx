@@ -71,7 +71,7 @@ export default function UpcomingScreen() {
         <ReleaseList title="Bug fixes" icon="bug-check-outline" items={fixes} />
 
         <Pressable
-          onPress={() => router.push('/feedback')}
+          onPress={() => router.push({ pathname: '/feedback', params: { from: 'Upcoming' } })}
           className="mt-8 h-14 flex-row items-center justify-center rounded-[22px]"
           style={{ backgroundColor: colors.accent }}>
           <MaterialCommunityIcons name="message-draw" size={18} color={colors.onAccent} />
