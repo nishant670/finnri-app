@@ -67,6 +67,13 @@ export type LedgerAnswer = {
     end_date: string;
     change_percent?: number | null;
   } | null;
+  /**
+   * The exact query this answer was computed over, opaque to the app. A
+   * follow-up sends it back as its context, so "And the day before?" moves
+   * back from this answer's dates with this answer's filters — not from a
+   * re-reading of the thread's words.
+   */
+  context?: string;
   largest_entry?: {
     entry_id: number;
     title: string;

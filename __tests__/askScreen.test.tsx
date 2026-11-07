@@ -153,6 +153,31 @@ describe('Ask Finnri proposals (P64–P67)', () => {
       contextQuestion: 'How much did I spend this month?',
     });
   });
+
+  // Device run 2026-11-07: the thread's words made "And the day before?"
+  // carry the first question's fuel filter and count back from today.
+  it('sends the answer’s own resolved query back, not the thread’s words', async () => {
+    const dayContext = 'finnri-query:v1:{"metric":"spend_total","period_kind":"day","start_date":"2026-10-09","end_date":"2026-10-09"}';
+    mockParse.mockResolvedValueOnce({
+      stage: 'answer',
+      answer: answer({ suggestions: ['And the day before?'], context: dayContext }),
+    });
+    mockParse.mockResolvedValueOnce({ stage: 'answer', answer: answer() });
+    const screen = await render(<AskFinnriScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('ask-follow-ups')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('And the day before?'));
+    });
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(2));
+    expect(mockParse.mock.calls[1][0]).toMatchObject({
+      hintText: 'And the day before?',
+      contextQuestion: dayContext,
+    });
+  });
 });
 
 describe('Follow-up threads stay short (P67)', () => {
