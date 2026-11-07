@@ -103,7 +103,10 @@ describe('payment rules and habits in the add sheet', () => {
       { type: 'Expense', title: 'Petrol', merchant: 'Bharat Petroleum', tag: 'Fuel' },
       expect.anything()
     );
-    expect(await findByTestId('entry-mode-picker')).toHaveProp('accessibilityLabel', 'Paid via Credit Card');
+    expect(await findByTestId('entry-account-picker')).toHaveProp(
+      'accessibilityLabel',
+      'Paid with Credit Card · SBI BPCL'
+    );
     // Filled from the user's own history: not left flagged as a guess.
     expect(queryByText('Check')).toBeNull();
 
@@ -121,7 +124,7 @@ describe('payment rules and habits in the add sheet', () => {
     const { findByText, findByTestId, queryByTestId } = await renderSheet();
 
     expect(await findByText('Check')).toBeTruthy();
-    expect(within(await findByTestId('entry-mode-picker')).getByText('Check')).toBeTruthy();
+    expect(within(await findByTestId('entry-account-picker')).getByText('Check')).toBeTruthy();
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
     expect(queryByTestId('entry-payment-pick-reason')).toBeNull();
   });
@@ -135,7 +138,7 @@ describe('payment rules and habits in the add sheet', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 600));
     expect(queryByTestId('entry-payment-pick-reason')).toBeNull();
-    expect(await findByTestId('entry-account-picker')).toHaveProp('accessibilityLabel', 'Paid from One Card');
+    expect(await findByTestId('entry-account-picker')).toHaveProp('accessibilityLabel', 'Paid with Credit Card · One Card');
   });
 
   it('keeps to the mode a bill printed', async () => {
@@ -149,18 +152,17 @@ describe('payment rules and habits in the add sheet', () => {
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(queryByTestId('entry-payment-pick-reason')).toBeNull();
-    expect(await findByTestId('entry-mode-picker')).toHaveProp('accessibilityLabel', 'Paid via UPI');
+    expect(await findByTestId('entry-account-picker')).toHaveProp('accessibilityLabel', 'Paid with UPI · HDFC UPI');
   });
 
   it('counts a by-hand move to another account towards "Always use …?"', async () => {
     mockedFetch.mockResolvedValue({ suggestion: null, kind: { key: 'f:fuel', label: 'fuel' } });
-    const { findByTestId, findAllByText, onSave } = await renderSheet();
+    const { findByTestId, onSave } = await renderSheet();
     await waitFor(() => expect(mockedFetch).toHaveBeenCalled());
 
-    await fireEvent.press(await findByTestId('entry-mode-picker'));
-    await fireEvent.press((await findAllByText('Credit Card')).at(-1)!);
+    // One "Paid with" sheet: picking the card sets the mode and the account.
     await fireEvent.press(await findByTestId('entry-account-picker'));
-    await fireEvent.press((await findAllByText('SBI BPCL')).at(-1)!);
+    await fireEvent.press(await findByTestId('payment-account-5'));
     await fireEvent.press(await findByTestId('entry-save-button'));
 
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
@@ -186,7 +188,7 @@ describe('payment rules and habits in the add sheet', () => {
 
     await fireEvent.changeText(await findByTestId('entry-title-input'), 'Lunch');
     await waitFor(() => expect(queryByTestId('entry-payment-pick-reason')).toBeNull(), { timeout: 2000 });
-    expect(await findByTestId('entry-account-picker')).toHaveProp('accessibilityLabel', 'Paid from Cash');
+    expect(await findByTestId('entry-account-picker')).toHaveProp('accessibilityLabel', 'Paid with Cash');
   });
 
   it('picks the card as "Petrol" is typed into a new manual expense', async () => {
@@ -225,5 +227,18 @@ describe('payment rules and habits in the add sheet', () => {
     expect(onSave.mock.calls[0][0]).toEqual(
       expect.objectContaining({ title: 'Petrol', mode: 'Credit Card', accountId: 5 })
     );
+  });
+});
+
+describe('payment picks and the last-used default', () => {
+  it('does not remember an auto-picked card as the next expense default', async () => {
+    const { lastPaymentFor, resetLastPaymentForTests } = jest.requireActual('@/lib/last-payment');
+    resetLastPaymentForTests();
+    mockedFetch.mockResolvedValue(fuelHabit);
+    const { findByTestId, onSave } = await renderSheet();
+    expect(await findByTestId('entry-payment-pick-reason', {}, { timeout: 2000 })).toBeTruthy();
+    await fireEvent.press(await findByTestId('entry-save-button'));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(lastPaymentFor('Expense')?.accountId).not.toBe(5);
   });
 });
