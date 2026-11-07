@@ -15,6 +15,7 @@ import {
 } from '@/components/insights/insight-ui';
 import { SectionHeader } from '@/components/insights/SectionHeader';
 import { AppHeader } from '@/components/navigation/AppHeader';
+import { ReviewPeriodSwitch } from '@/components/insights/ReviewPeriodSwitch';
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
@@ -131,7 +132,7 @@ export default function MonthlyReviewScreen() {
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
       <Stack.Screen options={{ headerShown: false }} />
       <AppHeader
-        title="Monthly review"
+        title="Review"
         subtitle={review?.label ?? 'Last month'}
         onBack={() => router.back()}
         style={{ paddingHorizontal: 16, paddingVertical: 10 }}
@@ -149,6 +150,7 @@ export default function MonthlyReviewScreen() {
           </Pressable>
         }
       />
+      <ReviewPeriodSwitch active="month" />
 
       {loading && !review ? (
         <SkeletonFrame

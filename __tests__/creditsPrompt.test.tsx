@@ -17,6 +17,7 @@ const mockPlans = jest.fn();
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: mockPush, back: jest.fn() }),
+  useLocalSearchParams: () => ({}),
 }));
 jest.mock('@/hooks/use-auth-store', () => ({ useAuthStore: () => mockAuth }));
 jest.mock('@/components/ui/AppDialogProvider', () => ({

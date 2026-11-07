@@ -7,6 +7,7 @@ import { PressableView } from '@/components/ui/PressableView';
 import { mixHex } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { categoryTile } from '@/lib/categories';
+import { formatChangeMagnitude } from '@/lib/insights';
 import { getMonogram } from '@/lib/monogram';
 
 /*
@@ -300,6 +301,7 @@ export function BarRow({
   amount,
   fraction,
   caption,
+  trend,
   divider = false,
   onPress,
   accessibilityLabel,
@@ -310,6 +312,8 @@ export function BarRow({
   amount: string;
   fraction: number;
   caption?: string;
+  /** P33: the change against last month, after the caption, in its own colour. */
+  trend?: { label: string; tone: 'positive' | 'negative' } | null;
   divider?: boolean;
   onPress?: () => void;
   accessibilityLabel?: string;
@@ -332,9 +336,20 @@ export function BarRow({
           <ThemedText style={[styles.barRowAmount, { color: colors.text }]}>{amount}</ThemedText>
         </View>
         <ProgressBar fraction={fraction} color={hue} style={styles.barRowBar} />
-        {caption ? (
+        {caption || trend ? (
           <ThemedText tone="muted" style={styles.body}>
             {caption}
+            {caption && trend ? ' · ' : ''}
+            {trend ? (
+              <ThemedText
+                style={[
+                  styles.body,
+                  styles.trend,
+                  { color: trend.tone === 'negative' ? colors.negative : colors.positive },
+                ]}>
+                {trend.label}
+              </ThemedText>
+            ) : null}
           </ThemedText>
         ) : null}
       </View>
@@ -368,6 +383,22 @@ export function Tag({ label, color, background }: { label: string; color: string
     </View>
   );
 }
+
+/**
+ * A category's change against the last comparable window (P33), or null when
+ * that window was too thin to compare with. More spending is the bad news.
+ */
+export const categoryTrend = (
+  category: { change: number; change_comparable?: boolean },
+  previousLabel: string
+): { label: string; tone: 'positive' | 'negative' } | null => {
+  if (category.change_comparable === false || !category.change) return null;
+  const more = category.change > 0;
+  return {
+    label: `${more ? '↑' : '↓'} ${formatChangeMagnitude(category.change)} vs ${previousLabel}`,
+    tone: more ? 'negative' : 'positive',
+  };
+};
 
 export const insightText = StyleSheet.create({
   figure: {
@@ -427,6 +458,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '700',
+  },
+  trend: {
+    fontWeight: '600',
   },
   body: {
     fontSize: 13,

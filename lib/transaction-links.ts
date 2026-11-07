@@ -1,4 +1,8 @@
+import type { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
+
+import { formatApiDate } from '@/lib/datetime';
+import { parseDateLabel } from '@/lib/transactions';
 
 /**
  * The one place that knows how to point the transaction list at a subset.
@@ -73,3 +77,35 @@ export const openAnswerTransactions = (filters: Record<string, string>) => {
 export const openAnswerEntry = (entryId: number) => {
   router.push({ pathname: '/entry/[id]', params: { id: String(entryId) } });
 };
+
+const LOGGED_BY: Record<
+  string,
+  { icon: keyof typeof MaterialCommunityIcons.glyphMap; label: string }
+> = {
+  voice: { icon: 'microphone-outline', label: 'Logged by voice' },
+  text: { icon: 'keyboard-outline', label: 'Typed to Finnri' },
+  receipt: { icon: 'camera-outline', label: 'Read from a bill photo' },
+  recurring: { icon: 'repeat', label: 'Added by a recurring payment' },
+  statement: { icon: 'file-document-outline', label: 'Added from a card statement' },
+};
+
+/** How an entry came in, for its detail (P14). Manual entries say nothing. */
+export const describeLoggedBy = (source?: string | null, sourceText?: string | null) => {
+  const kind = source ? LOGGED_BY[source] : undefined;
+  if (!kind) return null;
+  const words = source === 'voice' || source === 'text' ? (sourceText ?? '').trim() : '';
+  return { ...kind, words };
+};
+
+/** The entry's calendar month, for "Bills in October" (P16). */
+export const entryMonthRange = (date?: string | null, now = new Date()) => {
+  const day = (date && parseDateLabel(date)) || now;
+  const start = new Date(day.getFullYear(), day.getMonth(), 1);
+  const end = new Date(day.getFullYear(), day.getMonth() + 1, 0);
+  return {
+    label: start.toLocaleDateString('en-GB', { month: 'long' }),
+    start: formatApiDate(start),
+    end: formatApiDate(end),
+  };
+};
+

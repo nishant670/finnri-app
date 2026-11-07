@@ -3,7 +3,6 @@ import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
-import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/theme-primitives';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
@@ -24,7 +23,6 @@ type HomeRecentActivityProps = {
   newTransactionId: string | null;
   isStealthMode: boolean;
   onRetry: () => void;
-  onAdd: () => void;
 };
 
 /**
@@ -62,7 +60,6 @@ export function HomeRecentActivity({
   newTransactionId,
   isStealthMode,
   onRetry,
-  onAdd,
 }: HomeRecentActivityProps) {
   const router = useRouter();
   const themeTokens = useThemeTokens();
@@ -113,10 +110,9 @@ export function HomeRecentActivity({
               No activity yet
             </ThemedText>
             <ThemedText tone="muted" style={styles.emptyBody}>
-              Say it, type it, or add it manually.
+              Your entries show up here.
             </ThemedText>
           </View>
-          <Button label="Add" variant="outline" height={40} onPress={onAdd} />
         </Card>
       </View>
     );
@@ -132,8 +128,10 @@ export function HomeRecentActivity({
     <View>
       <RecentActivityHeader onSeeAll={() => router.push('/transactions')} />
 
-      {/* One card, each day labelled inside it (board R3-Home). Home leaves
-          the day's total off; that is P13, phase 2. */}
+      {/* One card, each day labelled inside it (board R3-Home). No day
+          totals here: Home shows only the newest rows, so a total could add
+          up rows that are not on screen, and the month card above already
+          carries the number. The full list keeps them (P13, dropped 6 Nov). */}
       <Card inset style={styles.listCard}>
         {groupedRecentTransactions.map((group, groupIndex) => {
           const groupOffset = rowsAbove;

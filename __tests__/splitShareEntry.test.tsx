@@ -78,7 +78,7 @@ describe('entering split shares', () => {
   it('keeps a percentage typed before the amount is known', async () => {
     const screen = await renderSplitForm();
 
-    await fireEvent.press(screen.getByText('Percentage'));
+    await fireEvent.press(screen.getByLabelText('Percentage'));
     const [firstShare] = screen.getAllByPlaceholderText('0%');
     await fireEvent.changeText(firstShare, '40');
 
@@ -88,7 +88,7 @@ describe('entering split shares', () => {
   it('turns the percentage into money once the amount arrives', async () => {
     const screen = await renderSplitForm();
 
-    await fireEvent.press(screen.getByText('Percentage'));
+    await fireEvent.press(screen.getByLabelText('Percentage'));
     await fireEvent.changeText(screen.getAllByPlaceholderText('0%')[0], '40');
     await fireEvent.changeText(screen.getAllByPlaceholderText('0%')[1], '25');
     await fireEvent.changeText(screen.getByTestId('entry-amount-input'), '1000');
@@ -105,31 +105,33 @@ describe('entering split shares', () => {
   it('splits equally before an amount exists, in percentages', async () => {
     const screen = await renderSplitForm();
 
-    await fireEvent.press(screen.getByText('Split equally'));
+    await fireEvent.press(screen.getByText('Equally'));
 
-    await waitFor(() => {
-      const shares = screen.getAllByPlaceholderText('0%');
-      expect(shares[0].props.value).toBe('33.33');
-      expect(shares[1].props.value).toBe('33.33');
-    });
+    await waitFor(() => expect(screen.getAllByText('33.33%')).toHaveLength(2));
   });
 
-  it('splits equally in money when the amount is known', async () => {
+  it('splits equally in money when the amount is known, and shows your share (P7, P8)', async () => {
     const screen = await renderSplitForm({ amount: '900' });
 
-    await fireEvent.press(screen.getByText('Split equally'));
+    await fireEvent.press(screen.getByText('Equally'));
 
-    await waitFor(() => {
-      const shares = screen.getAllByPlaceholderText('₹0');
-      expect(shares[0].props.value).toBe('300.00');
-      expect(shares[1].props.value).toBe('300.00');
-    });
+    await waitFor(() => expect(screen.getAllByText('₹300')).toHaveLength(3));
+    expect(screen.getByText(/split 3 ways · nothing left to assign/)).toBeTruthy();
+  });
+
+  it('keeps an equal split even when the total changes', async () => {
+    const screen = await renderSplitForm({ amount: '900' });
+
+    await fireEvent.press(screen.getByText('Equally'));
+    await fireEvent.changeText(screen.getByTestId('entry-amount-input'), '1200');
+
+    await waitFor(() => expect(screen.getAllByText('₹400')).toHaveLength(3));
   });
 
   it('saves the share the equal split produced', async () => {
     const screen = await renderSplitForm({ amount: '900' });
 
-    await fireEvent.press(screen.getByText('Split equally'));
+    await fireEvent.press(screen.getByText('Equally'));
     await fireEvent.press(screen.getByTestId('entry-save-button'));
 
     await waitFor(() => expect(screen.onSave).toHaveBeenCalledTimes(1));
@@ -139,11 +141,21 @@ describe('entering split shares', () => {
     ]);
   });
 
+  it('says when the shares add up to more than the total', async () => {
+    const screen = await renderSplitForm({ amount: '1000' });
+
+    await fireEvent.changeText(screen.getAllByPlaceholderText('₹0')[0], '700');
+    await fireEvent.changeText(screen.getAllByPlaceholderText('₹0')[1], '500');
+
+    await waitFor(() => expect(screen.getByText(/more than the total/)).toBeTruthy());
+    expect(screen.getByTestId('split-your-share').props.children).toBe('₹0');
+  });
+
   it('splits a chosen group equally across its members', async () => {
     const screen = await renderSplitForm({ amount: '1200', splitParticipants: [] });
 
     await fireEvent.press(screen.getByText('Bubu Dudu'));
-    await fireEvent.press(screen.getAllByText('Split equally')[0]);
+    await fireEvent.press(screen.getByText('Split equally'));
 
     await waitFor(() => {
       const shares = screen.getAllByPlaceholderText('₹0');

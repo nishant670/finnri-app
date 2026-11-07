@@ -1,6 +1,6 @@
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { recurringVisuals } from '@/components/money/money-visuals';
@@ -88,7 +88,24 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
  * almost every subscription. Status appears only when editing, because a thing
  * being created is not cancelled.
  */
-export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
+export function SubscriptionsPanel({
+  embedded = false,
+  header,
+}: MoneyPanelProps & {
+  /**
+   * Drawn first inside the list's scroll — Bills & dues puts what is due
+   * there (P18). `version` moves after every load, and `reload` refreshes
+   * the list after the header changes something.
+   */
+  header?: (controls: {
+    reload: () => void;
+    version: number;
+    /** Opens the add sheet, for the header's own empty state. */
+    add: () => void;
+    /** Opens a recurring payment's actions, for a due the header lists. */
+    open: (subscriptionId: number) => void;
+  }) => ReactNode;
+}) {
   const router = useRouter();
   const sheetBottom = useBottomInset(24);
   const params = useLocalSearchParams();
@@ -276,6 +293,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setStepUpPct('');
   };
 
+  const [loadVersion, setLoadVersion] = useState(0);
   const load = useCallback(async () => {
     if (!token) {
       setSubscriptions([]);
@@ -295,6 +313,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
       setCardEMIs(recurring.card_emis);
       setOverview(recurring.summary);
       setAccounts(accountItems);
+      setLoadVersion((version) => version + 1);
     } catch (loadError) {
       setListError(
         getFriendlyErrorMessage(loadError, 'Unable to load recurring payments right now.')
@@ -732,6 +751,17 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
+        {header
+          ? header({
+              reload: () => void load(),
+              version: loadVersion,
+              add: () => openCreateForm(),
+              open: (subscriptionId) => {
+                const item = subscriptions.find((candidate) => candidate.id === subscriptionId);
+                if (item) openActions(item);
+              },
+            })
+          : null}
         {visibleCandidates.length > 0 && (
           <View style={styles.gutter}>
             <RecurringCandidatesCard

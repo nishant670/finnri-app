@@ -29,6 +29,7 @@ import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
 import type { SplitBill, SplitFriend } from '@/lib/splits';
+import { remindFriend } from '@/lib/split-remind';
 
 const TText = cssInterop(ThemedText, { className: 'style' });
 
@@ -204,6 +205,14 @@ export function FriendDetailModal({
               icon="history"
               onPress={() => setIsSettlementsOpen(true)}
             />
+            {/* P25: Remind shares the amount on WhatsApp, SMS or anywhere. */}
+            {netBalance > 0 ? (
+              <DetailPill
+                label="Remind"
+                icon="bell-ring-outline"
+                onPress={() => void remindFriend(friend.name, netBalance)}
+              />
+            ) : null}
           </ScrollView>
 
           <View className="mt-8">

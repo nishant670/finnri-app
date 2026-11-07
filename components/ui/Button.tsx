@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   ActivityIndicator,
+  Platform,
   StyleSheet,
   type PressableProps,
   type StyleProp,
@@ -98,7 +99,11 @@ export function Button({
         numberOfLines={1}
         // Two pills share a bar ("Repeat for today" beside "Edit"); on a narrow
         // phone the label gives up a little size before it gives up words.
-        adjustsFontSizeToFit
+        // iOS only: Android's auto-fit breaks the line before the last word
+        // and, with one line allowed, drops it without an ellipsis — "Add
+        // manually" drew as "Add", off-centre in a box sized for both words.
+        // There a label that cannot fit ends in "…" instead.
+        adjustsFontSizeToFit={Platform.OS === 'ios'}
         minimumFontScale={0.85}
         style={[LABEL_SIZE[size], { flexShrink: 1, color: ink, fontWeight: primary ? '700' : '600' }]}>
         {label}

@@ -34,7 +34,7 @@ describe('SplitHeader', () => {
       <SplitHeader
         loading={false}
         searchVisible={false}
-        activeSection="groups"
+        activeSection="balances"
         onToggleSearch={onToggleSearch}
         onCreate={onCreate}
         {...over}
@@ -54,14 +54,11 @@ describe('SplitHeader', () => {
 
   it('labels the create button for the section', async () => {
     expect(
-      (await setup({ activeSection: 'friends' })).screen.getByLabelText('Add split friend')
-    ).toBeTruthy();
-    expect(
       (await setup({ activeSection: 'activity' })).screen.getByLabelText('Create split group')
     ).toBeTruthy();
-    const groups = await setup({ activeSection: 'groups' });
-    await fireEvent.press(groups.screen.getByLabelText('Create split friend or group'));
-    expect(groups.onCreate).toHaveBeenCalledTimes(1);
+    const balances = await setup({ activeSection: 'balances' });
+    await fireEvent.press(balances.screen.getByLabelText('Add split friend'));
+    expect(balances.onCreate).toHaveBeenCalledTimes(1);
   });
 });
 
