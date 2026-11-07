@@ -6,7 +6,7 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { AvatarCircle } from '@/components/split/primitives/SplitPrimitives';
 import { SplitFullScreenModal } from '@/components/split/primitives/SplitFullScreenModal';
 import { GroupAvatar } from '@/components/split/GroupAvatar';
-import { getGroupKindConfig } from '@/components/split/split-utils';
+import { summaryKindDisplay } from '@/components/split/split-utils';
 import type { SplitGroupSummary } from '@/components/split/split-types';
 import { ThemedText } from '@/components/themed-text';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
@@ -61,7 +61,7 @@ export function GroupSettingsModal({
   const theme = useThemeTokens().colors;
   if (!summary) return null;
 
-  const kindConfig = getGroupKindConfig(summary.kind);
+  const kindConfig = summaryKindDisplay(summary);
   const canManageGroup = summary.group.viewer_can_manage === true;
   const roleLabel = summary.group.viewer_role === 'owner' ? 'Owner' : 'Shared member';
   // Everybody in the group, the reader marked as themselves. Built from

@@ -89,16 +89,53 @@ beforeEach(() => {
 });
 
 describe('findLikelyDuplicate', () => {
-  it('asks the server for the same day, direction and amount', async () => {
+  it('asks the server for the same day, direction and rupee amount', async () => {
     serve();
     await findLikelyDuplicate('t', emi, 3);
     expect(mockedLoad).toHaveBeenCalledWith('t', expect.objectContaining({
       type: 'expense',
       start_date: '2026-10-15',
       end_date: '2026-10-15',
-      min_amount: 20938,
-      max_amount: 20938,
+      min_amount: 20937.5,
+      max_amount: 20938.5,
     }));
+  });
+
+  // 2026-11-06 on device: "Car Fuel" ₹3,928 on the SBI BPCL card was logged
+  // again from a scan as "Petrol", Bharat Petroleum, Cash — and saved silently.
+  it('matches a same-day, same-amount bill that shares nothing else', async () => {
+    const fuel = { ...emi, title: 'Petrol', merchant: 'Bharat Petroleum', amount: '3927.54', date: '9 October 2026' };
+    serve(logged({
+      id: 50, title: 'Car Fuel', merchant: 'Soami BPCL', amount: 3927.54,
+      date: '2026-10-09', account_id: 12, account: { id: 12, name: 'SBI BPCL' },
+    }));
+    expect((await findLikelyDuplicate('t', fuel, 1))?.id).toBe('50');
+  });
+
+  it('treats a typed ₹3,928 and a scanned ₹3,927.54 as one amount', async () => {
+    serve(logged({ title: 'Fuel', amount: 3927.54, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', { ...emi, amount: '3,928' }, 3)).not.toBeNull();
+  });
+
+  it('ignores a row in the filter window that rounds to another rupee', async () => {
+    serve(logged({ title: 'Laptop', amount: 20938.5, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', emi, 3)).toBeNull();
+  });
+
+  it('under ₹100, still needs a shared title, merchant or account', async () => {
+    const water = { ...emi, title: 'Water bottle', amount: '10' };
+    serve(logged({ title: 'Chai', amount: 10, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', water, 3)).toBeNull();
+    serve(logged({ title: 'Chai', amount: 10 }));
+    expect(await findLikelyDuplicate('t', water, 3)).not.toBeNull();
+  });
+
+  it('names the row that shares a detail when several match', async () => {
+    serve(
+      logged({ id: 60, title: 'Laptop', account_id: 9, account: undefined }),
+      logged({ id: 61, title: 'Loan auto-debit' })
+    );
+    expect((await findLikelyDuplicate('t', emi, 3))?.id).toBe('61');
   });
 
   it('matches the same title in any case, even on another account', async () => {
@@ -111,8 +148,8 @@ describe('findLikelyDuplicate', () => {
     expect(await findLikelyDuplicate('t', emi, 3)).not.toBeNull();
   });
 
-  it('ignores a same-amount row with nothing else in common', async () => {
-    serve(logged({ title: 'Laptop', account_id: 9, account: undefined }));
+  it('ignores a same-day row with a different amount', async () => {
+    serve(logged({ title: 'Laptop', amount: 20940, account_id: 9, account: undefined }));
     expect(await findLikelyDuplicate('t', emi, 3)).toBeNull();
   });
 

@@ -195,9 +195,9 @@ const deriveSectionMeta = (value?: string | null) => {
     if (diffDays === 1) {
       return { section: 'Yesterday', timestamp: entryDay.getTime() };
     }
-    if (diffDays > 1 && diffDays < 7) {
-      return { section: `${diffDays} days ago`, timestamp: entryDay.getTime() };
-    }
+    // Past yesterday the heading is the date itself. "4 days ago" made the
+    // user count back to find 30 October, and a gap between two such headings
+    // hid how many days were missing.
     return { section: formatDateLabel(entryDay), timestamp: entryDay.getTime() };
   }
   return { section: 'Recent', timestamp: todayStart.getTime() };

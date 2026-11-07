@@ -53,11 +53,13 @@ describe('AccountFormStepOne', () => {
 
   it('lists every account type and reports the one tapped', async () => {
     const { screen, updateSelectedType } = await stepOne();
-    for (const label of ['Cash', 'Credit', 'Debit', 'Wallet', 'UPI', 'Bank', 'Other']) {
+    for (const label of ['Cash', 'Credit', 'Pay later', 'Debit', 'Wallet', 'UPI', 'Bank', 'Other']) {
       expect(screen.getByText(label)).toBeTruthy();
     }
     await fireEvent.press(screen.getByText('Wallet'));
-    expect(updateSelectedType).toHaveBeenCalledWith('wallet');
+    expect(updateSelectedType).toHaveBeenCalledWith('wallet', '');
+    await fireEvent.press(screen.getByText('Pay later'));
+    expect(updateSelectedType).toHaveBeenCalledWith('credit_card', 'pay_later');
   });
 
   it('edits the name and toggles the default', async () => {

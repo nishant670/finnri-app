@@ -3,8 +3,7 @@ import { Animated as RNAnimated } from 'react-native';
 
 import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
 import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
-import { CreditActionCard } from '@/components/home/CreditActionCard';
-import { HomeAddButton } from '@/components/home/HomeAddButton';
+import { GetStartedCard, getStartedSteps } from '@/components/home/GetStartedCard';
 import { HomeRecentActivity } from '@/components/home/HomeRecentActivity';
 import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
 import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
@@ -35,7 +34,7 @@ const tx = (id: string, over: Partial<Transaction> = {}) =>
 
 describe('HomeRecentActivity', () => {
   const setup = async (over: Partial<React.ComponentProps<typeof HomeRecentActivity>> = {}) => {
-    const h = { onRetry: jest.fn(), onAdd: jest.fn() };
+    const h = { onRetry: jest.fn() };
     const screen = await render(
       <HomeRecentActivity
         isEntriesLoading={false}
@@ -64,11 +63,16 @@ describe('HomeRecentActivity', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('invites the first transaction when there are none', async () => {
-    const { screen, onAdd } = await setup({ hasTransactions: false, transactions: [] });
+  it('says where entries will show when there are none', async () => {
+    const { screen } = await setup({ hasTransactions: false, transactions: [] });
     expect(screen.getByText('No activity yet')).toBeTruthy();
-    await fireEvent.press(screen.getByText('Add'));
-    expect(onAdd).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Your entries show up here.')).toBeTruthy();
+  });
+
+  it('leaves day totals off Home: the full list carries them', async () => {
+    const many = ['1', '2', '3', '4', '5', '6'].map((id) => tx(id));
+    const { screen } = await setup({ transactions: many });
+    expect(screen.queryByText('\u2212₹720')).toBeNull();
   });
 
   it('lists the five most recent rows under their section heading', async () => {
@@ -96,6 +100,17 @@ describe('HomeRecentActivity', () => {
         }),
       })
     );
+  });
+});
+
+describe('GetStartedCard (P5)', () => {
+  it('counts finished steps and opens the one tapped', async () => {
+    const onOpen = jest.fn();
+    const steps = getStartedSteps({ hasAccount: true, hasBudget: false, hasLock: false });
+    const screen = await render(<GetStartedCard steps={steps} onOpen={onOpen} />);
+    expect(screen.getByText('1 of 3 done')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Set a monthly budget'));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ key: 'budget' }));
   });
 });
 
@@ -133,40 +148,10 @@ describe('AccountSetupNudgeCard', () => {
   });
 });
 
-describe('CreditActionCard', () => {
-  it('shows the message and presses its action', async () => {
-    const onPress = jest.fn();
-    const screen = await render(
-      <CreditActionCard
-        creditAction={{
-          title: 'AI credits are low',
-          message: 'You have 2 left.',
-          actionLabel: 'View plans',
-          action: 'upgrade',
-        }}
-        onPress={onPress}
-      />
-    );
-    expect(screen.getByText('AI credits are low')).toBeTruthy();
-    expect(screen.getByText('You have 2 left.')).toBeTruthy();
-    await fireEvent.press(screen.getByText('View plans'));
-    expect(onPress).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('PendingQuestionNotice', () => {
   it('says the question is being looked up', async () => {
     const screen = await render(<PendingQuestionNotice />);
     expect(screen.getByText('Looking through your transactions…')).toBeTruthy();
-  });
-});
-
-describe('HomeAddButton', () => {
-  it('opens manual entry', async () => {
-    const onPress = jest.fn();
-    const screen = await render(<HomeAddButton onPress={onPress} />);
-    await fireEvent.press(screen.getByRole('button'));
-    expect(onPress).toHaveBeenCalledTimes(1);
   });
 });
 

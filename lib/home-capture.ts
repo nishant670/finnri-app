@@ -2,6 +2,7 @@ import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import {
   getAccountTypeForPaymentMode,
   getPreferredAccountForPaymentMode,
+  paymentModeForAccountType,
   type Account,
 } from '@/lib/accounts';
 import type { QuickPrompt } from '@/components/home/QuickPrompts';
@@ -140,7 +141,15 @@ export const applyParsedDraftToForm = (
     // The parser emits `HH:MM`; the form shows and stores a display string.
     time: formatTime(data.time) ?? prev.time,
     type: newType,
-    mode: smartSorting && !missing.has('mode') ? (data.mode ?? '') : '',
+    // A draft that named a saved account but not how the money moved takes
+    // the account's own mode: a Pluxee top-up lands in Wallets, not Cash.
+    mode: !smartSorting
+      ? ''
+      : !missing.has('mode') && data.mode
+        ? data.mode
+        : hintedAccount
+          ? (paymentModeForAccountType(hintedAccount.type) ?? '')
+          : '',
     category: smartSorting && !missing.has('category') ? (data.category ?? 'Misc') : 'Misc',
     merchant: data.merchant ?? '',
     // The account the user named, when they named one we know. Without
@@ -196,9 +205,14 @@ export const buildAiReview = (
 ): AiReviewMetadata => ({
   confidence: data.confidence,
   needsConfirmation: data.needs_confirmation,
-  missingFields: smartSorting
-    ? data.missing_fields
-    : Array.from(new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag'])),
+  // A bill that never said how it was paid comes back as Cash with nothing
+  // flagged, and a card payment was saved as Cash that way (2026-11-06). Ask
+  // for a look instead; a payment rule or habit that fills it in clears it.
+  missingFields: !smartSorting
+    ? Array.from(new Set([...(data.missing_fields ?? []), 'title', 'mode', 'category', 'tag']))
+    : inputSource === 'receipt' && data.mode_source === 'default'
+      ? Array.from(new Set([...(data.missing_fields ?? []), 'mode']))
+      : data.missing_fields,
   clarifications: [
     ...(data.clarifications ?? []),
     ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
@@ -209,6 +223,8 @@ export const buildAiReview = (
   // place that is visible.
   sourceText: data.source_text ?? fallbackText,
   inputSource,
+  modeSource: data.mode_source,
+  accountNamed: Boolean(data.account_hint?.trim()),
 });
 
 /**
@@ -316,9 +332,10 @@ export const quickPromptEditorData = (
   accounts: Account[],
   now: Date
 ): Partial<EntryForm> => {
+  // No category: a new prompt is filed by its title, the way a new entry is.
+  // Seeding Food & Drinks read as a choice, so the title was never consulted.
   if (!editingPrompt)
     return {
-      category: 'Food & Drinks',
       mode: 'Cash',
       type: 'Expense',
       date: formatDateLabel(now),

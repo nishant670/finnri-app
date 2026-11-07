@@ -235,6 +235,32 @@ describe('buildAiReview', () => {
     });
   });
 
+  // 2026-11-06: a pump bill that never said how it was paid came back as Cash
+  // with nothing flagged, and a card payment was saved as Cash.
+  it('flags the mode of a scanned bill that never said how it was paid', () => {
+    const scanned = buildAiReview(
+      draft({ mode: 'Cash', mode_source: 'default', missing_fields: [] }),
+      'x',
+      'receipt',
+      split(),
+      true
+    );
+    expect(scanned.missingFields).toEqual(['mode']);
+    expect(scanned.modeSource).toBe('default');
+
+    // Typed or spoken, nobody says how they paid for lunch: no flag there.
+    const typed = buildAiReview(draft({ mode_source: 'default' }), 'x', 'text', split(), true);
+    expect(typed.missingFields).toEqual([]);
+    // A bill that did say is not flagged either.
+    const read = buildAiReview(draft({ mode_source: 'read' }), 'x', 'receipt', split(), true);
+    expect(read.missingFields).toEqual([]);
+  });
+
+  it('notes when the draft named the account, which no habit may replace', () => {
+    expect(buildAiReview(draft({ account_hint: 'HDFC' }), 'x', 'text', split(), true).accountNamed).toBe(true);
+    expect(buildAiReview(draft({ account_hint: '  ' }), 'x', 'text', split(), true).accountNamed).toBe(false);
+  });
+
   it('with Smart Sorting off adds the fields the user must now choose', () => {
     const review = buildAiReview(draft({ missing_fields: ['date'] }), 'x', 'text', split(), false);
     expect(review.smartSortingDisabled).toBe(true);
@@ -405,12 +431,10 @@ describe('quick prompts', () => {
     expect(form.date).toContain('2026');
   });
 
-  it('gives the editor defaults for a new prompt', () => {
-    expect(quickPromptEditorData(null, accounts, now)).toMatchObject({
-      category: 'Food & Drinks',
-      mode: 'Cash',
-      type: 'Expense',
-    });
+  it('gives the editor defaults for a new prompt, leaving the category to the title', () => {
+    const data = quickPromptEditorData(null, accounts, now);
+    expect(data).toMatchObject({ mode: 'Cash', type: 'Expense' });
+    expect(data).not.toHaveProperty('category');
   });
 
   it('fills the editor from an existing prompt, account and all', () => {
@@ -422,5 +446,30 @@ describe('quick prompts', () => {
       accountId: 4,
       notes: 'Oat milk',
     });
+  });
+});
+
+describe('a wallet top-up scan', () => {
+  // "Your Pluxee Card has been credited" never says how the money moved, so
+  // the read has no mode; the user's Pluxee wallet is still the account.
+  const sodexo = {
+    id: 9,
+    type: 'wallet',
+    name: 'Sodexo',
+    provider: 'Pluxee',
+    color: '#FF9F43',
+  } as Account;
+
+  it('lands in the saved wallet the payer names, in Wallets', () => {
+    const form = apply(
+      draft({ type: 'income', mode: null, merchant: 'Pluxee', missing_fields: ['mode'] }),
+      { hintedAccount: sodexo }
+    );
+    expect(form).toMatchObject({ mode: 'Wallets', accountId: 9, account: 'Sodexo' });
+  });
+
+  it('still leaves the mode to the user when no account was named', () => {
+    const form = apply(draft({ type: 'income', mode: null, missing_fields: ['mode'] }));
+    expect(form.mode).toBe('');
   });
 });

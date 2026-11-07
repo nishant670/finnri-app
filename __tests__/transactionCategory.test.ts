@@ -54,10 +54,16 @@ describe('title category hints', () => {
     ['Monthly salary', 'Salary'],
     ['Client payment', 'Freelance'],
     ['Bank interest', 'Interest'],
+    ['Vedanta dividend', 'Dividend'],
+    ['ITC interim dividend', 'Dividend'],
     ['Dinner refund', 'Refund'],
     ['Groceries cashback', 'Refund'],
     ['ब्याज', 'Interest'],
     ['Diwali bonus', 'Salary'],
+    // An employer's meal wallet load is part of pay.
+    ['Pluxee Card Credit', 'Salary'],
+    ['Sodexo meal card', 'Salary'],
+    ['Meal wallet top-up', 'Salary'],
     ['Upwork invoice', 'Freelance'],
     ['Dinner', null],
   ])('keeps %s in the income vocabulary', (title, expected) => {

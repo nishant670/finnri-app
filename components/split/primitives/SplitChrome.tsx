@@ -12,7 +12,8 @@ import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 
-export type ActiveSection = 'groups' | 'friends' | 'activity';
+/** P23: one Balances list, people first and groups under them, then Activity. */
+export type ActiveSection = 'balances' | 'activity';
 
 export function SplitScreenFrame({
   embedded,
@@ -87,8 +88,7 @@ export function SegmentedSections({
     <Segments
       active={activeSection}
       options={[
-        { key: 'groups', label: 'Groups', testID: 'split-section-groups' },
-        { key: 'friends', label: 'Friends', testID: 'split-section-friends' },
+        { key: 'balances', label: 'Balances', testID: 'split-section-balances' },
         { key: 'activity', label: 'Activity', badge: activityBadge, testID: 'split-section-activity' },
       ]}
       onChange={onChange}
@@ -145,6 +145,28 @@ export function BalanceFilterButton({ active, onPress }: { active: boolean; onPr
       <ThemedText style={[styles.filterLabel, { color: theme.text, fontWeight: active ? '700' : '500' }]}>
         Filter
       </ThemedText>
+    </PressableView>
+  );
+}
+
+/**
+ * "New group" beside the Groups heading on Balances. With friends and groups
+ * on one list, the header's button adds a friend, so a group needs its own way
+ * in once the empty "Create your first group" card has gone.
+ */
+export function NewGroupButton({ onPress }: { onPress: () => void }) {
+  const theme = useThemeTokens().colors;
+  return (
+    <PressableView
+      testID="split-new-group"
+      accessibilityRole="button"
+      accessibilityLabel="New group"
+      onPress={onPress}
+      hitSlop={6}
+      style={[styles.filter, { borderColor: theme.border }]}
+      pressedStyle={styles.pressed}>
+      <MaterialCommunityIcons name="plus" size={16} color={theme.text} />
+      <ThemedText style={[styles.filterLabel, { color: theme.text, fontWeight: '500' }]}>New group</ThemedText>
     </PressableView>
   );
 }

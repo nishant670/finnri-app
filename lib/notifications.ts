@@ -8,6 +8,11 @@ export type AppNotification = {
   body: string;
   action_url?: string;
   read_at?: string | null;
+  /** What a reminder is for, and when (P48). Absent on older servers. */
+  amount?: number | string | null;
+  due_date?: string | null;
+  /** Set when the job behind it is done; the list clears it (P49). */
+  resolved_at?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -167,3 +172,26 @@ export const isRecurringActionURL = (actionURL?: string | null): boolean =>
  * shows the pass and its dates. Tapping the push opens it too.
  */
 export const isBillingActionURL = (actionURL?: string | null): boolean => actionURL === '/billing';
+
+/** Clears one notification for good (P49: swipe to clear, Updates' Clear). */
+export const deleteNotification = async (token: string, id: number) => {
+  const response = await fetch(`${API_BASE_URL}/v1/notifications/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token),
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new Error('Unable to clear that notification.');
+  }
+};
+
+/** The subscription a reminder is about, from `/recurring/:id` (P47). */
+export const recurringIdFromActionURL = (actionURL?: string | null): number | null => {
+  const match = actionURL?.match(/^\/recurring\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+};
+
+/** The settle-up a "says they paid you" notification is about (P47). */
+export const settlementIdFromActionURL = (actionURL?: string | null): number | null => {
+  const match = actionURL?.match(/^\/split\/settlements\/(\d+)$/);
+  return match ? Number(match[1]) : null;
+};

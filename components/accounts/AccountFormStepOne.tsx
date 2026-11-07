@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { ScrollView, TextInput, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/Button';
@@ -10,7 +10,7 @@ import { withAlpha } from '@/constants/theme';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { type AccountType } from '@/lib/accounts';
+import { type AccountType, type CreditKind } from '@/lib/accounts';
 import { typeOptions, COLORS, COLOR_NAMES } from '@/lib/account-form';
 import { styles } from './account-form-styles';
 
@@ -29,7 +29,34 @@ type AccountFormStepOneProps = {
   setStep: Dispatch<SetStateAction<number>>;
   showStyleOptions: boolean;
   typeError: string | null;
-  updateSelectedType: (nextType: AccountType) => void;
+  updateSelectedType: (nextType: AccountType, nextKind?: CreditKind) => void;
+  /** 'pay_later' when the Pay later tile is the one chosen. */
+  creditKind?: CreditKind;
+  /**
+   * Part of the one-sheet account form (P21): only the type chips and the
+   * name, with no header, scroll or Continue of its own.
+   */
+  embedded?: boolean;
+};
+
+/**
+ * The order the one-sheet form lists types in (board R5-Account-Proposals).
+ * Pay later is a credit_card account with its own kind, so it sits next to
+ * Credit card and is told apart by `creditKind`.
+ */
+const CHIP_ORDER: { key: AccountType; creditKind?: CreditKind }[] = [
+  { key: 'cash' },
+  { key: 'bank' },
+  { key: 'credit_card' },
+  { key: 'credit_card', creditKind: 'pay_later' },
+  { key: 'debit_card' },
+  { key: 'upi' },
+  { key: 'wallet' },
+  { key: 'other' },
+];
+const CHIP_LABELS: Partial<Record<AccountType, string>> = {
+  credit_card: 'Credit card',
+  debit_card: 'Debit card',
 };
 
 export function AccountFormStepOne({
@@ -48,9 +75,59 @@ export function AccountFormStepOne({
   showStyleOptions,
   typeError,
   updateSelectedType,
+  creditKind = '',
+  embedded = false,
 }: AccountFormStepOneProps) {
   const theme = useThemeTokens().colors;
   const colorName = COLOR_NAMES[selectedColor] ?? 'Custom colour';
+  if (embedded) {
+    return (
+      <>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Account type" style={chipStyles.wrap}>
+          {CHIP_ORDER.map(({ key, creditKind: chipKind = '' }) => {
+            const option = typeOptions.find(
+              (candidate) => candidate.key === key && (candidate.creditKind ?? '') === chipKind
+            );
+            if (!option) return null;
+            const isSelected = selectedType === key && chipKind === creditKind;
+            return (
+              <PressableView
+                key={`${key}-${chipKind}`}
+                testID={chipKind ? `account-type-${chipKind}` : `account-type-${key}`}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: isSelected }}
+                onPress={() => updateSelectedType(key, chipKind)}
+                style={[
+                  chipStyles.chip,
+                  {
+                    backgroundColor: isSelected ? theme.selectedFill : theme.card,
+                    borderColor: isSelected ? theme.selectedBorder : theme.border,
+                  },
+                ]}
+                pressedStyle={{ opacity: 0.7 }}>
+                <MaterialCommunityIcons name={option.icon} size={18} color={theme.text} />
+                <ThemedText
+                  style={[chipStyles.label, { color: theme.text, fontWeight: isSelected ? '700' : '500' }]}>
+                  {chipKind ? option.label : (CHIP_LABELS[key] ?? option.label)}
+                </ThemedText>
+              </PressableView>
+            );
+          })}
+        </View>
+        {typeError ? <ThemedText style={styles.errorText}>{typeError}</ThemedText> : null}
+        <View style={[styles.inputContainer, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <TextInput
+            accessibilityLabel="Account name"
+            value={name}
+            onChangeText={setName}
+            placeholder="Name, e.g. Salary account"
+            placeholderTextColor={theme.muted}
+            style={[styles.textInput, { color: theme.text }]}
+          />
+        </View>
+      </>
+    );
+  }
   return (
     <>
       <ScreenHeader
@@ -77,13 +154,16 @@ export function AccountFormStepOne({
         </ThemedText>
         <View style={styles.gridContainer}>
           {typeOptions.map((option) => {
-            const isSelected = selectedType === option.key;
+            // Credit and Pay later are both credit_card accounts; the kind
+            // tells the two tiles apart.
+            const isSelected =
+              selectedType === option.key && (option.creditKind ?? '') === creditKind;
             return (
               <PressableView
-                key={option.key}
+                key={`${option.key}-${option.creditKind ?? ''}`}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: isSelected }}
-                onPress={() => updateSelectedType(option.key)}
+                onPress={() => updateSelectedType(option.key, option.creditKind ?? '')}
                 style={[
                   styles.gridItem,
                   {
@@ -209,3 +289,134 @@ export function AccountFormStepOne({
     </>
   );
 }
+
+/**
+ * Colour and default as one fold at the foot of the one-sheet form (P21):
+ * closed, it says what both already are — "Blue · Not your default".
+ */
+export function AccountStyleFold({
+  isDefault,
+  selectedColor,
+  setIsDefault,
+  setSelectedColor,
+  open,
+  setOpen,
+}: {
+  isDefault: boolean;
+  selectedColor: string;
+  setIsDefault: Dispatch<SetStateAction<boolean>>;
+  setSelectedColor: Dispatch<SetStateAction<string>>;
+  open: boolean;
+  setOpen: Dispatch<SetStateAction<boolean>>;
+}) {
+  const theme = useThemeTokens().colors;
+  const colorName = COLOR_NAMES[selectedColor] ?? 'Custom colour';
+  return (
+    <View style={[styles.rowsCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      <PressableView
+        testID="account-style-options"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`Colour and default, ${colorName}, ${isDefault ? 'your default' : 'not your default'}`}
+        onPress={() => setOpen((current) => !current)}
+        style={chipStyles.foldHeader}
+        pressedStyle={{ opacity: 0.7 }}>
+        <View style={{ flex: 1 }}>
+          <ThemedText style={[chipStyles.foldTitle, { color: theme.text }]}>Colour & default</ThemedText>
+          <ThemedText tone="muted" style={chipStyles.foldCaption}>
+            {colorName} · {isDefault ? 'Your default' : 'Not your default'}
+          </ThemedText>
+        </View>
+        <MaterialCommunityIcons
+          name={open ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={withAlpha(theme.text, 0.6)}
+        />
+      </PressableView>
+      {open ? (
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ borderTopWidth: 1, borderTopColor: theme.border }}
+            contentContainerStyle={styles.colorScroll}>
+            {COLORS.map((color) => {
+              const isSelected = selectedColor === color;
+              return (
+                <TouchableOpacity
+                  key={color}
+                  accessibilityRole="radio"
+                  accessibilityLabel={`${COLOR_NAMES[color] ?? color} colour`}
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => setSelectedColor(color)}
+                  style={[styles.colorItem, { backgroundColor: color }, isSelected && styles.colorItemSelected]}>
+                  {isSelected && <View style={[styles.colorRing, { borderColor: theme.text }]} />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <PressableView
+            accessibilityRole="switch"
+            accessibilityState={{ checked: isDefault }}
+            accessibilityLabel="Use as default account"
+            accessibilityHint="Finnri picks it first for matching payments."
+            onPress={() => setIsDefault((current) => !current)}
+            style={[styles.prefRow, { borderTopWidth: 1, borderTopColor: theme.border }]}
+            pressedStyle={{ opacity: 0.7 }}>
+            <ThemedText tone="muted" style={styles.prefLabel}>
+              Default
+            </ThemedText>
+            <ThemedText style={[styles.prefValue, { color: theme.text }]}>
+              {isDefault ? 'Your default for these payments' : 'Not your default'}
+            </ThemedText>
+            <MaterialCommunityIcons
+              name={isDefault ? 'checkbox-marked-circle' : 'checkbox-blank-circle-outline'}
+              size={20}
+              color={theme.text}
+            />
+          </PressableView>
+        </>
+      ) : null}
+    </View>
+  );
+}
+
+const chipStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  chip: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingLeft: 12,
+    paddingRight: 14,
+    borderWidth: 1,
+    borderRadius: 20,
+  },
+  label: {
+    fontSize: 14,
+    lineHeight: 18,
+  },
+  foldHeader: {
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  foldTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  foldCaption: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+});

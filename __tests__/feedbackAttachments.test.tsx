@@ -5,7 +5,10 @@ import FeedbackScreen from '@/app/feedback';
 import { submitFeedback } from '@/lib/feedback';
 import { uploadAttachment } from '@/lib/uploads';
 
-jest.mock('expo-router', () => ({ useRouter: () => ({ back: jest.fn(), push: jest.fn() }) }));
+jest.mock('expo-router', () => ({
+  useRouter: () => ({ back: jest.fn(), push: jest.fn() }),
+  useLocalSearchParams: () => ({ from: 'Profile' }),
+}));
 jest.mock('@/hooks/use-auth-store', () => ({ useAuthStore: () => ({ token: 'session-token' }) }));
 jest.mock('@/components/ui/AppDialogProvider', () => ({
   useAppDialog: () => ({ alert: jest.fn().mockResolvedValue(undefined), confirm: jest.fn() }),

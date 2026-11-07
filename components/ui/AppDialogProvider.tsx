@@ -138,6 +138,15 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
  * see `AppDialogProvider` for why the stock dialog is not an acceptable ending
  * to a themed flow.
  */
+/**
+ * The same, or null outside the provider: for a component that can do without
+ * a question (the transaction sheet's "Always use …?") and is rendered alone
+ * in tests and previews.
+ */
+export function useOptionalAppDialog() {
+  return useContext(AppDialogContext);
+}
+
 export function useAppDialog() {
   const value = useContext(AppDialogContext);
   if (!value) {

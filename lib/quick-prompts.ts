@@ -1,24 +1,16 @@
 import type { QuickPrompt } from '@/components/home/QuickPrompts';
 import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import type { Account } from './accounts';
+import { categoryVisual } from './categories';
 import { toAmountInputValue } from './money';
 
-const iconForCategory = (category: string) => {
-  switch (category.toLowerCase()) {
-    case 'food & drinks':
-      return 'coffee-outline';
-    case 'travel':
-      return 'train';
-    case 'transport':
-      return 'gas-station-outline';
-    case 'shopping':
-      return 'cart-outline';
-    case 'bills':
-      return 'file-document-outline';
-    default:
-      return 'lightning-bolt';
-  }
-};
+/**
+ * A prompt's icon is its category's, the one every row and picker in the app
+ * draws for it. It used to be a map of its own: Transport was a fuel pump, and
+ * income and five other categories were a lightning bolt.
+ */
+export const quickPromptIcon = (category: string, type?: string | null) =>
+  categoryVisual(category, type).icon;
 
 /**
  * The transaction a quick prompt describes, in the shape the entry sheet takes.
@@ -64,5 +56,5 @@ export const formToQuickPromptPayload = (form: EntryForm) => ({
   merchant: form.merchant.trim(),
   tag: form.tag,
   notes: form.notes.trim(),
-  icon: iconForCategory(form.category),
+  icon: quickPromptIcon(form.category, form.type),
 });

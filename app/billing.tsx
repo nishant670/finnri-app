@@ -18,6 +18,7 @@ import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { captureCreditsFor } from '@/lib/credit-gate';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
 import {
   createBillingCheckout,
@@ -29,6 +30,8 @@ import {
   formatCreditDate,
   formatMinor,
   formatPlanPrice,
+  creditsInWords,
+  monthlyEquivalentMinor,
   planOffer,
   requestLifetimeQuote,
   type BillingPlan,
@@ -278,6 +281,9 @@ export default function BillingScreen() {
       ? plans.find((plan) => plan.offer)?.offer
       : null;
   const offerIsYours = !status || !!status.launch_offer?.eligible;
+  const textPrice = captureCreditsFor(status, 'text');
+  const scanPrice = captureCreditsFor(status, 'receipt');
+  const creditsWords = creditsInWords(status?.credits.total_credits_remaining ?? 0, textPrice, scanPrice);
 
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
@@ -395,6 +401,12 @@ export default function BillingScreen() {
                 credits left
               </ThemedText>
             </View>
+            {/* P55: what the number buys, at today's prices. */}
+            {creditsWords ? (
+              <ThemedText testID="credits-in-words" tone="muted" style={styles.caption}>
+                {creditsWords}
+              </ThemedText>
+            ) : null}
             {/* The tag already says when the trial or pass ends. */}
             {accessTag ? null : (
               <ThemedText tone="muted" style={styles.caption}>
@@ -495,6 +507,7 @@ export default function BillingScreen() {
                       key={plan.code}
                       plan={plan}
                       offer={planOffer(plan, status)}
+                      textPrice={textPrice}
                       selected={plan.code === selectedPlan?.code}
                       recommended={plan.code === recommendedPlanCode}
                       current={status?.plan?.code === plan.code}
@@ -600,9 +613,12 @@ function PassRow({
   divider,
   disabled,
   onSelect,
+  textPrice,
 }: {
   plan: BillingPlan;
   offer: PlanOffer | null;
+  /** Credits a typed entry costs, to say a pass's credits as entries. */
+  textPrice: number;
   selected: boolean;
   recommended: boolean;
   current: boolean;
@@ -612,6 +628,7 @@ function PassRow({
 }) {
   const { colors } = useThemeTokens();
   const daily = plan.daily_credit_limit > 0 ? `${formatCount(plan.daily_credit_limit)} a day` : 'custom daily cap';
+  const perMonth = monthlyEquivalentMinor(plan, offer);
   return (
     <PressableView
       testID={`plan-row-${plan.code}`}
@@ -641,7 +658,17 @@ function PassRow({
           {current ? <Tag label="Active" tone="positive" /> : null}
         </View>
         <ThemedText tone="muted" style={styles.small}>
-          {formatCount(plan.included_credits)} credits · {daily}
+          {/* P55: credits in what they buy, beside the daily cap. */}
+          {[
+            // A quote has no fixed credits: "0 credits · 0 entries" read as worthless.
+            plan.included_credits > 0 ? `${formatCount(plan.included_credits)} credits` : null,
+            plan.included_credits > 0 && textPrice > 0
+              ? `${formatCount(Math.floor(plan.included_credits / textPrice))} entries`
+              : null,
+            daily,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </ThemedText>
       </View>
       <View style={styles.price}>
@@ -664,6 +691,12 @@ function PassRow({
         <ThemedText tone="muted" style={styles.small}>
           {periodLabels[plan.billing_interval] ?? intervalLabels[plan.billing_interval] ?? plan.billing_interval}
         </ThemedText>
+        {/* P56: every pass in the same unit, at the price you would pay. */}
+        {perMonth !== null ? (
+          <ThemedText testID={`plan-per-month-${plan.code}`} tone="muted" style={styles.small}>
+            {`about ${formatMinor(perMonth, plan.currency)} a month`}
+          </ThemedText>
+        ) : null}
       </View>
     </PressableView>
   );

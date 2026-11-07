@@ -70,3 +70,23 @@ export const paymentModeVisual = (mode?: string | null): PaymentModeVisual => {
     ? PAYMENT_MODE_VISUALS[resolved.toLowerCase()]
     : { icon: 'help-circle-outline', color: '#90A4AE' };
 };
+
+/**
+ * Income that almost always lands in a bank account. Salary is credited by
+ * payroll, dividends by the registrar, interest by the bank itself — nobody
+ * receives them in cash, so a form left on its Cash default for one of these
+ * is a form the user has to correct every time.
+ */
+const BANK_CREDITED_INCOME = new Set(['salary', 'freelance', 'interest', 'dividend']);
+
+/**
+ * The mode a category's money usually moves by, or null when there is no
+ * usual one and the form's own default should stand.
+ */
+export const usualModeForCategory = (
+  category?: string | null,
+  type?: string | null
+): PaymentMode | null =>
+  type?.toLowerCase() === 'income' && BANK_CREDITED_INCOME.has(category?.toLowerCase().trim() ?? '')
+    ? 'Bank Account'
+    : null;

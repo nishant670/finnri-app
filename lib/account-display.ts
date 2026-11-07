@@ -50,13 +50,21 @@ export const getAccountVisual = (account: Account) => {
   return icon ? { ...fallback, icon } : fallback;
 };
 
+/** A pay-later credit line (CRED flash, LazyPay): a card underneath, named as what it is. */
+export const isPayLater = (account: Pick<Account, 'type' | 'credit_kind'>) =>
+  normalizeAccountType(account.type) === 'credit_card' && account.credit_kind === 'pay_later';
+
+/** "Credit card", "Wallet", or "Pay later" for a pay-later line. */
+export const getAccountTypeLabel = (account: Pick<Account, 'type' | 'credit_kind'>) =>
+  isPayLater(account) ? 'Pay later' : accountTypeLabels[normalizeAccountType(account.type)];
+
 export const formatAccountIdentifier = (account: Account) => {
   const lastDigits = (account.last4 || account.identifier)?.replace(/\D/g, '').slice(-4);
   if (lastDigits) return `•••• ${lastDigits}`;
   if (account.upi_handle) return account.upi_handle;
   if (account.wallet_nickname) return account.wallet_nickname;
   if (account.provider) return account.provider;
-  return accountTypeLabels[normalizeAccountType(account.type)];
+  return getAccountTypeLabel(account);
 };
 
 /* ------------------------------------------------------------------ *
@@ -81,17 +89,24 @@ export type AccountHeadline = {
 export const hasLedgerActivity = (account: Account) => (account.summary?.entries_total ?? 0) > 0;
 
 export const hasOpeningBalance = (account: Account) =>
-  typeof account.balance === 'number' && account.balance !== 0;
+  Boolean(account.balance_tracked) || (typeof account.balance === 'number' && account.balance !== 0);
 
 /**
- * The one money figure an account row leads with: what a card owes, or what
- * everything else has spent so far this month.
+ * The one money figure an account row leads with: what a card owes, what a
+ * wallet or bank account holds once the user gave it a balance, or else what
+ * it has spent so far this month.
  */
 export const getAccountHeadline = (account: Account): AccountHeadline => {
   const summary = account.summary;
 
   if (normalizeAccountType(account.type) === 'credit_card') {
     return { label: 'Outstanding', amount: summary?.outstanding ?? account.balance ?? 0 };
+  }
+
+  // A meal wallet that is never spent from this month still holds ₹33,184;
+  // "Spent this month ₹0" told the user nothing they opened it for.
+  if (typeof summary?.running_balance === 'number') {
+    return { label: 'Balance', amount: summary.running_balance };
   }
 
   return {
@@ -244,13 +259,45 @@ export const getAccountSetupItems = (account: Account): AccountSetupItem[] => {
     account.wallet_nickname?.trim() ||
     account.identifier?.trim() ||
     '';
-  const hasBalance = typeof account.balance === 'number' && account.balance !== 0;
+  const hasBalance = hasOpeningBalance(account);
+  const running = account.summary?.running_balance;
+  // Asks for what the account holds today — the figure people know, and the
+  // one a wallet's top-up message prints — not what it held before the first
+  // logged transaction.
   const balanceItem = (label: string): AccountSetupItem => ({
     key: 'balance',
     label,
     complete: hasBalance,
-    detail: hasBalance ? formatMoney(account.balance ?? 0) : 'Start a running balance for this account',
+    detail: hasBalance
+      ? formatMoney(typeof running === 'number' ? running : (account.balance ?? 0))
+      : 'What it holds today, kept up to date as you log',
   });
+
+  if (isPayLater(account)) {
+    const limit = account.credit_limit ?? 0;
+    const dueDay = account.due_day ?? 0;
+    const hasDueDay = dueDay >= 1 && dueDay <= 31;
+    return [
+      {
+        key: 'provider',
+        label: 'Lender',
+        complete: Boolean(provider),
+        detail: provider || 'CRED flash, LazyPay, Simpl…',
+      },
+      {
+        key: 'limit',
+        label: 'Limit',
+        complete: limit > 0,
+        detail: limit > 0 ? formatMoney(limit) : 'See how much is left to use',
+      },
+      {
+        key: 'due',
+        label: 'Repay by',
+        complete: hasDueDay,
+        detail: hasDueDay ? `The ${ordinal(dueDay)} of each month` : 'Get a reminder before each bill',
+      },
+    ];
+  }
 
   if (accountType === 'credit_card') {
     const limit = account.credit_limit ?? 0;
@@ -284,7 +331,7 @@ export const getAccountSetupItems = (account: Account): AccountSetupItem[] => {
     ];
   }
 
-  if (accountType === 'cash') return [balanceItem('Opening cash balance')];
+  if (accountType === 'cash') return [balanceItem('Cash in hand')];
 
   const providerLabel =
     accountType === 'upi' ? 'UPI app' : accountType === 'wallet' ? 'Wallet' : accountType === 'other' ? 'Provider' : 'Bank';
@@ -308,6 +355,89 @@ export const getAccountSetupItems = (account: Account): AccountSetupItem[] => {
       complete: Boolean(identifier),
       detail: identifier || 'Tell it apart from your other accounts',
     },
-    balanceItem('Opening balance'),
+    balanceItem('Current balance'),
   ];
+};
+
+/** How a missing detail can be filled in where it is listed (P62). */
+export type SetupInlineField = {
+  keyboard: 'number' | 'text';
+  placeholder: string;
+  /** "₹" on money fields. */
+  prefix?: string;
+  /** What is wrong with the value, or null when it can be saved. */
+  validate: (value: string) => string | null;
+};
+
+const digitsOnly = (value: string) => value.replace(/[^0-9]/g, '');
+const money = (value: string) => Number(value.replace(/[^0-9.]/g, ''));
+
+/**
+ * The field a setup row opens into (P62, boards R5-AcctCard-Proposals and
+ * R5-AcctAdded-Proposals), or null when the detail needs the full form — a
+ * bank or card issuer is picked from a list there.
+ */
+export const setupInlineField = (account: Account, item: AccountSetupItem): SetupInlineField | null => {
+  const type = normalizeAccountType(account.type);
+  switch (item.key) {
+    case 'identifier':
+      if (type === 'upi' || type === 'wallet') {
+        return {
+          keyboard: 'text',
+          placeholder: type === 'upi' ? 'name@bank or a nickname' : 'A nickname',
+          validate: (value) => (value.trim() ? null : 'Enter something to tell it apart'),
+        };
+      }
+      return {
+        keyboard: 'number',
+        placeholder: '1234',
+        validate: (value) => (digitsOnly(value).length === 4 ? null : 'Enter the last 4 digits'),
+      };
+    case 'limit':
+      return {
+        keyboard: 'number',
+        prefix: '₹',
+        placeholder: isPayLater(account) ? 'Your limit' : 'Your card’s limit',
+        validate: (value) => (money(value) > 0 ? null : 'Enter a limit above zero'),
+      };
+    case 'due':
+      return {
+        keyboard: 'number',
+        placeholder: 'Day of the month, 1–31',
+        validate: (value) => {
+          const day = Number(digitsOnly(value));
+          return day >= 1 && day <= 31 ? null : 'Enter a day from 1 to 31';
+        },
+      };
+    case 'balance':
+      return {
+        keyboard: 'number',
+        prefix: '₹',
+        placeholder: 'What it holds today',
+        validate: (value) => (value.trim() && Number.isFinite(money(value)) ? null : 'Enter an amount'),
+      };
+    default:
+      return null;
+  }
+};
+
+/**
+ * The account with one detail set, ready for `updateAccount` — for every
+ * detail but the balance, which goes through `setAccountBalance` so the
+ * server works back to the opening.
+ */
+export const withSetupDetail = (account: Account, key: string, raw: string): Account => {
+  const type = normalizeAccountType(account.type);
+  switch (key) {
+    case 'identifier':
+      if (type === 'upi') return { ...account, upi_handle: raw.trim() };
+      if (type === 'wallet') return { ...account, wallet_nickname: raw.trim() };
+      return { ...account, last4: digitsOnly(raw).slice(-4) };
+    case 'limit':
+      return { ...account, credit_limit: money(raw) };
+    case 'due':
+      return { ...account, due_day: Number(digitsOnly(raw)) };
+    default:
+      return account;
+  }
 };
