@@ -4,7 +4,6 @@ import React from 'react';
 import { MoneyOverview } from '@/components/money/MoneyOverview';
 import * as accountsLib from '@/lib/accounts';
 import type { Account } from '@/lib/accounts';
-import * as billing from '@/lib/billing';
 import * as insights from '@/lib/insights';
 import { accountKindGroups, cardTotalSummary, dueAction } from '@/lib/money-overview';
 import * as refundables from '@/lib/refundables';
@@ -100,17 +99,16 @@ describe('Due actions (P20)', () => {
   });
 });
 
-describe('Money overview (P17, P18, P22)', () => {
+describe('Money overview (P17, P18)', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     mockPush.mockClear();
     jest.spyOn(accountsLib, 'fetchAccounts').mockResolvedValue([card(1, 2000, 0)]);
     jest.spyOn(subscriptions, 'fetchSubscriptions').mockResolvedValue([]);
     jest.spyOn(refundables, 'fetchRefundables').mockResolvedValue([]);
-    jest.spyOn(billing, 'fetchBillingStatus').mockResolvedValue(null as never);
   });
 
-  it('opens on the figures and sections, with Unlock past the free budget', async () => {
+  it('opens on the figures and sections, and budgets open the full list', async () => {
     jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({
       budget_statuses: [
         {
@@ -131,8 +129,9 @@ describe('Money overview (P17, P18, P22)', () => {
     expect(ui.getByText('Bills & dues')).toBeTruthy();
     expect(ui.getByText('₹58,150 of ₹64,000')).toBeTruthy();
 
-    await fireEvent.press(ui.getByLabelText('Unlock, Budgets'));
-    expect(mockPush).toHaveBeenCalledWith('/billing');
+    await fireEvent.press(ui.getByLabelText('See all, Budgets'));
+    expect(onOpenList).toHaveBeenCalledWith('budgets');
+    expect(mockPush).not.toHaveBeenCalledWith('/billing');
 
     await fireEvent.press(ui.getByLabelText('See all, Accounts'));
     expect(onOpenList).toHaveBeenCalledWith('accounts');
@@ -159,6 +158,6 @@ describe('Money overview (P17, P18, P22)', () => {
     const ui = await render(<MoneyOverview onOpenList={onOpenList} />);
 
     expect(await ui.findByText('Set a monthly budget')).toBeTruthy();
-    await waitFor(() => expect(ui.getByText('One budget is free. See what is left as you spend.')).toBeTruthy());
+    await waitFor(() => expect(ui.getByText('See what is left as you spend.')).toBeTruthy());
   });
 });
