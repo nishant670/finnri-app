@@ -10,7 +10,8 @@
     "ios": "node ./scripts/expo-cli.js start --ios --clear",
     "web": "node ./scripts/expo-cli.js start --web --clear",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest",
+    "release-notes:publish": "jiti scripts/publish-release-notes.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

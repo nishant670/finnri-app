@@ -13,6 +13,7 @@ import 'react-native-reanimated';
 // compiled darkMode setting from this stylesheet and throws without it.
 import '../global.css';
 
+import { AppUpdateWatcher } from '@/components/update/AppUpdateWatcher';
 import { FinnriSplashScreen } from '@/components/SplashScreen';
 import { TransactionDeleteProvider } from '@/components/transactions/TransactionDeleteProvider';
 import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
@@ -307,6 +308,7 @@ export default function RootLayout() {
         <Stack.Screen name="ask" />
         <Stack.Screen name="tools" />
         <Stack.Screen name="about-finnri" />
+        <Stack.Screen name="whats-new" />
         <Stack.Screen name="help-support" />
         <Stack.Screen name="feedback" />
         <Stack.Screen name="upcoming" />
@@ -334,6 +336,7 @@ export default function RootLayout() {
         />
       </Stack>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <AppUpdateWatcher />
       </TransactionDeleteProvider>
       </AppDialogProvider>
       </ThemeProvider>

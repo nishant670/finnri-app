@@ -89,6 +89,18 @@ export default function AboutFinnriScreen() {
           budgets and splits in one place.
         </ThemedText>
 
+        <View style={[styles.card, styles.whatsNew, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <ListRow
+            testID="about-whats-new"
+            icon="creation"
+            hue="#6A4BBC"
+            title="What’s new"
+            meta="Every update, and what it changed"
+            chevron
+            onPress={() => router.push('/whats-new')}
+          />
+        </View>
+
         <ThemedText tone="muted" accessibilityRole="header" style={styles.groupTitle}>
           What Finnri does
         </ThemedText>
@@ -160,6 +172,9 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontSize: 15,
     lineHeight: 22,
+  },
+  whatsNew: {
+    marginTop: 16,
   },
   groupTitle: {
     marginTop: 20,
