@@ -703,3 +703,50 @@ export const toAccountPayload = (account: Account): AccountPayload => ({
   balance: account.balance,
   is_default: account.is_default,
 });
+
+export type AccountCategory = {
+  category: string;
+  amount: number;
+  percentage: number;
+  previous_amount: number;
+};
+
+export type AccountCategories = {
+  account_id: number;
+  month: string;
+  previous_month: string;
+  total: number;
+  previous_total: number;
+  categories: AccountCategory[];
+};
+
+/**
+ * Where an account's money went this month, beside last month (P63). Null on
+ * an API that does not have the endpoint yet, so the page leaves the card out
+ * rather than showing an error.
+ */
+export const fetchAccountCategories = async (
+  token: string,
+  accountId: number
+): Promise<AccountCategories | null> => {
+  const query = new URLSearchParams({ tz: getClientTimeZone() });
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/categories?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404 || response.status === 405) return null;
+  if (!response.ok) {
+    throw await readAccountError(response, 'Unable to load where this account’s money went.');
+  }
+  const body = (await response.json()) as AccountCategories;
+  return {
+    ...body,
+    total: Number(body.total),
+    previous_total: Number(body.previous_total),
+    categories: (body.categories ?? []).map((item) => ({
+      ...item,
+      amount: Number(item.amount),
+      percentage: Number(item.percentage),
+      previous_amount: Number(item.previous_amount),
+    })),
+  };
+};

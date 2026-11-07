@@ -19,6 +19,7 @@ import { PaymentFormSheet } from '@/components/statements/PaymentFormSheet';
 import { StatementDayDriftDialog } from '@/components/statements/StatementDayDriftDialog';
 import { StatementFormSheet } from '@/components/statements/StatementFormSheet';
 import { StatementSummaryCard } from '@/components/statements/StatementSummaryCard';
+import { AccountCategoriesCard } from '@/components/accounts/AccountCategoriesCard';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { Button, PrimaryButton } from '@/components/ui/Button';
@@ -43,14 +44,22 @@ import {
   getCreditUsage,
   getCurrentStatement,
   getLastActivityLabel,
+  setupInlineField,
+  withSetupDetail,
+  type AccountSetupItem,
 } from '@/lib/account-display';
+import { haptics } from '@/lib/haptics';
 import { formatMoney } from '@/lib/money';
+import { entryMonthRange, openFilteredTransactions } from '@/lib/transaction-links';
 import {
   Account,
   AccountApiError,
   deleteAccount,
+  fetchAccountCategories,
   fetchAccounts,
   markCardPaidOff,
+  setAccountBalance,
+  type AccountCategories,
   normalizeAccountType,
   toAccountPayload,
   updateAccount,
@@ -165,6 +174,8 @@ export default function AccountDetailsScreen() {
 
   const [account, setAccount] = useState<Account | null>(null);
   const [activity, setActivity] = useState<Transaction[]>([]);
+  /** P63: this month by category, beside last month; null until loaded or unavailable. */
+  const [categories, setCategories] = useState<AccountCategories | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -236,6 +247,10 @@ export default function AccountDetailsScreen() {
       setAccount(matchedAccount);
       setAccounts(accounts);
       setActivity(transactions.slice(0, 5));
+      // P63: a failure costs the card, not the screen.
+      fetchAccountCategories(token, accountId)
+        .then(setCategories)
+        .catch(() => setCategories(null));
 
       if (normalizeAccountType(matchedAccount.type) === 'credit_card') {
         // A failure here costs the EMI section, not the screen.
@@ -311,6 +326,24 @@ export default function AccountDetailsScreen() {
       pathname: '/accounts/manage',
       params: { id: String(account.id), ...(focus ? { focus } : {}) },
     });
+  };
+
+  /** P62: a missing detail saved from its checklist row. */
+  const saveSetupDetail = async (item: AccountSetupItem, value: string) => {
+    if (!token || !account) return;
+    if (item.key === 'balance') {
+      await setAccountBalance(token, account.id, Number(value.replace(/[^0-9.-]/g, '')));
+    } else {
+      await updateAccount(token, account.id, toAccountPayload(withSetupDetail(account, item.key, value)));
+    }
+    haptics.saved();
+    await loadDetails();
+  };
+
+  /** P61: the add form, already on this account. */
+  const addTransaction = () => {
+    if (!account) return;
+    router.push({ pathname: '/transactions', params: { accountId: String(account.id), compose: '1' } });
   };
 
   const handleSetDefault = async () => {
@@ -528,7 +561,10 @@ export default function AccountDetailsScreen() {
         onRightPress={openSettings}
       />
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        // A setup row's Save must save on the first tap, keyboard up (P62).
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
         {error && <ErrorBanner message={error} style={{ marginBottom: 12 }} />}
 
         {/* Board R5-AcctCard / R5-AcctBank: no card around the hero, the
@@ -587,6 +623,8 @@ export default function AccountDetailsScreen() {
             title="Finish setting up"
             items={setupItems}
             onAdd={() => handleEdit('details')}
+            inlineFieldFor={(item) => setupInlineField(account, item)}
+            onSaveInline={saveSetupDetail}
             style={styles.setup}
           />
         ) : null}
@@ -675,6 +713,25 @@ export default function AccountDetailsScreen() {
           />
         )}
 
+        {categories && categories.categories.length > 0 ? (
+          <>
+            <SectionTitle title="Where it went this month" />
+            <AccountCategoriesCard
+              data={categories}
+              onOpenCategory={(category) => {
+                const month = entryMonthRange(null);
+                openFilteredTransactions({
+                  accountId: account.id,
+                  category,
+                  type: 'Expense',
+                  startDate: month.start,
+                  endDate: month.end,
+                });
+              }}
+            />
+          </>
+        ) : null}
+
         {account.summary && account.summary.entries_total > 0 ? (
           <>
             <SectionTitle title="This month" />
@@ -727,10 +784,23 @@ export default function AccountDetailsScreen() {
           title="Recent activity"
           action={
             activity.length > 0 ? (
-              <PressableView accessibilityRole="button" onPress={openAllTransactions} style={styles.seeAll} pressedStyle={styles.pressed}>
-                <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>See all</ThemedText>
-                <MaterialCommunityIcons name="chevron-right" size={16} color={theme.text} />
-              </PressableView>
+              <View style={styles.activityActions}>
+                {/* P61: log one here, already on this account. */}
+                <PressableView
+                  testID="account-add-transaction"
+                  accessibilityRole="button"
+                  accessibilityLabel="Add a transaction"
+                  onPress={addTransaction}
+                  style={styles.seeAll}
+                  pressedStyle={styles.pressed}>
+                  <MaterialCommunityIcons name="plus" size={16} color={theme.text} />
+                  <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>Add</ThemedText>
+                </PressableView>
+                <PressableView accessibilityRole="button" onPress={openAllTransactions} style={styles.seeAll} pressedStyle={styles.pressed}>
+                  <ThemedText style={[styles.textLinkLabel, { color: theme.text }]}>See all</ThemedText>
+                  <MaterialCommunityIcons name="chevron-right" size={16} color={theme.text} />
+                </PressableView>
+              </View>
             ) : null
           }
         />
@@ -762,6 +832,15 @@ export default function AccountDetailsScreen() {
             <ThemedText tone="muted" style={styles.body}>
               Anything you pay from this account shows here.
             </ThemedText>
+            <Button
+              testID="account-add-first-transaction"
+              label="Add a transaction"
+              icon="plus"
+              variant="outline"
+              height={40}
+              onPress={addTransaction}
+              style={styles.emptyAction}
+            />
           </View>
         )}
 
@@ -941,6 +1020,15 @@ function accountFigureRows(account: Account) {
 }
 
 const styles = StyleSheet.create({
+  activityActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  emptyAction: {
+    alignSelf: 'flex-start',
+    marginTop: 12,
+  },
   screen: {
     flex: 1,
   },

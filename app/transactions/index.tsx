@@ -40,7 +40,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useTransactionPages } from '@/hooks/use-transaction-pages';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, paymentModeForAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { shareTransactionExport, type ExportFormat } from '@/lib/export';
 import { haptics } from '@/lib/haptics';
@@ -128,8 +128,14 @@ export default function TransactionsScreen() {
     mode: routeMode,
     event_id: routeEventIdParam,
     pickFor: pickForParam,
+    compose: composeParam,
   } = useLocalSearchParams<{
     accountId?: string;
+    /**
+     * "1" opens the add form straight away, on `accountId`'s account when
+     * there is one (P61: "Add a transaction" on an account's page).
+     */
+    compose?: string;
     review?: string;
     start_date?: string;
     end_date?: string;
@@ -161,6 +167,8 @@ export default function TransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState(routeSearch ?? '');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(routeSearch?.trim() ?? '');
   const [accounts, setAccounts] = useState<Account[]>([]);
+  /** The accounts have been asked for at least once, found or not (P61). */
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
 
   // Filter State — one object, the same shape the sheet edits and
   // `toTransactionFilters` turns into a query.
@@ -287,7 +295,8 @@ export default function TransactionsScreen() {
       if (token) {
         void fetchAccounts(token)
           .then(setAccounts)
-          .catch(() => setAccounts([]));
+          .catch(() => setAccounts([]))
+          .finally(() => setAccountsLoaded(true));
       }
       return () => {
         isFocused.current = false;
@@ -535,6 +544,31 @@ export default function TransactionsScreen() {
         });
     }
   }, [token]);
+
+  /**
+   * P61: arriving with `compose=1` opens the add form at once, already paid
+   * from (or into) the account the user came from. Waits for the accounts so
+   * the method follows the account's kind — a card's Credit Card, a wallet's
+   * Wallets — and only ever runs once per arrival.
+   */
+  const composedFromRoute = useRef(false);
+  useEffect(() => {
+    if (composeParam !== '1' || composedFromRoute.current) return;
+    const account = routeAccountId ? accounts.find((item) => item.id === routeAccountId) : null;
+    // Wait for the accounts, but not for an account that is not there (it was
+    // deleted, or they did not load): the form still opens, on no account.
+    if (routeAccountId && !account && !accountsLoaded) return;
+    composedFromRoute.current = true;
+    openAdd();
+    if (account) {
+      setAddForm((form) => ({
+        ...form,
+        accountId: account.id,
+        account: account.name,
+        mode: paymentModeForAccountType(account.type) ?? form.mode,
+      }));
+    }
+  }, [accounts, accountsLoaded, composeParam, openAdd, routeAccountId]);
 
   const offerBudgetAlert = useCallback(
     async (budgetNotificationIds: Set<number>) => {
@@ -1193,7 +1227,9 @@ export default function TransactionsScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
-        startOnLastPayment
+        // A form opened for one account (P61, compose=1) stays on it; only a
+        // blank form starts on the last method used (P9).
+        startOnLastPayment={addForm.accountId == null}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
