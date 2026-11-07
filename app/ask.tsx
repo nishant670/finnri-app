@@ -154,11 +154,14 @@ export default function AskFinnriScreen() {
       followUpTo === undefined
         ? [...turns].reverse().find((turn) => turn.answer?.status === 'answered') ?? null
         : followUpTo;
-    const contextQuestion = previous ? previous.asked : null;
+    // The answer's own resolved query when the server sent one; the thread's
+    // words only for an older server. Words made the model carry the first
+    // question's subject into "And the day before?" and count back from today.
+    const contextQuestion = previous ? previous.answer?.context || previous.asked : null;
     const id = nextID.current++;
     setTurns((current) => [
       ...current,
-      { id, question, asked: threadOf(contextQuestion, question) },
+      { id, question, asked: threadOf(previous ? previous.asked : null, question) },
     ]);
     setInput('');
     setIsSending(true);
