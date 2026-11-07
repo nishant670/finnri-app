@@ -1,6 +1,6 @@
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { recurringVisuals } from '@/components/money/money-visuals';
@@ -88,7 +88,24 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
  * almost every subscription. Status appears only when editing, because a thing
  * being created is not cancelled.
  */
-export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
+export function SubscriptionsPanel({
+  embedded = false,
+  header,
+}: MoneyPanelProps & {
+  /**
+   * Drawn first inside the list's scroll — Bills & dues puts what is due
+   * there (P18). `version` moves after every load, and `reload` refreshes
+   * the list after the header changes something.
+   */
+  header?: (controls: {
+    reload: () => void;
+    version: number;
+    /** Opens the add sheet, for the header's own empty state. */
+    add: () => void;
+    /** Opens a recurring payment's actions, for a due the header lists. */
+    open: (subscriptionId: number) => void;
+  }) => ReactNode;
+}) {
   const router = useRouter();
   const sheetBottom = useBottomInset(24);
   const params = useLocalSearchParams();
@@ -171,6 +188,11 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   const prefillNextDueDate = toParam(params.nextDueDate);
   const prefillNotes = toParam(params.notes);
   const candidateKey = toParam(params.candidateKey);
+  const prefillKind = toParam(params.kind);
+  const prefillPrincipal = toParam(params.principal);
+  const prefillRatePct = toParam(params.ratePct);
+  const prefillTotalEmis = toParam(params.totalEmis);
+  const prefillStepUpPct = toParam(params.stepUpPct);
 
   const dueCount = useMemo(() => countDueSoon(subscriptions), [subscriptions]);
   const activeSubscriptions = useMemo(
@@ -214,6 +236,43 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
   );
   const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
+
+  /**
+   * "Track this SIP / loan" on the calculators (P53): the add sheet opens as
+   * that kind, already holding what was worked out there. The params are
+   * cleared once used, so coming back to the list does not reopen it.
+   */
+  useEffect(() => {
+    if (source !== 'calculator' || editing) return;
+    const kind: RecurringKind = prefillKind === 'loan' ? 'loan' : 'investment';
+    // Named by the user ("Car loan", "Nifty 50 SIP"): the calculator can't know.
+    openCreateForm(kind);
+    const amountValue = sanitizeAmount(prefillAmount ?? '');
+    if (amountValue) setAmount(amountValue);
+    setInterval('monthly');
+    if (kind === 'loan') {
+      setPrincipal(sanitizeAmount(prefillPrincipal ?? ''));
+      setRatePct(prefillRatePct ?? '');
+      setTotalEmis(prefillTotalEmis ?? '');
+      // The figures are the point of tracking it from here: show them.
+      setShowKindDetails(true);
+    } else {
+      setStepUpPct(prefillStepUpPct && prefillStepUpPct !== '0' ? prefillStepUpPct : '');
+      setShowKindDetails(Boolean(prefillStepUpPct && prefillStepUpPct !== '0'));
+    }
+    router.setParams({
+      source: undefined,
+      kind: undefined,
+      name: undefined,
+      amount: undefined,
+      principal: undefined,
+      ratePct: undefined,
+      totalEmis: undefined,
+      stepUpPct: undefined,
+    });
+    // Runs once per arrival from the calculator; the form setters are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   useEffect(() => {
     if (source !== 'recurring_review' || editing) return;
@@ -276,6 +335,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
     setStepUpPct('');
   };
 
+  const [loadVersion, setLoadVersion] = useState(0);
   const load = useCallback(async () => {
     if (!token) {
       setSubscriptions([]);
@@ -295,6 +355,7 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
       setCardEMIs(recurring.card_emis);
       setOverview(recurring.summary);
       setAccounts(accountItems);
+      setLoadVersion((version) => version + 1);
     } catch (loadError) {
       setListError(
         getFriendlyErrorMessage(loadError, 'Unable to load recurring payments right now.')
@@ -732,6 +793,17 @@ export function SubscriptionsPanel({ embedded = false }: MoneyPanelProps) {
         ref={scrollRef}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
+        {header
+          ? header({
+              reload: () => void load(),
+              version: loadVersion,
+              add: () => openCreateForm(),
+              open: (subscriptionId) => {
+                const item = subscriptions.find((candidate) => candidate.id === subscriptionId);
+                if (item) openActions(item);
+              },
+            })
+          : null}
         {visibleCandidates.length > 0 && (
           <View style={styles.gutter}>
             <RecurringCandidatesCard

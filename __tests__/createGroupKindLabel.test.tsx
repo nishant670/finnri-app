@@ -26,6 +26,9 @@ const setup = async (groupKind: GroupKind, kindLabel = '', balanceAlertEnabled =
       balanceAlertAmount=""
       friends={[]}
       selectedFriendIds={[]}
+      newMemberNames={[]}
+      onAddNewMember={jest.fn()}
+      onRemoveNewMember={jest.fn()}
       onChangeName={jest.fn()}
       onChangeKind={jest.fn()}
       onChangeKindLabel={onChangeKindLabel}

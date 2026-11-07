@@ -11,6 +11,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { formatMoney } from '@/lib/money';
 import { quickPromptIcon } from '@/lib/quick-prompts';
 import { API_BASE_URL } from '@/lib/transactions';
 
@@ -34,10 +35,13 @@ export function QuickPrompts({
   onSelect,
   onAdd,
   onLongPress,
+  hideAmounts = false,
 }: {
   onSelect: (prompt: QuickPrompt) => void;
   onAdd: () => void;
   onLongPress: (prompt: QuickPrompt) => void;
+  /** Stealth mode: chips keep their names but not their amounts. */
+  hideAmounts?: boolean;
 }) {
   const theme = useThemeTokens();
   const { token } = useAuthStore();
@@ -134,6 +138,12 @@ export function QuickPrompts({
               <ThemedText numberOfLines={1} style={[styles.label, { color: colors.text }]}>
                 {item.title}
               </ThemedText>
+              {/* What a tap will log, before it is tapped (P4). */}
+              {Number(item.amount) > 0 && !hideAmounts ? (
+                <ThemedText tone="muted" numberOfLines={1} style={styles.amount}>
+                  {formatMoney(item.amount)}
+                </ThemedText>
+              ) : null}
             </PressableView>
           ))
         )}
@@ -153,7 +163,10 @@ export function QuickPrompts({
   );
 }
 
-/** Board R1-Home-Empty: a 14/700 heading over a row of 40dp chips, 16 in from the edge. */
+/**
+ * Board R1-Home-Empty-Proposals: a 14/700 heading over a row of 40dp chips,
+ * 16 in from the edge, each ending in its amount (P4).
+ */
 const styles = StyleSheet.create({
   section: {
     marginTop: 10,
@@ -194,6 +207,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  amount: {
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '400',
+    fontVariant: ['tabular-nums'],
   },
   pressed: {
     opacity: 0.7,

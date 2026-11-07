@@ -4,7 +4,6 @@ import { router } from 'expo-router';
 import { AccountIntelligence } from '@/components/insights/AccountIntelligence';
 import { InsightsUnlockProgressCard } from '@/components/insights/InsightsUnlockProgressCard';
 import { PillButton } from '@/components/insights/PillButton';
-import { MonthlyReviewTeaser, WeeklyReviewTeaser } from '@/components/insights/ReviewTeasers';
 import { SectionHeader } from '@/components/insights/SectionHeader';
 import { View } from 'react-native';
 import type { DashboardResponse } from '@/lib/insights';
@@ -58,35 +57,6 @@ describe('InsightsUnlockProgressCard', () => {
   it('renders for a partial count without crashing', async () => {
     const screen = await render(<InsightsUnlockProgressCard count={2} />);
     expect(screen.toJSON()).not.toBeNull();
-  });
-});
-
-describe('MonthlyReviewTeaser', () => {
-  it('opens last month’s review', async () => {
-    const screen = await render(<MonthlyReviewTeaser />);
-    const button = screen.getByRole('button');
-    expect(button.props.accessibilityLabel).toMatch(/^Open the \w+ review$/);
-    await fireEvent.press(button);
-    expect(router.push).toHaveBeenCalledWith({
-      pathname: '/monthly-review',
-      params: { month: expect.stringMatching(/^\d{4}-\d{2}$/) },
-    });
-  });
-});
-
-describe('WeeklyReviewTeaser', () => {
-  it('summarises budget risks, recurring and alerts with correct plurals', async () => {
-    const screen = await render(
-      <WeeklyReviewTeaser
-        rangeLabel="This week"
-        dashboard={dash({
-          budget_statuses: [{ status: 'safe' }, { status: 'over' }],
-          recurring_candidates: [{}, {}],
-          insights: [{ severity: 'warning' }, { severity: 'info' }],
-        })}
-      />
-    );
-    expect(screen.getByText(/1 budget risk · 2 recurring ·\s*1 alert/)).toBeTruthy();
   });
 });
 

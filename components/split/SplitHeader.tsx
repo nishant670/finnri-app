@@ -28,18 +28,9 @@ export function SplitHeader({
           onPress: onToggleSearch,
         },
         {
-          icon:
-            activeSection === 'friends'
-              ? 'account-plus-outline'
-              : activeSection === 'activity'
-                ? 'account-group-outline'
-                : 'account-multiple-plus-outline',
+          icon: activeSection === 'activity' ? 'account-group-outline' : 'account-plus-outline',
           accessibilityLabel:
-            activeSection === 'friends'
-              ? 'Add split friend'
-              : activeSection === 'activity'
-                ? 'Create split group'
-                : 'Create split friend or group',
+            activeSection === 'activity' ? 'Create split group' : 'Add split friend',
           onPress: onCreate,
         },
       ]}

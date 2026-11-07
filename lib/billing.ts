@@ -152,6 +152,9 @@ export type AIUsageEvent = {
   error_code?: string;
   /** 'question' when the parse was answered as an Ask Finnri question. */
   intent?: string;
+  /** The entry this read's draft became (P57); `entry` is absent once deleted. */
+  entry_id?: number | null;
+  entry?: { id: number; title: string; amount: number; type: string; date: string } | null;
   started_at: string;
   finished_at?: string | null;
 };
@@ -417,4 +420,40 @@ export const formatPlanPrice = (plan: BillingPlan) => {
     currency: plan.currency || 'INR',
     maximumFractionDigits: 0,
   }).format(plan.price_minor / 100);
+};
+
+/** How many of each interval make a month, for "about ₹37 a month" (P56). */
+const MONTHS_PER_INTERVAL: Record<string, number> = {
+  weekly: 12 / 52,
+  monthly: 1,
+  quarterly: 3,
+  yearly: 12,
+};
+
+/**
+ * What a pass comes to each month, at the price this person would pay — the
+ * launch price while it is theirs (P56, board R8-Plans-Proposals). Null for a
+ * monthly pass, whose price already says it, and for one without a price.
+ */
+export const monthlyEquivalentMinor = (plan: BillingPlan, offer: PlanOffer | null) => {
+  const months = MONTHS_PER_INTERVAL[plan.billing_interval];
+  const price = offer ? offer.price_minor : plan.price_minor;
+  if (!months || months === 1 || !price || price <= 0) return null;
+  return Math.round(price / months);
+};
+
+/**
+ * Credits in what they buy (P55): "about 162 typed entries or 32 bill
+ * scans", at today's prices from the server. Null when there is nothing to
+ * spend.
+ */
+export const creditsInWords = (credits: number, textPrice: number, scanPrice: number) => {
+  if (!(credits > 0) || !(textPrice > 0)) return null;
+  const typed = Math.floor(credits / textPrice);
+  const scans = scanPrice > 0 ? Math.floor(credits / scanPrice) : 0;
+  if (typed < 1) return null;
+  const typedPart = `${typed.toLocaleString('en-IN')} typed ${typed === 1 ? 'entry' : 'entries'}`;
+  return scans >= 1
+    ? `About ${typedPart} or ${scans.toLocaleString('en-IN')} bill ${scans === 1 ? 'scan' : 'scans'}`
+    : `About ${typedPart}`;
 };

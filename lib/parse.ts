@@ -56,6 +56,24 @@ export type LedgerAnswer = {
   };
   group_by?: 'category' | 'merchant' | 'month' | 'none';
   breakdown: ParseAnswerSlice[];
+  /**
+   * The same number for the same days of the period before (P64): "12% less
+   * than 1–21 Sep". `change_percent` is absent when that window was empty.
+   */
+  comparison?: {
+    amount: number;
+    label: string;
+    start_date: string;
+    end_date: string;
+    change_percent?: number | null;
+  } | null;
+  /**
+   * The exact query this answer was computed over, opaque to the app. A
+   * follow-up sends it back as its context, so "And the day before?" moves
+   * back from this answer's dates with this answer's filters — not from a
+   * re-reading of the thread's words.
+   */
+  context?: string;
   largest_entry?: {
     entry_id: number;
     title: string;
@@ -166,6 +184,11 @@ export type ParseDraft = {
   emi_rate_pct?: number | null;
   currency: string | null;
   mode: string | null;
+  /**
+   * "default" when `mode` is the Cash the API fills in because nothing said
+   * how it was paid; "read" when the bill or sentence said. Older APIs omit it.
+   */
+  mode_source?: 'read' | 'default';
   card_network: string | null;
   account_hint: string | null;
   category: string | null;
@@ -218,6 +241,8 @@ export type ParseDraft = {
   credits_remaining_today?: number;
   credits_remaining_total?: number;
   plan_code?: string;
+  /** This read's id, sent back with the saved entry so AI usage can open it (P57). */
+  ai_request_id?: string;
 };
 
 /** The draft shape, under the name the app has always used for it. */
@@ -231,6 +256,11 @@ export type ParseDraftInput = {
     name: string;
   };
   tz?: string;
+  /**
+   * The question this one may follow, from the Ask thread (P67), so "And
+   * last month?" is read as a follow-up. Only the model sees it.
+   */
+  contextQuestion?: string | null;
 };
 
 type ParseErrorPayload = {
@@ -491,6 +521,7 @@ export const parseEntryDraft = async ({
   hintText,
   audio,
   tz = getClientTimeZone(),
+  contextQuestion,
 }: ParseDraftInput): Promise<ParseResult> => {
   const formData = new FormData();
   const trimmedHint = hintText?.trim() ?? '';
@@ -501,6 +532,9 @@ export const parseEntryDraft = async ({
     formData.append('audio', audio.file, audio.name);
   }
   formData.append('tz', tz);
+  if (contextQuestion?.trim()) {
+    formData.append('context_question', contextQuestion.trim());
+  }
 
   const response = await fetch(`${API_BASE_URL}/v1/parse`, {
     method: 'POST',

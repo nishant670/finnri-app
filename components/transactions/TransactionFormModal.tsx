@@ -47,6 +47,7 @@ import {
   getAutoAccountPayloadForPaymentMode,
   getPreferredAccountForPaymentMode,
   normalizeAccountType,
+  paymentModeForAccountType,
 } from '@/lib/accounts';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { calculateEMI, type EMICalculation } from '@/lib/emi';
@@ -69,7 +70,12 @@ import { categoryTypeOf, useUserCategories } from '@/lib/user-categories';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { buildQuickFills, type QuickFill } from '@/lib/quick-fills';
 import { inferTransactionCategory } from '@/lib/transaction-category';
+import { lastPaymentFor, rememberLastPayment, type LastPayment } from '@/lib/last-payment';
 import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
+import { describePaymentPick, type PaymentSuggestion } from '@/lib/payment-rules';
+import { notePaymentCorrection } from '@/lib/payment-rule-offer';
+import { useOptionalAppDialog } from '@/components/ui/AppDialogProvider';
+import { usePaymentSuggestion } from './usePaymentSuggestion';
 import {
   DEFAULT_PAYMENT_MODE,
   PAYMENT_MODES,
@@ -83,7 +89,6 @@ import {
 } from '@/lib/ai-draft-review';
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
-import { TransactionAccountPicker } from './TransactionAccountPicker';
 import { TransactionCategoryPicker } from './TransactionCategoryPicker';
 import {
   TransactionCancellationDateSheet,
@@ -92,7 +97,7 @@ import {
 } from './TransactionDateSheets';
 import { TransactionDraftSource, TransactionDraftStatus } from './TransactionDraftHeader';
 import { TransactionEmiFields } from './TransactionEmiFields';
-import { TransactionModePicker } from './TransactionModePicker';
+import { TransactionPaymentPicker } from './TransactionPaymentPicker';
 import { TransactionReceiptField } from './TransactionReceiptField';
 import { TransactionRefundFields } from './TransactionRefundFields';
 import { TransactionSubscriptionFields } from './TransactionSubscriptionFields';
@@ -189,6 +194,10 @@ export type AiReviewMetadata = {
    */
   sourceText?: string;
   inputSource?: 'voice' | 'text' | 'receipt';
+  /** Whether the draft's mode was read or only defaulted; see ParseDraft.mode_source. */
+  modeSource?: 'read' | 'default';
+  /** The bill or sentence named the account ("HDFC card"); never replaced by a habit. */
+  accountNamed?: boolean;
 };
 
 interface TransactionFormModalProps {
@@ -211,6 +220,12 @@ interface TransactionFormModalProps {
    * gallery, reads the photo and drives this sheet into draft review.
    */
   onRequestReceiptScan?: () => void;
+  /**
+   * A blank new entry: start it on the payment method the last new entry was
+   * saved with instead of the form's default (P9). Quick prompts, repeats and
+   * drafts bring their own method and leave this off.
+   */
+  startOnLastPayment?: boolean;
   /**
    * The sheet is open but the parse has not landed yet. The draft area renders
    * placeholders shaped like the fields that are coming; everything else — the
@@ -276,20 +291,16 @@ const missingFieldMessages: Record<(typeof requiredFields)[number], string> = {
   date: 'Pick a date.',
 };
 
+/** One row says how and from where (P6): "Paid with" out, "Received in" in. */
 const getPaymentLanguage = (entryType: string) =>
-  entryType === 'Income'
-    ? {
-        modeLabel: 'Received via',
-        accountLabel: 'Received in',
-        modeAccessibilityPrefix: 'Received via',
-        accountAccessibilityPrefix: 'Received in',
-      }
-    : {
-        modeLabel: 'Paid via',
-        accountLabel: 'Paid from',
-        modeAccessibilityPrefix: 'Paid via',
-        accountAccessibilityPrefix: 'Paid from',
-      };
+  entryType === 'Income' ? { label: 'Received in' } : { label: 'Paid with' };
+
+/**
+ * The value the "Paid with" row shows: the method, then the account it paid
+ * from. Cash needs no "· Cash Account" after it.
+ */
+export const paymentRowValue = (mode: string, account: string, showAccount: boolean) =>
+  showAccount && account && mode !== 'Cash' ? `${mode} · ${account}` : mode;
 
 const nextMonthClamped = (value: string) => {
   const purchased = parseDateLabel(value);
@@ -387,7 +398,7 @@ const SHAKE_OFFSET = 6;
  * of a few seconds reads as work in progress, not as a sheet that failed to
  * fill.
  */
-const DRAFT_SKELETON_ROWS = ['Category', 'Paid via', 'Paid from', 'Date'];
+const DRAFT_SKELETON_ROWS = ['Category', 'Paid with', 'Date'];
 const DRAFT_SKELETON_WIDTHS = ['54%', '40%', '64%', '48%'] as const;
 
 function DraftSkeleton() {
@@ -443,6 +454,7 @@ export function TransactionFormModal({
   mode = 'manual',
   heading,
   onRequestReceiptScan,
+  startOnLastPayment = false,
   isParsing = false,
   aiReview,
   accounts = emptyAccounts,
@@ -506,6 +518,13 @@ export function TransactionFormModal({
    */
   const initialDataRef = useRef(initialData);
   initialDataRef.current = initialData;
+  const startOnLastPaymentRef = useRef(startOnLastPayment);
+  startOnLastPaymentRef.current = startOnLastPayment && !isEdit;
+  /**
+   * The remembered method the sheet opened on, so its row can say "· last
+   * used" until it is changed (P9).
+   */
+  const [paymentFromMemory, setPaymentFromMemory] = useState<LastPayment | null>(null);
   const panelAnim = useSharedValue(SCREEN_HEIGHT);
   const backdropAnim = useSharedValue(0);
   /** Horizontal nudge for the validation shake. */
@@ -641,6 +660,32 @@ export function TransactionFormModal({
   const modeChosenRef = useRef(false);
   /** What the form opened on, for when a category stops implying a mode. */
   const seededModeRef = useRef<string>(DEFAULT_PAYMENT_MODE);
+  /**
+   * Payment rules and habits ("fuel" → the SBI BPCL card) fill in how a new
+   * expense was paid while nobody has said: not the user in this sheet
+   * (`paymentTouchedRef`), not the caller or the bill (`paymentLockedRef`).
+   * `paymentSeedRef` is what the form opened on, to go back to when the title
+   * stops matching; `autoPick` is the account picked and why, for the line
+   * under "Paid from".
+   */
+  const paymentTouchedRef = useRef(false);
+  const paymentLockedRef = useRef(false);
+  const paymentSeedRef = useRef<Pick<EntryForm, 'mode' | 'accountId' | 'account'> | null>(null);
+  const [autoPick, setAutoPick] = useState<{
+    suggestion: PaymentSuggestion;
+    accountId: number;
+    accountName: string;
+  } | null>(null);
+  const autoPickRef = useRef(autoPick);
+  autoPickRef.current = autoPick;
+  const aiReviewRef = useRef(aiReview);
+  aiReviewRef.current = aiReview;
+  const dialog = useOptionalAppDialog();
+  /** The user picked how it was paid; nothing fills it in for them after this. */
+  const notePaymentChosen = useCallback(() => {
+    modeChosenRef.current = true;
+    paymentTouchedRef.current = true;
+  }, []);
 
   /**
    * A new transaction's mode follows its category until the user picks one:
@@ -651,7 +696,7 @@ export function TransactionFormModal({
    */
   const followCategoryMode = useCallback(
     (next: EntryForm): EntryForm => {
-      if (!followsTitle || modeChosenRef.current) return next;
+      if (!followsTitle || modeChosenRef.current || autoPickRef.current) return next;
       const usual = usualModeForCategory(next.category, next.type);
       const mode =
         usual && getAccountsForPaymentMode(accounts, usual).length > 0
@@ -732,7 +777,6 @@ export function TransactionFormModal({
   const [pendingCancellationDate, setPendingCancellationDate] = useState<Date>(new Date());
   const [isModePickerVisible, setIsModePickerVisible] = useState(false);
   const [isCategoryPickerVisible, setIsCategoryPickerVisible] = useState(false);
-  const [isAccountPickerVisible, setIsAccountPickerVisible] = useState(false);
   const [isRefundDatePickerVisible, setIsRefundDatePickerVisible] = useState(false);
   const [emiCalculation, setEmiCalculation] = useState<EMICalculation | null>(null);
   const [emiCalculationError, setEmiCalculationError] = useState<string | null>(null);
@@ -751,7 +795,7 @@ export function TransactionFormModal({
       if (initialFocus === 'category') {
         setIsCategoryPickerVisible(true);
       } else if (initialFocus === 'account') {
-        setIsAccountPickerVisible(true);
+        setIsModePickerVisible(true);
       }
     }, 360);
     return () => clearTimeout(timer);
@@ -951,7 +995,7 @@ export function TransactionFormModal({
         setForm((previous) => ({ ...previous, accountId: saved.id, account: saved.name }));
         setAutoCreatedAccount({ id: saved.id, name: saved.name });
         setDismissedSuggestionKey(suggestionKey);
-        setIsAccountPickerVisible(false);
+        setIsModePickerVisible(false);
         haptics.saved();
       } catch (error) {
         haptics.rejected();
@@ -1140,6 +1184,65 @@ export function TransactionFormModal({
     );
   }, []);
 
+  const paymentToken = authToken ?? sessionToken;
+  const paymentLookup = usePaymentSuggestion({
+    enabled:
+      visible &&
+      !isParsing &&
+      !isEdit &&
+      personalPayment &&
+      (followsTitle || draftReview) &&
+      form.type === 'Expense',
+    token: paymentToken,
+    type: form.type,
+    title: form.title,
+    merchant: form.merchant,
+    tag: form.tag,
+  });
+  // Fill in, or take back, the account a rule or habit points at — only while
+  // nobody has said how this was paid. A bill that said "Credit Card" without
+  // naming the card still bounds the pick to cards.
+  useEffect(() => {
+    if (!paymentLookup || paymentTouchedRef.current || paymentLockedRef.current) return;
+    const suggestion = paymentLookup.suggestion;
+    const account = suggestion ? accounts.find((item) => item.id === suggestion.account_id) : null;
+    const seed = paymentSeedRef.current;
+    // An API older than mode_source cannot say the mode was only a default,
+    // so a draft from one keeps to its mode too.
+    const review = aiReviewRef.current;
+    const boundMode = review && review.modeSource !== 'default' ? seed?.mode : null;
+    const fits =
+      account != null &&
+      (!boundMode ||
+        getAccountsForPaymentMode(accounts, boundMode).some((item) => item.id === account.id));
+    if (suggestion && account && fits) {
+      if (autoPickRef.current?.accountId === account.id) return;
+      const mode = paymentModeForAccountType(account.type) ?? seed?.mode ?? DEFAULT_PAYMENT_MODE;
+      setForm((previous) => ({ ...previous, mode, accountId: account.id, account: account.name }));
+      setAutoPick({ suggestion, accountId: account.id, accountName: account.name });
+      // Filled from the user's own rule or history, with the reason on show:
+      // not a guess to flag. A bill that never said how it was paid is
+      // flagged until this, or the user, settles it.
+      markDraftFieldChecked('mode');
+      markDraftFieldChecked('account');
+      return;
+    }
+    if (autoPickRef.current && seed) {
+      setForm((previous) =>
+        resolveEntryFormAccount({
+          ...previous,
+          mode: seed.mode,
+          accountId: seed.accountId,
+          account: seed.account,
+        })
+      );
+      setAutoPick(null);
+    }
+    // `accounts` refetching while the sheet is open is not a reason to pick
+    // again; the next title change is.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentLookup]);
+
   // The amount is its own headline above the list, so it never appears twice.
   // An income draft has no tag to review — see `tagsApply`.
   const isDraftFieldShown = useCallback(
@@ -1253,7 +1356,10 @@ export function TransactionFormModal({
       setForm((prev) => {
         const next: EntryForm = { ...prev, category: fill.category };
         if (fill.kind === 'merchant') {
-          if (fill.mode || fill.accountId != null) modeChosenRef.current = true;
+          if (fill.mode || fill.accountId != null) {
+            modeChosenRef.current = true;
+            paymentTouchedRef.current = true;
+          }
           next.title = fill.title ?? fill.label;
           next.merchant = fill.merchant ?? '';
           if (fill.mode) {
@@ -1285,7 +1391,7 @@ export function TransactionFormModal({
     // whatever it was when those last moved — which for the draft path is the
     // empty form the sheet opened on, two seconds before the parse landed.
     const initialData = initialDataRef.current;
-    const seeded = resolveEntryFormAccount({
+    let seeded = resolveEntryFormAccount({
       title: '',
       amount: '',
       type: 'Expense',
@@ -1325,6 +1431,20 @@ export function TransactionFormModal({
       subscriptionNotes: '',
       ...initialData,
     });
+    const remembered = startOnLastPaymentRef.current ? lastPaymentFor(seeded.type) : null;
+    const rememberedAllowed =
+      remembered &&
+      (PAYMENT_MODES as readonly string[]).includes(remembered.mode) &&
+      !(seeded.type === 'Income' && remembered.mode === 'Credit Card');
+    if (remembered && rememberedAllowed) {
+      seeded = resolveEntryFormAccount({
+        ...seeded,
+        mode: remembered.mode,
+        accountId: remembered.accountId,
+        account: '',
+      });
+    }
+    setPaymentFromMemory(remembered && rememberedAllowed ? remembered : null);
     categoryChosenRef.current =
       normalizeCategoryValue(seeded.category, seeded.type) !== defaultCategoryForType(seeded.type);
     if (followsTitle && !categoryChosenRef.current) {
@@ -1345,6 +1465,19 @@ export function TransactionFormModal({
     const nextForm = fastEntry ? { ...followed, amount: toKeypadValue(followed.amount) } : followed;
     seededFormRef.current = nextForm;
     setForm(nextForm);
+    // A draft keeps an account the bill or sentence named, and a draft with
+    // smart sorting off fills nothing in. A new form keeps one its caller chose.
+    const review = aiReviewRef.current;
+    paymentTouchedRef.current = false;
+    paymentLockedRef.current = review
+      ? Boolean(review.accountNamed || review.smartSortingDisabled)
+      : modeChosenRef.current;
+    paymentSeedRef.current = {
+      mode: nextForm.mode,
+      accountId: nextForm.accountId,
+      account: nextForm.account,
+    };
+    setAutoPick(null);
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
     // genuinely does not close over it. That is the point — reseeding on every
@@ -1356,6 +1489,7 @@ export function TransactionFormModal({
     if (visible) {
       setShowModal(true);
       setMoreDetailsToggled(null);
+      setSplitShareMode('amount');
       setIsSubscriptionOptionsOpen(false);
       setIsTitleFocused(false);
       setFormError(null);
@@ -1527,6 +1661,22 @@ export function TransactionFormModal({
     [motion, shakeAnim]
   );
 
+  /**
+   * A save that moved how a new expense was paid off what the form filled in,
+   * towards one account: the step that, twice over, asks "Always use …?".
+   */
+  const paymentCorrection = () => {
+    if (!paymentTouchedRef.current || paymentLockedRef.current || isEdit || !personalPayment) {
+      return null;
+    }
+    const kind = paymentLookup?.kind;
+    if (form.type !== 'Expense' || form.accountId == null || !kind) return null;
+    const filled = autoPick?.accountId ?? paymentSeedRef.current?.accountId ?? null;
+    if (filled === form.accountId) return null;
+    const account = accounts.find((item) => item.id === form.accountId);
+    return account ? { kind, accountId: account.id, accountName: account.name } : null;
+  };
+
   const handleConfirmEntry = async () => {
     // Mid-parse the form holds none of the AI's answers yet, so a save here
     // submits an empty draft and fails.
@@ -1694,8 +1844,22 @@ export function TransactionFormModal({
             }
           : {}),
       });
+      // A rule or habit's pick ("fuel" → the BPCL card) belongs to that kind
+      // of spend; it should not become the next unrelated expense's default.
+      const autoPicked =
+        autoPick != null && autoPick.accountId === form.accountId && !paymentTouchedRef.current;
+      if (!isEdit && mode !== 'quick-prompt' && personalPayment && !autoPicked) {
+        rememberLastPayment(normalizedForm.type, {
+          mode: normalizedForm.mode,
+          accountId: normalizedForm.accountId,
+        });
+      }
       haptics.saved();
+      const correction = paymentCorrection();
       onClose();
+      if (correction && paymentToken && dialog) {
+        void notePaymentCorrection({ token: paymentToken, ...correction, confirm: dialog.confirm });
+      }
     } catch (error) {
       // Saving an entry with a split hits an entitlement-gated path. A 402
       // there is an offer, not a validation failure.
@@ -1724,7 +1888,14 @@ export function TransactionFormModal({
         [
           ...prev.splitParticipants,
           {
-            friendId: splitFriends[0]?.id ?? null,
+            // The next friend not already in the split: two rows for the
+            // same person is never what a second "Add a friend" means.
+            friendId:
+              splitFriends.find(
+                (friend) => !prev.splitParticipants.some((row) => row.friendId === friend.id)
+              )?.id ??
+              splitFriends[0]?.id ??
+              null,
             friendName: '',
             shareAmount: defaultShare,
             direction: 'friend_owes_user',
@@ -1770,6 +1941,36 @@ export function TransactionFormModal({
       setSplitShareMode('percentage');
     }
   };
+
+  /**
+   * "Equally" holds the split even (P8): the shares follow the total and the
+   * number of people, with nothing to type.
+   */
+  useEffect(() => {
+    if (splitShareMode !== 'equal' || !form.splitEnabled) return;
+    setForm((prev) => {
+      const count = prev.splitParticipants.length;
+      if (count === 0) return prev;
+      const shareAmount = equalShareAmount(toAmount(prev.amount), count);
+      const sharePercent = equalSharePercent(count);
+      if (
+        prev.splitParticipants.every(
+          (participant) =>
+            participant.shareAmount === shareAmount && participant.sharePercent === sharePercent
+        )
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        splitParticipants: prev.splitParticipants.map((participant) => ({
+          ...participant,
+          shareAmount,
+          sharePercent,
+        })),
+      };
+    });
+  }, [form.amount, form.splitEnabled, form.splitParticipants.length, splitShareMode]);
 
   const updateSplitParticipant = (index: number, updates: Partial<SplitParticipantForm>) => {
     setForm((prev) => ({
@@ -1917,11 +2118,17 @@ export function TransactionFormModal({
   const canSplit = !splitContext && mode !== 'quick-prompt' && form.type === 'Expense';
   const canAttach = mode !== 'quick-prompt';
   const modeVisual = paymentModeVisual(form.mode);
-  const accountValue =
-    form.account ||
-    (compatibleAccounts.length === 0
-      ? `Add a ${form.mode || 'matching'} account`
-      : 'Select an account');
+  const paymentValue = paymentRowValue(form.mode, form.account, personalPayment);
+  const autoPickShown = personalPayment && autoPick != null && autoPick.accountId === form.accountId;
+  const paymentDetail =
+    !autoPickShown &&
+    paymentFromMemory &&
+    paymentFromMemory.mode === form.mode &&
+    (paymentFromMemory.accountId == null || paymentFromMemory.accountId === form.accountId)
+      ? '· last used'
+      : personalPayment && !form.account && compatibleAccounts.length === 0
+        ? '· no account linked'
+        : undefined;
   const moreDetailsSummary = [
     form.merchant.trim(),
     form.notes.trim() ? 'Note' : '',
@@ -2179,34 +2386,32 @@ export function TransactionFormModal({
                         }}
                       />
                       <LabelRow
-                        testID="entry-mode-picker"
-                        accessibilityLabel={`${paymentLanguage.modeAccessibilityPrefix} ${form.mode}`}
-                        label={paymentLanguage.modeLabel}
-                        value={form.mode}
+                        testID={personalPayment ? 'entry-account-picker' : 'entry-mode-picker'}
+                        accessibilityLabel={`${paymentLanguage.label} ${paymentValue}`}
+                        label={paymentLanguage.label}
+                        value={paymentValue}
+                        detail={paymentDetail}
                         icon={modeVisual.icon}
-                        iconColor={theme.text}
-                        flagged={isFlagged('mode')}
+                        iconColor={theme.muted}
+                        flagged={isFlagged('mode') || (personalPayment && isFlagged('account'))}
                         divider
                         onPress={() => {
                           markDraftFieldChecked('mode');
+                          markDraftFieldChecked('account');
                           setIsModePickerVisible(true);
                         }}
                       />
-                      {personalPayment ? (
-                        <LabelRow
-                          testID="entry-account-picker"
-                          accessibilityLabel={`${paymentLanguage.accountAccessibilityPrefix} ${form.account || 'no account yet'}`}
-                          label={paymentLanguage.accountLabel}
-                          value={accountValue}
-                          icon="wallet-outline"
-                          iconColor={theme.text}
-                          flagged={isFlagged('account')}
-                          divider
-                          onPress={() => {
-                            markDraftFieldChecked('account');
-                            setIsAccountPickerVisible(true);
-                          }}
-                        />
+                      {autoPickShown && autoPick ? (
+                        <View testID="entry-payment-pick-reason" style={formStyles.pickReason}>
+                          <MaterialCommunityIcons
+                            name={autoPick.suggestion.source === 'rule' ? 'pin-outline' : 'history'}
+                            size={14}
+                            color={theme.muted}
+                          />
+                          <ThemedText tone="muted" style={formStyles.pickReasonText}>
+                            {describePaymentPick(autoPick.suggestion, autoPick.accountName)}
+                          </ThemedText>
+                        </View>
                       ) : null}
                       {/* A quick prompt is a template: the date is whenever it is
                           used, so it has none. */}
@@ -2288,6 +2493,7 @@ export function TransactionFormModal({
                                 accessibilityState={{ selected }}
                                 onPress={() => {
                                   markDraftFieldChecked('account');
+                                  notePaymentChosen();
                                   setForm((p) => ({ ...p, accountId: match.id, account: match.name }));
                                 }}
                                 style={[
@@ -2690,17 +2896,36 @@ export function TransactionFormModal({
           />
         )}
 
-        <TransactionModePicker
+        <TransactionPaymentPicker
           visible={isModePickerVisible}
-          title={paymentLanguage.modeLabel}
-          options={modeOptions}
-          selected={form.mode}
+          title={paymentLanguage.label}
+          modes={modeOptions}
+          accounts={accounts}
+          selectedMode={form.mode}
+          selectedAccountId={form.accountId}
+          showAccounts={personalPayment}
           onClose={() => setIsModePickerVisible(false)}
-          onSelect={(m) => {
-            modeChosenRef.current = true;
-            setForm((p) => resolveEntryFormAccount({ ...p, mode: m }));
+          onSelect={(nextMode, account) => {
+            haptics.select();
+            notePaymentChosen();
+            setPaymentFromMemory(null);
+            setForm((p) =>
+              account
+                ? { ...p, mode: nextMode, accountId: account.id, account: account.name }
+                : resolveEntryFormAccount({ ...p, mode: nextMode, accountId: null, account: '' })
+            );
             setIsModePickerVisible(false);
           }}
+          suggestion={actionableAccountSuggestion}
+          isAutoCreating={autoCreatingAccount}
+          autoCreateError={autoCreateAccountError}
+          onSetupSuggestedAccount={onSetupSuggestedAccount}
+          onAutoCreateSuggestedAccount={
+            onAutoCreateSuggestedAccount
+              ? (suggestion) => void handleAutoCreateSuggestedAccount(suggestion)
+              : undefined
+          }
+          onManageAccounts={onManageAccounts}
         />
 
         <TransactionCategoryPicker
@@ -2736,30 +2961,6 @@ export function TransactionFormModal({
               ? (category) => removeCustomCategory(sessionToken, category, customCategoryType)
               : undefined
           }
-        />
-
-        <TransactionAccountPicker
-          visible={isAccountPickerVisible}
-          title={paymentLanguage.accountLabel}
-          accounts={compatibleAccounts}
-          selectedAccountId={form.accountId}
-          mode={form.mode}
-          suggestion={actionableAccountSuggestion}
-          isAutoCreating={autoCreatingAccount}
-          autoCreateError={autoCreateAccountError}
-          onClose={() => setIsAccountPickerVisible(false)}
-          onSelect={(account) => {
-            modeChosenRef.current = true;
-            setForm((p) => ({ ...p, accountId: account.id, account: account.name }));
-            setIsAccountPickerVisible(false);
-          }}
-          onSetupSuggestedAccount={onSetupSuggestedAccount}
-          onAutoCreateSuggestedAccount={
-            onAutoCreateSuggestedAccount
-              ? (suggestion) => void handleAutoCreateSuggestedAccount(suggestion)
-              : undefined
-          }
-          onManageAccounts={onManageAccounts}
         />
 
         <TransactionTagPicker
@@ -2891,6 +3092,18 @@ export const buildDateChoices = (now: Date) => {
 };
 
 const formStyles = StyleSheet.create({
+  pickReason: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  pickReasonText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 16,
+  },
   panel: {
     flex: 1,
     overflow: 'hidden',

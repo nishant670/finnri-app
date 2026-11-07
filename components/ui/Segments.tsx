@@ -23,6 +23,8 @@ export type SegmentOption<Key extends string> = {
    */
   count?: number;
   testID?: string;
+  /** For a short label that needs words read aloud: "%" is "Percentage". */
+  accessibilityLabel?: string;
 };
 
 type SegmentsProps<Key extends string> = {
@@ -67,11 +69,12 @@ export function Segments<Key extends string>({
             accessibilityRole="tab"
             accessibilityState={{ selected }}
             accessibilityLabel={
-              option.count
+              option.accessibilityLabel ??
+              (option.count
                 ? `${option.label}, ${option.count}`
                 : option.badge
                   ? `${option.label}, new items`
-                  : option.label
+                  : option.label)
             }
             onPress={() => {
               haptics.select();

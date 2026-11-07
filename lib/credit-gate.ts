@@ -84,7 +84,7 @@ export const creditShortfall = ({
       ? 'Sign in to buy a pass with more credits a day — everything you have added so far comes with you.'
       : 'Get a pass for more credits a day, add it by hand for free, or come back tomorrow.';
     return {
-      title: spent ? "Today's AI credits are used up" : 'Not enough AI credits left today',
+      title: spent ? 'No AI credits left today' : 'Not enough AI credits left today',
       message: `${lead} ${way}`,
       actionLabel,
       action,

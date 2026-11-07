@@ -30,7 +30,7 @@ import { Colors } from '@/constants/theme';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Button } from '@/components/ui/Button';
-import { PickerSheet } from '@/components/ui/PickerSheet';
+import { PickerOptionList, PickerSheet, type PickerOption } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { encodeFrame } from '@/hooks/use-shared-element';
@@ -40,7 +40,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useTransactionPages } from '@/hooks/use-transaction-pages';
-import { Account, fetchAccounts } from '@/lib/accounts';
+import { Account, fetchAccounts, paymentModeForAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { shareTransactionExport, type ExportFormat } from '@/lib/export';
 import { haptics } from '@/lib/haptics';
@@ -65,8 +65,12 @@ import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/t
 import { buildTransactionListItems, type TransactionListItem } from '@/lib/transaction-list';
 import { isAmountSort } from '@/lib/transactions';
 import {
+  QUICK_FILTERS,
+  applyQuickFilter,
   clearFilterFields,
   describeFilters,
+  isQuickFilterSelected,
+  withoutQuickFilterChips,
   emptyFilterState,
   isFilterActive as hasFilterConstraints,
   toTransactionFilters,
@@ -90,6 +94,15 @@ const needsTransactionReview = (transaction: Transaction) => {
   const category = String(transaction.category ?? '').trim().toLowerCase();
   return !category || category === 'uncategorized' || transaction.accountId == null;
 };
+
+/**
+ * The header's ⋯ (beside +): what the screen offers now and then, so the bar
+ * holds two buttons and the title keeps its middle.
+ */
+const MORE_OPTIONS: PickerOption[] = [
+  { key: 'events', label: 'Events', caption: 'Group spending by occasion', icon: 'party-popper' },
+  { key: 'export', label: 'Export', caption: 'Spreadsheet or PDF', icon: 'tray-arrow-up' },
+];
 
 /** Long enough for the row stagger to finish: eight steps of 28ms plus the fade. */
 const ENTRANCE_WINDOW_MS = 800;
@@ -115,8 +128,14 @@ export default function TransactionsScreen() {
     mode: routeMode,
     event_id: routeEventIdParam,
     pickFor: pickForParam,
+    compose: composeParam,
   } = useLocalSearchParams<{
     accountId?: string;
+    /**
+     * "1" opens the add form straight away, on `accountId`'s account when
+     * there is one (P61: "Add a transaction" on an account's page).
+     */
+    compose?: string;
     review?: string;
     start_date?: string;
     end_date?: string;
@@ -148,6 +167,8 @@ export default function TransactionsScreen() {
   const [searchQuery, setSearchQuery] = useState(routeSearch ?? '');
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(routeSearch?.trim() ?? '');
   const [accounts, setAccounts] = useState<Account[]>([]);
+  /** The accounts have been asked for at least once, found or not (P61). */
+  const [accountsLoaded, setAccountsLoaded] = useState(false);
 
   // Filter State — one object, the same shape the sheet edits and
   // `toTransactionFilters` turns into a query.
@@ -163,6 +184,8 @@ export default function TransactionsScreen() {
     endDate: routeEndDate ?? null,
   }));
   const [isExportOpen, setIsExportOpen] = useState(false);
+  /** The header's ⋯: Events and Export, the screen's occasional actions. */
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
   const [exportingFormat, setExportingFormat] = useState<ExportFormat | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -272,7 +295,8 @@ export default function TransactionsScreen() {
       if (token) {
         void fetchAccounts(token)
           .then(setAccounts)
-          .catch(() => setAccounts([]));
+          .catch(() => setAccounts([]))
+          .finally(() => setAccountsLoaded(true));
       }
       return () => {
         isFocused.current = false;
@@ -374,7 +398,14 @@ export default function TransactionsScreen() {
    * screen said so.
    */
   const appliedChips = useMemo(
-    () => (reviewMode ? [] : describeFilters(filters, accountNameFor, eventNameFor)),
+    () =>
+      reviewMode
+        ? []
+        : withoutQuickFilterChips(
+            describeFilters(filters, accountNameFor, eventNameFor),
+            filters,
+            new Date()
+          ),
     [accountNameFor, eventNameFor, filters, reviewMode]
   );
 
@@ -513,6 +544,31 @@ export default function TransactionsScreen() {
         });
     }
   }, [token]);
+
+  /**
+   * P61: arriving with `compose=1` opens the add form at once, already paid
+   * from (or into) the account the user came from. Waits for the accounts so
+   * the method follows the account's kind — a card's Credit Card, a wallet's
+   * Wallets — and only ever runs once per arrival.
+   */
+  const composedFromRoute = useRef(false);
+  useEffect(() => {
+    if (composeParam !== '1' || composedFromRoute.current) return;
+    const account = routeAccountId ? accounts.find((item) => item.id === routeAccountId) : null;
+    // Wait for the accounts, but not for an account that is not there (it was
+    // deleted, or they did not load): the form still opens, on no account.
+    if (routeAccountId && !account && !accountsLoaded) return;
+    composedFromRoute.current = true;
+    openAdd();
+    if (account) {
+      setAddForm((form) => ({
+        ...form,
+        accountId: account.id,
+        account: account.name,
+        mode: paymentModeForAccountType(account.type) ?? form.mode,
+      }));
+    }
+  }, [accounts, accountsLoaded, composeParam, openAdd, routeAccountId]);
 
   const offerBudgetAlert = useCallback(
     async (budgetNotificationIds: Set<number>) => {
@@ -850,28 +906,6 @@ export default function TransactionsScreen() {
         </ThemedText>
         <View style={styles.headerActions}>
           <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Export transactions"
-            onPress={() => {
-              haptics.select();
-              setExportError(null);
-              setIsExportOpen(true);
-            }}
-            style={styles.headerButton}>
-            <MaterialCommunityIcons name="tray-arrow-up" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
-            testID="transactions-events"
-            accessibilityRole="button"
-            accessibilityLabel="Events"
-            onPress={() => {
-              haptics.select();
-              router.push('/events');
-            }}
-            style={styles.headerButton}>
-            <MaterialCommunityIcons name="party-popper" size={22} color={theme.text} />
-          </Pressable>
-          <Pressable
             testID="transactions-add"
             accessibilityRole="button"
             accessibilityLabel="Add transaction"
@@ -879,9 +913,37 @@ export default function TransactionsScreen() {
             style={styles.headerButton}>
             <MaterialCommunityIcons name="plus" size={26} color={theme.text} />
           </Pressable>
+          <Pressable
+            testID="transactions-more"
+            accessibilityRole="button"
+            accessibilityLabel="More options"
+            onPress={() => {
+              haptics.select();
+              setIsMoreOpen(true);
+            }}
+            style={styles.headerButton}>
+            <MaterialCommunityIcons name="dots-vertical" size={24} color={theme.text} />
+          </Pressable>
         </View>
       </View>
       )}
+
+      <PickerSheet visible={isMoreOpen} title="Transactions" onClose={() => setIsMoreOpen(false)}>
+        <PickerOptionList
+          accessibilityLabel="More options"
+          options={MORE_OPTIONS}
+          selectedKey={null}
+          onSelect={(key) => {
+            setIsMoreOpen(false);
+            if (key === 'events') {
+              router.push('/events');
+              return;
+            }
+            setExportError(null);
+            setIsExportOpen(true);
+          }}
+        />
+      </PickerSheet>
 
       <View style={styles.searchRow}>
         <View style={[styles.search, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -914,6 +976,49 @@ export default function TransactionsScreen() {
           )}
         </Pressable>
       </View>
+
+      {/* Quick filters (P12): the four views people switch between most, one
+          tap each, without opening the sheet. */}
+      {!reviewMode ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          style={styles.chipScroll}
+          contentContainerStyle={styles.chips}>
+          {QUICK_FILTERS.map((quick) => {
+            const selected = isQuickFilterSelected(quick.key, filters, new Date());
+            return (
+              <PressableView
+                key={quick.key}
+                testID={`quick-filter-${quick.key}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                onPress={() => {
+                  haptics.select();
+                  setFilters((prev) => applyQuickFilter(quick.key, prev, new Date()));
+                  clearRouteParams();
+                }}
+                style={[
+                  styles.quickChip,
+                  {
+                    backgroundColor: selected ? theme.selectedFill : theme.card,
+                    borderColor: selected ? theme.selectedBorder : theme.border,
+                  },
+                ]}
+                pressedStyle={styles.pressed}>
+                <ThemedText
+                  style={[
+                    styles.quickChipLabel,
+                    { color: theme.text, fontWeight: selected ? '700' : '500' },
+                  ]}>
+                  {quick.label}
+                </ThemedText>
+              </PressableView>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       {/* Every applied filter, however it was set — by the sheet, by a preset,
           or by a tap on an Insights chart — with its own ×. Filter state that
@@ -1122,6 +1227,9 @@ export default function TransactionsScreen() {
         initialData={addForm}
         onSave={saveNew}
         mode="manual"
+        // A form opened for one account (P61, compose=1) stays on it; only a
+        // blank form starts on the last method used (P9).
+        startOnLastPayment={addForm.accountId == null}
         accounts={accounts}
         splitFriends={splitFriends}
         splitGroups={splitGroups}
@@ -1380,11 +1488,17 @@ const styles = StyleSheet.create({
   },
   chipScroll: {
     flexGrow: 0,
+    // A ScrollView may shrink by default, and the list under it took the
+    // chips' last few points: their bottom edge was cut off on Android.
+    flexShrink: 0,
     marginTop: 10,
   },
   chips: {
     gap: 8,
     paddingHorizontal: SCREEN_GUTTER,
+    // Android's horizontal scroller clips to its content box, which shaved
+    // the chips' bottom border off. Two points of air keep the outline whole.
+    paddingVertical: 2,
   },
   chip: {
     height: 32,
@@ -1399,6 +1513,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  quickChip: {
+    height: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  quickChipLabel: {
+    fontSize: 14,
+    lineHeight: 18,
   },
   clearAll: {
     height: 32,

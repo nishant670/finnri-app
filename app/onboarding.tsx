@@ -15,29 +15,22 @@ import { OnboardingScreenWrapper } from '@/components/onboarding/OnboardingScree
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
 import Screen1 from '@/components/onboarding/Screen1';
-import Screen2 from '@/components/onboarding/Screen2';
 import Screen3 from '@/components/onboarding/Screen3';
 import Screen4 from '@/components/onboarding/Screen4';
 import { hasCompletedOnboarding, markOnboardingComplete } from '@/lib/onboarding';
 
 /**
- * Four slides, one capability each: say it, Finnri reads it, split it, Finnri
- * watches it.
+ * Three slides (board R13-Ob-Proposals, P68): say it and check it, split it,
+ * Finnri watches it.
  *
- * Four, not five. The fifth was a "You're all set to take control!" celebration
- * for an account that did not exist yet and a user who had logged nothing — and
- * the signup flow then celebrated a second time on the screen after it. The one
- * celebration left is the one that follows an actual event.
- *
- * Staying at four through a feature refresh meant spending the slots rather
- * than adding to them. Reviewing a parsed entry had a slide of its own saying
- * what the slide before it had already said, so it became one line on that
- * slide's card, and splitting — the thing people open the app for with someone
- * else standing next to them — took the slot it left.
+ * Saying an expense and checking the draft it makes were two slides, each
+ * half of one idea; they are one now, with the language chips (P69) on it.
+ * The fifth slide, a "You're all set!" celebration for an account that did
+ * not exist yet, went long ago — the one celebration left follows an actual
+ * event.
  */
 const SCREENS = [
   { id: 1, component: Screen1 },
-  { id: 2, component: Screen2 },
   { id: 3, component: Screen3 },
   { id: 4, component: Screen4 },
 ];

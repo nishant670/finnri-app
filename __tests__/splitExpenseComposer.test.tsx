@@ -158,8 +158,8 @@ it('keeps friend-paid expenses out of personal accounts and validates shared fie
 it('changes payment mode through the shared picker instead of forcing Cash', async () => {
   const onSave = jest.fn().mockResolvedValue(undefined);
   const ui = await render(<Composer onSave={onSave} />);
-  await fireEvent.press(await ui.findByText('UPI'));
-  await fireEvent.press(await ui.findByText('Bank Account'));
+  await fireEvent.press(await ui.findByTestId('entry-account-picker'));
+  await fireEvent.press(await ui.findByTestId('payment-mode-Bank Account'));
   await fireEvent.press(await ui.findByTestId('entry-save-button'));
   await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
   expect(onSave.mock.calls[0][0]).toMatchObject({ mode: 'Bank Account', accountId: null });

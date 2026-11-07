@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import {
   BarRow,
+  categoryTrend,
   Eyebrow,
   InsightCard,
   MonogramTile,
@@ -34,6 +35,7 @@ import {
   DashboardResponse,
   InsightCard as InsightCardData,
   fetchDashboard,
+  previousWindowLabel,
 } from '@/lib/insights';
 import { insightDetailParams } from '@/lib/insight-summary';
 import { subscribeTransactionsChanged } from '@/lib/transaction-events';
@@ -222,6 +224,7 @@ function CategoryBreakdown({
               amount={formatMoney(category.amount)}
               fraction={category.percentage / 100}
               caption={`${shareLabel(category.percentage)} of total`}
+              trend={categoryTrend(category, previousWindowLabel(dashboard.period))}
               divider={index > 0}
               onPress={() =>
                 router.push({

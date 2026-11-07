@@ -19,20 +19,22 @@ import Animated, {
 import { GiftPassModal } from '@/components/billing/GiftPassModal';
 import { AccountSetupNudgeCard } from '@/components/home/AccountSetupNudgeCard';
 import { AutopayReviewCard } from '@/components/home/AutopayReviewCard';
-import { CreditActionCard } from '@/components/home/CreditActionCard';
 import { HomeRecentActivity } from '@/components/home/HomeRecentActivity';
 import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
-import { HomeAddButton } from '@/components/home/HomeAddButton';
 import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
-import { FAB_BOTTOM_OFFSET, FAB_SIZE } from '@/components/home/home-layout';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { CAPTURE_COLLAPSED_HEIGHT, CollapsibleCapture } from '@/components/home/CollapsibleCapture';
+import { FirstEntryCard } from '@/components/home/FirstEntryCard';
+import { GetStartedCard, getStartedSteps } from '@/components/home/GetStartedCard';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { MonthStrip } from '@/components/home/MonthStrip';
 import { QuickPrompts } from '@/components/home/QuickPrompts';
 import { ParseErrorCard } from '@/components/home/ParseErrorCard';
-import { VoiceInputCard } from '@/components/home/VoiceInputCard';
-import { CreditStatusCard } from '@/components/billing/CreditStatusCard';
+import {
+  VoiceInputCard,
+  type CaptureCreditBlock,
+  type CaptureCreditNote,
+} from '@/components/home/VoiceInputCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
 import { useAppDialog, type AppConfirmOptions } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
@@ -86,6 +88,9 @@ import { fetchDashboard, type DashboardResponse } from '@/lib/insights';
 import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubscriptionOccurrence, syncSubscriptionAutomation, type SubscriptionOccurrence } from '@/lib/subscriptions';
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
+import { fetchBudgets } from '@/lib/budgets';
+import { FIRST_ENTRY_PHRASE, loadSpeakLanguage, useSpeakLanguage } from '@/lib/speak-language';
+import { isFirstEntryDismissed, dismissFirstEntry } from '@/lib/first-entry';
 import {
   captureCreditsFor,
   creditBlockFor,
@@ -115,22 +120,14 @@ import {
   type EntryForm,
 } from '@/components/transactions/TransactionFormModal';
 
-/** The button's full footprint, plus a gap of air so the last row breathes. */
-const LIST_BOTTOM_PADDING = FAB_SIZE + FAB_BOTTOM_OFFSET + 24;
 /**
- * The same gap of air, without the footprint — for the states where the FAB is
- * not on screen at all.
- *
- * Reserving the button's height when there is no button is 104px of nothing at
- * the bottom of the shortest Home there is, and on an empty or failed Home that
- * is the difference between content that fits and content that scrolls. It
- * matters more here than a stray gap normally would, because the capture card
- * above does not collapse at these lengths (see `MIN_ENTRIES_FOR_COLLAPSE`):
- * whatever scrolls up goes under an opaque block that will never move out of
- * the way again, so the empty-state panel slides behind the card and stays
- * there with the scroll already at its end.
+ * A gap of air under the last row. There is no floating button to clear any
+ * more (P11: + and the mic ride the capture bar), so every state uses it.
  */
-const EMPTY_BOTTOM_PADDING = 24;
+const BOTTOM_PADDING = 24;
+
+/** Past this many entries Home stops offering its set-up steps (P5). */
+const GET_STARTED_MAX_ENTRIES = 5;
 
 /**
  * How many entries the feed needs before the capture card is allowed to
@@ -319,6 +316,8 @@ export default function HomeScreen() {
    */
   const [entryTotal, setEntryTotal] = useState(0);
   const [isEntriesLoading, setIsEntriesLoading] = useState(false);
+  /** Entries have been read at least once, so "none" means none (P70). */
+  const [hasLoadedEntries, setHasLoadedEntries] = useState(false);
   const [entriesError, setEntriesError] = useState<string | null>(null);
   const [monthDashboard, setMonthDashboard] = useState<DashboardResponse | null>(null);
   const [isMonthLoading, setIsMonthLoading] = useState(true);
@@ -366,12 +365,13 @@ export default function HomeScreen() {
    */
   const [newTransactionId, setNewTransactionId] = useState<string | null>(null);
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
-  const [isBillingLoading, setIsBillingLoading] = useState(false);
   // `block` is what lets the card step aside once credits come back.
   const [creditAction, setCreditAction] = useState<(CreditActionState & { block?: CreditBlock }) | null>(
     null
   );
   const [aiSourceText, setAiSourceText] = useState('');
+  /** The AI read behind the draft in the sheet, linked to the saved entry (P57). */
+  const [aiRequestId, setAiRequestId] = useState<string | null>(null);
   const [aiInputSource, setAiInputSource] = useState<'text' | 'voice' | 'receipt'>('text');
   const [autopayReviews, setAutopayReviews] = useState<SubscriptionOccurrence[]>([]);
   const [isGuestUpgradeSnoozed, setIsGuestUpgradeSnoozed] = useState(true);
@@ -410,10 +410,45 @@ export default function HomeScreen() {
     import('@/components/home/QuickPrompts').QuickPrompt | null
   >(null);
   const [modalMode, setModalMode] = useState<'audio' | 'manual' | 'quick-prompt'>('manual');
+  /** The sheet holds a blank entry, which starts on the last method used (P9). */
+  const [isBlankEntry, setIsBlankEntry] = useState(false);
   const dailyCreditLimit = billingStatus?.credits.daily_limit ?? 0;
   const dailyCreditsRemaining = billingStatus?.credits.daily_credits_remaining ?? 0;
   const shouldShowLowCreditNotice =
     dailyCreditLimit > 0 && dailyCreditsRemaining / dailyCreditLimit < 0.2;
+  /**
+   * What the capture card says about credits (P1). A balance that can't pay
+   * for any capture greys the card out before anyone taps it; a capture the
+   * server refused shows the same way until it is dismissed or retried.
+   */
+  const creditGate = useMemo(
+    // Typed notes are the cheapest capture: when they can't be paid for,
+    // nothing the card offers can.
+    () => creditGateFor(billingStatus, { isGuest: !!user?.is_guest, kind: 'text' }),
+    [billingStatus, user?.is_guest]
+  );
+  const shownCreditAction = creditGate ?? creditAction;
+  const totalCreditsLeft = billingStatus?.credits.total_credits_remaining ?? 0;
+  const captureCreditBlock: CaptureCreditBlock | null = shownCreditAction
+    ? {
+        title: shownCreditAction.title,
+        message: shownCreditAction.message,
+        footnote: totalCreditsLeft > 0 ? `${totalCreditsLeft} total credits left` : null,
+        actionLabel: shownCreditAction.actionLabel,
+        onAction: () =>
+          router.push(shownCreditAction.action === 'login' ? '/auth?mode=link' : '/billing'),
+        // Only a refusal can be put away: a gate holds until credits return.
+        onDismiss: creditGate ? undefined : () => setCreditAction(null),
+      }
+    : null;
+  const captureCreditNote: CaptureCreditNote | null =
+    !captureCreditBlock && shouldShowLowCreditNotice
+      ? {
+          text: `${dailyCreditsRemaining} of ${dailyCreditLimit} AI credits left today`,
+          actionLabel: user?.is_guest ? 'Sign in for more' : 'View plans',
+          onAction: () => router.push(user?.is_guest ? '/auth?mode=link' : '/billing'),
+        }
+      : null;
 
   /**
    * Stops a capture that cannot be paid for, at the moment it is asked for
@@ -514,6 +549,7 @@ export default function HomeScreen() {
         const mapped = [...page].sort((a, b) => (b.occurredAt ?? 0) - (a.occurredAt ?? 0));
         setTransactions(mapped);
         setEntryTotal(total);
+        setHasLoadedEntries(true);
       } catch (error) {
         setEntriesError(getFriendlyErrorMessage(error, "Couldn't load your activity."));
       } finally {
@@ -584,18 +620,15 @@ export default function HomeScreen() {
   }, [token]);
 
   const fetchCredits = useCallback(
-    async (silent = false) => {
+    async () => {
       if (!token) {
         setBillingStatus(null);
         return;
       }
-      if (!silent) setIsBillingLoading(true);
       try {
         setBillingStatus(await fetchBillingStatus(token));
       } catch {
         setBillingStatus(null);
-      } finally {
-        if (!silent) setIsBillingLoading(false);
       }
     },
     [token]
@@ -625,7 +658,7 @@ export default function HomeScreen() {
     enabled: !user?.is_guest,
     canInterrupt: useCallback(() => !giftBlockedRef.current, []),
     onAnnounce: useCallback(() => {
-      void fetchCredits(true);
+      void fetchCredits();
     }, [fetchCredits]),
   });
   const checkForGift = giftAnnouncement.check;
@@ -642,7 +675,7 @@ export default function HomeScreen() {
       const now = Date.now();
       if (now - lastForegroundRefreshRef.current < FOREGROUND_REFRESH_INTERVAL_MS) return;
       lastForegroundRefreshRef.current = now;
-      void fetchCredits(true);
+      void fetchCredits();
       void fetchNotificationCount();
       void checkForGift();
     });
@@ -700,6 +733,30 @@ export default function HomeScreen() {
     [dialog, fetchNotificationCount, router, token]
   );
 
+  /**
+   * Whether any budget exists, for "Get started" (P5). Null until known; a
+   * plan that can't read budgets counts as none set.
+   */
+  const [hasBudget, setHasBudget] = useState<boolean | null>(null);
+  /**
+   * Once a budget exists, or Home has outgrown "Get started", the answer can
+   * no longer change what is drawn — so stop asking on every focus.
+   */
+  const budgetPresenceSettled = useRef(false);
+  const fetchBudgetPresence = useCallback(async () => {
+    if (!token || budgetPresenceSettled.current) return;
+    try {
+      const found = (await fetchBudgets(token)).length > 0;
+      if (found) budgetPresenceSettled.current = true;
+      setHasBudget(found);
+    } catch {
+      setHasBudget(false);
+    }
+  }, [token]);
+  useEffect(() => {
+    budgetPresenceSettled.current = false;
+  }, [token]);
+
   useFocusEffect(
     useCallback(() => {
       if (resumeDraftAfterAccounts.current) {
@@ -712,6 +769,7 @@ export default function HomeScreen() {
       void fetchSplitOptions();
       void fetchCredits();
       void fetchNotificationCount();
+      void fetchBudgetPresence();
       void checkForGift();
       void isGuestUpgradePromptSnoozed().then(setIsGuestUpgradeSnoozed);
       if (token) {
@@ -723,6 +781,7 @@ export default function HomeScreen() {
     }, [
       checkForGift,
       fetchAccountOptions,
+      fetchBudgetPresence,
       fetchCredits,
       fetchEntries,
       fetchMonthSummary,
@@ -768,6 +827,66 @@ export default function HomeScreen() {
 
   const sections = useMemo(() => groupTransactionsBySection(transactions), [transactions]);
   const hasTransactions = sections.length > 0;
+  const startSteps = useMemo(
+    () =>
+      getStartedSteps({
+        hasAccount: accounts.some((account) => account.type !== 'cash'),
+        hasBudget: !!hasBudget,
+        hasLock: !!user?.has_pin,
+      }),
+    [accounts, hasBudget, user?.has_pin]
+  );
+  /**
+   * "Get started" belongs to a new Home (P5): it shows until every step is
+   * done or a handful of entries say the app is already in use.
+   */
+  const outgrewGetStarted = Math.max(entryTotal, transactions.length) >= GET_STARTED_MAX_ENTRIES;
+  useEffect(() => {
+    if (outgrewGetStarted) budgetPresenceSettled.current = true;
+  }, [outgrewGetStarted]);
+  const showGetStarted =
+    !isEntriesLoading &&
+    !entriesError &&
+    hasBudget !== null &&
+    !outgrewGetStarted &&
+    startSteps.some((step) => !step.done);
+
+  /**
+   * A brand-new Home offers one sentence to send (P70, board
+   * R13-FirstEntry-Proposals) in place of the microphone card: no entries yet,
+   * credits to read it with, nothing else under way, and not put away before.
+   */
+  const speakLanguage = useSpeakLanguage();
+  const [firstEntryDismissed, setFirstEntryDismissed] = useState<boolean | null>(null);
+  useEffect(() => {
+    void isFirstEntryDismissed().then(setFirstEntryDismissed);
+  }, []);
+  const showFirstEntry =
+    firstEntryDismissed === false &&
+    hasLoadedEntries &&
+    !isEntriesLoading &&
+    !entriesError &&
+    entryTotal === 0 &&
+    transactions.length === 0 &&
+    !captureCreditBlock &&
+    !parseFailure &&
+    !isRecording &&
+    !recordedUri;
+  const firstEntrySeeded = useRef(false);
+  useEffect(() => {
+    if (!showFirstEntry || firstEntrySeeded.current) return;
+    firstEntrySeeded.current = true;
+    // The saved language, not the English the hook starts on before storage
+    // answers: a Hindi speaker must not get the English sentence for good.
+    void loadSpeakLanguage().then((language) =>
+      setInputText((current) => current || FIRST_ENTRY_PHRASE[language])
+    );
+  }, [showFirstEntry]);
+  const putAwayFirstEntry = useCallback(() => {
+    setFirstEntryDismissed(true);
+    void dismissFirstEntry();
+    setInputText('');
+  }, []);
 
   /**
    * The guest upgrade ask. It waits for entries because an account is only worth
@@ -974,6 +1093,7 @@ export default function HomeScreen() {
     createSaveProgress.current = {};
     setForm(createBlankForm());
     setModalMode('manual');
+    setIsBlankEntry(true);
     setIsEditOpen(true);
   }, [createBlankForm]);
 
@@ -1100,6 +1220,7 @@ export default function HomeScreen() {
           idempotencyKey: createIdempotencyKey.current,
           source: modalMode === 'audio' ? aiInputSource : 'manual',
           sourceText: modalMode === 'audio' ? aiSourceText : '',
+          aiRequestId: modalMode === 'audio' ? aiRequestId : null,
           progress: createSaveProgress.current,
           refund: modalMode === 'audio' && recordRefund ? refundReceived : null,
           confirmDuplicate: (match) => dialog.confirm(describeLikelyDuplicate(match)),
@@ -1164,6 +1285,7 @@ export default function HomeScreen() {
     },
     [
       aiInputSource,
+      aiRequestId,
       aiSourceText,
       considerPlansPrompt,
       createBlankForm,
@@ -1198,7 +1320,7 @@ export default function HomeScreen() {
           captureCreditsFor(billingStatus, kind);
         setCreditAction({ ...creditAction, block: creditBlockFor(billingStatus, required) });
         if (!user?.is_guest) void offerPlansForBlockedAI(creditAction.reason);
-        void fetchCredits(true);
+        void fetchCredits();
         return true;
       }
       return false;
@@ -1222,6 +1344,7 @@ export default function HomeScreen() {
       inputSource: 'voice' | 'text' | 'receipt',
       attachment?: string
     ) => {
+      setAiRequestId(data.ai_request_id ?? null);
       setAiSourceText(data.source_text ?? fallbackText);
       receiptBalance.current = inputSource === 'receipt' ? (data.balance_after ?? null) : null;
       setAiInputSource(inputSource);
@@ -1290,6 +1413,7 @@ export default function HomeScreen() {
       setAiSourceText('');
       setAiInputSource('text');
       setAiReview({ inputSource: 'receipt' });
+      setIsBlankEntry(false);
       setModalMode('audio');
       setIsParsing(true);
       setIsEditOpen(true);
@@ -1297,13 +1421,13 @@ export default function HomeScreen() {
       const abandoned = () => scanId !== receiptScanId.current;
       try {
         const data = await parseReceiptDraft({ token, uri });
-        void fetchCredits(true);
+        void fetchCredits();
         if (abandoned()) return;
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
         applyParsedDraft(data, 'Receipt photo', 'receipt', uri);
       } catch (error) {
-        void fetchCredits(true);
+        void fetchCredits();
         if (abandoned()) return;
         if (showCreditParseError(error, 'receipt')) {
           setIsEditOpen(false);
@@ -1446,7 +1570,7 @@ export default function HomeScreen() {
           };
         }
         const result = await parseEntryDraft({ token, hintText: trimmed, audio });
-        void fetchCredits(true);
+        void fetchCredits();
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
 
@@ -1562,7 +1686,6 @@ export default function HomeScreen() {
         void fetchEntries();
         void fetchMonthSummary();
       }}
-      onAdd={handleOpenManualEntry}
     />
   );
   return (
@@ -1587,12 +1710,7 @@ export default function HomeScreen() {
             // room on the container instead of relying on a previous sibling's
             // bottom margin (the low-credit card exposed that assumption).
             paddingTop: pinnedTopHeight + captureExpandedHeight + themeTokens.spacing.md,
-            paddingBottom:
-              keyboardInset > 0
-                ? keyboardInset + 24
-                : hasTransactions
-                  ? LIST_BOTTOM_PADDING
-                  : EMPTY_BOTTOM_PADDING,
+            paddingBottom: keyboardInset > 0 ? keyboardInset + 24 : BOTTOM_PADDING,
             // The card shrinks one pixel per pixel scrolled, so it needs a
             // scroll range of exactly its collapse distance to finish. A feed
             // that runs out before then leaves the card stranded halfway with
@@ -1639,33 +1757,6 @@ export default function HomeScreen() {
             />
           ) : null}
 
-          {/* Credits sit directly under capture, the thing they pay for
-              (boards R1-Home-CreditsLow, -UsedUp). A refused capture says so
-              in full; the running low-balance line steps aside for it rather
-              than repeating the same news above it. */}
-          {creditAction ? (
-            <CreditActionCard
-              creditAction={creditAction}
-              footnote={
-                (billingStatus?.credits.total_credits_remaining ?? 0) > 0
-                  ? `${billingStatus?.credits.total_credits_remaining} total credits left`
-                  : null
-              }
-              onPress={() =>
-                router.push(creditAction.action === 'login' ? '/auth?mode=link' : '/billing')
-              }
-            />
-          ) : shouldShowLowCreditNotice ? (
-            <View style={{ marginHorizontal: 16, marginBottom: 12 }}>
-              <CreditStatusCard
-                status={billingStatus}
-                loading={isBillingLoading}
-                compact
-                onPress={() => router.push('/billing')}
-              />
-            </View>
-          ) : null}
-
           {/* Questions answer here, at the top of the feed, directly under the
               capture field that asked them — not in a sheet. */}
           {pendingQuestion ? <PendingQuestionNotice /> : null}
@@ -1687,7 +1778,19 @@ export default function HomeScreen() {
             onSelect={handleQuickPromptSelect}
             onAdd={handleAddPrompt}
             onLongPress={handleLongPressPrompt}
+            hideAmounts={isStealthMode}
           />
+
+          {showGetStarted ? (
+            <GetStartedCard
+              steps={startSteps}
+              onOpen={(step) => {
+                if (step.key === 'accounts') router.push('/accounts/manage');
+                else if (step.key === 'budget') router.push('/budgets');
+                else router.push('/security');
+              }}
+            />
+          ) : null}
 
           {parseFailure && (
             <ParseErrorCard
@@ -1738,6 +1841,7 @@ export default function HomeScreen() {
           <View
             onLayout={(event) => setPinnedTopHeight(Math.round(event.nativeEvent.layout.height))}>
             <HomeHeader
+              welcome={showFirstEntry}
               unreadCount={unreadNotifications}
               onNotificationsPress={() => router.push('/notifications')}
             />
@@ -1755,9 +1859,21 @@ export default function HomeScreen() {
             scrollY={scrollY}
             onExpand={handleExpandCapture}
             onMicPress={handlePillMicPress}
+            onAddPress={handleOpenManualEntry}
             isRecording={isRecording}
             locked={isCaptureLocked || !isCaptureCollapsible}
             onExpandedHeightChange={setCaptureExpandedHeight}>
+            {showFirstEntry ? (
+              <FirstEntryCard
+                text={inputText}
+                placeholder={FIRST_ENTRY_PHRASE[speakLanguage]}
+                onChangeText={setInputText}
+                onSend={handleSubmitPrompt}
+                isSending={isSubmitting}
+                onSayInstead={putAwayFirstEntry}
+                onAddByHand={handleOpenManualEntry}
+              />
+            ) : (
             <VoiceInputCard
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}
@@ -1774,12 +1890,14 @@ export default function HomeScreen() {
               isTextInputVisible={isTextInputVisible}
               onToggleTextInput={() => setIsTextInputVisible((current) => !current)}
               onScanBill={openReceiptScan}
+              onAddManually={handleOpenManualEntry}
+              creditBlock={captureCreditBlock}
+              creditNote={captureCreditNote}
             />
+            )}
           </CollapsibleCapture>
         </View>
       </View>
-
-      {hasTransactions && <HomeAddButton onPress={handleOpenManualEntry} />}
 
       {saveConfirmation && (
         <SaveConfirmationToast message={saveConfirmation} anim={saveConfirmationAnim} />
@@ -1789,6 +1907,7 @@ export default function HomeScreen() {
         visible={isEditOpen}
         onClose={() => {
           setIsEditOpen(false);
+          setIsBlankEntry(false);
           receiptScanId.current += 1;
           pendingSuggestionSetup.current = null;
           setAccountSuggestionHint(null);
@@ -1801,6 +1920,7 @@ export default function HomeScreen() {
         initialData={form}
         onSave={handleConfirmEntry}
         mode={modalMode}
+        startOnLastPayment={isBlankEntry && modalMode === 'manual'}
         onRequestReceiptScan={openReceiptScan}
         isParsing={isParsing}
         aiReview={aiReview}

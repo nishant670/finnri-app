@@ -1,12 +1,5 @@
 /**
- * The FAB floats above the scroll view, so anything that scrolls under it has
- * to stop short of its footprint. Its geometry is written here once and nowhere
- * else: the button reads these, and so do the list's bottom padding and the
- * save toast that has to clear it. Change FAB_SIZE and all three follow.
+ * Where the save toast floats. Home had a floating add button here until P11
+ * moved + into the capture bar, so the toast now sits on the tab bar's edge.
  */
-export const FAB_SIZE = 56;
-export const FAB_BOTTOM_OFFSET = 16;
-export const FAB_RIGHT_OFFSET = 16;
-
-/** Just above the FAB, so the toast never lands on top of it. */
-export const SAVE_TOAST_BOTTOM_OFFSET = FAB_BOTTOM_OFFSET + FAB_SIZE + 8;
+export const SAVE_TOAST_BOTTOM_OFFSET = 16;

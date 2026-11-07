@@ -112,6 +112,27 @@ export const describeThreadAnswer = (answer: LedgerAnswer) => {
   return { label, detail };
 };
 
+/**
+ * "12% less than 1–21 Sep" under an answered total (P64, board
+ * R12-Ask-Proposals): the lead in green when it is the good direction — less
+ * spent, more earned — and red otherwise. Null when there is nothing to set
+ * it against.
+ */
+const describeComparison = (answer: LedgerAnswer) => {
+  const change = answer.comparison?.change_percent;
+  if (answer.status !== 'answered' || !answer.comparison || change == null) return null;
+  const label = answer.comparison.label;
+  if (change === 0) return { lead: 'The same', rest: `as ${label}`, good: true };
+  const more = change > 0;
+  const spending = answer.metric === 'spend_total' || (answer.metric === 'breakdown' && answer.entry_type !== 'income');
+  const magnitude = Math.abs(change) >= 10 ? Math.round(Math.abs(change)) : Math.abs(change);
+  return {
+    lead: `${magnitude}% ${more ? 'more' : 'less'}`,
+    rest: `than ${label}`,
+    good: answer.metric === 'count' ? true : spending ? !more : more,
+  };
+};
+
 export function AnswerCard({
   answer,
   sourceText = '',
@@ -153,6 +174,7 @@ export function AnswerCard({
 
   if (variant === 'thread') {
     const { label, detail } = describeThreadAnswer(answer);
+    const comparison = describeComparison(answer);
     return (
       <Animated.View
         entering={enter}
@@ -180,6 +202,14 @@ export function AnswerCard({
               {detail ? (
                 <ThemedText tone="muted" style={threadStyles.label}>
                   {detail}
+                </ThemedText>
+              ) : null}
+              {comparison ? (
+                <ThemedText testID="answer-comparison" tone="muted" style={threadStyles.label}>
+                  <ThemedText style={[threadStyles.label, threadStyles.comparisonLead, { color: comparison.good ? colors.positive : colors.negative }]}>
+                    {comparison.lead}
+                  </ThemedText>
+                  {` ${comparison.rest}`}
                 </ThemedText>
               ) : null}
               {answer.breakdown.length > 0 ? (
@@ -509,6 +539,9 @@ export const threadStyles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     fontWeight: '600',
+  },
+  comparisonLead: {
+    fontWeight: '700',
   },
   suggestions: {
     marginTop: 12,
