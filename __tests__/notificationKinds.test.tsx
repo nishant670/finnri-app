@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import React from 'react';
 
 import {
@@ -26,6 +26,13 @@ jest.mock('@/lib/notifications', () => ({
   fetchNotifications: (...args: unknown[]) => mockFetchNotifications(...args),
   markNotificationRead: jest.fn().mockResolvedValue({}),
   markAllNotificationsRead: jest.fn().mockResolvedValue(undefined),
+  deleteNotification: (...args: unknown[]) => mockDelete(...args),
+}));
+const mockDelete = jest.fn().mockResolvedValue(undefined);
+const mockDecide = jest.fn().mockResolvedValue(null);
+jest.mock('@/lib/splits', () => ({
+  ...jest.requireActual('@/lib/splits'),
+  decideSplitSettlement: (...args: unknown[]) => mockDecide(...args),
 }));
 
 // eslint-disable-next-line import/first
@@ -158,3 +165,62 @@ describe('notifications screen', () => {
     expect(screen.getByText('Fix it')).toBeTruthy();
   });
 });
+
+describe('Notifications with proposals (P45–P49)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildNotificationSections } = require('@/lib/notification-jobs');
+
+  it('puts jobs first, one row each, and drops what the server resolved', () => {
+    const { needs, updates } = buildNotificationSections([
+      notification({ id: 1, action_url: '/accounts/4' }),
+      notification({ id: 2, action_url: '/accounts/5', title: 'Finish setting up Bank Account' }),
+      notification({ id: 3, type: 'card_statement.overdue', action_url: '/accounts/9', title: 'SBI bill' }),
+      notification({ id: 4, type: 'card_statement.due_today', action_url: '/accounts/9', title: 'SBI bill' }),
+      notification({ id: 5, type: 'monthly_review', action_url: '/monthly-review/2026-09', title: 'September in review' }),
+      notification({ id: 6, type: 'subscription.overdue', action_url: '/recurring/3', resolved_at: '2026-10-23T09:00:00Z' }),
+    ]);
+    expect(needs.map((job: { stackTitle: string | null; items: unknown[] }) => [job.stackTitle, job.items.length])).toEqual([
+      ['Finish setting up 2 accounts', 2],
+      [null, 2],
+    ]);
+    expect(updates.map((item: AppNotification) => item.id)).toEqual([5]);
+  });
+
+  it('never stacks different payments that share an old generic link, or different jobs', () => {
+    const { needs } = buildNotificationSections([
+      notification({ id: 21, type: 'subscription.overdue', action_url: '/subscriptions', title: 'Netflix is overdue' }),
+      notification({ id: 22, type: 'subscription.due', action_url: '/subscriptions', title: 'Spotify is due' }),
+      notification({ id: 23, type: 'card_statement.statement_expected', action_url: '/accounts/9', title: 'Statement is out' }),
+      notification({ id: 24, type: 'card_statement.due_soon', action_url: '/accounts/9', title: 'Bill due soon' }),
+      notification({ id: 25, type: 'subscription.cancel', action_url: '/recurring/3', title: 'Cancel Zee' }),
+      notification({ id: 26, type: 'subscription.due', action_url: '/recurring/3', title: 'Zee is due' }),
+    ]);
+    expect(needs).toHaveLength(6);
+  });
+
+  it('shows the amount on the right and answers settle-ups in place', async () => {
+    mockFetchNotifications.mockResolvedValue({
+      notifications: [
+        notification({ id: 11, type: 'split.settlement.recorded', action_url: '/split/settlements/71', title: 'Riya says they paid you', amount: '3269.80' }),
+        notification({ id: 12, type: 'card_statement.overdue', action_url: '/accounts/9', title: 'SBI bill', amount: '399.00' }),
+        notification({ id: 13, type: 'monthly_review', action_url: '/monthly-review/2026-09', title: 'September in review' }),
+      ],
+      unread_count: 3,
+    });
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByTestId('notifications-needs-you')).toBeTruthy());
+    expect(screen.getByText('2 to sort')).toBeTruthy();
+    expect(screen.getByTestId('notification-amount-12')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('settlement-confirm-71'));
+    });
+    expect(mockDecide).toHaveBeenCalledWith('token', 71, 'confirm');
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('notifications-clear-updates'));
+    });
+    expect(mockDelete).toHaveBeenCalledWith('token', 13);
+  });
+});
+

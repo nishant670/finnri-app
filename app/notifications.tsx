@@ -1,9 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Fragment, useCallback, useMemo, useState } from 'react';
+import { Fragment, useCallback, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
+import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
 import { Segments } from '@/components/ui/Segments';
@@ -11,10 +13,19 @@ import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { mixHex, withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { fetchAccounts, type Account } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { haptics } from '@/lib/haptics';
+import { formatMoney } from '@/lib/money';
+import {
+  buildNotificationSections,
+  notificationAmount,
+  type NotificationJob,
+} from '@/lib/notification-jobs';
+import { todayISO } from '@/lib/subscription-form';
+import { decideSplitSettlement } from '@/lib/splits';
 import { categoryTile } from '@/lib/categories';
 import {
-  groupNotifications,
   notificationDestination,
   notificationKind,
   notificationTimeLabel,
@@ -22,13 +33,24 @@ import {
 } from '@/lib/notification-kinds';
 import {
   AppNotification,
+  accountIdFromActionURL,
+  deleteNotification,
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  recurringIdFromActionURL,
+  settlementIdFromActionURL,
 } from '@/lib/notifications';
-import { confirmSubscriptionOccurrence, revertSubscriptionOccurrence } from '@/lib/subscriptions';
+import {
+  confirmSubscriptionOccurrence,
+  fetchSubscriptions,
+  markSubscriptionPaid,
+  revertSubscriptionOccurrence,
+  type Subscription,
+} from '@/lib/subscriptions';
 
-type Filter = 'all' | 'unread' | 'read';
+/** P49: All · Unread. "Read" went: a job done clears itself, and what is left is read or not. */
+type Filter = 'all' | 'unread';
 
 const EMPTY_COPY: Record<Filter, { title: string; body: string }> = {
   all: {
@@ -36,7 +58,6 @@ const EMPTY_COPY: Record<Filter, { title: string; body: string }> = {
     body: 'Bill reminders, budget alerts and split updates show up here.',
   },
   unread: { title: 'Nothing unread', body: 'New reminders and updates show up here first.' },
-  read: { title: 'Nothing read yet', body: 'Notifications you have opened move here.' },
 };
 
 /**
@@ -85,19 +106,34 @@ export default function NotificationsScreen() {
     }, [load])
   );
 
-  const groups = useMemo(() => groupNotifications(notifications), [notifications]);
+  const { needs, updates } = useMemo(() => buildNotificationSections(notifications), [notifications]);
   const unreadFill = mode === 'dark' ? withAlpha(colors.accent, 0.08) : mixHex(colors.card, colors.accent, 0.07);
+  /** One swiped-open row at a time (P49 swipe to clear). */
+  const [openSwipeKey, setOpenSwipeKey] = useState<string | null>(null);
+  /** Settle-ups being answered, so their buttons wait. */
+  const [deciding, setDeciding] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  // P47: Mark paid in place, with the same sheet as Recurring.
+  const [payingFor, setPayingFor] = useState<Subscription | null>(null);
+  const [payAccounts, setPayAccounts] = useState<Account[]>([]);
+  const [isPaying, setIsPaying] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const payLists = useRef<[Subscription[], Account[]] | null>(null);
+
+  const markRead = async (notification: AppNotification) => {
+    if (!token || notification.read_at) return;
+    await markNotificationRead(token, notification.id);
+    setNotifications((current) =>
+      current.map((item) =>
+        item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item
+      )
+    );
+    setUnreadCount((current) => Math.max(0, current - 1));
+  };
 
   const openNotification = async (notification: AppNotification) => {
-    if (token && !notification.read_at) {
-      await markNotificationRead(token, notification.id);
-      setNotifications((current) =>
-        current.map((item) =>
-          item.id === notification.id ? { ...item, read_at: new Date().toISOString() } : item
-        )
-      );
-      setUnreadCount((current) => Math.max(0, current - 1));
-    }
+    await markRead(notification);
     const destination = notificationDestination(notification);
     if (destination) router.push(destination);
   };
@@ -106,6 +142,21 @@ export default function NotificationsScreen() {
     if (!token || unreadCount === 0) return;
     await markAllNotificationsRead(token);
     await load(true);
+  };
+
+  /** P49: cleared for good — swiped away, or Updates' Clear. */
+  const clearNotifications = async (items: AppNotification[]) => {
+    if (!token || items.length === 0) return;
+    haptics.select();
+    const ids = new Set(items.map((item) => item.id));
+    setNotifications((current) => current.filter((item) => !ids.has(item.id)));
+    setUnreadCount((current) => Math.max(0, current - items.filter((item) => !item.read_at).length));
+    setOpenSwipeKey(null);
+    try {
+      await Promise.all(items.map((item) => deleteNotification(token, item.id)));
+    } catch {
+      void load(true);
+    }
   };
 
   const handleOccurrence = async (notification: AppNotification, action: 'confirm' | 'revert') => {
@@ -124,83 +175,266 @@ export default function NotificationsScreen() {
     });
   };
 
-  const renderRow = (notification: AppNotification) => {
-    const unread = !notification.read_at;
+  /** P47: answer a settle-up without leaving the list. */
+  const decide = async (notification: AppNotification, decision: 'confirm' | 'deny') => {
+    const id = settlementIdFromActionURL(notification.action_url);
+    if (!token || !id || deciding) return;
+    setDeciding(id);
+    setActionError(null);
+    try {
+      const decided = await decideSplitSettlement(token, id, decision);
+      decision === 'confirm' ? haptics.saved() : haptics.select();
+      // Null: already answered elsewhere, or gone. Nothing is left to do,
+      // so the prompt goes rather than staying in Needs you for good.
+      if (!decided) await deleteNotification(token, notification.id).catch(() => undefined);
+      await load(true);
+    } catch (decideError) {
+      haptics.rejected();
+      setActionError(getFriendlyErrorMessage(decideError, 'Could not answer that settle-up.'));
+    } finally {
+      setDeciding(null);
+    }
+  };
+
+  /** P47: Mark paid on a subscription reminder, as Recurring does it. */
+  const startMarkPaid = async (notification: AppNotification) => {
+    const id = recurringIdFromActionURL(notification.action_url);
+    if (!token || !id) return;
+    setPayError(null);
+    setActionError(null);
+    try {
+      // Read once per visit: a second Mark paid opens straight away.
+      payLists.current ??= await Promise.all([fetchSubscriptions(token), fetchAccounts(token)]);
+      const [subscriptions, accounts] = payLists.current;
+      const subscription = subscriptions.find((item) => item.id === id);
+      if (!subscription) {
+        setActionError('That payment is no longer in Recurring.');
+        return;
+      }
+      setPayAccounts(accounts);
+      setPayingFor(subscription);
+    } catch (loadError) {
+      setActionError(getFriendlyErrorMessage(loadError, 'Could not open that payment.'));
+    }
+  };
+
+  const confirmMarkPaid = async (choice: MarkPaidChoice) => {
+    if (!token || !payingFor || isPaying) return;
+    setIsPaying(true);
+    setPayError(null);
+    try {
+      await markSubscriptionPaid(token, payingFor.id, todayISO(), choice);
+      haptics.saved();
+      // Its next due date moved; read it again next time.
+      payLists.current = null;
+      setPayingFor(null);
+      await load(true);
+    } catch (paidError) {
+      haptics.rejected();
+      setPayError(getFriendlyErrorMessage(paidError, 'Unable to mark this paid.'));
+    } finally {
+      setIsPaying(false);
+    }
+  };
+
+  /** The one step a job offers, done here or opening the screen for it (P47). */
+  const jobActions = (notification: AppNotification) => {
+    const destination = notificationDestination(notification);
+    const kind = notificationKind(notification.type);
+    const actions: { label: string; primary?: boolean; onPress: () => void }[] = [];
+    if (notification.type === 'subscription.due' || notification.type === 'subscription.overdue') {
+      if (recurringIdFromActionURL(notification.action_url)) {
+        actions.push({ label: 'Mark paid', primary: true, onPress: () => void startMarkPaid(notification) });
+      }
+    }
+    if (notification.type === 'card_statement.statement_expected') {
+      const accountId = accountIdFromActionURL(notification.action_url);
+      if (accountId) {
+        actions.push({
+          label: 'Add bill amount',
+          primary: true,
+          onPress: () => {
+            void markRead(notification);
+            router.push({ pathname: '/accounts/[id]', params: { id: accountId, add: 'statement' } });
+          },
+        });
+        return actions;
+      }
+    }
+    if (destination && kind.action) {
+      actions.push({ label: kind.action, onPress: () => void openNotification(notification) });
+    }
+    return actions;
+  };
+
+  const renderJob = (job: NotificationJob) => {
+    const notification = job.items[0];
+    const unread = job.items.some((item) => !item.read_at);
     const kind = notificationKind(notification.type);
     const tile = categoryTile(kind, mode);
     const occurrenceId = occurrenceIdFromActionURL(notification.action_url);
-    const destination = notificationDestination(notification);
-    const action = destination ? kind.action : null;
+    const isSettlements = notification.type === 'split.settlement.recorded';
+    const isSetupStack = notification.type === 'account.needs_setup' && job.items.length > 1;
+    const amount = isSettlements && job.items.length > 1 ? null : notificationAmount(notification);
+    const repeats = !job.stackTitle && job.items.length > 1 ? job.items.length : 0;
+    const title = job.stackTitle ?? notification.title;
+    const body = isSettlements && job.items.length > 1 ? null : notification.body;
+    const actions = isSettlements || occurrenceId ? [] : jobActions(notification);
 
     return (
-      <View
-        testID={`notification-${notification.id}`}
-        style={unread ? { backgroundColor: unreadFill } : undefined}>
-        <PressableView
-          accessibilityRole="button"
-          accessibilityLabel={`${unread ? 'Unread. ' : ''}${notification.title}`}
-          accessibilityHint={action ?? undefined}
-          onPress={() => void openNotification(notification)}
-          style={styles.row}
-          pressedStyle={styles.pressed}>
-          <View style={[styles.tile, { backgroundColor: tile.background }]}>
-            <MaterialCommunityIcons name={kind.icon} size={22} color={tile.foreground} />
-          </View>
-          <View style={styles.rowText}>
-            <View style={styles.titleLine}>
-              <ThemedText style={[styles.title, { fontWeight: unread ? '700' : '500' }]}>
-                {notification.title}
-              </ThemedText>
-              <View style={styles.time}>
-                <ThemedText tone="muted" style={styles.timeLabel}>
-                  {notificationTimeLabel(notification.created_at)}
-                </ThemedText>
-                {unread ? (
-                  <View
-                    accessibilityElementsHidden
-                    style={[styles.dot, { backgroundColor: colors.accent }]}
-                  />
-                ) : null}
-              </View>
+      <SwipeActionRow
+        actions={[{ label: 'Clear', icon: 'close', onPress: () => void clearNotifications(job.items) }]}
+        open={openSwipeKey === job.key}
+        onOpenChange={(open) => setOpenSwipeKey(open ? job.key : null)}>
+        <View
+          testID={`notification-${notification.id}`}
+          style={[{ backgroundColor: unread ? unreadFill : colors.card }]}>
+          <PressableView
+            accessibilityRole="button"
+            accessibilityLabel={`${unread ? 'Unread. ' : ''}${title}`}
+            accessibilityHint={kind.action ?? undefined}
+            onPress={() =>
+              isSetupStack
+                ? (job.items.forEach((item) => void markRead(item)),
+                  router.push({ pathname: '/(tabs)/money', params: { segment: 'accounts' } }))
+                : void openNotification(notification)
+            }
+            style={styles.row}
+            pressedStyle={styles.pressed}>
+            <View style={[styles.tile, { backgroundColor: tile.background }]}>
+              <MaterialCommunityIcons name={kind.icon} size={22} color={tile.foreground} />
             </View>
-            {notification.body ? (
-              <ThemedText tone="muted" numberOfLines={2} style={styles.body}>
-                {notification.body}
-              </ThemedText>
-            ) : null}
-            {action ? (
-              unread ? (
-                <View
-                  style={[styles.chip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}>
-                  <ThemedText style={styles.actionLabel}>{action}</ThemedText>
-                  <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
-                </View>
-              ) : (
-                <View style={styles.link}>
-                  <ThemedText style={styles.actionLabel}>{action}</ThemedText>
-                  <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
-                </View>
-              )
-            ) : null}
-          </View>
-        </PressableView>
-        {/* Outside the row's own press target, so each button is its own tap
-            rather than a button nested in a button. Outlined, never accent. */}
-        {occurrenceId ? (
-          <View style={styles.occurrenceActions}>
-            {(['confirm', 'revert'] as const).map((choice) => (
-              <PressableView
-                key={choice}
-                accessibilityRole="button"
-                onPress={() => void handleOccurrence(notification, choice)}
-                style={[styles.chip, styles.occurrenceChip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
-                pressedStyle={styles.pressed}>
-                <ThemedText style={styles.actionLabel}>{choice === 'confirm' ? 'Confirm' : 'Fix it'}</ThemedText>
-              </PressableView>
-            ))}
-          </View>
-        ) : null}
-      </View>
+            <View style={styles.rowText}>
+              <View style={styles.titleLine}>
+                <ThemedText style={[styles.title, { fontWeight: unread ? '700' : '500' }]}>{title}</ThemedText>
+                {/* P48: the amount on the right, where amounts are everywhere else. */}
+                {amount !== null ? (
+                  <View style={styles.time}>
+                    <ThemedText testID={`notification-amount-${notification.id}`} style={styles.amount}>
+                      {formatMoney(amount)}
+                    </ThemedText>
+                    {unread ? (
+                      <View accessibilityElementsHidden style={[styles.dot, { backgroundColor: colors.accent }]} />
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={styles.time}>
+                    <ThemedText tone="muted" style={styles.timeLabel}>
+                      {notificationTimeLabel(notification.created_at)}
+                    </ThemedText>
+                    {unread ? (
+                      <View accessibilityElementsHidden style={[styles.dot, { backgroundColor: colors.accent }]} />
+                    ) : null}
+                  </View>
+                )}
+              </View>
+              {body ? (
+                <ThemedText tone="muted" numberOfLines={2} style={styles.body}>
+                  {body}
+                </ThemedText>
+              ) : null}
+              {amount !== null || repeats ? (
+                <ThemedText tone="muted" style={styles.meta}>
+                  {[
+                    amount !== null ? notificationTimeLabel(notification.created_at) : null,
+                    repeats ? `${repeats} reminders` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </ThemedText>
+              ) : null}
+            </View>
+          </PressableView>
+
+          {/* P47: settle-ups answered here, one line each. */}
+          {isSettlements ? (
+            <View style={styles.inlineList}>
+              {job.items.map((item) => {
+                const id = settlementIdFromActionURL(item.action_url);
+                const itemAmount = notificationAmount(item);
+                return (
+                  <View key={item.id} style={[styles.inlineItem, { borderTopColor: colors.border }]}>
+                    <View style={styles.rowText}>
+                      <ThemedText numberOfLines={1} style={styles.inlineTitle}>
+                        {job.items.length > 1 ? item.title : 'Did it reach you?'}
+                      </ThemedText>
+                      {/* A lone settle-up has its amount on the row already. */}
+                      {itemAmount !== null && job.items.length > 1 ? (
+                        <ThemedText tone="muted" style={styles.meta}>
+                          {formatMoney(itemAmount)}
+                        </ThemedText>
+                      ) : null}
+                    </View>
+                    <PressableView
+                      testID={`settlement-deny-${id}`}
+                      accessibilityRole="button"
+                      disabled={deciding !== null}
+                      onPress={() => void decide(item, 'deny')}
+                      style={[styles.chip, styles.inlineButton, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
+                      pressedStyle={styles.pressed}>
+                      <ThemedText style={styles.actionLabel}>Deny</ThemedText>
+                    </PressableView>
+                    <PressableView
+                      testID={`settlement-confirm-${id}`}
+                      accessibilityRole="button"
+                      disabled={deciding !== null}
+                      onPress={() => void decide(item, 'confirm')}
+                      style={[styles.chip, styles.inlineButton, { backgroundColor: colors.text, borderColor: colors.text }]}
+                      pressedStyle={styles.pressed}>
+                      <ThemedText style={[styles.actionLabel, { color: colors.background }]}>
+                        {deciding === id ? 'Saving…' : 'Confirm'}
+                      </ThemedText>
+                    </PressableView>
+                  </View>
+                );
+              })}
+            </View>
+          ) : null}
+
+          {actions.length > 0 ? (
+            <View style={styles.occurrenceActions}>
+              {actions.map((action) => (
+                <PressableView
+                  key={action.label}
+                  accessibilityRole="button"
+                  onPress={action.onPress}
+                  style={[
+                    styles.chip,
+                    styles.occurrenceChip,
+                    action.primary
+                      ? { backgroundColor: colors.text, borderColor: colors.text }
+                      : { backgroundColor: colors.card, borderColor: colors.borderStrong },
+                  ]}
+                  pressedStyle={styles.pressed}>
+                  <ThemedText style={[styles.actionLabel, action.primary && { color: colors.background }]}>
+                    {action.label}
+                  </ThemedText>
+                  {action.primary ? null : (
+                    <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
+                  )}
+                </PressableView>
+              ))}
+            </View>
+          ) : null}
+
+          {/* Outside the row's own press target, so each button is its own tap
+              rather than a button nested in a button. */}
+          {occurrenceId ? (
+            <View style={styles.occurrenceActions}>
+              {(['confirm', 'revert'] as const).map((choice) => (
+                <PressableView
+                  key={choice}
+                  accessibilityRole="button"
+                  onPress={() => void handleOccurrence(notification, choice)}
+                  style={[styles.chip, styles.occurrenceChip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
+                  pressedStyle={styles.pressed}>
+                  <ThemedText style={styles.actionLabel}>{choice === 'confirm' ? 'Confirm' : 'Fix it'}</ThemedText>
+                </PressableView>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      </SwipeActionRow>
     );
   };
 
@@ -243,7 +477,6 @@ export default function NotificationsScreen() {
         options={[
           { key: 'all', label: 'All' },
           { key: 'unread', label: 'Unread', count: unreadCount },
-          { key: 'read', label: 'Read' },
         ]}
       />
 
@@ -260,7 +493,7 @@ export default function NotificationsScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          {unreadCount === 0 && filter !== 'read' && notifications.length > 0 ? (
+          {unreadCount === 0 && notifications.length > 0 ? (
             <View
               accessibilityRole="summary"
               style={[styles.caughtUp, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -276,7 +509,13 @@ export default function NotificationsScreen() {
             </View>
           ) : null}
 
-          {groups.length === 0 ? (
+          {actionError ? (
+            <ThemedText tone="negative" style={styles.actionError}>
+              {actionError}
+            </ThemedText>
+          ) : null}
+
+          {needs.length === 0 && updates.length === 0 ? (
             <>
               <ThemedText tone="muted" style={styles.groupLabel}>
                 Nothing yet
@@ -291,30 +530,138 @@ export default function NotificationsScreen() {
                 </ThemedText>
               </View>
             </>
-          ) : (
-            groups.map(({ group, items }) => (
-              <View key={group}>
-                <ThemedText tone="muted" style={styles.groupLabel}>
-                  {group}
+          ) : null}
+
+          {/* P45: what needs you, one row per job, before what happened. */}
+          {needs.length > 0 ? (
+            <View testID="notifications-needs-you">
+              <View style={styles.sectionHead}>
+                <ThemedText accessibilityRole="header" style={styles.sectionTitle}>
+                  Needs you
                 </ThemedText>
-                <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  {items.map((notification, index) => (
-                    <Fragment key={notification.id}>
-                      {index > 0 ? <View style={[styles.divider, { backgroundColor: colors.border }]} /> : null}
-                      {renderRow(notification)}
-                    </Fragment>
-                  ))}
-                </View>
+                <ThemedText tone="muted" style={styles.sectionCount}>
+                  {`${needs.length} to sort`}
+                </ThemedText>
               </View>
-            ))
-          )}
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {needs.map((job, index) => (
+                  <Fragment key={job.key}>
+                    {index > 0 ? <View style={[styles.divider, { backgroundColor: colors.border }]} /> : null}
+                    {renderJob(job)}
+                  </Fragment>
+                ))}
+              </View>
+            </View>
+          ) : null}
+
+          {updates.length > 0 ? (
+            <View testID="notifications-updates">
+              <View style={styles.sectionHead}>
+                <ThemedText accessibilityRole="header" style={styles.sectionTitle}>
+                  Updates
+                </ThemedText>
+                <PressableView
+                  testID="notifications-clear-updates"
+                  accessibilityRole="button"
+                  accessibilityLabel="Clear updates"
+                  onPress={() => void clearNotifications(updates)}
+                  hitSlop={8}
+                  pressedStyle={styles.pressed}>
+                  <ThemedText style={styles.clearLabel}>Clear</ThemedText>
+                </PressableView>
+              </View>
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                {updates.map((notification, index) => (
+                  <Fragment key={notification.id}>
+                    {index > 0 ? <View style={[styles.divider, { backgroundColor: colors.border }]} /> : null}
+                    {renderJob({ key: `update:${notification.id}`, items: [notification], stackTitle: null })}
+                  </Fragment>
+                ))}
+              </View>
+            </View>
+          ) : null}
         </ScrollView>
       )}
+      <MarkPaidSheet
+        key={payingFor?.id ?? 'none'}
+        visible={payingFor !== null}
+        subscription={payingFor}
+        accounts={payAccounts}
+        submitting={isPaying}
+        error={payError}
+        onClose={() => setPayingFor(null)}
+        onConfirm={(choice) => void confirmMarkPaid(choice)}
+        onAddAccount={() => {
+          setPayingFor(null);
+          router.push('/accounts/manage');
+        }}
+      />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  sectionHead: {
+    minHeight: 36,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    marginBottom: 6,
+    // In line with the cards under it.
+    marginHorizontal: 16,
+    paddingHorizontal: 4,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+  },
+  sectionCount: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  clearLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  amount: {
+    fontSize: 15,
+    lineHeight: 20,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  meta: {
+    marginTop: 2,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  inlineList: {
+    paddingLeft: 66,
+    paddingRight: 14,
+    paddingBottom: 6,
+  },
+  inlineItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+  },
+  inlineTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  inlineButton: {
+    marginTop: 0,
+  },
+  actionError: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+  },
   screen: {
     flex: 1,
   },
