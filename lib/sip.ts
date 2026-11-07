@@ -112,3 +112,16 @@ export const calculateSIP = (input: SIPCalculationInput): SIPCalculation => {
     breakdown,
   };
 };
+
+/** The yearly price rise the "today's money" line assumes (P54). */
+export const SIP_INFLATION_PERCENT = 6;
+
+/**
+ * A future amount in today's rupees (P54): what it would buy now, if prices
+ * rise `inflationPercent` a year until then.
+ */
+export const inTodaysMoney = (
+  futureValue: number,
+  years: number,
+  inflationPercent = SIP_INFLATION_PERCENT
+) => futureValue / Math.pow(1 + inflationPercent / 100, years);

@@ -188,6 +188,11 @@ export function SubscriptionsPanel({
   const prefillNextDueDate = toParam(params.nextDueDate);
   const prefillNotes = toParam(params.notes);
   const candidateKey = toParam(params.candidateKey);
+  const prefillKind = toParam(params.kind);
+  const prefillPrincipal = toParam(params.principal);
+  const prefillRatePct = toParam(params.ratePct);
+  const prefillTotalEmis = toParam(params.totalEmis);
+  const prefillStepUpPct = toParam(params.stepUpPct);
 
   const dueCount = useMemo(() => countDueSoon(subscriptions), [subscriptions]);
   const activeSubscriptions = useMemo(
@@ -231,6 +236,43 @@ export function SubscriptionsPanel({
   );
   const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
+
+  /**
+   * "Track this SIP / loan" on the calculators (P53): the add sheet opens as
+   * that kind, already holding what was worked out there. The params are
+   * cleared once used, so coming back to the list does not reopen it.
+   */
+  useEffect(() => {
+    if (source !== 'calculator' || editing) return;
+    const kind: RecurringKind = prefillKind === 'loan' ? 'loan' : 'investment';
+    // Named by the user ("Car loan", "Nifty 50 SIP"): the calculator can't know.
+    openCreateForm(kind);
+    const amountValue = sanitizeAmount(prefillAmount ?? '');
+    if (amountValue) setAmount(amountValue);
+    setInterval('monthly');
+    if (kind === 'loan') {
+      setPrincipal(sanitizeAmount(prefillPrincipal ?? ''));
+      setRatePct(prefillRatePct ?? '');
+      setTotalEmis(prefillTotalEmis ?? '');
+      // The figures are the point of tracking it from here: show them.
+      setShowKindDetails(true);
+    } else {
+      setStepUpPct(prefillStepUpPct && prefillStepUpPct !== '0' ? prefillStepUpPct : '');
+      setShowKindDetails(Boolean(prefillStepUpPct && prefillStepUpPct !== '0'));
+    }
+    router.setParams({
+      source: undefined,
+      kind: undefined,
+      name: undefined,
+      amount: undefined,
+      principal: undefined,
+      ratePct: undefined,
+      totalEmis: undefined,
+      stepUpPct: undefined,
+    });
+    // Runs once per arrival from the calculator; the form setters are stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
 
   useEffect(() => {
     if (source !== 'recurring_review' || editing) return;
