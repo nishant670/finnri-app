@@ -1,4 +1,18 @@
+import type { MaterialCommunityIcons } from '@expo/vector-icons';
+
 import type { AIUsageEvent } from '@/lib/billing';
+
+type AIVisual = { icon: keyof typeof MaterialCommunityIcons.glyphMap; hue: string };
+
+/** Each kind of AI read's glyph and hue, shared by AI usage and the plans screen. */
+export const AI_VISUALS = {
+  text: { icon: 'keyboard-outline', hue: '#1E6FB8' },
+  voice: { icon: 'microphone-outline', hue: '#16825D' },
+  receipt: { icon: 'receipt-text-outline', hue: '#6A4BBC' },
+  statementPdf: { icon: 'file-pdf-box', hue: '#C2410C' },
+  statementScreenshots: { icon: 'image-multiple-outline', hue: '#B45309' },
+  ask: { icon: 'chat-question-outline', hue: '#0E7490' },
+} satisfies Record<string, AIVisual>;
 
 const actionLabels: Record<string, string> = {
   // Bill scans read "transaction parse receipt" before this label existed
