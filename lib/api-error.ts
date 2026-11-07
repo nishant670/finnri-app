@@ -9,6 +9,8 @@ type ApiErrorPayload = {
   required_plan?: string;
   required_entitlement?: string;
   upgrade_required?: boolean;
+  /** Budgets only: how many a user without a pass may keep (P22). */
+  free_limit?: number;
 };
 
 /**
@@ -25,6 +27,11 @@ export type Entitlement = {
   featureLabel: string;
   requiredPlan?: string;
   upgradeRequired: boolean;
+  /**
+   * Set when the feature is free up to a count and the user is at it — one
+   * budget without a pass. The feature is not locked; only adding more is.
+   */
+  freeLimit?: number;
 };
 
 const entitlementCodes = new Set(['payment_required', 'feature_locked']);
@@ -72,6 +79,7 @@ const readEntitlement = (
     requiredPlan: payload?.required_plan,
     // `feature_locked` omits the flag; the plan is still the way through.
     upgradeRequired: payload?.upgrade_required ?? true,
+    freeLimit: typeof payload?.free_limit === 'number' ? payload.free_limit : undefined,
   };
 };
 

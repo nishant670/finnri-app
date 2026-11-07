@@ -24,15 +24,6 @@ export const styles = StyleSheet.create({
     marginTop: 4,
     marginBottom: 20,
   },
-  stepEyebrow: {
-    fontSize: 12,
-    fontFamily: Fonts.title,
-    fontWeight: '900',
-    color: '#8257E5',
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-    marginBottom: 8,
-  },
   stepTitle: {
     fontSize: 28,
     lineHeight: 34,
