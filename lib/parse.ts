@@ -56,6 +56,17 @@ export type LedgerAnswer = {
   };
   group_by?: 'category' | 'merchant' | 'month' | 'none';
   breakdown: ParseAnswerSlice[];
+  /**
+   * The same number for the same days of the period before (P64): "12% less
+   * than 1–21 Sep". `change_percent` is absent when that window was empty.
+   */
+  comparison?: {
+    amount: number;
+    label: string;
+    start_date: string;
+    end_date: string;
+    change_percent?: number | null;
+  } | null;
   largest_entry?: {
     entry_id: number;
     title: string;
@@ -233,6 +244,11 @@ export type ParseDraftInput = {
     name: string;
   };
   tz?: string;
+  /**
+   * The question this one may follow, from the Ask thread (P67), so "And
+   * last month?" is read as a follow-up. Only the model sees it.
+   */
+  contextQuestion?: string | null;
 };
 
 type ParseErrorPayload = {
@@ -493,6 +509,7 @@ export const parseEntryDraft = async ({
   hintText,
   audio,
   tz = getClientTimeZone(),
+  contextQuestion,
 }: ParseDraftInput): Promise<ParseResult> => {
   const formData = new FormData();
   const trimmedHint = hintText?.trim() ?? '';
@@ -503,6 +520,9 @@ export const parseEntryDraft = async ({
     formData.append('audio', audio.file, audio.name);
   }
   formData.append('tz', tz);
+  if (contextQuestion?.trim()) {
+    formData.append('context_question', contextQuestion.trim());
+  }
 
   const response = await fetch(`${API_BASE_URL}/v1/parse`, {
     method: 'POST',

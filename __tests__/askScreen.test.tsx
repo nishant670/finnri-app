@@ -110,3 +110,57 @@ describe('describeThreadAnswer', () => {
     mockParams = {};
   });
 });
+
+describe('Ask Finnri proposals (P64–P67)', () => {
+  beforeEach(() => {
+    mockParse.mockReset();
+    mockParams = {};
+  });
+
+  it('compares with the same days before, and says what a question costs', async () => {
+    mockParse.mockResolvedValue({
+      stage: 'answer',
+      answer: answer({ comparison: { amount: 22630, label: '1–21 Sep', start_date: '', end_date: '', change_percent: -12 } }),
+    });
+    const screen = await render(<AskFinnriScreen />);
+    expect(screen.getByTestId('ask-price-note').props.children).toBe('Each question uses 5 AI credits.');
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('answer-comparison')).toBeTruthy());
+    expect(screen.getByText('12% less')).toBeTruthy();
+  });
+
+  it('offers follow-ups and sends them with the question they follow', async () => {
+    mockParse.mockResolvedValueOnce({
+      stage: 'answer',
+      answer: answer({ suggestions: ['Where did it go?', 'Biggest one?', 'And last month?'] }),
+    });
+    mockParse.mockResolvedValueOnce({ stage: 'answer', answer: answer({ period: { kind: 'last_month', label: 'last month' } }) });
+    const screen = await render(<AskFinnriScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('ask-follow-ups')).toBeTruthy());
+    expect(mockParse.mock.calls[0][0].contextQuestion).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('And last month?'));
+    });
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(2));
+    expect(mockParse.mock.calls[1][0]).toMatchObject({
+      hintText: 'And last month?',
+      contextQuestion: 'How much did I spend this month?',
+    });
+  });
+});
+
+describe('Follow-up threads stay short (P67)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { threadOf } = require('@/app/ask');
+  it('keeps the first question and the last two', () => {
+    expect(threadOf(null, 'A')).toBe('A');
+    expect(threadOf('A → B', 'C')).toBe('A → B → C');
+    expect(threadOf('A → B → C', 'D')).toBe('A → C → D');
+  });
+});

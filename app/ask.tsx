@@ -14,7 +14,8 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { blockedAIReason } from '@/lib/credit-gate';
+import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
+import { blockedAIReason, captureCreditsFor } from '@/lib/credit-gate';
 import type { BlockedAIReason } from '@/lib/plans-prompt';
 import {
   describeParseFailure,
@@ -26,6 +27,12 @@ import {
 type AskTurn = {
   id: number;
   question: string;
+  /**
+   * What this question was asked as: itself, or for a follow-up the thread it
+   * follows ("How much on food this month? → And last month?"). The next
+   * follow-up is sent with it (P67).
+   */
+  asked: string;
   answer?: LedgerAnswer;
   error?: string;
 };
@@ -37,6 +44,18 @@ const STARTERS: { question: string; icon: keyof typeof MaterialCommunityIcons.gl
   { question: 'Where did my money go this month?', icon: 'chart-pie' },
 ];
 
+/**
+ * A follow-up's thread, kept short: the question that started it (its
+ * subject) and the last two asked. The server reads only so much context, and
+ * the question just before a follow-up is the one it most needs (P67).
+ */
+export const threadOf = (context: string | null, question: string) => {
+  if (!context) return question;
+  const steps = [...context.split(' → '), question];
+  const kept = steps.length <= 3 ? steps : [steps[0], ...steps.slice(-2)];
+  return kept.join(' → ');
+};
+
 export default function AskFinnriScreen() {
   const router = useRouter();
   const theme = useThemeTokens();
@@ -47,6 +66,26 @@ export default function AskFinnriScreen() {
   const [input, setInput] = useState('');
   const [turns, setTurns] = useState<AskTurn[]>([]);
   const [isSending, setIsSending] = useState(false);
+  /** For the price under the composer (P66); the fallback price until it loads. */
+  const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  useEffect(() => {
+    // A guest pays the same per question; the built-in price is theirs, and
+    // their Ask screen makes no billing request.
+    if (!token || isGuest) return;
+    let active = true;
+    void (async () => {
+      try {
+        const status = await fetchBillingStatus(token);
+        if (active) setBillingStatus(status ?? null);
+      } catch {
+        // The fallback price stands.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [isGuest, token]);
+  const questionPrice = captureCreditsFor(billingStatus, 'text');
   const nextID = useRef(1);
   const scrollRef = useRef<ScrollView>(null);
   /*
@@ -102,16 +141,29 @@ export default function AskFinnriScreen() {
     if (seePlans) router.push('/billing');
   };
 
-  const submit = async (questionOverride?: string) => {
+  /**
+   * `followUpTo` is the thread a question follows, when it does: tapped from
+   * an answer's follow-up chips, or typed right after an answer. It travels
+   * with the question so "And last month?" is read as one (P67).
+   */
+  const submit = async (questionOverride?: string, followUpTo?: AskTurn | null) => {
     const question = (questionOverride ?? input).trim();
     if (!question || isSending || !token) return;
 
+    const previous =
+      followUpTo === undefined
+        ? [...turns].reverse().find((turn) => turn.answer?.status === 'answered') ?? null
+        : followUpTo;
+    const contextQuestion = previous ? previous.asked : null;
     const id = nextID.current++;
-    setTurns((current) => [...current, { id, question }]);
+    setTurns((current) => [
+      ...current,
+      { id, question, asked: threadOf(contextQuestion, question) },
+    ]);
     setInput('');
     setIsSending(true);
     try {
-      const result = await parseEntryDraft({ token, hintText: question });
+      const result = await parseEntryDraft({ token, hintText: question, contextQuestion });
       if (!isParseAnswer(result)) {
         setTurns((current) =>
           current.map((turn) =>
@@ -154,13 +206,14 @@ export default function AskFinnriScreen() {
     const question = suggestedQuestion?.trim();
     if (!question || !token || askedSuggestion.current === question) return;
     askedSuggestion.current = question;
-    void submit(question);
+    void submit(question, null);
     // `submit` is rebuilt every render; the ref keeps this to one ask per question.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [suggestedQuestion, token]);
 
   const { colors } = theme;
   const canSend = Boolean(input.trim()) && !isSending;
+  const lastAnsweredId = [...turns].reverse().find((turn) => turn.answer?.status === 'answered')?.id;
 
   return (
     /*
@@ -185,7 +238,7 @@ export default function AskFinnriScreen() {
                 </View>
                 <ThemedText style={[styles.introTitle, { color: colors.text }]}>Ask about your money</ThemedText>
                 <ThemedText tone="muted" style={styles.introText}>
-                  Finnri works out every number from what you have recorded. Each question stands on its own for now.
+                  Finnri works out every number from what you have recorded. Ask a follow-up and it keeps the thread.
                 </ThemedText>
               </View>
               <ThemedText tone="muted" accessibilityRole="header" style={styles.startersLabel}>
@@ -196,7 +249,7 @@ export default function AskFinnriScreen() {
                   <PressableView
                     key={starter.question}
                     accessibilityRole="button"
-                    onPress={() => void submit(starter.question)}
+                    onPress={() => void submit(starter.question, null)}
                     style={styles.starter}
                     pressedStyle={styles.pressed}>
                     {index > 0 ? <View style={[styles.starterRule, { backgroundColor: colors.border }]} /> : null}
@@ -217,11 +270,29 @@ export default function AskFinnriScreen() {
                 <ThemedText style={[styles.questionText, { color: colors.text }]}>{turn.question}</ThemedText>
               </View>
               {turn.answer ? (
-                <AnswerCard
-                  variant="thread"
-                  answer={turn.answer}
-                  onAskSuggestion={(question) => void submit(question)}
-                />
+                <>
+                  <AnswerCard
+                    variant="thread"
+                    answer={turn.answer}
+                    onAskSuggestion={(question) => void submit(question, null)}
+                  />
+                  {/* P65: follow-ups under the newest answer, each asked as one. */}
+                  {turn.id === lastAnsweredId && turn.answer.suggestions.length > 0 ? (
+                    <View testID="ask-follow-ups" style={styles.followUps}>
+                      {turn.answer.suggestions.slice(0, 3).map((suggestion) => (
+                        <PressableView
+                          key={suggestion}
+                          accessibilityRole="button"
+                          disabled={isSending}
+                          onPress={() => void submit(suggestion, turn)}
+                          style={[styles.followUp, { borderColor: colors.borderStrong, backgroundColor: colors.card }]}
+                          pressedStyle={styles.pressed}>
+                          <ThemedText style={[styles.followUpLabel, { color: colors.text }]}>{suggestion}</ThemedText>
+                        </PressableView>
+                      ))}
+                    </View>
+                  ) : null}
+                </>
               ) : turn.error ? (
                 <View style={[threadStyles.bubble, { backgroundColor: colors.card, borderColor: colors.border }]}>
                   <View style={threadStyles.body}>
@@ -281,6 +352,10 @@ export default function AskFinnriScreen() {
               <MaterialCommunityIcons name="arrow-up" size={20} color={canSend ? colors.onAccent : colors.muted} />
             </PressableView>
           </View>
+          {/* P66: what asking costs, said before it is spent. */}
+          <ThemedText testID="ask-price-note" tone="muted" style={styles.priceNote}>
+            {`Each question uses ${questionPrice} AI credits.`}
+          </ThemedText>
         </View>
       </View>
       <PlansOfferSheet {...plansPrompt.sheet} />
@@ -289,6 +364,31 @@ export default function AskFinnriScreen() {
 }
 
 const styles = StyleSheet.create({
+  followUps: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    paddingHorizontal: 16,
+    marginTop: 10,
+  },
+  followUp: {
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  followUpLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  priceNote: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'center',
+  },
   screen: {
     flex: 1,
   },
