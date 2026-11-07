@@ -35,4 +35,24 @@ describe('Quick filters (P12)', () => {
     const keys = withoutQuickFilterChips(describeFilters(state), state, now).map((chip) => chip.key);
     expect(keys).toEqual(['category']);
   });
+
+  it('counts a link to the whole month as This month, and a tap takes it off', () => {
+    // A category-in-October link sends the month's last day, not today.
+    const linked = { ...emptyFilterState, category: 'Food & Drinks', startDate: '2026-10-01', endDate: '2026-10-31' };
+    expect(isQuickFilterSelected('this-month', linked, now)).toBe(true);
+    expect(isQuickFilterSelected('all', linked, now)).toBe(false);
+    const keys = withoutQuickFilterChips(describeFilters(linked), linked, now).map((chip) => chip.key);
+    expect(keys).toEqual(['category']);
+    const off = applyQuickFilter('this-month', linked, now);
+    expect(off.startDate).toBeNull();
+    expect(off.endDate).toBeNull();
+    expect(off.category).toBe('Food & Drinks');
+  });
+
+  it('does not count last month or a range that stops before today', () => {
+    const lastMonth = { ...emptyFilterState, startDate: '2026-09-01', endDate: '2026-09-30' };
+    expect(isQuickFilterSelected('this-month', lastMonth, now)).toBe(false);
+    const firstWeek = { ...emptyFilterState, startDate: '2026-10-01', endDate: '2026-10-07' };
+    expect(isQuickFilterSelected('this-month', firstWeek, now)).toBe(false);
+  });
 });

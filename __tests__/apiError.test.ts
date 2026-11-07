@@ -1,4 +1,4 @@
-import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
 
 describe('api error messages', () => {
   it('replaces Android fetch connection details with readable copy', () => {
@@ -26,5 +26,27 @@ describe('api error messages', () => {
         'Login failed.',
       ),
     ).toBe('Incorrect PIN. 2 attempts remaining.');
+  });
+});
+
+describe('entitlement responses', () => {
+  const respond = (status: number, body: object) =>
+    ({ status, text: async () => JSON.stringify(body) }) as unknown as Response;
+
+  it('carries the free budget allowance when the server sends it (P22)', async () => {
+    const error = await readApiError(
+      respond(402, { error: 'payment_required', feature_code: 'budgets', feature_label: 'Budgets', free_limit: 1 }),
+      'fallback'
+    );
+    expect(error.entitlement?.freeLimit).toBe(1);
+  });
+
+  it('leaves it unset for a feature that is simply locked', async () => {
+    const error = await readApiError(
+      respond(402, { error: 'payment_required', feature_code: 'exports', feature_label: 'Exports' }),
+      'fallback'
+    );
+    expect(error.entitlement?.featureLabel).toBe('Exports');
+    expect(error.entitlement?.freeLimit).toBeUndefined();
   });
 });

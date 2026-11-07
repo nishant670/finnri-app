@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 
-import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
+import { UpgradeSheet, freeLimitLine } from '@/components/billing/UpgradeSheet';
 import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
@@ -26,7 +26,7 @@ import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { entitlementFromError, getFriendlyErrorMessage, type Entitlement } from '@/lib/api-error';
 import {
   Budget,
   createBudget,
@@ -113,6 +113,13 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     clear: clearEntitlement,
   } = useEntitlementGate();
   const [previewCategories, setPreviewCategories] = useState<DashboardCategory[]>([]);
+  /**
+   * The server's "your free budget is in use" (P22), kept apart from the gate
+   * above: that one locks the whole panel, which here would hide the budget
+   * the user is allowed to keep. Once seen, the form says so up front.
+   */
+  const [freeLimitOffer, setFreeLimitOffer] = useState<Entitlement | null>(null);
+  const [freeLimitSheetVisible, setFreeLimitSheetVisible] = useState(false);
 
   const formTitle = editing ? 'Edit budget' : 'New monthly budget';
   const submitLabel = editing ? 'Save changes' : 'Create budget';
@@ -264,11 +271,21 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         await updateBudget(token, editing.id, payload);
       } else {
         await createBudget(token, payload);
+        // A create past the free limit means a pass came in meanwhile.
+        setFreeLimitOffer(null);
       }
       haptics.saved();
       closeForm();
       await load();
     } catch (saveError) {
+      const offer = entitlementFromError(saveError);
+      if (offer?.freeLimit != null) {
+        // Keep the form as typed, so with a pass it is one more tap.
+        haptics.rejected();
+        setFreeLimitOffer(offer);
+        setFreeLimitSheetVisible(true);
+        return;
+      }
       if (captureEntitlement(saveError)) {
         presentUpgrade();
         void loadPreview();
@@ -483,6 +500,17 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
                 </ThemedText>
               )}
 
+              {freeLimitOffer?.freeLimit != null && !editing && budgets.length >= freeLimitOffer.freeLimit ? (
+                <ThemedText
+                  testID="budget-free-limit-note"
+                  tone="muted"
+                  accessibilityRole="button"
+                  onPress={() => setFreeLimitSheetVisible(true)}
+                  style={[styles.caption, styles.error]}>
+                  {`${freeLimitLine(freeLimitOffer.freeLimit, freeLimitOffer.featureLabel)} Another needs a Finnri pass.`}
+                </ThemedText>
+              ) : null}
+
               <PrimaryButton
                 testID="budget-save"
                 label={submitLabel}
@@ -538,6 +566,11 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
       </KeyboardAvoidingView>
 
       <UpgradeSheet visible={sheetVisible} entitlement={entitlement} onClose={dismissUpgrade} />
+      <UpgradeSheet
+        visible={freeLimitSheetVisible}
+        entitlement={freeLimitOffer}
+        onClose={() => setFreeLimitSheetVisible(false)}
+      />
     </View>
   );
 }
