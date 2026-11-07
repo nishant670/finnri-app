@@ -5,6 +5,7 @@ import { mixHex, withAlpha } from '@/constants/theme';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { CAPTURE_HINTS, useSpeakLanguage } from '@/lib/speak-language';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { AudioRecorder } from 'expo-audio';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -192,15 +193,9 @@ export function VoiceInputCard({
   const buttonScale = useSharedValue(1);
   const textEntryAnim = useSharedValue(shouldShowTextInput ? 1 : 0);
   const promptFade = useSharedValue(1);
-  const samplePrompts = useMemo(
-    () => [
-      `Spent 250 on food via UPI`,
-      `Got 2000 from freelance`,
-      `Paid 1200 rent by bank`,
-      `Coffee 180 using card`,
-    ],
-    []
-  );
+  // In the language chosen on onboarding's "I mostly speak" (P69).
+  const language = useSpeakLanguage();
+  const samplePrompts = CAPTURE_HINTS[language];
   const [promptIndex, setPromptIndex] = useState(0);
   // The rotation runs off one long-lived interval, so the completion worklet
   // would otherwise close over whichever index was current when the effect last

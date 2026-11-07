@@ -53,7 +53,8 @@ describe('onboarding Skip', () => {
 
     // `handleNext` defers the index change to a timeout, so each press needs
     // the queue drained before the next slide's button exists.
-    for (let slide = 0; slide < 3; slide += 1) {
+    // Three slides since P68 merged "say it" and "check it".
+    for (let slide = 0; slide < 2; slide += 1) {
       await fireEvent.press(screen.getByText('Next'));
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
