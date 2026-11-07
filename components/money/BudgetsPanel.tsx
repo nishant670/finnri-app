@@ -271,6 +271,8 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         await updateBudget(token, editing.id, payload);
       } else {
         await createBudget(token, payload);
+        // A create past the free limit means a pass came in meanwhile.
+        setFreeLimitOffer(null);
       }
       haptics.saved();
       closeForm();
