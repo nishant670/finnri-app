@@ -16,6 +16,7 @@ import '../global.css';
 import { FinnriSplashScreen } from '@/components/SplashScreen';
 import { TransactionDeleteProvider } from '@/components/transactions/TransactionDeleteProvider';
 import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
+import { DatePickerProvider } from '@/components/ui/DatePickerProvider';
 import { useAppMoodStore } from '@/hooks/use-app-mood-store';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -246,6 +247,9 @@ export default function RootLayout() {
           stock Android box ended there because reaching for `Alert.alert` was
           less work than wiring a themed one up by hand. */}
       <AppDialogProvider>
+      {/* The same for dates: every date picker in the app is this one themed
+          calendar, never the platform dialog. See `DatePickerProvider`. */}
+      <DatePickerProvider>
       <TransactionDeleteProvider>
       {showCustomSplash && <FinnriSplashScreen onAnimationComplete={handleCustomSplashComplete} />}
       <Stack
@@ -335,6 +339,7 @@ export default function RootLayout() {
       </Stack>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
       </TransactionDeleteProvider>
+      </DatePickerProvider>
       </AppDialogProvider>
       </ThemeProvider>
       </SafeAreaProvider>

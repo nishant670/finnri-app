@@ -20,7 +20,6 @@ import Animated, {
   withTiming,
 } from 'react-native-reanimated';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -31,6 +30,7 @@ import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { CheckTag, LabelRow } from '@/components/ui/LabelRow';
 import { Segments } from '@/components/ui/Segments';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { useMotion } from '@/hooks/use-motion';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -90,11 +90,7 @@ import {
 import type { Transaction } from '@/types/transaction';
 import { AmountDisplay, AmountKeypad, hasEnteredAmount } from './AmountKeypad';
 import { TransactionCategoryPicker } from './TransactionCategoryPicker';
-import {
-  TransactionCancellationDateSheet,
-  TransactionDateSheet,
-  TransactionSubscriptionDateSheet,
-} from './TransactionDateSheets';
+import { TransactionDateSheet } from './TransactionDateSheets';
 import { TransactionDraftSource, TransactionDraftStatus } from './TransactionDraftHeader';
 import { TransactionEmiFields } from './TransactionEmiFields';
 import { TransactionPaymentPicker } from './TransactionPaymentPicker';
@@ -771,13 +767,9 @@ export function TransactionFormModal({
 
   const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
   const [pendingDate, setPendingDate] = useState<Date>(parseDateLabel(form.date) ?? new Date());
-  const [isSubscriptionDatePickerVisible, setIsSubscriptionDatePickerVisible] = useState(false);
-  const [pendingSubscriptionDate, setPendingSubscriptionDate] = useState<Date>(new Date());
-  const [isCancellationDatePickerVisible, setIsCancellationDatePickerVisible] = useState(false);
-  const [pendingCancellationDate, setPendingCancellationDate] = useState<Date>(new Date());
+  const { pickDate } = useDatePicker();
   const [isModePickerVisible, setIsModePickerVisible] = useState(false);
   const [isCategoryPickerVisible, setIsCategoryPickerVisible] = useState(false);
-  const [isRefundDatePickerVisible, setIsRefundDatePickerVisible] = useState(false);
   const [emiCalculation, setEmiCalculation] = useState<EMICalculation | null>(null);
   const [emiCalculationError, setEmiCalculationError] = useState<string | null>(null);
   const [isCalculatingEMI, setIsCalculatingEMI] = useState(false);
@@ -1554,24 +1546,13 @@ export function TransactionFormModal({
     setIsDatePickerVisible(false);
   };
 
-  const handleOpenSubscriptionDatePicker = () => {
-    const selectedDate = parseDateLabel(form.subscriptionNextDueDate) ?? new Date();
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: selectedDate,
-        mode: 'date',
-        minimumDate: new Date(),
-        onValueChange: (_event, date) => {
-          if (date) {
-            setForm((prev) => ({ ...prev, subscriptionNextDueDate: formatApiDate(date) }));
-          }
-        },
-        onDismiss: () => undefined,
-      });
-      return;
-    }
-    setPendingSubscriptionDate(selectedDate);
-    setIsSubscriptionDatePickerVisible(true);
+  const handleOpenSubscriptionDatePicker = async () => {
+    const date = await pickDate({
+      title: 'Next payment date',
+      value: parseDateLabel(form.subscriptionNextDueDate) ?? new Date(),
+      minimumDate: new Date(),
+    });
+    if (date) setForm((prev) => ({ ...prev, subscriptionNextDueDate: formatApiDate(date) }));
   };
 
   const handlePickAttachment = async () => {
@@ -2043,6 +2024,12 @@ export function TransactionFormModal({
    */
   const requestClose = () => {
     if (isSaving) return;
+    // Still reading: nothing is on the form to lose, and closing is the Cancel
+    // (the caller stops the read and the server returns its credits).
+    if (draftReview && isParsing) {
+      onClose();
+      return;
+    }
     if (mode !== 'audio' && !isFormDirty()) {
       onClose();
       return;
@@ -2743,7 +2730,6 @@ export function TransactionFormModal({
                         refundableAmount={form.refundableAmount}
                         expectedOn={form.refundExpectedOn}
                         reminderEnabled={form.refundReminderEnabled}
-                        isPickerVisible={isRefundDatePickerVisible}
                         onChangeAmount={(refundableAmount) =>
                           setForm((previous) => ({ ...previous, refundableAmount }))
                         }
@@ -2756,7 +2742,6 @@ export function TransactionFormModal({
                             refundReminderEnabled: !previous.refundReminderEnabled,
                           }))
                         }
-                        onChangePickerVisible={setIsRefundDatePickerVisible}
                       />
                     )}
 
@@ -2771,13 +2756,17 @@ export function TransactionFormModal({
                           onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
                           optionsOpen={isSubscriptionOptionsOpen}
                           onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
-                          onOpenCancellationDatePicker={() => {
-                            setPendingCancellationDate(
-                              form.subscriptionCancelOnDate
+                          onOpenCancellationDatePicker={async () => {
+                            const date = await pickDate({
+                              title: 'Cancellation reminder date',
+                              value: form.subscriptionCancelOnDate
                                 ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
-                                : new Date()
-                            );
-                            setIsCancellationDatePickerVisible(true);
+                                : new Date(),
+                              minimumDate: new Date(),
+                            });
+                            if (date) {
+                              setForm((p) => ({ ...p, subscriptionCancelOnDate: formatApiDate(date) }));
+                            }
                           }}
                         />
                       )}
@@ -2831,6 +2820,18 @@ export function TransactionFormModal({
                   disabled={fastEntry && !amountEntered}
                   onPress={handleConfirmEntry}
                 />
+                {draftReview && isParsing ? (
+                  <Pressable
+                    testID="entry-cancel-reading"
+                    accessibilityRole="button"
+                    accessibilityHint="Stops reading this entry. No credits are used."
+                    onPress={requestClose}
+                    style={formStyles.deleteLink}>
+                    <ThemedText tone="muted" style={formStyles.deleteLabel}>
+                      Cancel
+                    </ThemedText>
+                  </Pressable>
+                ) : null}
                 {onDelete && (
                   <Pressable
                     accessibilityRole="button"
@@ -2865,36 +2866,6 @@ export function TransactionFormModal({
           onClose={() => setIsDatePickerVisible(false)}
           onConfirm={handleConfirmDatePicker}
         />
-
-        {isCancellationDatePickerVisible && (
-          <TransactionCancellationDateSheet
-            pendingDate={pendingCancellationDate}
-            onChangePendingDate={setPendingCancellationDate}
-            onClose={() => setIsCancellationDatePickerVisible(false)}
-            onConfirm={() => {
-              setForm((p) => ({
-                ...p,
-                subscriptionCancelOnDate: formatApiDate(pendingCancellationDate),
-              }));
-              setIsCancellationDatePickerVisible(false);
-            }}
-          />
-        )}
-
-        {Platform.OS === 'ios' && isSubscriptionDatePickerVisible && (
-          <TransactionSubscriptionDateSheet
-            pendingDate={pendingSubscriptionDate}
-            onChangePendingDate={setPendingSubscriptionDate}
-            onClose={() => setIsSubscriptionDatePickerVisible(false)}
-            onConfirm={() => {
-              setForm((prev) => ({
-                ...prev,
-                subscriptionNextDueDate: formatApiDate(pendingSubscriptionDate),
-              }));
-              setIsSubscriptionDatePickerVisible(false);
-            }}
-          />
-        )}
 
         <TransactionPaymentPicker
           visible={isModePickerVisible}

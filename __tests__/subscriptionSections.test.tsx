@@ -1,7 +1,6 @@
 import { fireEvent, render } from '@testing-library/react-native';
 
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
-import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 import type { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -262,36 +261,5 @@ describe('SubscriptionAdvancedFields', () => {
       'family'
     );
     expect(setNotes).toHaveBeenCalledWith('family');
-  });
-});
-
-describe('SubscriptionDatePickerModal', () => {
-  const setup = async (target: 'due' | 'cancel' | 'start') => {
-    const h = { onChangePendingDate: fn(), onClose: fn(), onDone: fn() };
-    const screen = await render(
-      <SubscriptionDatePickerModal
-        visible
-        target={target}
-        pendingDate={new Date(2026, 9, 7)}
-        colors={colors}
-        muted="#999"
-        {...h}
-      />
-    );
-    return { screen, ...h };
-  };
-
-  it('titles itself for what is being picked', async () => {
-    expect((await setup('due')).screen.getByText('Next payment on')).toBeTruthy();
-    expect((await setup('cancel')).screen.getByText('Cancellation reminder')).toBeTruthy();
-    expect((await setup('start')).screen.getByText('Started on')).toBeTruthy();
-  });
-
-  it('cancels and confirms', async () => {
-    const { screen, onClose, onDone } = await setup('due');
-    await fireEvent.press(screen.getByText('Cancel'));
-    await fireEvent.press(screen.getByText('Done'));
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(onDone).toHaveBeenCalledTimes(1);
   });
 });
