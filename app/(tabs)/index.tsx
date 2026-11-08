@@ -735,7 +735,7 @@ export default function HomeScreen() {
 
   /**
    * Whether any budget exists, for "Get started" (P5). Null until known; a
-   * plan that can't read budgets counts as none set.
+   * failed read counts as none set.
    */
   const [hasBudget, setHasBudget] = useState<boolean | null>(null);
   /**

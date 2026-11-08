@@ -14,7 +14,6 @@ import { withAlpha } from '@/constants/theme';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { fetchAccounts, type Account } from '@/lib/accounts';
-import { describeAccess, fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { categoryVisual } from '@/lib/categories';
 import { formatApiDate } from '@/lib/datetime';
 import { fetchDashboard, type DashboardBudgetStatus } from '@/lib/insights';
@@ -57,7 +56,6 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
   const [budgets, setBudgets] = useState<DashboardBudgetStatus[]>([]);
   /** This month's spending on the dashboard's terms (Home's figure); null until it loads. */
   const [monthSpent, setMonthSpent] = useState<{ total: number; count: number } | null>(null);
-  const [billing, setBilling] = useState<BillingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -71,14 +69,12 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
       const now = new Date();
       const monthStart = formatApiDate(new Date(now.getFullYear(), now.getMonth(), 1));
       // Each source stands alone: a slow dashboard should not blank the dues.
-      const [nextAccounts, nextSubscriptions, nextRefundables, dashboard, nextBilling] =
-        await Promise.all([
-          fetchAccounts(token).catch(() => null),
-          fetchSubscriptions(token).catch(() => null),
-          fetchRefundables(token).catch(() => null),
-          fetchDashboard(token, monthStart, formatApiDate(now)).catch(() => null),
-          fetchBillingStatus(token).catch(() => null),
-        ]);
+      const [nextAccounts, nextSubscriptions, nextRefundables, dashboard] = await Promise.all([
+        fetchAccounts(token).catch(() => null),
+        fetchSubscriptions(token).catch(() => null),
+        fetchRefundables(token).catch(() => null),
+        fetchDashboard(token, monthStart, formatApiDate(now)).catch(() => null),
+      ]);
       if (nextAccounts) setAccounts(nextAccounts);
       if (nextSubscriptions) setSubscriptions(nextSubscriptions);
       if (nextRefundables) setRefundables(nextRefundables);
@@ -93,7 +89,6 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
             : null
         );
       }
-      setBilling(nextBilling);
       setLoading(false);
       setRefreshing(false);
     },
@@ -120,10 +115,6 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
   const spentThisMonth =
     monthSpent?.total ??
     accounts.reduce((sum, account) => sum + (account.summary?.spent_this_month ?? 0), 0);
-  const access = describeAccess(billing);
-  const hasPass = access.kind === 'pass' || access.kind === 'trial';
-  // P22: one budget is free. Past it, the section's link is the way to more.
-  const budgetLink = !hasPass && budgets.length >= 1 ? 'Unlock' : 'See all';
 
   const { accessoryFor, sheet } = useDueActions({
     token,
@@ -299,11 +290,11 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
           />
         )}
 
-        {/* Budgets (P22): one is free; the link says how to get more. */}
+        {/* Budgets are free: they cost no AI to run. */}
         <SectionHeading
           title="Budgets"
-          link={budgets.length > 0 ? budgetLink : undefined}
-          onLink={() => (budgetLink === 'Unlock' ? router.push('/billing') : onOpenList('budgets'))}
+          link={budgets.length > 0 ? 'See all' : undefined}
+          onLink={() => onOpenList('budgets')}
         />
         {budgets.length > 0 ? (
           <View style={cardStyle}>
@@ -339,7 +330,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
           <EmptyRow
             icon="target"
             title="Set a monthly budget"
-            body="One budget is free. See what is left as you spend."
+            body="See what is left as you spend."
             actionLabel="Add"
             onAction={() => onOpenList('budgets')}
           />
