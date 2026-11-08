@@ -41,8 +41,6 @@ export const fetchBudgets = async (token?: string | null): Promise<Budget[]> => 
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!response.ok) {
-    // Every budgets route is entitlement-gated, so this must stay an ApiError
-    // — a bare Error would throw away the 402 payload the paywall is built from.
     throw await readApiError(response, 'Unable to load budgets right now.', budgetFieldLabels);
   }
   const payload = await response.json();

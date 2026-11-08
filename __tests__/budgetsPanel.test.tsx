@@ -5,7 +5,6 @@ import { BudgetsPanel } from '@/components/money/BudgetsPanel';
 import * as budgets from '@/lib/budgets';
 import type { Budget } from '@/lib/budgets';
 import * as insights from '@/lib/insights';
-import { ApiError } from '@/lib/api-error';
 
 jest.mock('expo-router', () => {
   const { useEffect } = jest.requireActual('react');
@@ -20,21 +19,6 @@ jest.mock('@/hooks/use-auth-store', () => ({ useAuthStore: () => ({ token: 'test
 jest.mock('@/components/ui/AppDialogProvider', () => ({
   useAppDialog: () => ({ confirm: jest.fn().mockResolvedValue(false), alert: jest.fn() }),
 }));
-
-jest.mock('@/components/billing/UpgradeSheet', () => {
-  const actual = jest.requireActual('@/components/billing/UpgradeSheet');
-  const { Text } = jest.requireActual('react-native');
-  return {
-    ...actual,
-    // The real sheet loads plans; what matters here is when it opens, for what.
-    UpgradeSheet: ({ visible, entitlement }: { visible: boolean; entitlement: { featureLabel: string; freeLimit?: number } | null }) =>
-      visible && entitlement ? (
-        <Text testID="upgrade-sheet">
-          {entitlement.freeLimit != null ? actual.freeLimitLine(entitlement.freeLimit, entitlement.featureLabel) : entitlement.featureLabel}
-        </Text>
-      ) : null,
-  };
-});
 
 const groceries = {
   id: 4,
@@ -115,31 +99,5 @@ describe('Budgets panel', () => {
     expect(await ui.findByText('Alert level should be between 1% and 100%.')).toBeTruthy();
     expect(await ui.findByLabelText('Alert me at (% of the limit)')).toBeTruthy();
     expect(update).not.toHaveBeenCalled();
-  });
-
-  it('says why a second free budget is refused and keeps the first one on screen', async () => {
-    jest.spyOn(budgets, 'fetchBudgets').mockResolvedValue([groceries]);
-    jest.spyOn(budgets, 'createBudget').mockRejectedValue(
-      new ApiError('payment_required', 402, 'payment_required', undefined, {
-        featureCode: 'budgets',
-        featureLabel: 'Budgets',
-        upgradeRequired: true,
-        freeLimit: 1,
-      })
-    );
-    const ui = await render(<BudgetsPanel embedded />);
-
-    await fireEvent.press(await ui.findByText('Add'));
-    await fireEvent.changeText(await ui.findByTestId('budget-limit-input'), '5000');
-    await fireEvent.press(await ui.findByTestId('budget-save'));
-
-    expect((await ui.findByTestId('upgrade-sheet')).props.children).toBe(
-      'Free accounts get 1 budget, and yours is in use.'
-    );
-    // Not locked: the budget they keep, the form they typed and Add all stay.
-    expect(ui.getByText('Food budget')).toBeTruthy();
-    expect(ui.getByTestId('budget-limit-input').props.value).toBe('5000');
-    expect(ui.getByText('Add')).toBeTruthy();
-    expect(ui.getByTestId('budget-free-limit-note')).toBeTruthy();
   });
 });

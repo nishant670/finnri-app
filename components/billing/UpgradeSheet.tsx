@@ -107,14 +107,6 @@ const fallbackCopy = (label: string): FeatureCopy => ({
   bullets: [],
 });
 
-/** "Free accounts get 1 budget, and yours is in use." */
-export const freeLimitLine = (limit: number, label: string) => {
-  const noun = label.toLowerCase().replace(/s$/, '');
-  return limit === 1
-    ? `Free accounts get 1 ${noun}, and yours is in use.`
-    : `Free accounts get ${limit} ${noun}s, and yours are in use.`;
-};
-
 /** The cheapest plan a user can actually buy — what the feature costs today. */
 const cheapestPayablePlan = (plans: BillingPlan[]) =>
   plans
@@ -182,13 +174,7 @@ export function UpgradeSheet({ visible, entitlement, onClose }: UpgradeSheetProp
   if (!entitlement) return null;
 
   const label = entitlement.featureLabel;
-  const baseCopy = (entitlement.featureCode && featureCopy[entitlement.featureCode]) || fallbackCopy(label);
-  // At a free allowance the feature works; the question is why one more
-  // doesn't, so the summary says that before it sells the plan.
-  const copy =
-    entitlement.freeLimit != null
-      ? { ...baseCopy, summary: `${freeLimitLine(entitlement.freeLimit, label)} ${baseCopy.summary}` }
-      : baseCopy;
+  const copy = (entitlement.featureCode && featureCopy[entitlement.featureCode]) || fallbackCopy(label);
   const plan = plans ? cheapestPayablePlan(plans) : null;
   // Never invent a price. Until checkout is live the plans carry no amount,
   // and saying so is better than an empty card or a made-up number.
