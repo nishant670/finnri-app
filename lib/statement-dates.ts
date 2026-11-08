@@ -88,6 +88,23 @@ export const defaultDueDate = (statementISO: string, dueDay?: number) => {
   return toISODate(clampDayToMonth(statement.getFullYear(), statement.getMonth() + 1, dueDay));
 };
 
+/**
+ * Why a statement date cannot be right, given the rows read from the file, or
+ * null when it can. A statement is never dated before a transaction printed on
+ * it, and saving one that is puts the rest of its spending outside the bill.
+ */
+export const statementDateProblem = (
+  statementDate: string,
+  rows: { date: string }[]
+): string | null => {
+  const latest = rows.reduce((max, row) => {
+    const day = calendarDay(row.date);
+    return day > max ? day : max;
+  }, '');
+  if (!latest || calendarDay(statementDate) >= latest) return null;
+  return `This statement has a transaction on ${formatDisplayDate(latest)}, so its statement date must be that day or later.`;
+};
+
 export const formatDisplayDate = (value: string) =>
   fromISODate(value).toLocaleDateString('en-IN', {
     day: 'numeric',

@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import StatementDetailScreen from '@/app/statements/[id]';
 import * as accounts from '@/lib/accounts';
@@ -6,13 +6,18 @@ import type { Account } from '@/lib/accounts';
 import * as statements from '@/lib/statements';
 import type { CardStatement } from '@/lib/statements';
 
+let mockParams: { id: string; edit?: string } = { id: '42' };
+let mockFocus: () => void = () => undefined;
 jest.mock('expo-router', () => {
   const { useEffect } = jest.requireActual('react');
   return {
     router: { back: jest.fn(), push: jest.fn() },
-    useLocalSearchParams: () => ({ id: '42' }),
+    useLocalSearchParams: () => mockParams,
     // Run the focus callback once, like a screen coming into view.
-    useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
+    useFocusEffect: (callback: () => void) => {
+      mockFocus = callback;
+      useEffect(callback, [callback]);
+    },
   };
 });
 jest.mock('@/hooks/use-auth-store', () => ({
@@ -52,6 +57,8 @@ const statement: CardStatement = {
 describe('Editing a statement', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
+    jest.requireMock('expo-router').router.back.mockClear();
+    mockParams = { id: '42' };
     jest.spyOn(statements, 'fetchStatement').mockResolvedValue(statement);
     jest.spyOn(accounts, 'fetchAccounts').mockResolvedValue([card]);
   });
@@ -125,5 +132,66 @@ describe('Editing a statement', () => {
     await fireEvent.press(await screen.findByText('Save changes'));
 
     expect(await screen.findByText('This card already has a statement on that date.')).toBeTruthy();
+  });
+
+  it('deletes the bill and goes back, keeping imported rows unless asked', async () => {
+    const remove = jest.spyOn(statements, 'deleteStatement').mockResolvedValue(undefined);
+    const { findByTestId, getByText } = await render(<StatementDetailScreen />);
+
+    await fireEvent.press(await findByTestId('statement-delete'));
+    await fireEvent.press(getByText('Delete'));
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith('test-token', 42, { removeImported: false })
+    );
+    expect(jest.requireMock('expo-router').router.back).toHaveBeenCalled();
+  });
+
+  it('opens the form straight away when sent to correct the date', async () => {
+    mockParams = { id: '42', edit: '1' };
+    const { findByText } = await render(<StatementDetailScreen />);
+
+    expect(await findByText('Save changes')).toBeTruthy();
+  });
+
+  it('goes back when the bill has been deleted elsewhere', async () => {
+    const fetchOne = jest.spyOn(statements, 'fetchStatement');
+    const { findByTestId } = await render(<StatementDetailScreen />);
+    await findByTestId('statement-delete');
+    fetchOne.mockRejectedValue(new statements.StatementApiError('gone', 404));
+
+    await act(async () => mockFocus());
+
+    await waitFor(() =>
+      expect(jest.requireMock('expo-router').router.back).toHaveBeenCalled()
+    );
+  });
+
+  it('says in the confirmation that the imported rows are going', async () => {
+    jest
+      .spyOn(statements, 'fetchStatement')
+      .mockResolvedValue({ ...statement, imported_count: 3 });
+    const { findByTestId, findByText } = await render(<StatementDetailScreen />);
+
+    await fireEvent.press(await findByTestId('statement-delete'));
+    expect(await findByText(/Transactions added from this statement stay/)).toBeTruthy();
+    await fireEvent.press(await findByTestId('statement-remove-imported'));
+    expect(await findByText(/The 3 transactions added from this statement will be removed too/)).toBeTruthy();
+  });
+
+  it('offers to remove the rows this statement imported', async () => {
+    jest
+      .spyOn(statements, 'fetchStatement')
+      .mockResolvedValue({ ...statement, imported_count: 3 });
+    const remove = jest.spyOn(statements, 'deleteStatement').mockResolvedValue(undefined);
+    const { findByTestId, getByText } = await render(<StatementDetailScreen />);
+
+    await fireEvent.press(await findByTestId('statement-remove-imported'));
+    await fireEvent.press(await findByTestId('statement-delete'));
+    await fireEvent.press(getByText('Delete'));
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith('test-token', 42, { removeImported: true })
+    );
   });
 });

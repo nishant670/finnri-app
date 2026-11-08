@@ -46,9 +46,12 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 export function StatementTotalsCard({
   diff,
   plan,
+  onFixDate,
 }: {
   diff: StatementDiff;
   plan: StatementCheckPlan;
+  /** Opens the bill so its statement date can be corrected. */
+  onFixDate?: () => void;
 }) {
   const theme = useThemeTokens().colors;
   const { summary } = diff;
@@ -92,6 +95,29 @@ export function StatementTotalsCard({
                 ? `With these added, ${formatMoney(gap)} of your ${formatMoney(bill.statement_total)} bill is still unexplained. Finnri keeps it as “Unitemized card spends” so your monthly total stays right.`
                 : `With these added, Finnri would hold ${formatMoney(-gap)} more than your ${formatMoney(bill.statement_total)} bill. Check “In Finnri, not billed” below for a duplicate or a spend on the wrong card.`}
           </TText>
+        </View>
+      ) : null}
+
+      {diff.cycle_warning ? (
+        <View testID="statement-cycle-warning" className="mt-3 flex-row items-start gap-2">
+          <MaterialCommunityIcons name="calendar-alert" size={18} color={WARN} />
+          <View className="min-w-0 flex-1">
+            <TText className="text-xs" style={{ fontFamily: Fonts.body, color: theme.text }}>
+              {diff.cycle_warning.message}
+            </TText>
+            {onFixDate ? (
+              <Pressable
+                testID="statement-fix-date"
+                accessibilityRole="button"
+                onPress={onFixDate}
+                hitSlop={6}
+                className="mt-1 self-start">
+                <TText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.accent }}>
+                  Correct the statement date
+                </TText>
+              </Pressable>
+            ) : null}
+          </View>
         </View>
       ) : null}
 
