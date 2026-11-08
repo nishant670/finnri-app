@@ -24,9 +24,8 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { installApiSessionGuard } from '@/lib/api-session';
 import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
-import { monthFromActionURL } from '@/lib/monthly-review';
-import { isBillingActionURL } from '@/lib/notifications';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
+import { isNewPushTap, markAppOpen, openPushDestination, pushTapDestination } from '@/lib/push-tap';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -136,7 +135,10 @@ export default function RootLayout() {
    */
   const handleCustomSplashComplete = useCallback(async () => {
     await waitForAuthHydration();
-    router.replace(await resolveInitialRoute());
+    const initialRoute = await resolveInitialRoute();
+    router.replace(initialRoute);
+    // The PIN screen says so itself once it has been passed.
+    if (initialRoute !== '/lock') markAppOpen((destination) => router.push(destination));
 
     // `replace` commits on the next frame and the screen's own animation runs
     // after that, both of them behind the splash. `exitDuration` is what the
@@ -176,8 +178,13 @@ export default function RootLayout() {
 
     let responseSubscription: { remove: () => void } | undefined;
     let cancelled = false;
+    const handleTap = (response: import('expo-notifications').NotificationResponse) => {
+      const { identifier, content } = response.notification.request;
+      if (!isNewPushTap(identifier)) return;
+      openPushDestination(pushTapDestination(content.data), (destination) => router.push(destination));
+    };
     void Promise.all([import('expo-notifications'), import('@/lib/push-notifications')])
-      .then(([Notifications, { registerForPushNotifications }]) => {
+      .then(([Notifications, { registerForPushNotifications, takeLaunchPushResponse }]) => {
         if (cancelled) return;
         // A phone that can't register gets no push at all, so a failure here is
         // reported rather than dropped. On Android it was silent for months:
@@ -186,25 +193,12 @@ export default function RootLayout() {
           console.warn('Push registration failed', error);
           reportHandledError(error, { where: 'registerForPushNotifications' });
         });
-        responseSubscription = Notifications.addNotificationResponseReceivedListener((event) => {
-          // Tapping a push has always landed on the notification list, which is
-          // right when there is nothing more specific to open and wrong for the
-          // monthly review — the whole point of that notification is the screen
-          // behind it. The server sends the destination it already stores on
-          // the notification, so the two routes cannot drift apart.
-          const actionURL = event?.notification?.request?.content?.data?.action_url;
-          const month = typeof actionURL === 'string' ? monthFromActionURL(actionURL) : null;
-          if (month) {
-            router.push({ pathname: '/monthly-review', params: { month } });
-            return;
-          }
-          // A gifted pass: open the pass itself, not the list it sits in.
-          if (typeof actionURL === 'string' && isBillingActionURL(actionURL)) {
-            router.push('/billing');
-            return;
-          }
-          router.push('/notifications');
-        });
+        // A tap opens what tapping the same notification in the list opens. The
+        // server sends the type and destination it stores on the notification,
+        // so the two can't drift apart.
+        responseSubscription = Notifications.addNotificationResponseReceivedListener(handleTap);
+        const launchResponse = takeLaunchPushResponse();
+        if (launchResponse) handleTap(launchResponse);
       })
       .catch(() => undefined);
 
