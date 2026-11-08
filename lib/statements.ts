@@ -87,6 +87,8 @@ export type CardStatement = {
   /** Absent on list endpoints, which do not reconcile every row. */
   reconciliation?: StatementReconciliation;
   payments: StatementPayment[];
+  /** Transactions added by reading this statement. Absent on older servers. */
+  imported_count?: number;
   created_at?: string;
   updated_at?: string;
 };
@@ -107,6 +109,8 @@ export type SavedCardStatement = CardStatement & {
 
 export type CardStatementPayload = {
   statement_date: string;
+  /** First day of the period the statement prints, when one was read. */
+  cycle_start?: string;
   /** Derived from the card's due day when omitted. */
   due_date?: string;
   total_due: number;
@@ -238,8 +242,17 @@ export const fetchStatement = async (
   return response.json();
 };
 
-export const deleteStatement = async (token: string, statementId: number): Promise<void> => {
-  const response = await fetch(`${API_BASE_URL}/v1/statements/${statementId}`, {
+/**
+ * Removes a bill, its payments and its "Unitemized card spends" entry. The
+ * transactions it imported stay unless `removeImported` is set.
+ */
+export const deleteStatement = async (
+  token: string,
+  statementId: number,
+  options: { removeImported?: boolean } = {}
+): Promise<void> => {
+  const query = options.removeImported ? '?remove_imported=true' : '';
+  const response = await fetch(`${API_BASE_URL}/v1/statements/${statementId}${query}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${token}` },
   });
@@ -441,6 +454,12 @@ export type StatementDiff = {
     matches: boolean;
     message: string;
   };
+  /** The rows run past this bill's cycle, so its statement date is wrong. */
+  cycle_warning?: {
+    latest_row_date: string;
+    cycle_end: string;
+    message: string;
+  };
   source?: 'pdf' | 'screenshots_ai';
   credits_charged?: number;
   credits_remaining_today?: number;
@@ -541,6 +560,7 @@ export type StatementUploadSource =
  */
 export type StatementSummary = {
   statement_date?: string;
+  cycle_start?: string;
   due_date?: string;
   total_due?: number;
   minimum_due?: number;

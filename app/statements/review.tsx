@@ -438,7 +438,13 @@ export default function StatementReviewScreen() {
 
           {diff && plan && (
             <>
-              <StatementTotalsCard diff={diff} plan={plan} />
+              <StatementTotalsCard
+                diff={diff}
+                plan={plan}
+                onFixDate={() =>
+                  router.push({ pathname: '/statements/[id]', params: { id: String(statementId) } })
+                }
+              />
               <ChargesCallout charges={diff.charges} total={diff.summary.charges_amount} />
 
               {diff.probable.length > 0 && (

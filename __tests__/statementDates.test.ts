@@ -4,6 +4,7 @@ import {
   defaultStatementDate,
   parseAmountInput,
   toISODate,
+  statementDateProblem,
 } from '@/lib/statement-dates';
 import { formatCycleRange, formatDueLabel, statementStatusLabels } from '@/lib/statements';
 
@@ -130,5 +131,22 @@ describe('statementStatusLabels', () => {
   it('does not describe a draft as unpaid', () => {
     expect(statementStatusLabels.draft).toBe('Amount needed');
     expect(statementStatusLabels.unpaid).toBe('Unpaid');
+  });
+});
+
+describe('statementDateProblem', () => {
+  const rows = [{ date: '2026-10-23' }, { date: '2026-10-30' }];
+
+  it('refuses a date before a transaction on the statement', () => {
+    expect(statementDateProblem('2026-10-23', rows)).toContain('30 Oct 2026');
+  });
+
+  it('accepts the day of the last transaction and later', () => {
+    expect(statementDateProblem('2026-10-30', rows)).toBeNull();
+    expect(statementDateProblem('2026-11-05', rows)).toBeNull();
+  });
+
+  it('has nothing to say without rows', () => {
+    expect(statementDateProblem('2026-10-23', [])).toBeNull();
   });
 });

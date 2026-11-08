@@ -126,4 +126,33 @@ describe('Editing a statement', () => {
 
     expect(await screen.findByText('This card already has a statement on that date.')).toBeTruthy();
   });
+
+  it('deletes the bill and goes back, keeping imported rows unless asked', async () => {
+    const remove = jest.spyOn(statements, 'deleteStatement').mockResolvedValue(undefined);
+    const { findByTestId, getByText } = await render(<StatementDetailScreen />);
+
+    await fireEvent.press(await findByTestId('statement-delete'));
+    await fireEvent.press(getByText('Delete'));
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith('test-token', 42, { removeImported: false })
+    );
+    expect(jest.requireMock('expo-router').router.back).toHaveBeenCalled();
+  });
+
+  it('offers to remove the rows this statement imported', async () => {
+    jest
+      .spyOn(statements, 'fetchStatement')
+      .mockResolvedValue({ ...statement, imported_count: 3 });
+    const remove = jest.spyOn(statements, 'deleteStatement').mockResolvedValue(undefined);
+    const { findByTestId, getByText } = await render(<StatementDetailScreen />);
+
+    await fireEvent.press(await findByTestId('statement-remove-imported'));
+    await fireEvent.press(await findByTestId('statement-delete'));
+    await fireEvent.press(getByText('Delete'));
+
+    await waitFor(() =>
+      expect(remove).toHaveBeenCalledWith('test-token', 42, { removeImported: true })
+    );
+  });
 });

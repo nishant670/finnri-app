@@ -18,6 +18,7 @@ import {
   formatDisplayDate,
   fromISODate,
   parseAmountInput,
+  statementDateProblem,
   toISODate,
 } from '@/lib/statement-dates';
 import {
@@ -127,6 +128,8 @@ export function StatementFormSheet({
   const minimum = parseAmountInput(minimumDue);
 
   const validationError = useMemo(() => {
+    const dateProblem = read ? statementDateProblem(statementDate, read.lines) : null;
+    if (dateProblem) return dateProblem;
     if (!totalDue.trim()) return null;
     if (total <= 0) return 'Enter the total on your statement.';
     if (minimum > total) return 'The minimum due cannot be more than the total.';
@@ -134,7 +137,7 @@ export function StatementFormSheet({
       return 'The due date has to be after the statement date.';
     }
     return null;
-  }, [totalDue, total, minimum, dueDate, statementDate]);
+  }, [totalDue, total, minimum, dueDate, statementDate, read]);
 
   const canSubmit = total > 0 && !validationError && !submitting && !isReading;
 
@@ -505,6 +508,10 @@ export function StatementFormSheet({
             onSubmit(
               {
                 statement_date: statementDate,
+                // The printed period only describes the date it came with.
+                ...(read?.summary.cycle_start && read.summary.statement_date === statementDate
+                  ? { cycle_start: read.summary.cycle_start }
+                  : {}),
                 due_date: dueDate,
                 total_due: total,
                 minimum_due: minimum,
@@ -654,10 +661,14 @@ function describeRead(read: StatementRead, prefilled: (string | false | undefine
     prefilled.length > 0
       ? `Filled in the ${prefilled.join(', ')} from your statement. Check them before saving.`
       : 'Enter the total from your statement.';
+  const dateNote =
+    read.lines.length > 0 && !read.summary.statement_date
+      ? ' Finnri could not confirm the statement date, so set it from your statement.'
+      : '';
   const rows =
     read.lines.length > 0
       ? `Found ${read.lines.length} transaction${read.lines.length === 1 ? '' : 's'}; after saving, Finnri adds only the ones you haven't logged.`
       : 'No transactions could be read from this file. Screenshots of the transaction pages may work.';
   const credits = read.credits_charged ? ` Used ${read.credits_charged} AI credits.` : '';
-  return `${filled} ${rows}${credits}`;
+  return `${filled}${dateNote} ${rows}${credits}`;
 }

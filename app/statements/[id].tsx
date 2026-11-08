@@ -27,6 +27,7 @@ import {
   StatementDaySuggestion,
   StatementPayment,
   StatementPaymentPayload,
+  deleteStatement,
   deleteStatementPayment,
   fetchStatement,
   formatCycleRange,
@@ -70,6 +71,9 @@ export default function StatementDetailScreen() {
   const [isEditSheetVisible, setIsEditSheetVisible] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [daySuggestion, setDaySuggestion] = useState<StatementDaySuggestion | null>(null);
+  const [isDeleteVisible, setIsDeleteVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [removeImported, setRemoveImported] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !Number.isFinite(statementId) || statementId <= 0) {
@@ -123,6 +127,21 @@ export default function StatementDetailScreen() {
       setError(getFriendlyErrorMessage(removeError, 'Unable to remove this payment.'));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteStatement = async () => {
+    if (!token || !statement) return;
+    setIsDeleting(true);
+    try {
+      await deleteStatement(token, statement.id, { removeImported });
+      setIsDeleteVisible(false);
+      router.back();
+    } catch (deleteError) {
+      setIsDeleteVisible(false);
+      setError(getFriendlyErrorMessage(deleteError, 'Unable to delete this statement.'));
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -405,6 +424,39 @@ export default function StatementDetailScreen() {
               </View>
             )}
           </View>
+
+          {(statement.imported_count ?? 0) > 0 && (
+            <Pressable
+              testID="statement-remove-imported"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: removeImported }}
+              onPress={() => setRemoveImported((value) => !value)}
+              className="mt-8 flex-row items-center gap-3">
+              <MaterialCommunityIcons
+                name={removeImported ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                size={20}
+                color={removeImported ? theme.accent : '#94A3B8'}
+              />
+              <TText
+                className="min-w-0 flex-1 text-xs"
+                style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+                When deleting, also remove the {statement.imported_count} transaction
+                {statement.imported_count === 1 ? '' : 's'} added from this statement
+              </TText>
+            </Pressable>
+          )}
+
+          <Pressable
+            testID="statement-delete"
+            accessibilityRole="button"
+            onPress={() => setIsDeleteVisible(true)}
+            className="mt-4 flex-row items-center justify-center gap-2 rounded-full border py-3.5"
+            style={{ borderColor: theme.border, backgroundColor: theme.card }}>
+            <MaterialCommunityIcons name="delete-outline" size={17} color="#EF4444" />
+            <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#EF4444' }}>
+              Delete statement
+            </TText>
+          </Pressable>
         </ScrollView>
 
         <PaymentFormSheet
@@ -441,6 +493,20 @@ export default function StatementDetailScreen() {
             if (moved) void load();
           }}
           onError={setError}
+        />
+
+        <ThemedDeleteDialog
+          visible={isDeleteVisible}
+          title="Delete this statement?"
+          message={
+            statement.payments.length > 0
+              ? 'The bill and the payments recorded on it will be removed. Transactions you logged yourself are kept.'
+              : 'The bill and its “Unitemized card spends” entry will be removed. Transactions you logged yourself are kept.'
+          }
+          confirmLabel="Delete"
+          loading={isDeleting}
+          onCancel={() => setIsDeleteVisible(false)}
+          onConfirm={() => void handleDeleteStatement()}
         />
 
         <ThemedDeleteDialog
