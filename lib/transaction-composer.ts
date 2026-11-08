@@ -147,7 +147,9 @@ export const DUPLICATE_SMALL_AMOUNT = 100;
 export async function findLikelyDuplicate(
   token: string,
   form: EntryForm,
-  accountId: number | null
+  accountId: number | null,
+  /** An edited entry, which must not be reported as a duplicate of itself. */
+  excludeId?: string
 ): Promise<Transaction | null> {
   const parsedDate = parseDateLabel(form.date);
   const amount = Number(form.amount.replace(/,/g, '').trim());
@@ -164,7 +166,8 @@ export async function findLikelyDuplicate(
       page_size: 20,
     });
     const sameAmount = transactions.filter(
-      (candidate) => Math.round(Math.abs(candidate.amount)) === rupees
+      (candidate) =>
+        candidate.id !== excludeId && Math.round(Math.abs(candidate.amount)) === rupees
     );
     const sharesDetail = (candidate: Transaction) =>
       sameText(candidate.title, form.title) ||
@@ -177,6 +180,39 @@ export async function findLikelyDuplicate(
   } catch {
     return null;
   }
+}
+
+const rupeesOf = (amount: string) => Math.round(Number(amount.replace(/,/g, '').trim()));
+
+const dayOf = (label: string) => {
+  const parsed = parseDateLabel(label);
+  return parsed ? formatApiDate(parsed) : label;
+};
+
+/**
+ * Whether an edit could have made this entry a repeat of another, so a save is
+ * only questioned when the edit is what caused it. Changing a note on a
+ * duplicate someone kept on purpose must not warn again.
+ */
+export function editCouldDuplicate(
+  before: Pick<EntryForm, 'amount' | 'date' | 'type' | 'title' | 'merchant' | 'accountId'>,
+  after: EntryForm
+) {
+  if (
+    rupeesOf(before.amount) !== rupeesOf(after.amount) ||
+    dayOf(before.date) !== dayOf(after.date) ||
+    before.type !== after.type
+  ) {
+    return true;
+  }
+  // Under the floor a match also needs a shared detail, so changing one can
+  // be what makes it.
+  return (
+    Number(after.amount.replace(/,/g, '').trim()) < DUPLICATE_SMALL_AMOUNT &&
+    (before.title.trim() !== after.title.trim() ||
+      before.merchant.trim() !== after.merchant.trim() ||
+      (before.accountId ?? null) !== (after.accountId ?? null))
+  );
 }
 
 /** The warning's wording, shared so every save path asks the same question. */

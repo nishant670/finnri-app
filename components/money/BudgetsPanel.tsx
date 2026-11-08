@@ -66,9 +66,11 @@ export type MoneyPanelProps = {
    * instead of a second header stacked under the first.
    */
   embedded?: boolean;
+  /** Opens with the add form up: "+ Add" on the Money overview. */
+  startAdding?: boolean;
 };
 
-export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
+export function BudgetsPanel({ embedded = false, startAdding = false }: MoneyPanelProps) {
   const router = useRouter();
   const params = useLocalSearchParams();
   const scrollRef = useRef<ScrollView>(null);
@@ -170,6 +172,15 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     resetForm();
     setIsFormOpen(false);
   };
+
+  const startedAdding = useRef(false);
+  useEffect(() => {
+    if (!startAdding || startedAdding.current) return;
+    startedAdding.current = true;
+    openNewBudget();
+    // Once, when the panel opens for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAdding]);
 
   /**
    * What the user spent per category this month, which the form turns into a

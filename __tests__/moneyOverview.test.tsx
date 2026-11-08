@@ -122,7 +122,8 @@ describe('Money overview (P17, P18)', () => {
       ],
     } as never);
     const onOpenList = jest.fn();
-    const ui = await render(<MoneyOverview onOpenList={onOpenList} />);
+    const onAddTo = jest.fn();
+    const ui = await render(<MoneyOverview onOpenList={onOpenList} onAddTo={onAddTo} />);
 
     expect(await ui.findByText('Owed on cards')).toBeTruthy();
     expect(ui.getByText('1 card · 1 without a limit')).toBeTruthy();
@@ -145,17 +146,33 @@ describe('Money overview (P17, P18)', () => {
       budget_statuses: [],
       summary: { total_spent: 2825, transaction_count: 14, expense_count: 12 },
     } as never);
-    const ui = await render(<MoneyOverview onOpenList={jest.fn()} />);
+    const ui = await render(<MoneyOverview onOpenList={jest.fn()} onAddTo={jest.fn()} />);
 
     expect(await ui.findByText('Spent this month')).toBeTruthy();
     await waitFor(() => expect(ui.getByText('₹2,825')).toBeTruthy());
     expect(ui.getByText('12 expenses so far')).toBeTruthy();
   });
 
+  it('offers Add beside See all once a section has items, and straight to the form', async () => {
+    jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({
+      budget_statuses: [
+        { budget_id: 1, name: 'Bills', category: 'Bills', limit_amount: 100, spent_amount: 10, status: 'ok' },
+      ],
+    } as never);
+    const onAddTo = jest.fn();
+    const ui = await render(<MoneyOverview onOpenList={jest.fn()} onAddTo={onAddTo} />);
+
+    await fireEvent.press(await ui.findByLabelText('Add, Budgets'));
+    expect(onAddTo).toHaveBeenCalledWith('budgets');
+    await fireEvent.press(ui.getByLabelText('Add, Accounts'));
+    expect(mockPush).toHaveBeenCalledWith('/accounts/manage');
+  });
+
   it('offers a first budget when there is none', async () => {
     jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({ budget_statuses: [] } as never);
     const onOpenList = jest.fn();
-    const ui = await render(<MoneyOverview onOpenList={onOpenList} />);
+    const onAddTo = jest.fn();
+    const ui = await render(<MoneyOverview onOpenList={onOpenList} onAddTo={onAddTo} />);
 
     expect(await ui.findByText('Set a monthly budget')).toBeTruthy();
     await waitFor(() => expect(ui.getByText('See what is left as you spend.')).toBeTruthy());

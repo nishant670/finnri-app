@@ -91,7 +91,10 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 export function SubscriptionsPanel({
   embedded = false,
   header,
+  startAdding = false,
 }: MoneyPanelProps & {
+  /** Opens with the add sheet up: "+ Add" on the Money overview. */
+  startAdding?: boolean;
   /**
    * Drawn first inside the list's scroll — Bills & dues puts what is due
    * there (P18). `version` moves after every load, and `reload` refreshes
@@ -236,6 +239,15 @@ export function SubscriptionsPanel({
   );
   const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
+
+  const startedAdding = useRef(false);
+  useEffect(() => {
+    if (!startAdding || startedAdding.current) return;
+    startedAdding.current = true;
+    openCreateForm();
+    // Once, when the panel opens for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAdding]);
 
   /**
    * "Track this SIP / loan" on the calculators (P53): the add sheet opens as
