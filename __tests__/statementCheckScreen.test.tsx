@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 import StatementReviewScreen from '@/app/statements/review';
 import * as accounts from '@/lib/accounts';
@@ -7,10 +7,16 @@ import * as statements from '@/lib/statements';
 import type { StatementDiff } from '@/lib/statements';
 
 const mockBack = jest.fn();
+const mockPush = jest.fn();
 let mockIntakeKey = '';
+let mockFocus: () => void = () => undefined;
 jest.mock('expo-router', () => ({
-  router: { back: () => mockBack(), push: jest.fn() },
+  router: { back: () => mockBack(), push: (target: unknown) => mockPush(target) },
   useLocalSearchParams: () => ({ id: '42', intake: mockIntakeKey }),
+  // Kept, not run: only coming back to the screen matters here.
+  useFocusEffect: (callback: () => void) => {
+    mockFocus = callback;
+  },
 }));
 jest.mock('@/hooks/use-auth-store', () => ({
   useAuthStore: () => ({ token: 'test-token' }),
@@ -84,12 +90,64 @@ const diff: StatementDiff = {
 describe('Statement check screen', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
+    mockBack.mockClear();
+    mockPush.mockClear();
     jest.spyOn(statements, 'diffStatementLines').mockResolvedValue(diff);
     mockIntakeKey = putStatementIntake({
       lines: [swiggy, myntra, fee],
       cardUpdates: [{ field: 'due_day', label: 'Due day', current: 20, proposed: 25 }],
       warnings: [],
       account: { id: 7, type: 'credit_card', name: 'Regalia', color: '#000', due_day: 20 },
+    });
+  });
+
+  describe('when the rows run past the bill', () => {
+    const warned: StatementDiff = {
+      ...diff,
+      cycle_warning: {
+        latest_row_date: '2026-09-14',
+        cycle_end: '2026-09-05',
+        message: 'This statement has transactions up to 14 Sep.',
+      },
+    };
+
+    const leaveToFixDate = async () => {
+      jest.spyOn(statements, 'diffStatementLines').mockResolvedValue(warned);
+      const view = await render(<StatementReviewScreen />);
+      await fireEvent.press(await view.findByTestId('statement-fix-date'));
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/statements/[id]',
+        params: { id: '42', edit: '1' },
+      });
+      return view;
+    };
+
+    it('leaves the rows unticked and opens the date form', async () => {
+      const { queryByText } = await leaveToFixDate();
+      expect(queryByText(/Add 2/)).toBeNull();
+    });
+
+    it('compares the same rows again after the date is corrected', async () => {
+      const compare = statements.diffStatementLines as jest.Mock;
+      const { findByTestId, queryByTestId } = await leaveToFixDate();
+      compare.mockClear();
+      compare.mockResolvedValue(diff);
+
+      await act(async () => mockFocus());
+
+      await waitFor(() => expect(queryByTestId('statement-cycle-warning')).toBeNull());
+      await findByTestId('statement-totals-card');
+      expect(compare).toHaveBeenCalledWith('test-token', 42, [swiggy, myntra, fee]);
+    });
+
+    it('goes back when the bill was deleted there', async () => {
+      const compare = statements.diffStatementLines as jest.Mock;
+      await leaveToFixDate();
+      compare.mockRejectedValue(new statements.StatementApiError('gone', 404));
+
+      await act(async () => mockFocus());
+
+      await waitFor(() => expect(mockBack).toHaveBeenCalled());
     });
   });
 

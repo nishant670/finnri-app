@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,6 +24,7 @@ import { calendarDay } from '@/lib/statement-dates';
 import {
   CardStatement,
   CardStatementPayload,
+  StatementApiError,
   StatementDaySuggestion,
   StatementPayment,
   StatementPaymentPayload,
@@ -54,7 +55,7 @@ const formatDay = (value: string) => {
  * the user opened this screen to check.
  */
 export default function StatementDetailScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, edit } = useLocalSearchParams<{ id?: string; edit?: string }>();
   const statementId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -74,6 +75,9 @@ export default function StatementDetailScreen() {
   const [isDeleteVisible, setIsDeleteVisible] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [removeImported, setRemoveImported] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const hasLoaded = useRef(false);
+  const openEditOnLoad = useRef(edit === '1');
 
   const load = useCallback(async () => {
     if (!token || !Number.isFinite(statementId) || statementId <= 0) {
@@ -90,7 +94,13 @@ export default function StatementDetailScreen() {
       ]);
       setStatement(loaded);
       setAccounts(allAccounts);
+      hasLoaded.current = true;
     } catch (loadError) {
+      // Deleted from another screen while this one waited underneath it.
+      if (hasLoaded.current && loadError instanceof StatementApiError && loadError.status === 404) {
+        router.back();
+        return;
+      }
       setError(getFriendlyErrorMessage(loadError, 'Unable to load this statement.'));
     } finally {
       setIsLoading(false);
@@ -140,12 +150,22 @@ export default function StatementDetailScreen() {
     } catch (deleteError) {
       setIsDeleteVisible(false);
       setError(getFriendlyErrorMessage(deleteError, 'Unable to delete this statement.'));
+      // The button is at the end of the page and the banner at the top.
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
     } finally {
       setIsDeleting(false);
     }
   };
 
   const card = accounts.find((account) => account.id === statement?.account_id) ?? null;
+
+  // Arriving from the check screen's "Correct the statement date".
+  useEffect(() => {
+    if (!openEditOnLoad.current || !statement || !card) return;
+    openEditOnLoad.current = false;
+    setEditError(null);
+    setIsEditSheetVisible(true);
+  }, [statement, card]);
 
   // Memoised on the stored values: the sheet resets its form whenever this
   // object changes, which must not happen on every render while editing.
@@ -231,6 +251,19 @@ export default function StatementDetailScreen() {
   }
 
   const settled = statement.status === 'paid';
+  const importedCount = statement.imported_count ?? 0;
+  const deleteMessage = [
+    statement.payments.length > 0
+      ? 'The bill, the payments recorded on it and its “Unitemized card spends” entry will be removed.'
+      : 'The bill and its “Unitemized card spends” entry will be removed.',
+    importedCount > 0 &&
+      (removeImported
+        ? `The ${importedCount} transaction${importedCount === 1 ? '' : 's'} added from this statement will be removed too.`
+        : 'Transactions added from this statement stay.'),
+    'Transactions you logged yourself are kept.',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <SafeAreaView className="flex-1" edges={['top', 'left', 'right', 'bottom']}>
@@ -268,6 +301,7 @@ export default function StatementDetailScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 80 }}>
           {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
@@ -498,11 +532,7 @@ export default function StatementDetailScreen() {
         <ThemedDeleteDialog
           visible={isDeleteVisible}
           title="Delete this statement?"
-          message={
-            statement.payments.length > 0
-              ? 'The bill and the payments recorded on it will be removed. Transactions you logged yourself are kept.'
-              : 'The bill and its “Unitemized card spends” entry will be removed. Transactions you logged yourself are kept.'
-          }
+          message={deleteMessage}
           confirmLabel="Delete"
           loading={isDeleting}
           onCancel={() => setIsDeleteVisible(false)}

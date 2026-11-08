@@ -4,6 +4,7 @@ import {
   missingLineKey,
   planStatementCheck,
   probableKey,
+  statementDiffLines,
 } from '@/lib/statement-check';
 import { normalizeStatementDiff, type StatementDiff, type StatementLine } from '@/lib/statements';
 
@@ -49,6 +50,37 @@ const reconciliation = (gap: number) => ({
   unitemized_amount: Math.max(gap, 0),
   gap,
   state: 'under' as const,
+});
+
+describe('comparing a bill with the wrong cycle', () => {
+  const warning = { latest_row_date: '2026-11-02', cycle_end: '2026-10-23', message: 'wrong' };
+
+  it('ticks nothing, because the rows met the wrong ledger', () => {
+    const diff = baseDiff({ missing: [line('MYNTRA', 2000)], cycle_warning: warning });
+    expect(planStatementCheck(diff, defaultMissingSelection(diff), {}).linesToImport).toEqual([]);
+  });
+
+  it('can rebuild every row it was given, without counting a charge twice', () => {
+    const fee = line('ANNUAL FEE', 590, { kind: 'fee' });
+    const paid = line('PAYMENT RECEIVED', 100, { kind: 'payment', type: 'income' });
+    const entry = { entry_id: 1, date: '2026-09-10', title: 'x', amount: 1, type: 'expense' };
+    const diff = baseDiff({
+      matched: [{ line: line('A', 1), entry, day_gap: 0, similarity: 1 }],
+      probable: [
+        { line: line('B', 2), entry, day_gap: 1, amount_gap: 0, similarity: 0, reason: 'date' },
+      ],
+      missing: [line('C', 3), fee],
+      ignored: [paid],
+      charges: [fee],
+    } as Partial<StatementDiff>);
+    expect(statementDiffLines(diff).map((row) => row.description)).toEqual([
+      'A',
+      'B',
+      'C',
+      'ANNUAL FEE',
+      'PAYMENT RECEIVED',
+    ]);
+  });
 });
 
 describe('planStatementCheck', () => {

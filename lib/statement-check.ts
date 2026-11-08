@@ -22,9 +22,23 @@ export const missingLineKey = (line: StatementLine, index: number) =>
 export const probableKey = (pair: StatementProbablePair, index: number) =>
   `p|${pair.entry.entry_id}|${pair.line.date}|${pair.line.amount}|${index}`;
 
-/** New rows start ticked: adding is additive and reversible. */
+/**
+ * New rows start ticked: adding is additive and reversible. Not while the
+ * bill's cycle is known to be wrong, because the rows were then compared with
+ * the wrong stretch of the ledger and "missing" may be something already logged.
+ */
 export const defaultMissingSelection = (diff: StatementDiff): Record<string, boolean> =>
-  Object.fromEntries(diff.missing.map((line, index) => [missingLineKey(line, index), true]));
+  Object.fromEntries(
+    diff.missing.map((line, index) => [missingLineKey(line, index), !diff.cycle_warning])
+  );
+
+/** Every row a comparison was made from, so they can be compared again. */
+export const statementDiffLines = (diff: StatementDiff): StatementLine[] => [
+  ...diff.matched.map((pair) => pair.line),
+  ...diff.probable.map((pair) => pair.line),
+  ...diff.missing,
+  ...diff.ignored,
+];
 
 /**
  * Probable pairs start as "same". The user's own entry is respected until they
