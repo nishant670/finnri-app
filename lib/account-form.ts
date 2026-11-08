@@ -133,6 +133,8 @@ export const ACCOUNT_DETAIL_COPY: Record<
   {
     message: string;
     providerLabel?: string;
+    /** The label on the one-sheet form: "Which card?". */
+    providerQuestion?: string;
     providerPlaceholder?: string;
     balanceLabel: string;
     balanceHint: string;
@@ -149,6 +151,7 @@ export const ACCOUNT_DETAIL_COPY: Record<
   upi: {
     message: 'Which UPI app is this? It keeps your scan-and-pay spends together.',
     providerLabel: 'UPI app',
+    providerQuestion: 'Which UPI app?',
     providerPlaceholder: 'Search or type a UPI app',
     balanceLabel: 'Current balance',
     balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
@@ -159,6 +162,7 @@ export const ACCOUNT_DETAIL_COPY: Record<
   bank: {
     message: 'Add the bank and last 4 digits so you can tell your accounts apart.',
     providerLabel: 'Bank',
+    providerQuestion: 'Which bank?',
     providerPlaceholder: 'Search or type a bank',
     balanceLabel: 'Current balance',
     balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
@@ -169,6 +173,7 @@ export const ACCOUNT_DETAIL_COPY: Record<
   credit_card: {
     message: 'Add the limit and due date, and Finnri reminds you before the bill is due.',
     providerLabel: 'Card issuer',
+    providerQuestion: 'Which card?',
     providerPlaceholder: 'Search or type a bank (HDFC, Amex…)',
     balanceLabel: 'Opening outstanding',
     balanceHint: 'What you already owed before your first logged transaction.',
@@ -179,6 +184,7 @@ export const ACCOUNT_DETAIL_COPY: Record<
   debit_card: {
     message: 'Add the bank and last 4 digits so you can tell your cards apart.',
     providerLabel: 'Bank',
+    providerQuestion: 'Which bank?',
     providerPlaceholder: 'Search or type a bank',
     balanceLabel: 'Current balance',
     balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
@@ -189,6 +195,7 @@ export const ACCOUNT_DETAIL_COPY: Record<
   wallet: {
     message: 'Which wallet is this? A balance keeps prepaid spends separate.',
     providerLabel: 'Wallet',
+    providerQuestion: 'Which wallet?',
     providerPlaceholder: 'Search or type a wallet',
     balanceLabel: 'Current balance',
     balanceHint: 'What it holds today. Finnri keeps it up to date as you log.',
@@ -213,9 +220,44 @@ export const ACCOUNT_DETAIL_COPY: Record<
 export const PAY_LATER_DETAIL_COPY: (typeof ACCOUNT_DETAIL_COPY)['credit_card'] = {
   message: 'Add the limit and the day you repay, and Finnri reminds you before it is due.',
   providerLabel: 'Lender',
+  providerQuestion: 'Which lender?',
   providerPlaceholder: 'Search or type (CRED flash, LazyPay…)',
   balanceLabel: 'Opening outstanding',
   balanceHint: 'What you already owed before your first logged transaction.',
+};
+
+/**
+ * The name the one-sheet form fills in until the user types their own:
+ * "SBI Card ••4321". Digits only where they are a card or account number; a
+ * UPI handle or wallet nickname is not something to print in every list.
+ */
+export const suggestAccountName = ({
+  type,
+  creditKind,
+  provider,
+  identifier,
+}: {
+  type: AccountType;
+  creditKind: CreditKind;
+  provider: string;
+  identifier: string;
+}) => {
+  const base =
+    provider.trim() || (creditKind === 'pay_later' ? 'Pay later' : DEFAULT_ACCOUNT_NAMES[type]);
+  const hasCardDigits =
+    (type === 'bank' || type === 'credit_card' || type === 'debit_card') &&
+    creditKind !== 'pay_later' &&
+    /^\d{4}$/.test(identifier);
+  return hasCardDigits ? `${base} ••${identifier}` : base;
+};
+
+/** What the form's More details fold holds, for its closed row. */
+export const moreDetailsSummary = (type: AccountType, creditKind: CreditKind) => {
+  if (type === 'cash') return 'Colour, default';
+  if (type !== 'credit_card') return 'Balance, colour, default';
+  return creditKind === 'pay_later'
+    ? 'Limit, repay date, colour, default'
+    : 'Limit, due date, colour, default';
 };
 
 /** How many of the account's setup details are still missing (see `getAccountSetupItems`). */
