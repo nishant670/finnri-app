@@ -36,9 +36,13 @@ import {
   type CaptureCreditNote,
 } from '@/components/home/VoiceInputCard';
 import { GuestUpgradePrompt } from '@/components/home/GuestUpgradePrompt';
+import { UpdateCard } from '@/components/home/UpdateCard';
+import { WhatsNewSheet } from '@/components/whats-new/WhatsNewSheet';
 import { useAppDialog, type AppConfirmOptions } from '@/components/ui/AppDialogProvider';
 import { PlansOfferSheet } from '@/components/billing/PlansOfferSheet';
 import { useGiftPassAnnouncement } from '@/hooks/use-gift-pass-announcement';
+import { useWhatsNewAnnouncement } from '@/hooks/use-whats-new-announcement';
+import { useAppUpdateStore } from '@/lib/app-update';
 import { usePlansPrompt } from '@/hooks/use-plans-prompt';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Screen } from '@/components/ui/theme-primitives';
@@ -652,16 +656,34 @@ export default function HomeScreen() {
   // sheet. Unlike the plans prompt it does not wait for the credit card: that
   // card is often exactly what the gift answers.
   const giftBlockedRef = useRef(false);
+  const whatsNewShowingRef = useRef(false);
   giftBlockedRef.current = isEditOpen || isPromptModalOpen || plansPrompt.sheet.visible;
   const giftAnnouncement = useGiftPassAnnouncement({
     token,
     enabled: !user?.is_guest,
-    canInterrupt: useCallback(() => !giftBlockedRef.current, []),
+    canInterrupt: useCallback(() => !giftBlockedRef.current && !whatsNewShowingRef.current, []),
     onAnnounce: useCallback(() => {
       void fetchCredits();
     }, [fetchCredits]),
   });
   const checkForGift = giftAnnouncement.check;
+
+  // The after-update sheet waits for the same things as the gift, and for the
+  // gift itself: two pop-ups at once is one too many.
+  const giftShowingRef = useRef(false);
+  giftShowingRef.current = giftAnnouncement.gift !== null;
+  const whatsNew = useWhatsNewAnnouncement({
+    canInterrupt: useCallback(() => !giftBlockedRef.current && !giftShowingRef.current, []),
+  });
+  const checkForWhatsNew = whatsNew.check;
+  whatsNewShowingRef.current = whatsNew.release !== null;
+
+  // The focus effect below has already run by the time the splash goes, and a
+  // launch that stays on Home doesn't focus it again.
+  const hasEnteredApp = useAppUpdateStore((state) => state.entered);
+  useEffect(() => {
+    if (hasEnteredApp) void checkForWhatsNew();
+  }, [checkForWhatsNew, hasEnteredApp]);
 
   // Coming back to the app is when news arrives: a gift given while it was in
   // the background, or credits bought on the web. Focus alone misses it,
@@ -771,6 +793,7 @@ export default function HomeScreen() {
       void fetchNotificationCount();
       void fetchBudgetPresence();
       void checkForGift();
+      void checkForWhatsNew();
       void isGuestUpgradePromptSnoozed().then(setIsGuestUpgradeSnoozed);
       if (token) {
         void syncSubscriptionAutomation(token)
@@ -780,6 +803,7 @@ export default function HomeScreen() {
       }
     }, [
       checkForGift,
+      checkForWhatsNew,
       fetchAccountOptions,
       fetchBudgetPresence,
       fetchCredits,
@@ -1724,6 +1748,8 @@ export default function HomeScreen() {
                 }
               : null),
           }}>
+          <UpdateCard />
+
           {autopayReviews[0] ? (
             <AutopayReviewCard
               onConfirm={() => {
@@ -2002,6 +2028,18 @@ export default function HomeScreen() {
         onClose={() => setIsReceiptSourceOpen(false)}
       />
       <PlansOfferSheet {...plansPrompt.sheet} />
+      <WhatsNewSheet
+        release={whatsNew.release}
+        onSeeAll={() => {
+          const version = whatsNew.release?.versionCode;
+          whatsNew.close();
+          router.push({ pathname: '/whats-new', params: version ? { version: String(version) } : {} });
+        }}
+        onClose={() => {
+          whatsNew.close();
+          void checkForGift();
+        }}
+      />
       <GiftPassModal
         visible={giftAnnouncement.gift !== null}
         title={giftAnnouncement.gift?.title ?? ''}

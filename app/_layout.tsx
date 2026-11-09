@@ -13,6 +13,7 @@ import 'react-native-reanimated';
 // compiled darkMode setting from this stylesheet and throws without it.
 import '../global.css';
 
+import { AppUpdateWatcher } from '@/components/update/AppUpdateWatcher';
 import { FinnriSplashScreen } from '@/components/SplashScreen';
 import { TransactionDeleteProvider } from '@/components/transactions/TransactionDeleteProvider';
 import { AppDialogProvider } from '@/components/ui/AppDialogProvider';
@@ -26,6 +27,7 @@ import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
 import { monthFromActionURL } from '@/lib/monthly-review';
 import { isBillingActionURL } from '@/lib/notifications';
+import { useAppUpdateStore } from '@/lib/app-update';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
 
 export const unstable_settings = {
@@ -143,7 +145,10 @@ export default function RootLayout() {
     // Stack below is configured with, so the two cannot drift apart, and it is
     // 0 under reduced motion — where the navigation is instant and there is
     // nothing to wait for either.
-    setTimeout(() => setShowCustomSplash(false), motion.exitDuration('sheet') + FRAME_MS);
+    setTimeout(() => {
+      setShowCustomSplash(false);
+      useAppUpdateStore.getState().markEntered();
+    }, motion.exitDuration('sheet') + FRAME_MS);
   }, [motion, router]);
 
   useEffect(() => {
@@ -307,6 +312,7 @@ export default function RootLayout() {
         <Stack.Screen name="ask" />
         <Stack.Screen name="tools" />
         <Stack.Screen name="about-finnri" />
+        <Stack.Screen name="whats-new" />
         <Stack.Screen name="help-support" />
         <Stack.Screen name="feedback" />
         <Stack.Screen name="upcoming" />
@@ -334,6 +340,7 @@ export default function RootLayout() {
         />
       </Stack>
       <StatusBar style={colorScheme === 'dark' ? 'light' : 'dark'} />
+      <AppUpdateWatcher />
       </TransactionDeleteProvider>
       </AppDialogProvider>
       </ThemeProvider>
