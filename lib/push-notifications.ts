@@ -27,7 +27,7 @@ const ANDROID_CHANNELS = [
 ];
 
 export const registerForPushNotifications = async (authToken: string) => {
-  if (Platform.OS === 'web' || !Constants.isDevice) return null;
+  if (Platform.OS === 'web') return null;
   if (Platform.OS === 'android') {
     // Before the permission request: Android 13 only shows its prompt once the
     // app has a channel.

@@ -374,6 +374,14 @@ const genericParseFailure: ParseFailureCopy = {
 };
 
 const parseFailureCopy: Record<string, ParseFailureCopy> = {
+  // The recording had nothing in it. Sending the same silence again can't
+  // help, so there is no Try again, and the server didn't charge for it.
+  empty_transcript: {
+    title: "Didn't catch that",
+    message: "Finnri couldn't hear anything in that recording, so no credits were used. Tap the mic and say what you spent.",
+    examples: [],
+    canRetry: false,
+  },
   // The model answered, but not with a transaction this app can hold. The
   // sentence is usually fine — it is the shape of the reply that broke — so a
   // straight retry genuinely often works.

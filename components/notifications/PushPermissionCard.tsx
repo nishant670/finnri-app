@@ -11,7 +11,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { reportHandledError } from '@/lib/crash-reporting';
 
-const canReceivePush = Platform.OS !== 'web' && Constants.isDevice && Constants.appOwnership !== 'expo';
+const canReceivePush = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
 
 // Loaded only on a build that can receive push: `expo-notifications` can't load
 // in Expo Go.

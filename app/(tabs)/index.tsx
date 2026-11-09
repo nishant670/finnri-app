@@ -1667,7 +1667,10 @@ export default function HomeScreen() {
           return;
         }
         if (showCreditParseError(error, kind)) return;
-        setParseFailure(describeParseFailure(error));
+        const failure = describeParseFailure(error);
+        // Nothing was heard, so the clip isn't worth keeping for a retry.
+        if (failure.code === 'empty_transcript') setRecordedUri(null);
+        setParseFailure(failure);
       } finally {
         if (parseAbort.current === controller) parseAbort.current = null;
         setIsParsing(false);

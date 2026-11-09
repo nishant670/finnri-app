@@ -13,7 +13,7 @@ jest.mock('@/lib/push-notifications', () => ({
   askPushPermission: () => mockAsk(),
   registerForPushNotifications: (token: string) => mockRegister(token),
 }));
-jest.mock('expo-constants', () => ({ __esModule: true, default: { isDevice: true, appOwnership: null } }));
+jest.mock('expo-constants', () => ({ __esModule: true, default: { appOwnership: null } }));
 jest.mock('expo-router', () => {
   const { useEffect } = jest.requireActual('react');
   return { useFocusEffect: (run: () => void) => useEffect(run, [run]) };
