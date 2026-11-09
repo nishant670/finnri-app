@@ -9,6 +9,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { loginUser } from '@/lib/auth';
 import { getDeviceId } from '@/lib/device';
+import { unregisterPushDevice } from '@/lib/push-device';
 import { markAppOpen } from '@/lib/push-tap';
 import { hasLocalSecurityPin, saveLocalSecurityPin, verifyLocalSecurityPin } from '@/lib/security';
 
@@ -16,7 +17,7 @@ export default function LockScreen() {
     const router = useRouter();
     const colorScheme = useColorScheme() ?? 'light';
     const theme = Colors[colorScheme];
-    const { user, setAuth, clearAuth } = useAuthStore();
+    const { user, token, setAuth, clearAuth } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -94,6 +95,9 @@ export default function LockScreen() {
             <AuthPinLoginScreen
                 onContinue={handleUnlock}
                 onSecondary={() => {
+                    // Whoever signs in next may not be this person: their bills
+                    // must stop reaching this phone now, not at the next sign-in.
+                    if (token) void unregisterPushDevice(token);
                     clearAuth(); // Clear stale user data
                     router.replace('/auth');
                 }}

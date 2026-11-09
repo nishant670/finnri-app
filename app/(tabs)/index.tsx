@@ -1616,8 +1616,9 @@ export default function HomeScreen() {
           signal: controller.signal,
         });
         void fetchCredits();
-        // Cancelled as the answer landed: the person has already moved on.
-        if (controller.signal.aborted) return;
+        // Cancelled as the answer landed: the person has already moved on, so
+        // it is tidied up exactly like a Cancel that beat the answer.
+        if (controller.signal.aborted) throw new Error('Read cancelled');
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
 
