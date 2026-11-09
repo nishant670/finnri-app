@@ -41,6 +41,10 @@ export type TransactionListItem =
  *   total is left off rather than shown short.
  * - `pendingDeleteId`: a row in its Undo window. It is already gone as far as
  *   the screen is concerned, so its day's total drops with it.
+ * - `removedIds`: rows whose delete has been sent. They leave the list here
+ *   rather than when the refresh after the delete lands, because a row that
+ *   stopped being "pending" before then would grow back for the length of the
+ *   request — the flash a device saw after every delete.
  */
 export const buildTransactionListItems = (
   transactions: Transaction[],
@@ -48,22 +52,32 @@ export const buildTransactionListItems = (
     sort,
     hasMore,
     pendingDeleteId,
-  }: { sort: TransactionSort; hasMore: boolean; pendingDeleteId?: string | null }
+    removedIds,
+  }: {
+    sort: TransactionSort;
+    hasMore: boolean;
+    pendingDeleteId?: string | null;
+    removedIds?: ReadonlySet<string>;
+  }
 ): TransactionListItem[] => {
+  const shown =
+    removedIds && removedIds.size > 0
+      ? transactions.filter((transaction) => !removedIds.has(transaction.id))
+      : transactions;
   if (isAmountSort(sort)) {
     // One card for the whole ranking: there are no days to split it by.
-    return transactions.map((transaction, position) => ({
+    return shown.map((transaction, position) => ({
       kind: 'row',
       key: `row:${transaction.id}`,
       transaction,
       position,
       groupFirst: position === 0,
-      groupLast: position === transactions.length - 1,
+      groupLast: position === shown.length - 1,
     }));
   }
 
   const sections = groupTransactionsBySection(
-    transactions,
+    shown,
     sort === 'oldest' ? 'oldest' : 'newest'
   );
   const items: TransactionListItem[] = [];

@@ -1,11 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { useEffect, useState } from 'react';
-import { Platform, StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
+import { StyleSheet, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { PickerSheet } from '@/components/ui/PickerSheet';
 import { PressableView } from '@/components/ui/PressableView';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
@@ -61,7 +61,7 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
   const [endDate, setEndDate] = useState<string | null>(null);
   const [budget, setBudget] = useState('');
   const [notes, setNotes] = useState('');
-  const [picking, setPicking] = useState<'start' | 'end' | null>(null);
+  const { pickDate } = useDatePicker();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -73,7 +73,6 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
     setEndDate(event?.end_date ?? null);
     setBudget(event?.budget ? String(event.budget) : '');
     setNotes(event?.notes ?? '');
-    setPicking(null);
     setError(null);
   }, [event, visible]);
 
@@ -102,10 +101,14 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
     }
   };
 
-  const onDatePicked = (selected?: Date) => {
-    const target = picking;
-    setPicking(null);
-    if (!selected || !target) return;
+  const pickDay = async (target: 'start' | 'end') => {
+    const selected = await pickDate({
+      title: target === 'start' ? 'Starts' : 'Ends',
+      value: dayToDate(target === 'start' ? startDate : endDate),
+      // An end before the start is refused on save; don't offer it.
+      minimumDate: target === 'end' && startDate ? dayToDate(startDate) : null,
+    });
+    if (!selected) return;
     const day = formatApiDate(selected);
     if (target === 'start') {
       setStartDate(day);
@@ -121,7 +124,7 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
       testID={`event-form-${which}`}
       accessibilityRole="button"
       accessibilityLabel={`${which === 'start' ? 'Starts' : 'Ends'}, ${value ?? 'not set'}`}
-      onPress={() => setPicking(which)}
+      onPress={() => void pickDay(which)}
       style={[styles.row, divider && { borderTopWidth: 1, borderTopColor: colors.border }]}
       pressedStyle={styles.pressed}>
       <ThemedText style={[styles.rowLabel, { color: colors.text }]}>
@@ -254,15 +257,6 @@ export function EventFormSheet({ visible, event, onClose, onSave }: EventFormShe
         />
       </View>
 
-      {picking && (
-        <DateTimePicker
-          value={dayToDate(picking === 'start' ? startDate : endDate)}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onValueChange={(_event, selected) => onDatePicked(selected)}
-          onDismiss={() => setPicking(null)}
-        />
-      )}
     </PickerSheet>
   );
 }

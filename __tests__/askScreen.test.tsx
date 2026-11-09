@@ -7,8 +7,10 @@ import type { LedgerAnswer } from '@/lib/parse';
 const mockParse = jest.fn();
 const mockOpenTransactions = jest.fn();
 
+let mockParams: { q?: string } = {};
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useLocalSearchParams: () => mockParams,
 }));
 jest.mock('@/hooks/use-auth-store', () => ({
   useAuthStore: () => ({ token: 'session-token', user: { is_guest: false } }),
@@ -50,7 +52,10 @@ const answer = (overrides: Partial<LedgerAnswer> = {}): LedgerAnswer => ({
 });
 
 describe('Ask Finnri (boards R12-AskEmpty, R12-AskAnswer)', () => {
-  beforeEach(() => mockParse.mockReset());
+  beforeEach(() => {
+    mockParse.mockReset();
+    mockParams = {};
+  });
 
   it('opens on the starter questions, drawn in ink rather than orange', async () => {
     const screen = await render(<AskFinnriScreen />);
@@ -88,5 +93,99 @@ describe('describeThreadAnswer', () => {
       detail: 'Food & Drinks · from 1 transaction',
     });
     expect(describeThreadAnswer(answer({ metric: 'count', transaction_count: 3 })).detail).toBe('');
+  });
+
+  it('asks a question handed over from Insights once (P32)', async () => {
+    mockParse.mockReset();
+    mockParse.mockResolvedValue({ stage: 'answer', answer: answer() });
+    mockParams = { q: 'My biggest expenses this month' };
+    const screen = await render(<AskFinnriScreen />);
+
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(1));
+    expect(mockParse.mock.calls[0][0]).toMatchObject({
+      hintText: 'My biggest expenses this month',
+    });
+    await screen.rerender(<AskFinnriScreen />);
+    expect(mockParse).toHaveBeenCalledTimes(1);
+    mockParams = {};
+  });
+});
+
+describe('Ask Finnri proposals (P64–P67)', () => {
+  beforeEach(() => {
+    mockParse.mockReset();
+    mockParams = {};
+  });
+
+  it('compares with the same days before, and says what a question costs', async () => {
+    mockParse.mockResolvedValue({
+      stage: 'answer',
+      answer: answer({ comparison: { amount: 22630, label: '1–21 Sep', start_date: '', end_date: '', change_percent: -12 } }),
+    });
+    const screen = await render(<AskFinnriScreen />);
+    expect(screen.getByTestId('ask-price-note').props.children).toBe('Each question uses 5 AI credits.');
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('answer-comparison')).toBeTruthy());
+    expect(screen.getByText('12% less')).toBeTruthy();
+  });
+
+  it('offers follow-ups and sends them with the question they follow', async () => {
+    mockParse.mockResolvedValueOnce({
+      stage: 'answer',
+      answer: answer({ suggestions: ['Where did it go?', 'Biggest one?', 'And last month?'] }),
+    });
+    mockParse.mockResolvedValueOnce({ stage: 'answer', answer: answer({ period: { kind: 'last_month', label: 'last month' } }) });
+    const screen = await render(<AskFinnriScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('ask-follow-ups')).toBeTruthy());
+    expect(mockParse.mock.calls[0][0].contextQuestion).toBeNull();
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('And last month?'));
+    });
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(2));
+    expect(mockParse.mock.calls[1][0]).toMatchObject({
+      hintText: 'And last month?',
+      contextQuestion: 'How much did I spend this month?',
+    });
+  });
+
+  // Device run 2026-11-07: the thread's words made "And the day before?"
+  // carry the first question's fuel filter and count back from today.
+  it('sends the answer’s own resolved query back, not the thread’s words', async () => {
+    const dayContext = 'finnri-query:v1:{"metric":"spend_total","period_kind":"day","start_date":"2026-10-09","end_date":"2026-10-09"}';
+    mockParse.mockResolvedValueOnce({
+      stage: 'answer',
+      answer: answer({ suggestions: ['And the day before?'], context: dayContext }),
+    });
+    mockParse.mockResolvedValueOnce({ stage: 'answer', answer: answer() });
+    const screen = await render(<AskFinnriScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByText('How much did I spend this month?'));
+    });
+    await waitFor(() => expect(screen.getByTestId('ask-follow-ups')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('And the day before?'));
+    });
+    await waitFor(() => expect(mockParse).toHaveBeenCalledTimes(2));
+    expect(mockParse.mock.calls[1][0]).toMatchObject({
+      hintText: 'And the day before?',
+      contextQuestion: dayContext,
+    });
+  });
+});
+
+describe('Follow-up threads stay short (P67)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { threadOf } = require('@/app/ask');
+  it('keeps the first question and the last two', () => {
+    expect(threadOf(null, 'A')).toBe('A');
+    expect(threadOf('A → B', 'C')).toBe('A → B → C');
+    expect(threadOf('A → B → C', 'D')).toBe('A → C → D');
   });
 });

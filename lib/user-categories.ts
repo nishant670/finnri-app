@@ -82,7 +82,7 @@ type UserCategoriesState = {
   /**
    * Keeps a typed category and returns the name to select: the built-in it
    * means ("groceries" is Food & Drinks), the spelling already kept
-   * ("dividend" is "Dividend"), or the name as typed.
+   * ("tuition fees" is "Tuition fees"), or the name as typed.
    */
   add: (token: string | null | undefined, name: string, type: CategoryType) => string;
   remove: (token: string, name: string, type: CategoryType) => Promise<void>;

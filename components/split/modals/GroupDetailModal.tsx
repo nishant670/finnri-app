@@ -7,7 +7,8 @@ import { GroupAvatar } from '@/components/split/GroupAvatar';
 import { SplitEmptyCard, SplitListCard } from '@/components/split/primitives/SplitChrome';
 import {
   formatBalance,
-  getGroupKindConfig,
+  groupBalanceAlertReached,
+  summaryKindDisplay,
   readBillForViewer,
 } from '@/components/split/split-utils';
 import { SplitExpenseRow } from '@/components/split/rows/SplitExpenseRow';
@@ -16,6 +17,7 @@ import { SplitFullScreenModal } from '@/components/split/primitives/SplitFullScr
 import { ThemedText } from '@/components/themed-text';
 import { Button, PrimaryButton } from '@/components/ui/Button';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
+import { ListRow } from '@/components/ui/ListRow';
 import { PressableView } from '@/components/ui/PressableView';
 import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
@@ -103,7 +105,7 @@ export function GroupDetailModal({
     (bill) => readBillForViewer(bill, friendById, currentUserName).net,
     billSort === 'date_desc' || billSort === 'date_asc'
   );
-  const kind = getGroupKindConfig(summary.kind);
+  const kind = summaryKindDisplay(summary);
   const peopleLabel = `${summary.roster.length} ${summary.roster.length === 1 ? 'person' : 'people'}`;
   const net = summary.netBalance;
   const tone = net > 0 ? theme.positive : theme.negative;
@@ -201,25 +203,40 @@ export function GroupDetailModal({
                     {line}
                   </ThemedText>
                 ))}
-                <View style={styles.actions}>
-                  <Button
-                    variant="outline"
-                    height={48}
-                    icon="hand-coin-outline"
-                    label="Settle up"
-                    onPress={() => onOpenAction(summary, 'settle')}
-                    style={styles.action}
-                  />
-                  {canAddExpense ? (
-                    <PrimaryButton
-                      height={48}
-                      icon="receipt-text-plus-outline"
-                      label="Add expense"
-                      onPress={() => onAddExpense(summary.group.id)}
-                      style={styles.action}
-                    />
-                  ) : null}
-                </View>
+                {groupBalanceAlertReached(summary.group) ? (
+                  <View style={styles.alertFlag} accessible accessibilityRole="text">
+                    <MaterialCommunityIcons name="bell-alert-outline" size={16} color={theme.negative} />
+                    <ThemedText style={[styles.alertFlagText, { color: theme.negative }]}>
+                      A balance here is past the{' '}
+                      {formatBalance(summary.group.balance_alert_amount ?? 0)} alert
+                    </ThemedText>
+                  </View>
+                ) : null}
+                {summary.billCount > 0 || canAddExpense ? (
+                  <View style={styles.actions}>
+                    {/* Nothing to settle before the first expense: the button
+                        would only open a sheet with nothing in it. */}
+                    {summary.billCount > 0 ? (
+                      <Button
+                        variant="outline"
+                        height={48}
+                        icon="hand-coin-outline"
+                        label="Settle up"
+                        onPress={() => onOpenAction(summary, 'settle')}
+                        style={styles.action}
+                      />
+                    ) : null}
+                    {canAddExpense ? (
+                      <PrimaryButton
+                        height={48}
+                        icon="receipt-text-plus-outline"
+                        label="Add expense"
+                        onPress={() => onAddExpense(summary.group.id)}
+                        style={styles.action}
+                      />
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
               <View style={[styles.pills, { borderTopColor: theme.border }]}>
                 <GroupPill
@@ -434,6 +451,18 @@ const styles = StyleSheet.create({
   detail: {
     fontSize: 14,
     lineHeight: 20,
+  },
+  alertFlag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  alertFlagText: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   actions: {
     flexDirection: 'row',

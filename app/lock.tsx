@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AuthPinLoginScreen } from '@/components/auth/AuthPinLoginScreen';
@@ -9,15 +9,27 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { loginUser } from '@/lib/auth';
 import { getDeviceId } from '@/lib/device';
+import { unregisterPushDevice } from '@/lib/push-device';
+import { markAppOpen } from '@/lib/push-tap';
 import { hasLocalSecurityPin, saveLocalSecurityPin, verifyLocalSecurityPin } from '@/lib/security';
 
 export default function LockScreen() {
     const router = useRouter();
     const colorScheme = useColorScheme() ?? 'light';
     const theme = Colors[colorScheme];
-    const { user, setAuth, clearAuth } = useAuthStore();
+    const { user, token, setAuth, clearAuth } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    const enterApp = () => {
+        router.replace('/(tabs)');
+        // A push that launched the app has been waiting behind this screen.
+        markAppOpen((destination) => router.push(destination));
+    };
+
+    // Any other way out (Switch account, an expired session) drops a held tap:
+    // it belongs to the person who didn't get past this screen.
+    useEffect(() => () => markAppOpen(), []);
 
     const handleUnlock = async (pin: string) => {
         if (!user) {
@@ -27,7 +39,7 @@ export default function LockScreen() {
         }
 
         if (pin === 'biometric_success') {
-            router.replace('/(tabs)');
+            enterApp();
             return;
         }
 
@@ -37,7 +49,7 @@ export default function LockScreen() {
         try {
             if (await hasLocalSecurityPin(user.uuid)) {
                 if (await verifyLocalSecurityPin(user.uuid, pin)) {
-                    router.replace('/(tabs)');
+                    enterApp();
                     return;
                 }
 
@@ -70,7 +82,7 @@ export default function LockScreen() {
                 },
                 response.token
             );
-            router.replace('/(tabs)');
+            enterApp();
         } catch (err) {
             setError(getFriendlyErrorMessage(err, "Couldn't unlock. If you've reset your account, tap Switch account."));
         } finally {
@@ -83,6 +95,9 @@ export default function LockScreen() {
             <AuthPinLoginScreen
                 onContinue={handleUnlock}
                 onSecondary={() => {
+                    // Whoever signs in next may not be this person: their bills
+                    // must stop reaching this phone now, not at the next sign-in.
+                    if (token) void unregisterPushDevice(token);
                     clearAuth(); // Clear stale user data
                     router.replace('/auth');
                 }}

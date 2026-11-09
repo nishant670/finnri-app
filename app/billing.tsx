@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AIRecapCard, CreditUsesCard, FreeVsPassCard } from '@/components/billing/PlanPitch';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { NeutralTile, SettingsRow } from '@/components/profile/SettingsRow';
 import { ThemedText } from '@/components/themed-text';
@@ -18,17 +19,24 @@ import { useHasPassed } from '@/hooks/use-has-passed';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { captureCreditsFor } from '@/lib/credit-gate';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
 import {
+  aiRecap,
+  aiRecapLine,
   createBillingCheckout,
   describeAccess,
   endedAccessLine,
   fetchBillingPlans,
+  fetchAIUsage,
   fetchBillingStatus,
   fetchCheckoutOrderStatus,
   formatCreditDate,
   formatMinor,
   formatPlanPrice,
+  creditsInWords,
+  monthlyEquivalentMinor,
+  passInWords,
   planOffer,
   requestLifetimeQuote,
   type BillingPlan,
@@ -44,19 +52,10 @@ const intervalLabels: Record<string, string> = {
   lifetime_quote: 'Lifetime quote',
 };
 
-const featureLabels: Record<string, string> = {
-  ai_text_capture: 'AI text capture',
-  ai_voice_capture: 'Voice capture',
-  advanced_insights: 'Advanced insights',
-  weekly_review: 'Weekly review',
-  budgets: 'Budgets',
-  subscription_reminders: 'Subscription reminders',
-  split_ledger: 'Split ledger',
-  web_dashboard: 'Web dashboard',
-  exports: 'Exports',
-  bulk_edit: 'Bulk edit',
-  future_ai_advisor: 'AI advisor',
-};
+/** How many recent AI reads the recap counts; the usage list's largest page. */
+const RECAP_EVENTS = 100;
+/** A statement read's price when the billing status predates the field. */
+const FALLBACK_STATEMENT_PDF_CREDITS = 50;
 
 /**
  * Whether the plan catalogue is worth drawing at all.
@@ -129,6 +128,7 @@ export default function BillingScreen() {
   const dialog = useAppDialog();
   const [plans, setPlans] = useState<BillingPlan[]>([]);
   const [status, setStatus] = useState<BillingStatus | null>(null);
+  const [recap, setRecap] = useState<{ line: string; partial: boolean } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [busyPlan, setBusyPlan] = useState<string | null>(null);
   const isGuest = !!user?.is_guest;
@@ -143,12 +143,16 @@ export default function BillingScreen() {
       // The catalogue is only rendered where the app may sell. Fetching it
       // otherwise costs a request on every visit to a screen that will not
       // show a single price.
-      const [planList, billingStatus] = await Promise.all([
+      const [planList, billingStatus, usage] = await Promise.all([
         PLANS_VISIBLE ? fetchBillingPlans() : Promise.resolve([]),
         token ? fetchBillingStatus(token) : Promise.resolve(null),
+        // The recap is a nicety; a failed read just leaves it out.
+        token ? fetchAIUsage(token, 1, RECAP_EVENTS).catch(() => null) : Promise.resolve(null),
       ]);
       setPlans(planList);
       setStatus(billingStatus);
+      const line = usage ? aiRecapLine(aiRecap(usage.events)) : null;
+      setRecap(line && usage ? { line, partial: usage.total > usage.events.length } : null);
     } catch (error) {
       void dialog.alert({
         title: 'Billing did not load',
@@ -278,6 +282,17 @@ export default function BillingScreen() {
       ? plans.find((plan) => plan.offer)?.offer
       : null;
   const offerIsYours = !status || !!status.launch_offer?.eligible;
+  const textPrice = captureCreditsFor(status, 'text');
+  const voicePrice = captureCreditsFor(status, 'voice');
+  const scanPrice = captureCreditsFor(status, 'receipt');
+  const creditPrices = {
+    text: textPrice,
+    voice: voicePrice,
+    voiceMax: status?.credits.capture_credits?.voice_max,
+    receipt: scanPrice,
+    statementPdf: status?.credits.capture_credits?.statement_pdf || FALLBACK_STATEMENT_PDF_CREDITS,
+  };
+  const creditsWords = creditsInWords(status?.credits.total_credits_remaining ?? 0, textPrice, scanPrice);
 
   const periodEnd = formatCreditDate(status?.current_period_end);
   const resetAt = formatCreditDate(status?.credits.reset_at);
@@ -367,7 +382,9 @@ export default function BillingScreen() {
           ? `Resets ${resetAt}`
           : 'Resets daily';
   const lifetimeEligible = status?.lifetime_eligibility.eligible ?? false;
-  const features = (selectedPlan?.feature_gates ?? []).map((feature) => featureLabels[feature] ?? feature);
+  const selectedInWords = selectedPlan
+    ? passInWords(selectedPlan.included_credits, { text: textPrice, voice: voicePrice, receipt: scanPrice })
+    : null;
 
   return (
     <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
@@ -395,6 +412,12 @@ export default function BillingScreen() {
                 credits left
               </ThemedText>
             </View>
+            {/* P55: what the number buys, at today's prices. */}
+            {creditsWords ? (
+              <ThemedText testID="credits-in-words" tone="muted" style={styles.caption}>
+                {creditsWords}
+              </ThemedText>
+            ) : null}
             {/* The tag already says when the trial or pass ends. */}
             {accessTag ? null : (
               <ThemedText tone="muted" style={styles.caption}>
@@ -445,6 +468,9 @@ export default function BillingScreen() {
           />
         </View>
 
+        {/* Someone already on a pass has bought the argument. */}
+        {recap && access.kind !== 'pass' ? <AIRecapCard line={recap.line} partial={recap.partial} /> : null}
+
         {isGuest ? (
           <NoteCard
             icon="account-arrow-up-outline"
@@ -473,10 +499,18 @@ export default function BillingScreen() {
 
             <View style={styles.heading}>
               <ThemedText accessibilityRole="header" style={[styles.headingTitle, { color: colors.text }]}>
-                Choose a pass
+                A pass lets AI do the typing
               </ThemedText>
               <ThemedText tone="muted" style={styles.caption}>
-                Manual tracking is always free. Credits are used only when Finnri AI reads your text, voice or a bill.
+                Everything in Finnri works by hand, free. Credits are spent only when Finnri AI does the work for you.
+              </ThemedText>
+            </View>
+
+            <CreditUsesCard prices={creditPrices} />
+
+            <View style={styles.heading}>
+              <ThemedText accessibilityRole="header" style={[styles.headingTitle, { color: colors.text }]}>
+                Choose a pass
               </ThemedText>
             </View>
 
@@ -504,6 +538,12 @@ export default function BillingScreen() {
                     />
                   ))}
                 </View>
+
+                {selectedPlan && selectedInWords ? (
+                  <ThemedText testID="selected-pass-in-words" tone="muted" style={[styles.caption, styles.inWords]}>
+                    {`${selectedPlan.name} is ${selectedInWords}.`}
+                  </ThemedText>
+                ) : null}
 
                 {lifetimePlan ? (
                   <PressableView
@@ -533,19 +573,7 @@ export default function BillingScreen() {
                   </PressableView>
                 ) : null}
 
-                {features.length > 0 ? (
-                  <View style={[styles.card, styles.includes, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                    <ThemedText style={[styles.includesTitle, { color: colors.text }]}>Every pass includes</ThemedText>
-                    <View style={styles.featureGrid}>
-                      {features.map((feature) => (
-                        <View key={feature} style={styles.feature}>
-                          <MaterialCommunityIcons name="check" size={16} color={colors.positive} />
-                          <ThemedText style={[styles.small, { color: colors.text, flexShrink: 1 }]}>{feature}</ThemedText>
-                        </View>
-                      ))}
-                    </View>
-                  </View>
-                ) : null}
+                <FreeVsPassCard />
               </>
             )}
 
@@ -612,6 +640,7 @@ function PassRow({
 }) {
   const { colors } = useThemeTokens();
   const daily = plan.daily_credit_limit > 0 ? `${formatCount(plan.daily_credit_limit)} a day` : 'custom daily cap';
+  const perMonth = monthlyEquivalentMinor(plan, offer);
   return (
     <PressableView
       testID={`plan-row-${plan.code}`}
@@ -641,7 +670,14 @@ function PassRow({
           {current ? <Tag label="Active" tone="positive" /> : null}
         </View>
         <ThemedText tone="muted" style={styles.small}>
-          {formatCount(plan.included_credits)} credits · {daily}
+          {/* What the credits buy is said once, under the list, for the chosen pass. */}
+          {[
+            // A quote has no fixed credits: "0 credits" read as worthless.
+            plan.included_credits > 0 ? `${formatCount(plan.included_credits)} credits` : null,
+            daily,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </ThemedText>
       </View>
       <View style={styles.price}>
@@ -664,6 +700,12 @@ function PassRow({
         <ThemedText tone="muted" style={styles.small}>
           {periodLabels[plan.billing_interval] ?? intervalLabels[plan.billing_interval] ?? plan.billing_interval}
         </ThemedText>
+        {/* P56: every pass in the same unit, at the price you would pay. */}
+        {perMonth !== null ? (
+          <ThemedText testID={`plan-per-month-${plan.code}`} tone="muted" style={styles.small}>
+            {`about ${formatMinor(perMonth, plan.currency)} a month`}
+          </ThemedText>
+        ) : null}
       </View>
     </PressableView>
   );
@@ -880,27 +922,9 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed',
     borderRadius: 16,
   },
-  includes: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-  },
-  includesTitle: {
-    marginBottom: 10,
-    fontSize: 14,
-    lineHeight: 18,
-    fontWeight: '700',
-  },
-  featureGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    rowGap: 10,
-  },
-  feature: {
-    width: '50%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingRight: 8,
+  inWords: {
+    marginTop: -4,
+    paddingHorizontal: 4,
   },
   note: {
     flexDirection: 'row',

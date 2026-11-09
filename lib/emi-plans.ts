@@ -43,12 +43,15 @@ export type EMIInstallment = {
 
 export type EMIPlanProgress = {
     installments_total: number;
+    /** Billed or paid: once on a bill, an instalment is owed on the card, not the plan. */
     installments_paid: number;
+    /** Principal of the instalments not yet on a bill. */
     principal_remaining: number;
     principal_repaid: number;
     /** Still holding limit — scheduled instalments only. */
     blocked_principal: number;
     amount_remaining: number;
+    /** The first instalment not yet on a bill. */
     next_due_date?: string;
     next_amount?: number;
 };

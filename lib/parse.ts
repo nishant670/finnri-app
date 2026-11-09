@@ -56,6 +56,24 @@ export type LedgerAnswer = {
   };
   group_by?: 'category' | 'merchant' | 'month' | 'none';
   breakdown: ParseAnswerSlice[];
+  /**
+   * The same number for the same days of the period before (P64): "12% less
+   * than 1–21 Sep". `change_percent` is absent when that window was empty.
+   */
+  comparison?: {
+    amount: number;
+    label: string;
+    start_date: string;
+    end_date: string;
+    change_percent?: number | null;
+  } | null;
+  /**
+   * The exact query this answer was computed over, opaque to the app. A
+   * follow-up sends it back as its context, so "And the day before?" moves
+   * back from this answer's dates with this answer's filters — not from a
+   * re-reading of the thread's words.
+   */
+  context?: string;
   largest_entry?: {
     entry_id: number;
     title: string;
@@ -157,10 +175,20 @@ export type ParseDraft = {
   refund_expected_on?: string | null;
   /** A refund the user says already came back; a separate income, not a Refundable tag. */
   refund_received?: { amount: number; date?: string | null } | null;
+  /**
+   * The balance a receipt prints after this transaction, e.g. a wallet
+   * top-up's "current balance". Receipt reads only.
+   */
+  balance_after?: number | null;
   emi_tenure_months?: number | null;
   emi_rate_pct?: number | null;
   currency: string | null;
   mode: string | null;
+  /**
+   * "default" when `mode` is the Cash the API fills in because nothing said
+   * how it was paid; "read" when the bill or sentence said. Older APIs omit it.
+   */
+  mode_source?: 'read' | 'default';
   card_network: string | null;
   account_hint: string | null;
   category: string | null;
@@ -213,6 +241,8 @@ export type ParseDraft = {
   credits_remaining_today?: number;
   credits_remaining_total?: number;
   plan_code?: string;
+  /** This read's id, sent back with the saved entry so AI usage can open it (P57). */
+  ai_request_id?: string;
 };
 
 /** The draft shape, under the name the app has always used for it. */
@@ -221,11 +251,21 @@ export type ParseResponse = ParseDraft;
 export type ParseDraftInput = {
   token?: string | null;
   hintText?: string;
+  /**
+   * Aborts the read. The server gives the reserved credits back when the
+   * request goes away before the answer, so a Cancel on the draft sheet is free.
+   */
+  signal?: AbortSignal;
   audio?: {
     file: Blob;
     name: string;
   };
   tz?: string;
+  /**
+   * The question this one may follow, from the Ask thread (P67), so "And
+   * last month?" is read as a follow-up. Only the model sees it.
+   */
+  contextQuestion?: string | null;
 };
 
 type ParseErrorPayload = {
@@ -334,6 +374,14 @@ const genericParseFailure: ParseFailureCopy = {
 };
 
 const parseFailureCopy: Record<string, ParseFailureCopy> = {
+  // The recording had nothing in it. Sending the same silence again can't
+  // help, so there is no Try again, and the server didn't charge for it.
+  empty_transcript: {
+    title: "Didn't catch that",
+    message: "Finnri couldn't hear anything in that recording, so no credits were used. Tap the mic and say what you spent.",
+    examples: [],
+    canRetry: false,
+  },
   // The model answered, but not with a transaction this app can hold. The
   // sentence is usually fine — it is the shape of the reply that broke — so a
   // straight retry genuinely often works.
@@ -486,6 +534,8 @@ export const parseEntryDraft = async ({
   hintText,
   audio,
   tz = getClientTimeZone(),
+  contextQuestion,
+  signal,
 }: ParseDraftInput): Promise<ParseResult> => {
   const formData = new FormData();
   const trimmedHint = hintText?.trim() ?? '';
@@ -496,6 +546,9 @@ export const parseEntryDraft = async ({
     formData.append('audio', audio.file, audio.name);
   }
   formData.append('tz', tz);
+  if (contextQuestion?.trim()) {
+    formData.append('context_question', contextQuestion.trim());
+  }
 
   const response = await fetch(`${API_BASE_URL}/v1/parse`, {
     method: 'POST',
@@ -503,6 +556,7 @@ export const parseEntryDraft = async ({
       Authorization: `Bearer ${token}`,
     },
     body: formData,
+    signal,
   });
   if (!response.ok) {
     throw await readParseError(response);

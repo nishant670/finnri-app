@@ -45,6 +45,12 @@ type ParseErrorCardProps = {
   onUseExample: (text: string) => void;
   onAddManually: () => void;
   isRetrying?: boolean;
+  /**
+   * The failure was a recording, and it is still held for Try again. This card
+   * is then the only place on Home that says so (the capture card goes back
+   * to the mic), and its × throws the recording away.
+   */
+  keptRecording?: boolean;
   style?: object;
 };
 
@@ -55,6 +61,7 @@ export function ParseErrorCard({
   onUseExample,
   onAddManually,
   isRetrying = false,
+  keptRecording = false,
   style,
 }: ParseErrorCardProps) {
   const theme = useThemeTokens();
@@ -115,10 +122,18 @@ export function ParseErrorCard({
           <ThemedText style={{ fontSize: 13, lineHeight: 18, color: mutedText }}>
             {failure.message}
           </ThemedText>
+          {keptRecording ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+              <MaterialCommunityIcons name="microphone-outline" size={14} color={mutedText} />
+              <ThemedText style={{ fontSize: 12, lineHeight: 16, color: mutedText }}>
+                Your recording is saved for Try again.
+              </ThemedText>
+            </View>
+          ) : null}
         </View>
         <PressableView
           accessibilityRole="button"
-          accessibilityLabel="Dismiss"
+          accessibilityLabel={keptRecording ? 'Discard recording' : 'Dismiss'}
           hitSlop={10}
           onPress={onDismiss}
           style={{ paddingTop: 2 }}

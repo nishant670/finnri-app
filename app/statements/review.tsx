@@ -1,6 +1,6 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
@@ -36,6 +36,7 @@ import {
   missingLineKey,
   planStatementCheck,
   probableKey,
+  statementDiffLines,
 } from '@/lib/statement-check';
 import { takeStatementIntake, type StatementIntake } from '@/lib/statement-intake';
 import {
@@ -216,6 +217,36 @@ export default function StatementReviewScreen() {
       })
       .finally(() => setIsBusy(false));
   }, [applyDiff, intakeKey, statementId, token]);
+
+  /*
+   * Back from correcting the bill's date. The comparison was made against the
+   * old cycle, so the same rows are compared again (free). A bill deleted over
+   * there has nothing left to check.
+   */
+  const correctingDate = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (!correctingDate.current || !token || !diff) return;
+      correctingDate.current = false;
+      setIsBusy(true);
+      setError(null);
+      diffStatementLines(token, statementId, statementDiffLines(diff))
+        .then((result) => {
+          // Untouched bill: keep what the user has ticked so far.
+          if (result.cycle_warning?.cycle_end !== diff.cycle_warning?.cycle_end) applyDiff(result);
+        })
+        .catch((diffError) => {
+          const status = diffError instanceof StatementApiError ? diffError.status : undefined;
+          if (status === 404) {
+            router.back();
+            return;
+          }
+          const code = diffError instanceof StatementApiError ? diffError.code : undefined;
+          setError(statementUploadErrorMessage(code));
+        })
+        .finally(() => setIsBusy(false));
+    }, [applyDiff, diff, statementId, token])
+  );
 
   const plan = useMemo(
     () => (diff ? planStatementCheck(diff, selected, decisions) : null),
@@ -438,7 +469,17 @@ export default function StatementReviewScreen() {
 
           {diff && plan && (
             <>
-              <StatementTotalsCard diff={diff} plan={plan} />
+              <StatementTotalsCard
+                diff={diff}
+                plan={plan}
+                onFixDate={() => {
+                  correctingDate.current = true;
+                  router.push({
+                    pathname: '/statements/[id]',
+                    params: { id: String(statementId), edit: '1' },
+                  });
+                }}
+              />
               <ChargesCallout charges={diff.charges} total={diff.summary.charges_amount} />
 
               {diff.probable.length > 0 && (

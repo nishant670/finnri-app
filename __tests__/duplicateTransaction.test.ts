@@ -4,6 +4,7 @@ import { createEntry } from '@/lib/entries';
 import {
   DuplicateSaveCancelled,
   describeLikelyDuplicate,
+  editCouldDuplicate,
   findLikelyDuplicate,
   saveNewTransaction,
 } from '@/lib/transaction-composer';
@@ -89,16 +90,53 @@ beforeEach(() => {
 });
 
 describe('findLikelyDuplicate', () => {
-  it('asks the server for the same day, direction and amount', async () => {
+  it('asks the server for the same day, direction and rupee amount', async () => {
     serve();
     await findLikelyDuplicate('t', emi, 3);
     expect(mockedLoad).toHaveBeenCalledWith('t', expect.objectContaining({
       type: 'expense',
       start_date: '2026-10-15',
       end_date: '2026-10-15',
-      min_amount: 20938,
-      max_amount: 20938,
+      min_amount: 20937.5,
+      max_amount: 20938.5,
     }));
+  });
+
+  // 2026-11-06 on device: "Car Fuel" ₹3,928 on the SBI BPCL card was logged
+  // again from a scan as "Petrol", Bharat Petroleum, Cash — and saved silently.
+  it('matches a same-day, same-amount bill that shares nothing else', async () => {
+    const fuel = { ...emi, title: 'Petrol', merchant: 'Bharat Petroleum', amount: '3927.54', date: '9 October 2026' };
+    serve(logged({
+      id: 50, title: 'Car Fuel', merchant: 'Soami BPCL', amount: 3927.54,
+      date: '2026-10-09', account_id: 12, account: { id: 12, name: 'SBI BPCL' },
+    }));
+    expect((await findLikelyDuplicate('t', fuel, 1))?.id).toBe('50');
+  });
+
+  it('treats a typed ₹3,928 and a scanned ₹3,927.54 as one amount', async () => {
+    serve(logged({ title: 'Fuel', amount: 3927.54, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', { ...emi, amount: '3,928' }, 3)).not.toBeNull();
+  });
+
+  it('ignores a row in the filter window that rounds to another rupee', async () => {
+    serve(logged({ title: 'Laptop', amount: 20938.5, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', emi, 3)).toBeNull();
+  });
+
+  it('under ₹100, still needs a shared title, merchant or account', async () => {
+    const water = { ...emi, title: 'Water bottle', amount: '10' };
+    serve(logged({ title: 'Chai', amount: 10, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', water, 3)).toBeNull();
+    serve(logged({ title: 'Chai', amount: 10 }));
+    expect(await findLikelyDuplicate('t', water, 3)).not.toBeNull();
+  });
+
+  it('names the row that shares a detail when several match', async () => {
+    serve(
+      logged({ id: 60, title: 'Laptop', account_id: 9, account: undefined }),
+      logged({ id: 61, title: 'Loan auto-debit' })
+    );
+    expect((await findLikelyDuplicate('t', emi, 3))?.id).toBe('61');
   });
 
   it('matches the same title in any case, even on another account', async () => {
@@ -111,8 +149,8 @@ describe('findLikelyDuplicate', () => {
     expect(await findLikelyDuplicate('t', emi, 3)).not.toBeNull();
   });
 
-  it('ignores a same-amount row with nothing else in common', async () => {
-    serve(logged({ title: 'Laptop', account_id: 9, account: undefined }));
+  it('ignores a same-day row with a different amount', async () => {
+    serve(logged({ title: 'Laptop', amount: 20940, account_id: 9, account: undefined }));
     expect(await findLikelyDuplicate('t', emi, 3)).toBeNull();
   });
 
@@ -179,4 +217,32 @@ it('names the logged transaction in the warning', () => {
   const { title, message } = describeLikelyDuplicate(logged());
   expect(title).toBe('Similar transaction found');
   expect(message).toContain('"HSBC loan EMI" for ₹20,938 from SBI Bank');
+});
+
+// Staging, 8 Nov 2026: an edit that made an entry match another saved silently.
+describe('editing into a duplicate', () => {
+  it('does not report the edited entry as a duplicate of itself', async () => {
+    serve(logged({ id: 41 }));
+    expect(await findLikelyDuplicate('t', emi, 3, '41')).toBeNull();
+    serve(logged({ id: 41 }), logged({ id: 77 }));
+    expect((await findLikelyDuplicate('t', emi, 3, '41'))?.id).toBe('77');
+  });
+
+  it('asks when the amount, day or direction moved', () => {
+    expect(editCouldDuplicate(emi, { ...emi, amount: '500' })).toBe(true);
+    expect(editCouldDuplicate(emi, { ...emi, date: '16 October 2026' })).toBe(true);
+    expect(editCouldDuplicate(emi, { ...emi, type: 'Income' })).toBe(true);
+  });
+
+  it('leaves alone an edit that cannot have caused it', () => {
+    expect(editCouldDuplicate(emi, { ...emi, notes: 'Paid early' })).toBe(false);
+    expect(editCouldDuplicate(emi, { ...emi, title: 'Home loan' })).toBe(false);
+    expect(editCouldDuplicate({ ...emi, amount: '20938.00' }, { ...emi, amount: '20,938' })).toBe(false);
+  });
+
+  it('under ₹100, a changed detail can be what makes the match', () => {
+    const water = { ...emi, amount: '50', title: 'Water' };
+    expect(editCouldDuplicate(water, { ...water, title: 'Chai' })).toBe(true);
+    expect(editCouldDuplicate(water, { ...water, notes: 'Cold' })).toBe(false);
+  });
 });

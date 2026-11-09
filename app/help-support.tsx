@@ -12,6 +12,29 @@ import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 const faqs = [
+  // P60 (board R8-Help-Proposals): the questions people write in about most.
+  // Prices are today's; the price list in Profile is the one that moves with
+  // the server.
+  {
+    question: 'How do credits work?',
+    answer:
+      'Finnri uses credits only when its AI reads something for you: typing an entry uses 5, a voice note 12 to 18, a bill scan 25. Reading a card statement costs more — see What uses AI credits in your Profile. Adding or editing anything by hand is always free.',
+  },
+  {
+    question: 'Do passes renew on their own?',
+    answer:
+      'No. A pass is a one-time purchase for its period and never charges you again. When it ends, everything you logged stays.',
+  },
+  {
+    question: 'Can I get a refund?',
+    answer:
+      'Write to support@finnri.app within 7 days with your Razorpay payment ID if you were charged twice, charged the wrong amount or did not get your pass. Credits already largely used are generally not refunded. The full policy is at finnri.app/refunds.',
+  },
+  {
+    question: 'How do I delete my data?',
+    answer:
+      'Open Security & privacy from your Profile and choose Delete Finnri account. It permanently removes your profile, transactions, accounts and credit history.',
+  },
   {
     question: 'How does Smart Sorting work?',
     answer:
@@ -105,7 +128,12 @@ export default function HelpSupportScreen() {
               divider={index > 0}
               onPress={() => {
                 if ('route' in item) {
-                  router.push(item.route);
+                  // Feedback is told where it was opened from (P59).
+                  router.push(
+                    item.route === '/feedback'
+                      ? { pathname: '/feedback', params: { from: 'Help & support' } }
+                      : item.route
+                  );
                   return;
                 }
                 void openSupportLink(item.url);

@@ -9,11 +9,13 @@ import { Button, PrimaryButton } from '@/components/ui/Button';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { getAccountSetupItems } from '@/lib/account-display';
+import { getAccountSetupItems, setupInlineField, type AccountSetupItem } from '@/lib/account-display';
 import { typeOptions } from '@/lib/account-form';
 import { Account, normalizeAccountType, type AccountType } from '@/lib/accounts';
 
 type AccountFormSuccessProps = {
+  /** P62: saves one missing detail and shows the account as it now is. */
+  onSaveDetail?: (item: AccountSetupItem, value: string) => Promise<void>;
   createdAccount: Account | null;
   handleSetCreatedDefault: () => Promise<void>;
   isSaving: boolean;
@@ -39,6 +41,7 @@ export function AccountFormSuccess({
   resetNewAccountForm,
   saveError,
   selectedType,
+  onSaveDetail,
 }: AccountFormSuccessProps) {
   const { colors } = useThemeTokens();
   const accountType = normalizeAccountType(createdAccount?.type ?? selectedType);
@@ -60,7 +63,10 @@ export function AccountFormSuccess({
         </PressableView>
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        // A setup row's Save must save on the first tap, keyboard up (P62).
+        keyboardShouldPersistTaps="handled"
+        style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <View>
             <View style={[styles.tile, { backgroundColor: visual.bgColor }]}>
@@ -108,6 +114,9 @@ export function AccountFormSuccess({
                 params: { id: String(createdAccount.id), focus: 'details' },
               })
             }
+            // P62 (board R5-AcctAdded-Proposals): fill a detail in right here.
+            inlineFieldFor={onSaveDetail ? (item) => setupInlineField(createdAccount, item) : undefined}
+            onSaveInline={onSaveDetail}
             style={accountType === 'credit_card' ? styles.gap : styles.block}
           />
         ) : null}

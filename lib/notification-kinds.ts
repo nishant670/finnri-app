@@ -64,6 +64,7 @@ const KINDS: Record<string, NotificationKind> = {
   monthly_review: { icon: 'chart-bar', ...HUES.review, action: 'Read the review' },
   'split.group_invite.received': { icon: 'account-group-outline', ...HUES.split, action: 'View invite' },
   'split.group_invite.accepted': { icon: 'account-group-outline', ...HUES.split, action: 'Open Splits' },
+  'split.balance_alert': { icon: 'bell-alert-outline', ...HUES.late, action: 'Open Splits' },
   'split.settlement.recorded': { icon: 'hand-coin-outline', ...HUES.split, action: 'Review in Splits' },
   'split.settlement.confirmed': { icon: 'check', ...HUES.done, action: 'Open Splits' },
   'split.settlement.denied': { icon: 'close-circle-outline', ...HUES.late, action: 'Open Splits' },
@@ -96,7 +97,9 @@ const RECURRING: Href = { pathname: '/(tabs)/money', params: { segment: 'subscri
  * now open Budgets; recurring reminders carry `/subscriptions`, which had no
  * route, and now open Money › Recurring.
  */
-export function notificationDestination(notification: AppNotification): Href | null {
+export function notificationDestination(
+  notification: Pick<AppNotification, 'type' | 'action_url'>
+): Href | null {
   const url = notification.action_url ?? undefined;
 
   if (notification.type.startsWith('budget.')) return '/budgets';

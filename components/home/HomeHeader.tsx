@@ -10,13 +10,16 @@ import { userDisplayName } from '@/lib/display-name';
 type HomeHeaderProps = {
   unreadCount?: number;
   onNotificationsPress?: () => void;
+  /** "Hey there, welcome to Finnri!" while Home has no entries yet. */
+  welcome?: boolean;
 };
 
 /** The 56dp identity row over Home: the mark, the greeting, the bell (board R1-Home-Empty). */
-export function HomeHeader({ unreadCount = 0, onNotificationsPress }: HomeHeaderProps) {
+export function HomeHeader({ unreadCount = 0, onNotificationsPress, welcome = false }: HomeHeaderProps) {
   const theme = useThemeTokens();
   const { user } = useAuthStore();
-  const displayName = `${userDisplayName(user?.username)}!`;
+  // A brand-new Home greets rather than names (board R13-FirstEntry-Proposals).
+  const displayName = welcome ? 'welcome to Finnri!' : `${userDisplayName(user?.username)}!`;
   const visibleCount = unreadCount > 99 ? '99+' : String(unreadCount);
 
   return (

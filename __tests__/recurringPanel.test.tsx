@@ -10,12 +10,14 @@ import * as subscriptions from '@/lib/subscriptions';
 import type { Subscription } from '@/lib/subscriptions';
 
 const mockPush = jest.fn();
+const mockSetParams = jest.fn();
+let mockParams: Record<string, string> = {};
 jest.mock('expo-router', () => {
   const { useEffect } = jest.requireActual('react');
   return {
     useFocusEffect: (callback: () => void) => useEffect(callback, [callback]),
-    useLocalSearchParams: () => ({}),
-    useRouter: () => ({ push: mockPush, back: jest.fn() }),
+    useLocalSearchParams: () => mockParams,
+    useRouter: () => ({ push: mockPush, back: jest.fn(), setParams: mockSetParams }),
     useScrollToTop: () => undefined,
   };
 });
@@ -81,6 +83,8 @@ describe('Recurring panel', () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     mockPush.mockReset();
+    mockSetParams.mockReset();
+    mockParams = {};
     jest.spyOn(subscriptions, 'syncSubscriptionReminders').mockResolvedValue(0);
     jest.spyOn(accounts, 'fetchAccounts').mockResolvedValue([]);
     jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({ recurring_candidates: [] } as never);
@@ -345,5 +349,24 @@ describe('Recurring panel', () => {
     await findByTestId('recurring-card-bill-note');
     await fireEvent.press(await findByText('Open HDFC Regalia'));
     expect(mockPush).toHaveBeenCalledWith({ pathname: '/accounts/[id]', params: { id: '8' } });
+  });
+
+  it('opens a new loan filled in from the EMI calculator (P53)', async () => {
+    mockParams = {
+      source: 'calculator',
+      kind: 'loan',
+      name: 'Loan EMI',
+      amount: '10624.12',
+      principal: '500000.00',
+      ratePct: '10.5',
+      totalEmis: '60',
+    };
+    const { findByText, findByDisplayValue } = await render(<SubscriptionsPanel embedded />);
+
+    await findByText('New loan or EMI');
+    await findByDisplayValue('10.5');
+    await findByDisplayValue('60');
+    // Used once: leaving and coming back must not open it again.
+    expect(mockSetParams).toHaveBeenCalledWith(expect.objectContaining({ source: undefined }));
   });
 });

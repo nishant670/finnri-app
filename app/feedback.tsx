@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { Image } from 'expo-image';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PrimaryButton } from '@/components/ui/Button';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
+import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { PressableView } from '@/components/ui/PressableView';
 import { Segments } from '@/components/ui/Segments';
@@ -23,6 +24,8 @@ import {
   FeedbackType,
   MAX_FEEDBACK_ATTACHMENTS,
   submitFeedback,
+  describeFeedbackDetails,
+  feedbackDeviceDetails,
   titleFromMessage,
 } from '@/lib/feedback';
 import { ATTACHMENT_PICKER_TYPES, isPdfAttachment, uploadAttachment } from '@/lib/uploads';
@@ -68,6 +71,13 @@ export default function FeedbackScreen() {
    */
   const [attachments, setAttachments] = useState<PickedAttachment[]>([]);
   const [attachmentNote, setAttachmentNote] = useState<string | null>(null);
+  /**
+   * P59: what a bug report needs to be acted on — the app build, the phone
+   * and the screen it came from — sent unless the person turns it off.
+   */
+  const { from } = useLocalSearchParams<{ from?: string }>();
+  const [includeDetails, setIncludeDetails] = useState(true);
+  const deviceDetails = useMemo(() => feedbackDeviceDetails(from ?? ''), [from]);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
 
   const pickAttachments = async () => {
@@ -142,6 +152,7 @@ export default function FeedbackScreen() {
         title: title.trim() || titleFromMessage(message),
         message: message.trim(),
         ...(uploaded.length > 0 ? { attachments: uploaded } : {}),
+        ...(includeDetails ? deviceDetails : {}),
       });
       setTitle('');
       setMessage('');
@@ -308,6 +319,23 @@ export default function FeedbackScreen() {
         {attachmentNote ? (
           <ThemedText style={[styles.small, styles.note, { color: colors.warning }]}>{attachmentNote}</ThemedText>
         ) : null}
+
+        <View style={[styles.detailsRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <View style={styles.flexText}>
+            <ThemedText style={[styles.detailsTitle, { color: colors.text }]}>
+              Include app and phone details
+            </ThemedText>
+            <ThemedText testID="feedback-device-details" tone="muted" style={styles.small}>
+              {describeFeedbackDetails(deviceDetails)}
+            </ThemedText>
+          </View>
+          <HapticSwitch
+            testID="feedback-include-details"
+            accessibilityLabel="Include app and phone details"
+            value={includeDetails}
+            onValueChange={setIncludeDetails}
+          />
+        </View>
       </KeyboardAvoidingScreen>
 
       <View
@@ -328,6 +356,21 @@ export default function FeedbackScreen() {
 }
 
 const styles = StyleSheet.create({
+  detailsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  detailsTitle: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+  },
   flex: {
     flex: 1,
   },

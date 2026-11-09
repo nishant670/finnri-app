@@ -56,7 +56,7 @@
           ]
         }
       ],
-      "versionCode": 11
+      "versionCode": 12
     },
     "web": {
       "output": "static",
@@ -65,7 +65,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-notifications",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#FF8865"
+        }
+      ],
       "./plugins/withFinnriAndroidCapture",
       [
         "expo-splash-screen",

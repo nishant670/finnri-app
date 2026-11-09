@@ -1,11 +1,15 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { useState } from 'react';
+import { StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { Button } from '@/components/ui/Button';
 import { PressableView } from '@/components/ui/PressableView';
 import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import type { AccountSetupItem } from '@/lib/account-display';
+import { Fonts, mixHex } from '@/constants/theme';
+import { getFriendlyErrorMessage } from '@/lib/api-error';
+import type { AccountSetupItem, SetupInlineField } from '@/lib/account-display';
 
 /**
  * An account's missing details as a checklist (boards R5-AcctCard,
@@ -17,15 +21,57 @@ export function SetupChecklist({
   title,
   items,
   onAdd,
+  inlineFieldFor,
+  onSaveInline,
   style,
 }: {
   title: string;
   items: AccountSetupItem[];
-  /** Opens where the detail can be filled in. */
+  /** Opens where the detail can be filled in, for a detail with no inline field. */
   onAdd: (item: AccountSetupItem) => void;
+  /**
+   * P62: the field a row opens into, so the detail is filled in where it is
+   * listed. Null sends the row to `onAdd`.
+   */
+  inlineFieldFor?: (item: AccountSetupItem) => SetupInlineField | null;
+  onSaveInline?: (item: AccountSetupItem, value: string) => Promise<void>;
   style?: StyleProp<ViewStyle>;
 }) {
   const { colors } = useThemeTokens();
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const [value, setValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openRow = (item: AccountSetupItem) => {
+    const field = inlineFieldFor?.(item);
+    if (!field || !onSaveInline) {
+      onAdd(item);
+      return;
+    }
+    setOpenKey(item.key);
+    setValue('');
+    setError(null);
+  };
+
+  const save = async (item: AccountSetupItem, field: SetupInlineField) => {
+    const problem = field.validate(value);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+    if (!onSaveInline || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onSaveInline(item, value);
+      setOpenKey(null);
+    } catch (saveError) {
+      setError(getFriendlyErrorMessage(saveError, 'Could not save that. Try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
   const done = items.filter((item) => item.complete).length;
   const fraction = items.length > 0 ? done / items.length : 0;
 
@@ -62,16 +108,32 @@ export function SetupChecklist({
               {item.detail}
             </ThemedText>
           </View>
-          {item.complete ? null : (
+          {item.complete || openKey === item.key ? null : (
             <PressableView
+              testID={`setup-add-${item.key}`}
               accessibilityRole="button"
               accessibilityLabel={`Add ${item.label.toLowerCase()}`}
-              onPress={() => onAdd(item)}
+              onPress={() => openRow(item)}
               style={[styles.add, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
               pressedStyle={styles.pressed}>
               <ThemedText style={[styles.addLabel, { color: colors.text }]}>Add</ThemedText>
             </PressableView>
           )}
+          {openKey === item.key && inlineFieldFor?.(item) ? (
+            <InlineField
+              field={inlineFieldFor(item)!}
+              label={item.label}
+              value={value}
+              onChange={(next) => {
+                setValue(next);
+                if (error) setError(null);
+              }}
+              error={error}
+              saving={saving}
+              onSave={() => void save(item, inlineFieldFor(item)!)}
+              onCancel={() => setOpenKey(null)}
+            />
+          ) : null}
         </View>
       ))}
     </View>
@@ -116,6 +178,8 @@ const styles = StyleSheet.create({
   row: {
     minHeight: 56,
     flexDirection: 'row',
+    // An opened row's field wraps onto its own line under the label.
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 12,
     paddingLeft: 14,
@@ -168,5 +232,112 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+});
+
+/** A setup row opened into its field: what to enter, Save, and Cancel (P62). */
+function InlineField({
+  field,
+  label,
+  value,
+  onChange,
+  error,
+  saving,
+  onSave,
+  onCancel,
+}: {
+  field: SetupInlineField;
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  error: string | null;
+  saving: boolean;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  const { colors } = useThemeTokens();
+  return (
+    <View testID="setup-inline-field" style={inlineStyles.wrap}>
+      <View style={inlineStyles.line}>
+        <View style={[inlineStyles.field, { backgroundColor: mixHex(colors.card, colors.track, 0.6) }]}>
+          {field.prefix ? (
+            <ThemedText tone="muted" style={inlineStyles.prefix}>
+              {field.prefix}
+            </ThemedText>
+          ) : null}
+          <TextInput
+            accessibilityLabel={label}
+            autoFocus
+            value={value}
+            onChangeText={onChange}
+            onSubmitEditing={onSave}
+            placeholder={field.placeholder}
+            placeholderTextColor={colors.muted}
+            keyboardType={field.keyboard === 'number' ? 'decimal-pad' : 'default'}
+            autoCapitalize="none"
+            returnKeyType="done"
+            editable={!saving}
+            style={[inlineStyles.input, { color: colors.text, fontFamily: Fonts.body }]}
+          />
+        </View>
+        <Button label="Save" height={40} loading={saving} onPress={onSave} />
+      </View>
+      {error ? (
+        <ThemedText tone="negative" style={inlineStyles.error}>
+          {error}
+        </ThemedText>
+      ) : null}
+      <PressableView accessibilityRole="button" onPress={onCancel} hitSlop={8} style={inlineStyles.cancel}>
+        <ThemedText tone="muted" style={inlineStyles.cancelLabel}>
+          Cancel
+        </ThemedText>
+      </PressableView>
+    </View>
+  );
+}
+
+const inlineStyles = StyleSheet.create({
+  wrap: {
+    width: '100%',
+    gap: 6,
+    paddingTop: 8,
+  },
+  line: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  field: {
+    flex: 1,
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  prefix: {
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  input: {
+    flex: 1,
+    height: 40,
+    padding: 0,
+    fontSize: 15,
+  },
+  error: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  cancel: {
+    alignSelf: 'flex-start',
+    minHeight: 28,
+    justifyContent: 'center',
+  },
+  cancelLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
 });

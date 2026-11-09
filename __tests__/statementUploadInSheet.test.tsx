@@ -80,6 +80,71 @@ describe('Uploading a statement from the Add statement sheet', () => {
     );
   });
 
+  describe('checking the date against the rows', () => {
+    const pickPDF = () =>
+      picker.getDocumentAsync.mockResolvedValue({
+        canceled: false,
+        assets: [{ uri: 'file:///cache/nov.pdf', name: 'nov.pdf', lastModified: 0 }],
+      } as DocumentPicker.DocumentPickerResult);
+
+    const rowOn = (date: string) => ({
+      date,
+      description: 'SWIGGY',
+      amount: 100,
+      type: 'expense' as const,
+    });
+
+    const baseRead: StatementRead = {
+      summary: {
+        statement_date: '2026-11-05',
+        cycle_start: '2026-10-06',
+        due_date: '2026-11-25',
+        total_due: 2377,
+      },
+      lines: [rowOn('2026-11-02')],
+      card_updates: [],
+      warnings: [],
+      source: 'pdf',
+    };
+
+    it('sends the printed period with the date it came with', async () => {
+      pickPDF();
+      const onSubmit = jest.fn();
+      const { findByTestId, findByText } = await renderSheet({
+        onSubmit,
+        onReadSource: jest.fn().mockResolvedValue(baseRead),
+      });
+
+      await fireEvent.press(await findByTestId('statement-upload-pdf'));
+      await fireEvent.press(await findByText('Add & check statement'));
+
+      expect(onSubmit.mock.calls[0][0]).toMatchObject({
+        statement_date: '2026-11-05',
+        cycle_start: '2026-10-06',
+      });
+    });
+
+    it('refuses a date a row disproves until the user keeps it', async () => {
+      pickPDF();
+      const read = { ...baseRead, lines: [rowOn('2026-11-12')] };
+      const onSubmit = jest.fn();
+      const { findByTestId, findByText, queryByText } = await renderSheet({
+        onSubmit,
+        onReadSource: jest.fn().mockResolvedValue(read),
+      });
+
+      await fireEvent.press(await findByTestId('statement-upload-pdf'));
+      await findByText(/has a transaction on 12 Nov 2026/);
+      await fireEvent.press(await findByText('Add & check statement'));
+      expect(onSubmit).not.toHaveBeenCalled();
+
+      await fireEvent.press(await findByTestId('statement-keep-date'));
+      expect(queryByText(/has a transaction on 12 Nov 2026/)).toBeNull();
+      await fireEvent.press(await findByText('Add & check statement'));
+      expect(onSubmit).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('asks for the PDF password in the sheet and retries with it', async () => {
     picker.getDocumentAsync.mockResolvedValue({
       canceled: false,

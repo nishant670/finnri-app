@@ -5,6 +5,7 @@ import { mixHex, withAlpha } from '@/constants/theme';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { CAPTURE_HINTS, useSpeakLanguage } from '@/lib/speak-language';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { AudioRecorder } from 'expo-audio';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -109,12 +110,21 @@ type VoiceInputCardProps = {
   onClear: () => void;
   isProcessing?: boolean;
   /**
-   * The last attempt on this recording came back as a failure.
-   *
-   * It changes what the card offers, not what it does: the primary action is
-   * still `onProcess`, but a button labelled "Process" directly under an error
-   * about the thing it just failed to process reads as though the app did not
-   * notice. "Try again" is the same press, described honestly.
+   * Throws the clip away while it is still recording: the moment someone
+   * hears themselves say the wrong amount. Nothing is sent, so nothing is
+   * charged. Stopping (the mic button) sends straight away; there is no
+   * "Use this" step after it any more.
+   */
+  onDiscardRecording?: () => void;
+  /**
+   * Stops a read that is under way. The draft sheet carries the same Cancel;
+   * this one is for the moment before the sheet is up, or if it was closed.
+   */
+  onCancelProcessing?: () => void;
+  /**
+   * The last attempt on this recording came back as a failure. The failure
+   * card below says so and offers Try again; this card goes back to the mic
+   * so the two never both offer a retry.
    */
   hasFailed?: boolean;
   isTextInputVisible?: boolean;
@@ -125,6 +135,39 @@ type VoiceInputCardProps = {
    * the title on a narrow phone.
    */
   onScanBill?: () => void;
+  /**
+   * Manual entry, as the capture card's last footer action (P2). It is free,
+   * so it is also what the card offers once AI credits run out.
+   */
+  onAddManually?: () => void;
+  /**
+   * AI capture can't be paid for (P1). The card says so itself instead of a
+   * separate block below it: the mic greys out, manual entry becomes the
+   * card's one accent action, and the way to more credits sits at its foot.
+   */
+  creditBlock?: CaptureCreditBlock | null;
+  /**
+   * A quiet status strip at the card's foot while credits are running low,
+   * such as "8 AI credits left today · View plans" (P1).
+   */
+  creditNote?: CaptureCreditNote | null;
+};
+
+export type CaptureCreditBlock = {
+  title: string;
+  message: string;
+  /** "950 total credits left", or null when there is nothing to report. */
+  footnote?: string | null;
+  actionLabel: string;
+  onAction: () => void;
+  /** A refused capture can be put away; a balance that is gone cannot. */
+  onDismiss?: () => void;
+};
+
+export type CaptureCreditNote = {
+  text: string;
+  actionLabel: string;
+  onAction: () => void;
 };
 
 export function VoiceInputCard({
@@ -139,10 +182,15 @@ export function VoiceInputCard({
   onProcess,
   onClear,
   isProcessing = false,
+  onDiscardRecording,
+  onCancelProcessing,
   hasFailed = false,
   isTextInputVisible = false,
   onToggleTextInput,
   onScanBill,
+  onAddManually,
+  creditBlock,
+  creditNote,
 }: VoiceInputCardProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
@@ -156,15 +204,9 @@ export function VoiceInputCard({
   const buttonScale = useSharedValue(1);
   const textEntryAnim = useSharedValue(shouldShowTextInput ? 1 : 0);
   const promptFade = useSharedValue(1);
-  const samplePrompts = useMemo(
-    () => [
-      `Spent 250 on food via UPI`,
-      `Got 2000 from freelance`,
-      `Paid 1200 rent by bank`,
-      `Coffee 180 using card`,
-    ],
-    []
-  );
+  // In the language chosen on onboarding's "I mostly speak" (P69).
+  const language = useSpeakLanguage();
+  const samplePrompts = CAPTURE_HINTS[language];
   const [promptIndex, setPromptIndex] = useState(0);
   // The rotation runs off one long-lived interval, so the completion worklet
   // would otherwise close over whichever index was current when the effect last
@@ -283,46 +325,142 @@ export function VoiceInputCard({
     transform: [{ translateY: interpolate(textEntryAnim.value, [0, 1], [-8, 0]) }],
   }));
   const halo = mixHex(colors.card, colors.accent, HALO_TINT);
+  // Three ways in don't fit side by side on a narrow phone, so each stacks its
+  // icon over its label.
+  const stacked = Boolean(onScanBill && onAddManually);
   const busy = isProcessing || isRecording;
 
   const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
 
-  // A finished clip, waiting to be used or dropped.
-  if (hasRecording && !isRecording) {
+  const creditLink = (text: string | null | undefined, actionLabel: string, onAction: () => void) => (
+    <PressableView
+      accessibilityRole="button"
+      accessibilityLabel={text ? `${text}. ${actionLabel}` : actionLabel}
+      onPress={onAction}
+      style={[styles.creditLink, { borderTopColor: colors.border }]}
+      pressedStyle={styles.pressed}>
+      <ThemedText tone="muted" numberOfLines={1} style={[styles.caption, styles.creditLinkText]}>
+        {text ?? ''}
+      </ThemedText>
+      <View style={styles.creditLinkAction}>
+        <ThemedText style={[styles.creditLinkLabel, { color: colors.text }]}>{actionLabel}</ThemedText>
+        <MaterialCommunityIcons name="chevron-right" size={16} color={colors.text} />
+      </View>
+    </PressableView>
+  );
+
+  // Out of AI credits (P1, board R1-Home-UsedUp-Proposals). Not shown over a
+  // recording or a parse already under way: those finish first.
+  if (creditBlock && !isRecording && !isProcessing && !hasRecording) {
+    return (
+      <View style={cardStyle} accessibilityRole="alert">
+        <View style={styles.hero}>
+          <View style={[styles.micFrame, { backgroundColor: mixHex(colors.card, colors.track, 0.5) }]}>
+            <View
+              accessible
+              accessibilityRole="button"
+              accessibilityLabel="Voice capture paused"
+              accessibilityState={{ disabled: true }}
+              style={[styles.mic, { backgroundColor: colors.track }]}>
+              <MaterialCommunityIcons
+                name="microphone-off"
+                size={28}
+                color={withAlpha(colors.text, 0.5)}
+              />
+            </View>
+          </View>
+          <View style={styles.heroText}>
+            <ThemedText style={[styles.title, { color: colors.text }]}>{creditBlock.title}</ThemedText>
+            <ThemedText tone="muted" style={styles.body}>
+              {creditBlock.message}
+            </ThemedText>
+          </View>
+          {creditBlock.onDismiss ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              onPress={creditBlock.onDismiss}
+              hitSlop={8}
+              style={[styles.iconButton, styles.dismiss]}>
+              <MaterialCommunityIcons name="close" size={20} color={colors.muted} />
+            </Pressable>
+          ) : null}
+        </View>
+        {onAddManually ? (
+          <View style={styles.blockedAction}>
+            <Button label="Add manually" icon="plus" height={48} onPress={onAddManually} />
+          </View>
+        ) : null}
+        {creditLink(creditBlock.footnote, creditBlock.actionLabel, creditBlock.onAction)}
+      </View>
+    );
+  }
+
+  // A clip being read. Stopping the mic sends it straight away, so this is
+  // usually under the draft sheet; it shows when the sheet is not up.
+  if (hasRecording && !isRecording && isProcessing) {
     return (
       <View style={cardStyle}>
         <View style={styles.hero}>
           <View style={[styles.micFrame, { backgroundColor: halo }]}>
             <View style={[styles.mic, { backgroundColor: colors.card }]}>
-              <MaterialCommunityIcons
-                name={hasFailed ? 'microphone-message' : 'waveform'}
-                size={28}
-                color={hasFailed ? colors.negative : colors.text}
-              />
+              <ActivityIndicator color={colors.text} />
             </View>
           </View>
           <View style={styles.heroText}>
-            <ThemedText style={[styles.title, { color: colors.text }]}>
-              {hasFailed ? 'Recording kept' : 'Recording ready'}
+            <ThemedText
+              accessibilityLiveRegion="polite"
+              style={[styles.title, { color: colors.text }]}>
+              Reading your recording…
             </ThemedText>
+          </View>
+        </View>
+        {onCancelProcessing ? (
+          <View style={[styles.footerActions, { borderTopColor: colors.border }]}>
+            <Button
+              label="Cancel"
+              variant="outline"
+              icon="close"
+              height={44}
+              onPress={onCancelProcessing}
+              style={styles.footerButton}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  // A clip that was never sent: only when a send was refused before it went
+  // out (credits, for one). A failed read falls through to the mic below, and
+  // the failure card carries the retry.
+  if (hasRecording && !isRecording && !hasFailed) {
+    return (
+      <View style={cardStyle}>
+        <View style={styles.hero}>
+          <View style={[styles.micFrame, { backgroundColor: halo }]}>
+            <View style={[styles.mic, { backgroundColor: colors.card }]}>
+              <MaterialCommunityIcons name="waveform" size={28} color={colors.text} />
+            </View>
+          </View>
+          <View style={styles.heroText}>
+            <ThemedText style={[styles.title, { color: colors.text }]}>Recording not sent</ThemedText>
           </View>
         </View>
 
         <View style={[styles.footerActions, { borderTopColor: colors.border }]}>
           <Button
-            label={hasFailed ? 'Try again' : 'Use this'}
-            icon={hasFailed ? 'refresh' : 'flash'}
+            label="Send"
+            icon="send-outline"
             height={44}
-            loading={isProcessing}
             onPress={onProcess}
             style={styles.footerButton}
           />
           <Button
-            label="Cancel"
+            label="Discard"
             variant="outline"
             icon="close"
             height={44}
-            disabled={isProcessing}
             onPress={onClear}
             style={styles.footerButton}
           />
@@ -382,7 +520,9 @@ export function VoiceInputCard({
             {isRecording ? 'Listening…' : 'Tap and speak'}
           </ThemedText>
           <ThemedText tone="muted" style={styles.body}>
-            Talk the way you normally would. Finnri sorts it out.
+            {isRecording
+              ? 'Tap stop when you’re done. Finnri reads it straight away.'
+              : 'Talk the way you normally would. Finnri sorts it out.'}
           </ThemedText>
           <Animated.Text
             numberOfLines={1}
@@ -392,7 +532,24 @@ export function VoiceInputCard({
         </View>
       </View>
 
-      {shouldShowTextInput ? (
+      {isRecording && onDiscardRecording ? (
+        // While it records, the footer's other ways in are off anyway; its one
+        // job is the way out. Discarding sends nothing, so it costs nothing.
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <PressableView
+            testID="voice-discard-recording"
+            accessibilityRole="button"
+            accessibilityHint="Stops listening and throws the recording away. Nothing is sent."
+            onPress={onDiscardRecording}
+            style={styles.footerAction}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="close" size={18} color={colors.muted} />
+            <ThemedText numberOfLines={1} style={[styles.footerLabel, { color: colors.text }]}>
+              Discard
+            </ThemedText>
+          </PressableView>
+        </View>
+      ) : shouldShowTextInput ? (
         <Animated.View style={[styles.typeArea, { borderTopColor: colors.border }, textEntryStyle]}>
           <View style={[styles.field, { borderColor: colors.text, backgroundColor: colors.card }]}>
             <TextInput
@@ -480,15 +637,20 @@ export function VoiceInputCard({
           ) : null}
         </Animated.View>
       ) : (
-        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+        <View style={[styles.footer, stacked && styles.footerStacked, { borderTopColor: colors.border }]}>
           <PressableView
             accessibilityRole="button"
             onPress={onToggleTextInput}
             disabled={busy}
-            style={[styles.footerAction, styles.footerActionFirst, busy && styles.inactive]}
+            style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
             pressedStyle={styles.pressed}>
-            <MaterialCommunityIcons name="pencil-outline" size={20} color={colors.text} />
-            <ThemedText style={[styles.footerLabel, { color: colors.text }]}>Type instead</ThemedText>
+            <MaterialCommunityIcons name="pencil-outline" size={18} color={colors.muted} />
+            <ThemedText
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
+              Type instead
+            </ThemedText>
           </PressableView>
           {onScanBill ? (
             <>
@@ -499,17 +661,43 @@ export function VoiceInputCard({
                 accessibilityHint="Photograph a bill or pick a photo, and Finnri fills in the entry."
                 onPress={onScanBill}
                 disabled={busy}
-                style={[styles.footerAction, busy && styles.inactive]}
+                style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
                 pressedStyle={styles.pressed}>
-                <MaterialCommunityIcons name="camera-outline" size={20} color={colors.text} />
-                <ThemedText style={[styles.footerLabel, { color: colors.text }]}>
+                <MaterialCommunityIcons name="camera-outline" size={18} color={colors.muted} />
+                <ThemedText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
                   Scan a bill
+                </ThemedText>
+              </PressableView>
+            </>
+          ) : null}
+          {onAddManually ? (
+            <>
+              <View style={[styles.footerDivider, { backgroundColor: colors.border }]} />
+              <PressableView
+                testID="add-manually-home"
+                accessibilityRole="button"
+                onPress={onAddManually}
+                disabled={busy}
+                style={[styles.footerAction, stacked && styles.footerActionStacked, busy && styles.inactive]}
+                pressedStyle={styles.pressed}>
+                <MaterialCommunityIcons name="plus" size={18} color={colors.muted} />
+                <ThemedText
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  style={[styles.footerLabel, stacked && styles.footerLabelStacked, { color: colors.text }]}>
+                  Add manually
                 </ThemedText>
               </PressableView>
             </>
           ) : null}
         </View>
       )}
+      {creditNote && !shouldShowTextInput
+        ? creditLink(creditNote.text, creditNote.actionLabel, creditNote.onAction)
+        : null}
     </View>
   );
 }
@@ -588,25 +776,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderTopWidth: 1,
   },
+  // Equal shares, so two or three ways in sit evenly across the card
+  // (board R1-Home-Empty-Proposals).
   footerAction: {
+    flex: 1,
+    minWidth: 0,
     height: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: 16,
-  },
-  footerActionFirst: {
-    flex: 1,
-    paddingLeft: 22,
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 6,
   },
   footerDivider: {
     width: 1,
     height: 24,
   },
+  footerStacked: {
+    height: 60,
+  },
+  footerActionStacked: {
+    flexDirection: 'column',
+    gap: 3,
+  },
+  footerLabelStacked: {
+    fontSize: 13,
+    lineHeight: 16,
+  },
   footerLabel: {
+    flexShrink: 1,
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '500',
+  },
+  dismiss: {
+    alignSelf: 'flex-start',
+  },
+  blockedAction: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  creditLink: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingLeft: 22,
+    paddingRight: 12,
+    borderTopWidth: 1,
+  },
+  creditLinkText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  creditLinkAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  creditLinkLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
   },
   footerActions: {
     flexDirection: 'row',

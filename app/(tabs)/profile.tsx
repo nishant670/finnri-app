@@ -18,6 +18,7 @@ import { userDisplayName } from '@/lib/display-name';
 import { clearGuestUpgradeSnooze } from '@/lib/guest-upgrade';
 import { getMonogram } from '@/lib/monogram';
 import { logoutSession } from '@/lib/auth';
+import { unregisterPushDevice } from '@/lib/push-device';
 import { appVersionLabel } from '@/lib/app-version';
 
 
@@ -46,6 +47,7 @@ export default function ProfileScreen() {
     if (token) {
       // A connection failure must not trap the person in the account. Clear
       // the device either way; the server call revokes the token when online.
+      await unregisterPushDevice(token);
       await logoutSession(token).catch(() => undefined);
     }
     clearAuth();
@@ -225,7 +227,7 @@ export default function ProfileScreen() {
             icon="message-text-outline"
             title="Feedback & ideas"
             subtitle="Suggest features or report issues"
-            onPress={() => router.push('/feedback')}
+            onPress={() => router.push({ pathname: '/feedback', params: { from: 'Profile' } })}
             divider
           />
           <SettingsRow

@@ -60,6 +60,36 @@ describe('buildTransactionListItems', () => {
     expect(items).toHaveLength(3);
   });
 
+  it('drops a row once its delete has been sent, and a day left empty with it', () => {
+    const items = buildTransactionListItems([july2, july2b, july1], {
+      sort: 'newest',
+      hasMore: false,
+      removedIds: new Set(['1', '3']),
+    });
+
+    expect(outline(items)).toEqual([`${july2.section} -50`, '  2']);
+  });
+
+  it('dates every day past yesterday in full', () => {
+    const daysAgo = (days: number) => {
+      const day = new Date();
+      day.setDate(day.getDate() - days);
+      return `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, '0')}-${String(day.getDate()).padStart(2, '0')}`;
+    };
+    const titles = buildTransactionListItems(
+      [row(1, daysAgo(0), 1), row(2, daysAgo(1), 1), row(3, daysAgo(2), 1), row(4, daysAgo(5), 1)],
+      { sort: 'newest', hasMore: false }
+    )
+      .filter((item) => item.kind === 'day')
+      .map((item) => item.title);
+
+    expect(titles[0]).toBe('Today');
+    expect(titles[1]).toBe('Yesterday');
+    // "2 days ago" made the user count back to find a date.
+    expect(titles[2]).toMatch(/^\d{2} [A-Z][a-z]+ \d{4}$/);
+    expect(titles[3]).toMatch(/^\d{2} [A-Z][a-z]+ \d{4}$/);
+  });
+
   it('puts the oldest day first when the list is sorted that way', () => {
     // A later page of an oldest-first list holds newer days, and they belong
     // below what is already on screen.

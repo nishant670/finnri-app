@@ -21,7 +21,7 @@ import { MINUS_SIGN } from '@/lib/money';
 
 import { GoogleGlyph } from './GoogleGlyph';
 import { styles as authStyles } from './styles';
-import { welcomeHeroSize } from './welcome-layout';
+import { welcomeHeroExamples, welcomeHeroSize } from './welcome-layout';
 
 type AuthScreen1Props = {
   /** Guest check-in. The primary path: it goes straight to the app. */
@@ -47,6 +47,55 @@ type AuthScreen1Props = {
  * final size straight away rather than snapping once the measurement lands.
  */
 const ASSUMED_SYSTEM_CHROME = 90;
+
+type IconName = React.ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+/**
+ * The three ways in, each as what was said and the entry it became. A short
+ * phone shows the first; a tall one shows all three, which is how the panel
+ * fills its height with something worth reading instead of empty space.
+ */
+const CAPTURE_EXAMPLES: {
+  key: string;
+  via: IconName;
+  viaLabel: string;
+  said: string;
+  tile: { icon: string; color: string; bgColor: string };
+  title: string;
+  meta: string;
+  amount: string;
+}[] = [
+  {
+    key: 'type',
+    via: 'keyboard-outline',
+    viaLabel: 'Typed',
+    said: 'Spent ₹250 on lunch via UPI',
+    tile: MOCK_TILES.food,
+    title: 'Lunch',
+    meta: 'Food & Drinks · UPI',
+    amount: '₹250',
+  },
+  {
+    key: 'say',
+    via: 'microphone-outline',
+    viaLabel: 'Said',
+    said: 'Petrol 1500 on my HDFC card',
+    tile: { icon: 'gas-station-outline', color: '#C2410C', bgColor: '#FFEDD5' },
+    title: 'Petrol',
+    meta: 'Transport · Credit card',
+    amount: '₹1,500',
+  },
+  {
+    key: 'scan',
+    via: 'camera-outline',
+    viaLabel: 'Scanned',
+    said: 'Photo of a grocery bill',
+    tile: { icon: 'cart-outline', color: '#2E7D32', bgColor: '#E8F5E9' },
+    title: 'DMart',
+    meta: 'Groceries · Cash',
+    amount: '₹1,240',
+  },
+];
 
 /**
  * The Welcome screen (R13-Welcome). Guest is the primary button because it is
@@ -105,21 +154,28 @@ export const AuthScreen1 = ({
           testID="welcome-illustration"
           style={[styles.panel, { height: heroHeight, backgroundColor: colors.track }]}>
           <View style={styles.illustration}>
-            <View style={[styles.bubble, { backgroundColor: bubble }]}>
-              <ThemedText style={styles.bubbleText}>Spent ₹250 on lunch via UPI</ThemedText>
-            </View>
-            <MockCard width={280} style={styles.entry}>
-              <View style={styles.entryRow}>
-                <MockTile {...MOCK_TILES.food} size={36} radius={10} iconSize={18} />
-                <View style={styles.grow}>
-                  <ThemedText style={styles.entryTitle}>Lunch</ThemedText>
-                  <ThemedText tone="muted" style={styles.entryMeta}>
-                    Food & Drinks · UPI
-                  </ThemedText>
+            {CAPTURE_EXAMPLES.slice(0, welcomeHeroExamples(heroHeight)).map((example) => (
+              <View key={example.key} style={styles.example}>
+                <View
+                  accessibilityLabel={`${example.viaLabel}: ${example.said}`}
+                  style={[styles.bubble, { backgroundColor: bubble }]}>
+                  <MaterialCommunityIcons name={example.via} size={15} color={colors.muted} />
+                  <ThemedText style={styles.bubbleText}>{example.said}</ThemedText>
                 </View>
-                <ThemedText style={styles.entryAmount}>{`${MINUS_SIGN}₹250`}</ThemedText>
+                <MockCard width={280} style={styles.entry}>
+                  <View style={styles.entryRow}>
+                    <MockTile {...(example.tile as typeof MOCK_TILES.food)} size={36} radius={10} iconSize={18} />
+                    <View style={styles.grow}>
+                      <ThemedText style={styles.entryTitle}>{example.title}</ThemedText>
+                      <ThemedText tone="muted" style={styles.entryMeta}>
+                        {example.meta}
+                      </ThemedText>
+                    </View>
+                    <ThemedText style={styles.entryAmount}>{`${MINUS_SIGN}${example.amount}`}</ThemedText>
+                  </View>
+                </MockCard>
               </View>
-            </MockCard>
+            ))}
           </View>
         </View>
       ) : null}
@@ -278,10 +334,17 @@ const styles = StyleSheet.create({
   },
   illustration: {
     alignItems: 'center',
+    gap: 16,
+  },
+  example: {
+    alignItems: 'center',
     gap: 10,
   },
   bubble: {
     alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderTopLeftRadius: 16,

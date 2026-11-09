@@ -11,6 +11,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
+import { quickPromptIcon } from '@/lib/quick-prompts';
 import { API_BASE_URL } from '@/lib/transactions';
 
 export type QuickPrompt = {
@@ -124,7 +125,9 @@ export function QuickPrompts({
               style={chipStyle}
               pressedStyle={styles.pressed}>
               <MaterialCommunityIcons
-                name={getMoodIconName(item.icon || 'lightning-bolt', theme.mood.iconStyle) as any}
+                // From the category, not the stored icon, so prompts saved
+                // under the old icon map draw the same glyph as their rows.
+                name={getMoodIconName(quickPromptIcon(item.category, item.type), theme.mood.iconStyle) as any}
                 size={18}
                 color={colors.text}
               />
@@ -150,7 +153,10 @@ export function QuickPrompts({
   );
 }
 
-/** Board R1-Home-Empty: a 14/700 heading over a row of 40dp chips, 16 in from the edge. */
+/**
+ * Board R1-Home-Empty-Proposals: a 14/700 heading over a row of 40dp chips,
+ * 16 in from the edge.
+ */
 const styles = StyleSheet.create({
   section: {
     marginTop: 10,

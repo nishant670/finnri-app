@@ -1,12 +1,12 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { cssInterop } from 'nativewind';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -18,6 +18,7 @@ import {
   formatDisplayDate,
   fromISODate,
   parseAmountInput,
+  statementDateProblem,
   toISODate,
 } from '@/lib/statement-dates';
 import {
@@ -87,7 +88,7 @@ export function StatementFormSheet({
   const [totalDue, setTotalDue] = useState('');
   const [minimumDue, setMinimumDue] = useState('');
   const [dueDateTouched, setDueDateTouched] = useState(false);
-  const [picker, setPicker] = useState<'statement' | 'due' | null>(null);
+  const { pickDate } = useDatePicker();
   const [source, setSource] = useState<StatementUploadSource | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
   // A refusal for credits, which the See plans link below the error answers.
@@ -97,6 +98,8 @@ export function StatementFormSheet({
   const [isReading, setIsReading] = useState(false);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [password, setPassword] = useState('');
+  // A date the user has kept although a row read from the file disagrees.
+  const [keptDate, setKeptDate] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
@@ -114,6 +117,7 @@ export function StatementFormSheet({
     setIsReading(false);
     setNeedsPassword(false);
     setPassword('');
+    setKeptDate(null);
   }, [visible, initial, card.statement_day, card.due_day]);
 
   // Moving the statement date carries the due date with it, until the user
@@ -126,7 +130,13 @@ export function StatementFormSheet({
   const total = parseAmountInput(totalDue);
   const minimum = parseAmountInput(minimumDue);
 
+  // Refused until the user says otherwise: a row can be misread, and the bank's
+  // paper wins over the reading of it.
+  const dateProblem =
+    read && keptDate !== statementDate ? statementDateProblem(statementDate, read.lines) : null;
+
   const validationError = useMemo(() => {
+    if (dateProblem) return dateProblem;
     if (!totalDue.trim()) return null;
     if (total <= 0) return 'Enter the total on your statement.';
     if (minimum > total) return 'The minimum due cannot be more than the total.';
@@ -134,7 +144,7 @@ export function StatementFormSheet({
       return 'The due date has to be after the statement date.';
     }
     return null;
-  }, [totalDue, total, minimum, dueDate, statementDate]);
+  }, [totalDue, total, minimum, dueDate, statementDate, dateProblem]);
 
   const canSubmit = total > 0 && !validationError && !submitting && !isReading;
 
@@ -151,6 +161,7 @@ export function StatementFormSheet({
     try {
       const result = await onReadSource(picked, filePassword);
       setRead(result);
+      setKeptDate(null);
       setNeedsPassword(false);
       // The password is not kept a moment longer than the request needed it.
       setPassword('');
@@ -248,24 +259,17 @@ export function StatementFormSheet({
     }
   };
 
-  const openPicker = (which: 'statement' | 'due') => {
-    const current = which === 'statement' ? statementDate : dueDate;
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: fromISODate(current),
-        onValueChange: (_event, selected) => {
-          if (!selected) return;
-          if (which === 'statement') handleStatementDate(toISODate(selected));
-          else {
-            setDueDate(toISODate(selected));
-            setDueDateTouched(true);
-          }
-        },
-        onDismiss: () => undefined,
-      });
-      return;
+  const openPicker = async (which: 'statement' | 'due') => {
+    const selected = await pickDate({
+      title: which === 'statement' ? 'Statement date' : 'Due date',
+      value: fromISODate(which === 'statement' ? statementDate : dueDate),
+    });
+    if (!selected) return;
+    if (which === 'statement') handleStatementDate(toISODate(selected));
+    else {
+      setDueDate(toISODate(selected));
+      setDueDateTouched(true);
     }
-    setPicker(which);
   };
 
   return (
@@ -481,22 +485,18 @@ export function StatementFormSheet({
           </TText>
         )}
 
-        {picker && Platform.OS !== 'android' && (
-          <DateTimePicker
-            value={fromISODate(picker === 'statement' ? statementDate : dueDate)}
-            mode="date"
-            display="spinner"
-            onChange={(_event, selected) => {
-              setPicker(null);
-              if (!selected) return;
-              if (picker === 'statement') handleStatementDate(toISODate(selected));
-              else {
-                setDueDate(toISODate(selected));
-                setDueDateTouched(true);
-              }
-            }}
-          />
-        )}
+        {dateProblem ? (
+          <Pressable
+            testID="statement-keep-date"
+            accessibilityRole="button"
+            onPress={() => setKeptDate(statementDate)}
+            hitSlop={6}
+            className="mt-1 self-start">
+            <TText className="text-xs" style={{ fontFamily: Fonts.title, color: theme.accent }}>
+              My statement shows this date
+            </TText>
+          </Pressable>
+        ) : null}
 
         <Pressable
           accessibilityRole="button"
@@ -505,6 +505,10 @@ export function StatementFormSheet({
             onSubmit(
               {
                 statement_date: statementDate,
+                // The printed period only describes the date it came with.
+                ...(read?.summary.cycle_start && read.summary.statement_date === statementDate
+                  ? { cycle_start: read.summary.cycle_start }
+                  : {}),
                 due_date: dueDate,
                 total_due: total,
                 minimum_due: minimum,
@@ -654,10 +658,14 @@ function describeRead(read: StatementRead, prefilled: (string | false | undefine
     prefilled.length > 0
       ? `Filled in the ${prefilled.join(', ')} from your statement. Check them before saving.`
       : 'Enter the total from your statement.';
+  const dateNote =
+    read.lines.length > 0 && !read.summary.statement_date
+      ? ' Finnri could not confirm the statement date, so set it from your statement.'
+      : '';
   const rows =
     read.lines.length > 0
       ? `Found ${read.lines.length} transaction${read.lines.length === 1 ? '' : 's'}; after saving, Finnri adds only the ones you haven't logged.`
       : 'No transactions could be read from this file. Screenshots of the transaction pages may work.';
   const credits = read.credits_charged ? ` Used ${read.credits_charged} AI credits.` : '';
-  return `${filled} ${rows}${credits}`;
+  return `${filled}${dateNote} ${rows}${credits}`;
 }

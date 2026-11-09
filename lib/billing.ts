@@ -152,6 +152,9 @@ export type AIUsageEvent = {
   error_code?: string;
   /** 'question' when the parse was answered as an Ask Finnri question. */
   intent?: string;
+  /** The entry this read's draft became (P57); `entry` is absent once deleted. */
+  entry_id?: number | null;
+  entry?: { id: number; title: string; amount: number; type: string; date: string } | null;
   started_at: string;
   finished_at?: string | null;
 };
@@ -417,4 +420,108 @@ export const formatPlanPrice = (plan: BillingPlan) => {
     currency: plan.currency || 'INR',
     maximumFractionDigits: 0,
   }).format(plan.price_minor / 100);
+};
+
+/** How many of each interval make a month, for "about ₹37 a month" (P56). */
+const MONTHS_PER_INTERVAL: Record<string, number> = {
+  weekly: 12 / 52,
+  monthly: 1,
+  quarterly: 3,
+  yearly: 12,
+};
+
+/**
+ * What a pass comes to each month, at the price this person would pay — the
+ * launch price while it is theirs (P56, board R8-Plans-Proposals). Null for a
+ * monthly pass, whose price already says it, and for one without a price.
+ */
+export const monthlyEquivalentMinor = (plan: BillingPlan, offer: PlanOffer | null) => {
+  const months = MONTHS_PER_INTERVAL[plan.billing_interval];
+  const price = offer ? offer.price_minor : plan.price_minor;
+  if (!months || months === 1 || !price || price <= 0) return null;
+  return Math.round(price / months);
+};
+
+/**
+ * Credits in what they buy (P55): "about 162 typed entries or 32 bill
+ * scans", at today's prices from the server. Null when there is nothing to
+ * spend.
+ */
+export const creditsInWords = (credits: number, textPrice: number, scanPrice: number) => {
+  if (!(credits > 0) || !(textPrice > 0)) return null;
+  const typed = Math.floor(credits / textPrice);
+  const scans = scanPrice > 0 ? Math.floor(credits / scanPrice) : 0;
+  if (typed < 1) return null;
+  const typedPart = `${typed.toLocaleString('en-IN')} typed ${typed === 1 ? 'entry' : 'entries'}`;
+  return scans >= 1
+    ? `About ${typedPart} or ${scans.toLocaleString('en-IN')} bill ${scans === 1 ? 'scan' : 'scans'}`
+    : `About ${typedPart}`;
+};
+
+/**
+ * What a pass's credits come to, one kind of AI read at a time: "about 720
+ * typed entries, 300 voice entries or 144 bill scans". Each figure is the
+ * whole pass spent on that one thing, which is why the line says "or".
+ */
+export const passInWords = (
+  credits: number,
+  prices: { text: number; voice: number; receipt: number }
+) => {
+  if (!(credits > 0)) return null;
+  const parts = [
+    [prices.text, 'typed', 'entry', 'entries'],
+    [prices.voice, 'voice', 'entry', 'entries'],
+    [prices.receipt, 'bill', 'scan', 'scans'],
+  ] as const;
+  const counts = parts
+    .filter(([price]) => price > 0)
+    .map(([price, kind, one, many]) => {
+      const count = Math.floor(credits / price);
+      return count >= 1 ? `${count.toLocaleString('en-IN')} ${kind} ${count === 1 ? one : many}` : null;
+    })
+    .filter((part): part is string => part !== null);
+  if (counts.length === 0) return null;
+  const last = counts.pop() as string;
+  return `about ${counts.length ? `${counts.join(', ')} or ${last}` : last}`;
+};
+
+/** What Finnri AI did for someone, counted from their usage history. */
+export type AIRecap = {
+  entries: number;
+  bills: number;
+  statements: number;
+  questions: number;
+};
+
+/**
+ * Counts only what worked and was kept. A typed or spoken capture counts once
+ * it became an entry — a draft thrown away saved nobody any typing. A bill
+ * scan, statement read or question counts when the read succeeded.
+ */
+export const aiRecap = (events: AIUsageEvent[]): AIRecap => {
+  const recap: AIRecap = { entries: 0, bills: 0, statements: 0, questions: 0 };
+  events.forEach((event) => {
+    if (event.status !== 'succeeded') return;
+    if (event.intent === 'question') recap.questions += 1;
+    else if (event.action_code.includes('receipt')) recap.bills += 1;
+    else if (event.action_code === 'statement_pdf_read' || event.action_code === 'future_ai_statement_import') {
+      recap.statements += 1;
+    } else if (event.entry_id) recap.entries += 1;
+  });
+  return recap;
+};
+
+/** "filled in 64 entries, read 3 bills and answered 5 questions", or null. */
+export const aiRecapLine = (recap: AIRecap) => {
+  const plural = (count: number, one: string, many: string) =>
+    `${count.toLocaleString('en-IN')} ${count === 1 ? one : many}`;
+  const parts = [
+    recap.entries > 0 ? `filled in ${plural(recap.entries, 'entry', 'entries')}` : null,
+    recap.bills > 0 ? `read ${plural(recap.bills, 'bill', 'bills')}` : null,
+    recap.statements > 0 ? `read ${plural(recap.statements, 'statement', 'statements')}` : null,
+    recap.questions > 0 ? `answered ${plural(recap.questions, 'question', 'questions')}` : null,
+  ].filter((part): part is string => part !== null);
+  if (parts.length === 0) return null;
+  const last = parts.pop() as string;
+  return parts.length ? `${parts.join(', ')} and ${last}` : last;
 };

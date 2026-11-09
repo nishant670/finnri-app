@@ -76,4 +76,13 @@ describe('what the app says when a capture fails', () => {
       isCreditParseError(new ParseApiError({ error: 'schema_invalid' }, 422, 'fallback'))
     ).toBe(false);
   });
+
+  it('explains a silent recording, says it was free, and offers no retry', () => {
+    const failure = describeParseFailure(
+      new ParseApiError({ error: 'empty_transcript', message: 'server words', credits_charged: 0 }, 400, 'fallback')
+    );
+    expect(failure.title).toBe("Didn't catch that");
+    expect(failure.message).toContain('no credits were used');
+    expect(failure.canRetry).toBe(false);
+  });
 });

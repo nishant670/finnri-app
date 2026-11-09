@@ -25,25 +25,30 @@ import { SectionHeader } from './SectionHeader';
 export function SpendingAnalysisCard({
   dashboard,
   onDetails,
+  showTrend = true,
 }: {
   dashboard: DashboardResponse;
   onDetails: () => void;
+  /** Off on the Insights tab, where the glance card already draws the days (P29). */
+  showTrend?: boolean;
 }) {
   const merchants = dashboard.top_merchants.slice(0, 2);
 
   return (
     <SectionHeader title="Spending breakdown" actionLabel="Details" onAction={onDetails}>
       <View className="gap-4">
-        <SpendTrendChart
-          dashboard={dashboard}
-          onOpenRange={(bucket) =>
-            openFilteredTransactions({
-              startDate: bucket.start,
-              endDate: bucket.end,
-              type: 'Expense',
-            })
-          }
-        />
+        {showTrend ? (
+          <SpendTrendChart
+            dashboard={dashboard}
+            onOpenRange={(bucket) =>
+              openFilteredTransactions({
+                startDate: bucket.start,
+                endDate: bucket.end,
+                type: 'Expense',
+              })
+            }
+          />
+        ) : null}
 
         {dashboard.summary.total_spent > 0 && (
           <CategoryDonut

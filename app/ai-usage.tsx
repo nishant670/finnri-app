@@ -1,4 +1,3 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
@@ -14,7 +13,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { formatTime } from '@/lib/datetime';
-import { aiUsageLabel, isAskFinnriUsage } from '@/lib/ai-usage';
+import { AI_VISUALS, aiUsageLabel, isAskFinnriUsage } from '@/lib/ai-usage';
 import { fetchAIUsage, type AIUsageEvent } from '@/lib/billing';
 
 const statusLabels: Record<string, string> = {
@@ -28,14 +27,14 @@ const statusLabels: Record<string, string> = {
 };
 
 /** Each kind of action's glyph and hue, so a scan and a typed note are told apart at a glance. */
-const actionVisual = (event: AIUsageEvent): { icon: keyof typeof MaterialCommunityIcons.glyphMap; hue: string } => {
+const actionVisual = (event: AIUsageEvent) => {
   // First: a question is charged as a text or voice parse, so the action code alone would file it there.
-  if (isAskFinnriUsage(event)) return { icon: 'chat-question-outline', hue: '#0E7490' };
-  if (event.action_code.includes('receipt')) return { icon: 'receipt-text-outline', hue: '#6A4BBC' };
-  if (event.action_code === 'statement_pdf_read') return { icon: 'file-pdf-box', hue: '#C2410C' };
-  if (event.action_code === 'future_ai_statement_import') return { icon: 'image-multiple-outline', hue: '#B45309' };
-  if (event.input_kind === 'voice' || event.action_code.includes('voice')) return { icon: 'microphone-outline', hue: '#16825D' };
-  return { icon: 'keyboard-outline', hue: '#1E6FB8' };
+  if (isAskFinnriUsage(event)) return AI_VISUALS.ask;
+  if (event.action_code.includes('receipt')) return AI_VISUALS.receipt;
+  if (event.action_code === 'statement_pdf_read') return AI_VISUALS.statementPdf;
+  if (event.action_code === 'future_ai_statement_import') return AI_VISUALS.statementScreenshots;
+  if (event.input_kind === 'voice' || event.action_code.includes('voice')) return AI_VISUALS.voice;
+  return AI_VISUALS.text;
 };
 
 const localDayKey = (value: string) => {
@@ -139,7 +138,16 @@ export default function AIUsageScreen() {
                 {day.events.map((event, index) => {
                   const visual = actionVisual(event);
                   const statusLabel = statusLabels[event.status] ?? event.status;
+                  // P57: what the read made, and a way to it — or that it
+                  // was since deleted. Drafts never saved and Ask questions
+                  // made nothing, so they say nothing here.
+                  const made = event.entry
+                    ? event.entry.title || 'Untitled entry'
+                    : event.entry_id
+                      ? 'Entry deleted'
+                      : null;
                   const meta = [
+                    made,
                     event.status === 'succeeded' ? null : statusLabel,
                     formatTime(new Date(event.started_at)),
                     event.error_code ? event.error_code.replaceAll('_', ' ') : null,
@@ -155,6 +163,16 @@ export default function AIUsageScreen() {
                       meta={meta}
                       amount={`${event.final_credits} credit${event.final_credits === 1 ? '' : 's'}`}
                       divider={index > 0}
+                      testID={`ai-usage-${event.id}`}
+                      onPress={
+                        event.entry
+                          ? () =>
+                              router.push({
+                                pathname: '/entry/[id]',
+                                params: { id: String(event.entry!.id) },
+                              })
+                          : undefined
+                      }
                     />
                   );
                 })}

@@ -1,5 +1,6 @@
+import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { Linking, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
@@ -7,6 +8,38 @@ import { ThemedText } from '@/components/themed-text';
 import { ListRow } from '@/components/ui/ListRow';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { appVersionLabel } from '@/lib/app-version';
+import {
+  PLAY_LISTING_URL,
+  PLAY_MARKET_URL,
+  PRIVACY_URL,
+  REFUNDS_URL,
+  SITE_URL,
+  TERMS_URL,
+} from '@/lib/legal';
+
+/** Opens a page on finnri.app in the in-app browser. */
+const openPage = (url: string) => void WebBrowser.openBrowserAsync(url).catch(() => undefined);
+
+/** The Play listing in the Play Store app, or in the browser without one. */
+const openPlayListing = async () => {
+  try {
+    await Linking.openURL(PLAY_MARKET_URL);
+  } catch {
+    openPage(PLAY_LISTING_URL);
+  }
+};
+
+/**
+ * The rest of Finnri, one tap each (board R8-About-Proposals, P58): the
+ * policies people are asked to accept, a way to rate it, and the web app.
+ */
+const links = [
+  { key: 'privacy', icon: 'shield-lock-outline', title: 'Privacy policy', meta: 'finnri.app/privacy', onPress: () => openPage(PRIVACY_URL) },
+  { key: 'terms', icon: 'file-document-outline', title: 'Terms of use', meta: 'finnri.app/terms', onPress: () => openPage(TERMS_URL) },
+  { key: 'refunds', icon: 'cash-refund', title: 'Refund policy', meta: 'finnri.app/refunds', onPress: () => openPage(REFUNDS_URL) },
+  { key: 'rate', icon: 'star-outline', title: 'Rate Finnri', meta: 'On Google Play', onPress: () => void openPlayListing() },
+  { key: 'site', icon: 'web', title: 'Visit finnri.app', meta: 'Use Finnri in your browser', onPress: () => openPage(SITE_URL) },
+] as const;
 
 /** What Finnri does, one row each (board R8-About). */
 const values = [
@@ -56,12 +89,43 @@ export default function AboutFinnriScreen() {
           budgets and splits in one place.
         </ThemedText>
 
+        <View style={[styles.card, styles.whatsNew, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <ListRow
+            testID="about-whats-new"
+            icon="creation"
+            hue="#6A4BBC"
+            title="What’s new"
+            meta="Every update, and what it changed"
+            chevron
+            onPress={() => router.push('/whats-new')}
+          />
+        </View>
+
         <ThemedText tone="muted" accessibilityRole="header" style={styles.groupTitle}>
           What Finnri does
         </ThemedText>
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {values.map((item, index) => (
             <ListRow key={item.title} icon={item.icon} hue={item.hue} title={item.title} meta={item.body} metaLines={2} divider={index > 0} />
+          ))}
+        </View>
+
+        <ThemedText tone="muted" accessibilityRole="header" style={styles.groupTitle}>
+          More
+        </ThemedText>
+        <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          {links.map((link, index) => (
+            <ListRow
+              key={link.key}
+              testID={`about-link-${link.key}`}
+              icon={link.icon}
+              hue="#64748B"
+              title={link.title}
+              meta={link.meta}
+              chevron
+              divider={index > 0}
+              onPress={link.onPress}
+            />
           ))}
         </View>
       </ScrollView>
@@ -108,6 +172,9 @@ const styles = StyleSheet.create({
     marginTop: 14,
     fontSize: 15,
     lineHeight: 22,
+  },
+  whatsNew: {
+    marginTop: 16,
   },
   groupTitle: {
     marginTop: 20,

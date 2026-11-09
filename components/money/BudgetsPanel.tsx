@@ -11,7 +11,6 @@ import {
   View,
 } from 'react-native';
 
-import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import { PanelActionRow } from '@/components/money/PanelActionRow';
 import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
@@ -24,7 +23,6 @@ import { SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { SkeletonCards, SkeletonFrame } from '@/components/ui/Skeleton';
 import { HapticSwitch } from '@/components/ui/HapticSwitch';
 import { useAuthStore } from '@/hooks/use-auth-store';
-import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import {
@@ -68,9 +66,11 @@ export type MoneyPanelProps = {
    * instead of a second header stacked under the first.
    */
   embedded?: boolean;
+  /** Opens with the add form up: "+ Add" on the Money overview. */
+  startAdding?: boolean;
 };
 
-export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
+export function BudgetsPanel({ embedded = false, startAdding = false }: MoneyPanelProps) {
   const router = useRouter();
   const params = useLocalSearchParams();
   const scrollRef = useRef<ScrollView>(null);
@@ -103,22 +103,13 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [showBudgetOptions, setShowBudgetOptions] = useState(false);
   const [routePrefillConsumed, setRoutePrefillConsumed] = useState(false);
-  const {
-    entitlement,
-    locked,
-    sheetVisible,
-    capture: captureEntitlement,
-    present: presentUpgrade,
-    dismiss: dismissUpgrade,
-    clear: clearEntitlement,
-  } = useEntitlementGate();
   const [previewCategories, setPreviewCategories] = useState<DashboardCategory[]>([]);
 
   const formTitle = editing ? 'Edit budget' : 'New monthly budget';
   const submitLabel = editing ? 'Save changes' : 'Create budget';
   /** A budget is named after what it caps unless the user names it. */
   const derivedName = category ? `${category} budget` : 'Monthly spending';
-  const showForm = !locked && (isFormOpen || editing !== null || (!loading && budgets.length === 0));
+  const showForm = (isFormOpen || editing !== null || (!loading && budgets.length === 0));
   const categorySpend = previewCategories.find((entry) => entry.category === category);
   const activeBudgets = useMemo(() => budgets.filter((budget) => budget.active).length, [budgets]);
 
@@ -172,8 +163,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
   const openNewBudget = () => {
     resetForm();
     setIsFormOpen(true);
-    // The user's own spend is the best hint at a limit; the same read the
-    // paywall uses, so it costs one request.
+    // The user's own spend is the best hint at a limit.
     void loadPreview();
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   };
@@ -183,10 +173,18 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     setIsFormOpen(false);
   };
 
+  const startedAdding = useRef(false);
+  useEffect(() => {
+    if (!startAdding || startedAdding.current) return;
+    startedAdding.current = true;
+    openNewBudget();
+    // Once, when the panel opens for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAdding]);
+
   /**
-   * Budgets are gated, so the screen has to be able to sell itself with the
-   * user's own numbers. The dashboard is not gated and already knows what they
-   * spent per category this month.
+   * What the user spent per category this month, which the form turns into a
+   * suggested limit. The dashboard already knows it.
    */
   const loadPreview = useCallback(async () => {
     if (!token) return;
@@ -197,7 +195,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         (dashboard.top_categories ?? []).filter((entry) => entry.amount > 0).slice(0, 3)
       );
     } catch {
-      // The paywall still stands on its own copy without the numbers.
+      // The form works without the hint.
       setPreviewCategories([]);
     }
   }, [token]);
@@ -212,19 +210,12 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
     setError(null);
     try {
       setBudgets(await fetchBudgets(token));
-      clearEntitlement();
     } catch (loadError) {
-      // A 402 is an offer, not a failure — no error state, no red text.
-      if (captureEntitlement(loadError)) {
-        setBudgets([]);
-        void loadPreview();
-        return;
-      }
       setError(getFriendlyErrorMessage(loadError, "Couldn't load your budgets. Try again in a moment."));
     } finally {
       setLoading(false);
     }
-  }, [captureEntitlement, clearEntitlement, loadPreview, token]);
+  }, [token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -269,11 +260,6 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
       closeForm();
       await load();
     } catch (saveError) {
-      if (captureEntitlement(saveError)) {
-        presentUpgrade();
-        void loadPreview();
-        return;
-      }
       // A server refusal is the same event to the finger as a missing field —
       // C3's argument for routing both through one rejection, one panel over.
       haptics.rejected();
@@ -299,10 +285,6 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
       if (editing?.id === budget.id) closeForm();
       await load();
     } catch (deleteError) {
-      if (captureEntitlement(deleteError)) {
-        presentUpgrade();
-        return;
-      }
       setError(getFriendlyErrorMessage(deleteError, "Couldn't delete this budget. Try again."));
     }
   };
@@ -314,22 +296,18 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         {embedded ? (
           <PanelActionRow
-            subtitle={
-              locked
-                ? 'Monthly limits · part of the Finnri plan'
-                : `${activeBudgets} active monthly limit${activeBudgets === 1 ? '' : 's'}`
-            }
-            actionLabel={locked ? undefined : 'Add'}
-            onAction={locked ? undefined : openNewBudget}
+            subtitle={`${activeBudgets} active monthly limit${activeBudgets === 1 ? '' : 's'}`}
+            actionLabel="Add"
+            onAction={openNewBudget}
             colors={colors}
           />
         ) : (
           <AppHeader
             title="Budgets"
-            subtitle={locked ? 'On the Finnri plan' : `${activeBudgets} active`}
+            subtitle={`${activeBudgets} active`}
             onBack={() => router.back()}
-            rightIcon={locked ? undefined : 'plus'}
-            onRightPress={locked ? undefined : openNewBudget}
+            rightIcon="plus"
+            onRightPress={openNewBudget}
           />
         )}
 
@@ -338,14 +316,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.content, { paddingBottom: embedded ? 40 : 32 }]}>
-          {locked ? (
-            <BudgetPaywallPreview
-              categories={previewCategories}
-              featureLabel={entitlement?.featureLabel ?? 'Budgets'}
-              onUpgrade={presentUpgrade}
-              colors={colors}
-            />
-          ) : showForm ? (
+          {showForm ? (
             <View
               testID="budget-form"
               style={[styles.card, styles.form, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -493,7 +464,7 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
             </View>
           ) : null}
 
-          {locked ? null : loading ? (
+          {loading ? (
             <View style={styles.gutter}>
               <SkeletonFrame label="Loading budgets" testID="budgets-skeleton">
                 <SkeletonCards count={3} lines={2} radius={16} />
@@ -536,98 +507,6 @@ export function BudgetsPanel({ embedded = false }: MoneyPanelProps) {
           )}
         </ScrollView>
       </KeyboardAvoidingView>
-
-      <UpgradeSheet visible={sheetVisible} entitlement={entitlement} onClose={dismissUpgrade} />
-    </View>
-  );
-}
-
-type BudgetPaywallPreviewProps = {
-  categories: DashboardCategory[];
-  featureLabel: string;
-  onUpgrade: () => void;
-  colors: ReturnType<typeof useThemeTokens>['colors'];
-};
-
-/**
- * What stands in for the create form when budgets are locked. A form you
- * cannot submit teaches nothing; the user's own spend does — every row here is
- * a limit they could plausibly set, priced off what they actually spent this
- * month.
- */
-function BudgetPaywallPreview({
-  categories,
-  featureLabel,
-  onUpgrade,
-  colors,
-}: BudgetPaywallPreviewProps) {
-  const lead = categories[0];
-
-  return (
-    <View style={[styles.card, styles.preview, { backgroundColor: colors.card, borderColor: colors.border }]}>
-      <ThemedText style={[styles.cardTitle, { color: colors.text }]}>
-        Limits from what you already spend
-      </ThemedText>
-      <ThemedText tone="muted" style={styles.body}>
-        {lead
-          ? `Set a limit on ${lead.category} — you spent ${formatMoney(lead.amount)} this month.`
-          : 'Set a monthly limit and hear about it before you cross it, not after.'}
-      </ThemedText>
-
-      {categories.length > 0 && (
-        <View style={styles.previewRows}>
-          {categories.map((entry, index) => {
-            const visual = categoryVisual(entry.category);
-            const suggestion = suggestedLimitFor(entry.amount);
-            const share = suggestion > 0 ? Math.min(1, entry.amount / suggestion) : 0;
-            return (
-              <View
-                key={entry.category}
-                style={[
-                  styles.previewRow,
-                  index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
-                ]}>
-                <View style={[styles.previewTile, { backgroundColor: visual.bgColor }]}>
-                  <MaterialCommunityIcons name={visual.icon} size={18} color={visual.color} />
-                </View>
-                <View style={styles.flex}>
-                  <View style={styles.previewLine}>
-                    <ThemedText numberOfLines={1} style={[styles.previewTitle, { color: colors.text }]}>
-                      {entry.category}
-                    </ThemedText>
-                    <ThemedText style={[styles.previewLimit, { color: colors.text }]}>
-                      {formatMoney(suggestion)} limit
-                    </ThemedText>
-                  </View>
-                  <View style={[styles.bar, { backgroundColor: colors.track }]}>
-                    <View
-                      style={[
-                        styles.barFill,
-                        { width: `${Math.round(share * 100)}%`, backgroundColor: visual.color },
-                      ]}
-                    />
-                  </View>
-                  <View style={styles.previewLine}>
-                    <ThemedText tone="muted" style={[styles.caption, styles.flex]}>
-                      {formatMoney(entry.amount)} spent this month
-                    </ThemedText>
-                    <ThemedText tone="muted" style={styles.caption}>
-                      {Math.round(share * 100)}%
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
-            );
-          })}
-        </View>
-      )}
-
-      <PrimaryButton
-        label={`Unlock ${featureLabel}`}
-        icon="lock-outline"
-        onPress={onUpgrade}
-        style={styles.save}
-      />
     </View>
   );
 }
@@ -700,11 +579,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     fontWeight: '700',
-  },
-  body: {
-    marginTop: 2,
-    fontSize: 13,
-    lineHeight: 18,
   },
   caption: {
     fontSize: 12,
@@ -790,53 +664,6 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  preview: {
-    paddingTop: 16,
-    paddingHorizontal: 14,
-    paddingBottom: 14,
-  },
-  previewRows: {
-    marginTop: 8,
-  },
-  previewRow: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingVertical: 12,
-  },
-  previewTile: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  previewLine: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-  },
-  previewTitle: {
-    flex: 1,
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: '500',
-  },
-  previewLimit: {
-    fontSize: 14,
-    lineHeight: 20,
-    fontWeight: '600',
-    fontVariant: ['tabular-nums'],
-  },
-  bar: {
-    height: 6,
-    marginVertical: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: 6,
-    borderRadius: 3,
   },
   pressed: {
     opacity: 0.7,

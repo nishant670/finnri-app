@@ -34,6 +34,8 @@ export async function buildTransactionPayload(
     accountId?: number | null;
     source?: 'manual' | 'text' | 'voice' | 'receipt';
     sourceText?: string;
+    /** The AI read this draft came from, so AI usage can open the entry (P57). */
+    aiRequestId?: string | null;
     refundStatus?: EntryMutationPayload['refund_status'];
   } = {}
 ): Promise<EntryMutationPayload> {
@@ -59,6 +61,7 @@ export async function buildTransactionPayload(
       ? { event_id: form.type === 'Expense' ? form.eventId : null }
       : {}),
     ...(options.source ? { source: options.source, source_text: options.sourceText ?? '' } : {}),
+    ...(options.aiRequestId ? { ai_request_id: options.aiRequestId } : {}),
     ...(tag === 'Refundable'
       ? {
           refundable_amount: form.refundableAmount.trim(),
@@ -122,10 +125,21 @@ const sameText = (a?: string | null, b?: string | null) => {
 };
 
 /**
+ * Below this many rupees, the same amount on the same day is often two real
+ * purchases (two ₹10 water bottles), so a match also needs a shared detail.
+ */
+export const DUPLICATE_SMALL_AMOUNT = 100;
+
+/**
  * An already-logged transaction the form is most likely repeating: the same
- * day, the same direction and the same amount, and also the same title or
- * merchant, or the same account. A bill logged by hand and then again from its
- * receipt rarely shares a title, but it does share the account it was paid from.
+ * day, the same direction and the same amount to the rupee (a bill typed as
+ * ₹3,928 and scanned as ₹3,927.54 is one bill).
+ *
+ * That alone is enough from ₹100 up: a bill logged by hand and then again from
+ * its receipt can differ in title, merchant and account — the AI names the pump
+ * differently, and the scan leaves "Paid with" on its default. Under ₹100 the
+ * row must also share the title, the merchant or the account. A row that
+ * shares one of those is preferred, so the warning names the closest match.
  *
  * Returns null when the check itself fails — a lookup that did not load is no
  * reason to stop a save.
@@ -133,32 +147,72 @@ const sameText = (a?: string | null, b?: string | null) => {
 export async function findLikelyDuplicate(
   token: string,
   form: EntryForm,
-  accountId: number | null
+  accountId: number | null,
+  /** An edited entry, which must not be reported as a duplicate of itself. */
+  excludeId?: string
 ): Promise<Transaction | null> {
   const parsedDate = parseDateLabel(form.date);
   const amount = Number(form.amount.replace(/,/g, '').trim());
   if (!parsedDate || !Number.isFinite(amount) || amount <= 0) return null;
   const date = formatApiDate(parsedDate);
+  const rupees = Math.round(amount);
   try {
     const { transactions } = await loadTransactionPage(token, {
       type: form.type.toLowerCase(),
       start_date: date,
       end_date: date,
-      min_amount: amount,
-      max_amount: amount,
+      min_amount: Math.max(0, rupees - 0.5),
+      max_amount: rupees + 0.5,
       page_size: 20,
     });
-    return (
-      transactions.find(
-        (candidate) =>
-          sameText(candidate.title, form.title) ||
-          sameText(candidate.merchant, form.merchant) ||
-          (accountId != null && candidate.accountId === accountId)
-      ) ?? null
+    const sameAmount = transactions.filter(
+      (candidate) =>
+        candidate.id !== excludeId && Math.round(Math.abs(candidate.amount)) === rupees
     );
+    const sharesDetail = (candidate: Transaction) =>
+      sameText(candidate.title, form.title) ||
+      sameText(candidate.merchant, form.merchant) ||
+      (accountId != null && candidate.accountId === accountId);
+    const closest = sameAmount.find(sharesDetail);
+    if (closest) return closest;
+    if (amount < DUPLICATE_SMALL_AMOUNT) return null;
+    return sameAmount[0] ?? null;
   } catch {
     return null;
   }
+}
+
+const rupeesOf = (amount: string) => Math.round(Number(amount.replace(/,/g, '').trim()));
+
+const dayOf = (label: string) => {
+  const parsed = parseDateLabel(label);
+  return parsed ? formatApiDate(parsed) : label;
+};
+
+/**
+ * Whether an edit could have made this entry a repeat of another, so a save is
+ * only questioned when the edit is what caused it. Changing a note on a
+ * duplicate someone kept on purpose must not warn again.
+ */
+export function editCouldDuplicate(
+  before: Pick<EntryForm, 'amount' | 'date' | 'type' | 'title' | 'merchant' | 'accountId'>,
+  after: EntryForm
+) {
+  if (
+    rupeesOf(before.amount) !== rupeesOf(after.amount) ||
+    dayOf(before.date) !== dayOf(after.date) ||
+    before.type !== after.type
+  ) {
+    return true;
+  }
+  // Under the floor a match also needs a shared detail, so changing one can
+  // be what makes it.
+  return (
+    Number(after.amount.replace(/,/g, '').trim()) < DUPLICATE_SMALL_AMOUNT &&
+    (before.title.trim() !== after.title.trim() ||
+      before.merchant.trim() !== after.merchant.trim() ||
+      (before.accountId ?? null) !== (after.accountId ?? null))
+  );
 }
 
 /** The warning's wording, shared so every save path asks the same question. */
@@ -218,6 +272,7 @@ export async function saveNewTransaction({
   idempotencyKey,
   source = 'manual',
   sourceText = '',
+  aiRequestId = null,
   progress = {},
   refund = null,
   confirmDuplicate,
@@ -228,6 +283,8 @@ export async function saveNewTransaction({
   idempotencyKey: string;
   source?: 'manual' | 'text' | 'voice' | 'receipt';
   sourceText?: string;
+  /** The AI read the draft came from (P57). */
+  aiRequestId?: string | null;
   progress?: TransactionSaveProgress;
   refund?: ReceivedRefund | null;
   /**
@@ -265,6 +322,7 @@ export async function saveNewTransaction({
         accountId: account?.id ?? null,
         source,
         sourceText,
+        aiRequestId,
       }),
       idempotencyKey
     ));

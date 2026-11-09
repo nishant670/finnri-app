@@ -10,7 +10,8 @@
     "ios": "node ./scripts/expo-cli.js start --ios --clear",
     "web": "node ./scripts/expo-cli.js start --web --clear",
     "lint": "expo lint",
-    "test": "jest"
+    "test": "jest",
+    "release-notes:publish": "jiti scripts/publish-release-notes.ts"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
@@ -19,6 +20,7 @@
     "@sentry/react-native": "~7.11.0",
     "@tanstack/react-query": "^5.90.6",
     "expo": "~57.0.10",
+    "expo-application": "~57.0.3",
     "expo-asset": "~57.0.7",
     "expo-audio": "~57.0.3",
     "expo-auth-session": "~57.0.6",

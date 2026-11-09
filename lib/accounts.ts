@@ -24,7 +24,7 @@ export type AccountSummary = {
   outstanding?: number;
   /** Credit cards with a limit only. Percent; can exceed 100. */
   credit_utilisation?: number;
-  /** Non-card accounts with an opening balance only. */
+  /** Non-card accounts the user gave a balance: what they hold now. */
   running_balance?: number;
   /** Credit cards only. The limit breakdown a card screen leads with. */
   limit?: CardLimitSummary;
@@ -119,6 +119,13 @@ export type Account = {
    * first logged transaction. Read `summary` for anything current.
    */
   balance?: number;
+  /**
+   * The user gave this account a balance, so `summary.running_balance` is
+   * real even when the opening worked out to ₹0.
+   */
+  balance_tracked?: boolean;
+  /** Credit cards only: "pay_later" for a pay-later line such as CRED flash. */
+  credit_kind?: CreditKind;
   fee_month?: string;
   /** Yearly membership fee before GST; 0 when unknown. */
   annual_fee?: number;
@@ -152,10 +159,20 @@ export type AccountPayload = {
   annual_fee?: number;
   fee_waiver_spend?: number;
   balance?: number;
+  /**
+   * What the account holds today. The server works back to the opening
+   * balance. Not for credit cards.
+   */
+  current_balance?: number;
+  balance_tracked?: boolean;
+  credit_kind?: CreditKind;
   is_default?: boolean;
   /** Set only by the one-tap capture shortcut; cleared by the first user edit. */
   auto_created?: boolean;
 };
+
+/** '' is a card; 'pay_later' a pay-later credit line on the same machinery. */
+export type CreditKind = '' | 'pay_later';
 
 export type AccountType =
   'cash' | 'upi' | 'bank' | 'credit_card' | 'debit_card' | 'wallet' | 'other';
@@ -166,6 +183,8 @@ export type AccountProvider = {
   type_support: AccountType[];
   asset_key: string;
   aliases?: string[];
+  /** "pay_later" for a pay-later lender such as CRED flash. */
+  credit_kind?: CreditKind;
 };
 
 export type AccountSuggestion = Pick<
@@ -322,7 +341,7 @@ export const matchAccountsToHint = (
 ): AccountHintMatch[] => {
   const type = getAccountTypeForPaymentMode(input.mode);
   const hint = input.accountHint?.trim() ?? '';
-  if (!type || !hint) return [];
+  if (!hint) return [];
   const identifier =
     hint.match(/(?:ending|last|xx|\*{2,})\s*[-:]?\s*(\d{4})\b/i)?.[1] ??
     hint.match(/\b(\d{4})\b/)?.[1] ??
@@ -330,8 +349,13 @@ export const matchAccountsToHint = (
   const words = hintWords(hint);
   if (words.length === 0 && !identifier) return [];
 
+  // Without a mode the hint is still worth reading against every account: a
+  // wallet's own top-up message never says "wallet", and the Pluxee wallet
+  // was never looked at, so the draft fell back to Cash.
   return accounts
-    .filter((account) => normalizeAccountType(account.type) === type)
+    .filter((account) =>
+      type ? normalizeAccountType(account.type) === type : normalizeAccountType(account.type) !== 'cash'
+    )
     .map((account) => {
       const structuredIdentifier =
         account.last4 || account.upi_handle || account.wallet_nickname || account.identifier;
@@ -360,6 +384,57 @@ export const bestAccountForHint = (
   input: AccountSuggestionHint,
   accounts: Account[]
 ): Account | null => matchAccountsToHint(input, accounts)[0]?.account ?? null;
+
+/** The one clear winner, or null on a tie: a tie is a guess, not a match. */
+const clearWinner = (matches: AccountHintMatch[]) =>
+  matches.length > 0 && (matches.length === 1 || matches[0].score > matches[1].score)
+    ? matches[0].account
+    : null;
+
+export type ParsedAccountDraft = {
+  type?: string | null;
+  mode?: string | null;
+  account_hint?: string | null;
+  card_network?: string | null;
+  merchant?: string | null;
+};
+
+/**
+ * The saved account a capture draft points at, or null.
+ *
+ * With a mode, the best match of that type, as before. Without one, only a
+ * clear winner across all accounts: "HDFC" alone could be the bank or the
+ * card. Income can name its account another way too: money loaded into a
+ * wallet comes from the wallet's own brand ("Pluxee Card has been credited"),
+ * so the payer is read against the user's wallets when nothing else matched.
+ */
+export const accountForParsedDraft = (
+  draft: ParsedAccountDraft,
+  accounts: Account[]
+): Account | null => {
+  const typed = Boolean(getAccountTypeForPaymentMode(draft.mode));
+  const named = matchAccountsToHint(
+    { mode: draft.mode, accountHint: draft.account_hint, cardNetwork: draft.card_network },
+    accounts
+  );
+  const fromHint = typed ? (named[0]?.account ?? null) : clearWinner(named);
+  if (fromHint) return fromHint;
+
+  const income = draft.type?.trim().toLowerCase() === 'income';
+  const modeType = getAccountTypeForPaymentMode(draft.mode);
+  if (!income || !draft.merchant?.trim() || (modeType && modeType !== 'wallet')) return null;
+  const wallets = accounts.filter((account) => normalizeAccountType(account.type) === 'wallet');
+  return clearWinner(matchAccountsToHint({ accountHint: draft.merchant }, wallets));
+};
+
+/** The payment mode an account is used through, e.g. a wallet's "Wallets". */
+export const paymentModeForAccountType = (type?: string | null): string | null => {
+  const accountType = normalizeAccountType(type);
+  return (
+    Object.entries(paymentModeAccountDefaults).find(([, value]) => value.type === accountType)?.[0] ??
+    null
+  );
+};
 
 export type AccountSuggestionHint = {
   mode?: string | null;
@@ -531,6 +606,32 @@ export const updateAccount = async (
   return response.json();
 };
 
+/**
+ * Record what a bank account or wallet holds today. The server works back to
+ * the opening balance, so the running balance reads exactly this now and moves
+ * with every transaction after. Answers with the account and its summary.
+ */
+export const setAccountBalance = async (
+  token: string,
+  accountId: number,
+  currentBalance: number
+): Promise<Account> => {
+  const query = new URLSearchParams({ tz: getClientTimeZone() });
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/balance?${query}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ current_balance: currentBalance }),
+  });
+
+  if (!response.ok) {
+    throw await readAccountError(response, 'Unable to update the balance right now.');
+  }
+  return response.json();
+};
+
 export const deleteAccount = async (token: string, accountId: number): Promise<void> => {
   const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}`, {
     method: 'DELETE',
@@ -602,3 +703,50 @@ export const toAccountPayload = (account: Account): AccountPayload => ({
   balance: account.balance,
   is_default: account.is_default,
 });
+
+export type AccountCategory = {
+  category: string;
+  amount: number;
+  percentage: number;
+  previous_amount: number;
+};
+
+export type AccountCategories = {
+  account_id: number;
+  month: string;
+  previous_month: string;
+  total: number;
+  previous_total: number;
+  categories: AccountCategory[];
+};
+
+/**
+ * Where an account's money went this month, beside last month (P63). Null on
+ * an API that does not have the endpoint yet, so the page leaves the card out
+ * rather than showing an error.
+ */
+export const fetchAccountCategories = async (
+  token: string,
+  accountId: number
+): Promise<AccountCategories | null> => {
+  const query = new URLSearchParams({ tz: getClientTimeZone() });
+  const response = await fetch(`${API_BASE_URL}/v1/accounts/${accountId}/categories?${query}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (response.status === 404 || response.status === 405) return null;
+  if (!response.ok) {
+    throw await readAccountError(response, 'Unable to load where this account’s money went.');
+  }
+  const body = (await response.json()) as AccountCategories;
+  return {
+    ...body,
+    total: Number(body.total),
+    previous_total: Number(body.previous_total),
+    categories: (body.categories ?? []).map((item) => ({
+      ...item,
+      amount: Number(item.amount),
+      percentage: Number(item.percentage),
+      previous_amount: Number(item.previous_amount),
+    })),
+  };
+};

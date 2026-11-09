@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { cssInterop } from 'nativewind';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -24,9 +24,11 @@ import { calendarDay } from '@/lib/statement-dates';
 import {
   CardStatement,
   CardStatementPayload,
+  StatementApiError,
   StatementDaySuggestion,
   StatementPayment,
   StatementPaymentPayload,
+  deleteStatement,
   deleteStatementPayment,
   fetchStatement,
   formatCycleRange,
@@ -53,7 +55,7 @@ const formatDay = (value: string) => {
  * the user opened this screen to check.
  */
 export default function StatementDetailScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, edit } = useLocalSearchParams<{ id?: string; edit?: string }>();
   const statementId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
@@ -70,6 +72,12 @@ export default function StatementDetailScreen() {
   const [isEditSheetVisible, setIsEditSheetVisible] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [daySuggestion, setDaySuggestion] = useState<StatementDaySuggestion | null>(null);
+  const [isDeleteVisible, setIsDeleteVisible] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [removeImported, setRemoveImported] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const hasLoaded = useRef(false);
+  const openEditOnLoad = useRef(edit === '1');
 
   const load = useCallback(async () => {
     if (!token || !Number.isFinite(statementId) || statementId <= 0) {
@@ -86,7 +94,13 @@ export default function StatementDetailScreen() {
       ]);
       setStatement(loaded);
       setAccounts(allAccounts);
+      hasLoaded.current = true;
     } catch (loadError) {
+      // Deleted from another screen while this one waited underneath it.
+      if (hasLoaded.current && loadError instanceof StatementApiError && loadError.status === 404) {
+        router.back();
+        return;
+      }
       setError(getFriendlyErrorMessage(loadError, 'Unable to load this statement.'));
     } finally {
       setIsLoading(false);
@@ -126,7 +140,32 @@ export default function StatementDetailScreen() {
     }
   };
 
+  const handleDeleteStatement = async () => {
+    if (!token || !statement) return;
+    setIsDeleting(true);
+    try {
+      await deleteStatement(token, statement.id, { removeImported });
+      setIsDeleteVisible(false);
+      router.back();
+    } catch (deleteError) {
+      setIsDeleteVisible(false);
+      setError(getFriendlyErrorMessage(deleteError, 'Unable to delete this statement.'));
+      // The button is at the end of the page and the banner at the top.
+      scrollRef.current?.scrollTo({ y: 0, animated: true });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const card = accounts.find((account) => account.id === statement?.account_id) ?? null;
+
+  // Arriving from the check screen's "Correct the statement date".
+  useEffect(() => {
+    if (!openEditOnLoad.current || !statement || !card) return;
+    openEditOnLoad.current = false;
+    setEditError(null);
+    setIsEditSheetVisible(true);
+  }, [statement, card]);
 
   // Memoised on the stored values: the sheet resets its form whenever this
   // object changes, which must not happen on every render while editing.
@@ -212,6 +251,19 @@ export default function StatementDetailScreen() {
   }
 
   const settled = statement.status === 'paid';
+  const importedCount = statement.imported_count ?? 0;
+  const deleteMessage = [
+    statement.payments.length > 0
+      ? 'The bill, the payments recorded on it and its “Unitemized card spends” entry will be removed.'
+      : 'The bill and its “Unitemized card spends” entry will be removed.',
+    importedCount > 0 &&
+      (removeImported
+        ? `The ${importedCount} transaction${importedCount === 1 ? '' : 's'} added from this statement will be removed too.`
+        : 'Transactions added from this statement stay.'),
+    'Transactions you logged yourself are kept.',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <SafeAreaView className="flex-1" edges={['top', 'left', 'right', 'bottom']}>
@@ -249,6 +301,7 @@ export default function StatementDetailScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 80 }}>
           {error && <ErrorBanner message={error} style={{ marginBottom: 16 }} />}
@@ -405,6 +458,39 @@ export default function StatementDetailScreen() {
               </View>
             )}
           </View>
+
+          {(statement.imported_count ?? 0) > 0 && (
+            <Pressable
+              testID="statement-remove-imported"
+              accessibilityRole="checkbox"
+              accessibilityState={{ checked: removeImported }}
+              onPress={() => setRemoveImported((value) => !value)}
+              className="mt-8 flex-row items-center gap-3">
+              <MaterialCommunityIcons
+                name={removeImported ? 'checkbox-marked' : 'checkbox-blank-outline'}
+                size={20}
+                color={removeImported ? theme.accent : '#94A3B8'}
+              />
+              <TText
+                className="min-w-0 flex-1 text-xs"
+                style={{ fontFamily: Fonts.body, color: '#7C8EA8' }}>
+                When deleting, also remove the {statement.imported_count} transaction
+                {statement.imported_count === 1 ? '' : 's'} added from this statement
+              </TText>
+            </Pressable>
+          )}
+
+          <Pressable
+            testID="statement-delete"
+            accessibilityRole="button"
+            onPress={() => setIsDeleteVisible(true)}
+            className="mt-4 flex-row items-center justify-center gap-2 rounded-full border py-3.5"
+            style={{ borderColor: theme.border, backgroundColor: theme.card }}>
+            <MaterialCommunityIcons name="delete-outline" size={17} color="#EF4444" />
+            <TText className="text-sm" style={{ fontFamily: Fonts.title, color: '#EF4444' }}>
+              Delete statement
+            </TText>
+          </Pressable>
         </ScrollView>
 
         <PaymentFormSheet
@@ -441,6 +527,16 @@ export default function StatementDetailScreen() {
             if (moved) void load();
           }}
           onError={setError}
+        />
+
+        <ThemedDeleteDialog
+          visible={isDeleteVisible}
+          title="Delete this statement?"
+          message={deleteMessage}
+          confirmLabel="Delete"
+          loading={isDeleting}
+          onCancel={() => setIsDeleteVisible(false)}
+          onConfirm={() => void handleDeleteStatement()}
         />
 
         <ThemedDeleteDialog

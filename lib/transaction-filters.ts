@@ -88,6 +88,29 @@ export type FilterPreset = {
   label: string;
   /** The state this preset represents, over and above whatever is already set. */
   patch: (now: Date) => Partial<TransactionFilterState>;
+  /**
+   * When the preset counts as applied, if more than its own patch should.
+   * Without it, applied means every field of the patch is set exactly.
+   */
+  matches?: (state: TransactionFilterState, now: Date) => boolean;
+};
+
+const endOfMonth = (now: Date) => new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+/**
+ * "This month" is the first of the month to any day from today to the month's
+ * end. The chip sets the end to today, but a link into the list (a category
+ * in November, an account's month) sends the month's last day, and that is the
+ * same set of rows — so the chip shows it as on, and a tap takes it off.
+ */
+const isThisMonthRange = (state: TransactionFilterState, now: Date) => {
+  const today = formatApiDate(now);
+  return (
+    state.startDate === formatApiDate(startOfMonth(now)) &&
+    state.endDate != null &&
+    state.endDate >= today &&
+    state.endDate <= formatApiDate(endOfMonth(now))
+  );
 };
 
 /**
@@ -102,6 +125,7 @@ export const FILTER_PRESETS: FilterPreset[] = [
     key: 'this-month',
     label: 'This month',
     patch: (now) => ({ startDate: formatApiDate(startOfMonth(now)), endDate: formatApiDate(now) }),
+    matches: isThisMonthRange,
   },
   {
     key: 'last-30',
@@ -133,6 +157,7 @@ export const isPresetApplied = (
   state: TransactionFilterState,
   now: Date
 ): boolean => {
+  if (preset.matches) return preset.matches(state, now);
   const patch = preset.patch(now);
   return (Object.keys(patch) as (keyof TransactionFilterState)[]).every(
     (key) => state[key] === patch[key]
@@ -240,3 +265,74 @@ export const clearFilterFields = (
   });
   return next;
 };
+
+export type QuickFilterKey = 'all' | 'expenses' | 'income' | 'this-month';
+
+/** The chips under the search box (board R3-List-Proposals, P12). */
+export const QUICK_FILTERS: { key: QuickFilterKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'expenses', label: 'Expenses' },
+  { key: 'income', label: 'Income' },
+  { key: 'this-month', label: 'This month' },
+];
+
+const thisMonthPreset = FILTER_PRESETS.find((preset) => preset.key === 'this-month')!;
+
+export const isQuickFilterSelected = (
+  key: QuickFilterKey,
+  state: TransactionFilterState,
+  now: Date
+): boolean => {
+  const thisMonth = isPresetApplied(thisMonthPreset, state, now);
+  switch (key) {
+    case 'all':
+      return state.type === 'All' && !thisMonth;
+    case 'expenses':
+      return state.type === 'Expense';
+    case 'income':
+      return state.type === 'Income';
+    case 'this-month':
+      return thisMonth;
+  }
+};
+
+/**
+ * A quick filter's tap. Expenses and Income take turns as the type and a
+ * second tap takes either back off; This month toggles on top of either; All
+ * clears both.
+ */
+export const applyQuickFilter = (
+  key: QuickFilterKey,
+  state: TransactionFilterState,
+  now: Date
+): TransactionFilterState => {
+  const selected = isQuickFilterSelected(key, state, now);
+  switch (key) {
+    case 'all': {
+      const cleared = { ...state, type: 'All' as const };
+      return isPresetApplied(thisMonthPreset, cleared, now)
+        ? applyPreset(thisMonthPreset, cleared, now)
+        : cleared;
+    }
+    case 'expenses':
+      return { ...state, type: selected ? 'All' : 'Expense' };
+    case 'income':
+      return { ...state, type: selected ? 'All' : 'Income' };
+    case 'this-month':
+      return applyPreset(thisMonthPreset, state, now);
+  }
+};
+
+/**
+ * The applied-filter chips, less what the quick filters already show, so a
+ * tap on "Income" doesn't also grow an "Income ×" chip below it.
+ */
+export const withoutQuickFilterChips = (
+  chips: AppliedFilterChip[],
+  state: TransactionFilterState,
+  now: Date
+) =>
+  chips.filter(
+    (chip) =>
+      chip.key !== 'type' && !(chip.key === 'dates' && isPresetApplied(thisMonthPreset, state, now))
+  );
