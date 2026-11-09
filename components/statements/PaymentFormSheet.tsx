@@ -1,12 +1,12 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 
 import { DateField, SheetInput, SheetLabel } from '@/components/statements/StatementFormSheet';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { Fonts } from '@/constants/theme';
@@ -69,7 +69,7 @@ export function PaymentFormSheet({
   const [paidOn, setPaidOn] = useState('');
   const [method, setMethod] = useState<string>('');
   const [fromAccountId, setFromAccountId] = useState<number | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
+  const { pickDate } = useDatePicker();
   const [showSource, setShowSource] = useState(false);
 
   useEffect(() => {
@@ -162,32 +162,15 @@ export function PaymentFormSheet({
         <SheetLabel>Paid on</SheetLabel>
         <DateField
           value={paidOn}
-          onPress={() => {
-            if (Platform.OS === 'android') {
-              DateTimePickerAndroid.open({
-                value: fromISODate(paidOn),
-                onValueChange: (_event, selected) => {
-                  if (selected) setPaidOn(toISODate(selected));
-                },
-                onDismiss: () => undefined,
-              });
-              return;
-            }
-            setShowPicker(true);
+          onPress={async () => {
+            const selected = await pickDate({
+              title: 'Paid on',
+              value: fromISODate(paidOn),
+            });
+            if (selected) setPaidOn(toISODate(selected));
           }}
         />
 
-        {showPicker && Platform.OS !== 'android' && (
-          <DateTimePicker
-            value={fromISODate(paidOn)}
-            mode="date"
-            display="spinner"
-            onChange={(_event, selected) => {
-              setShowPicker(false);
-              if (selected) setPaidOn(toISODate(selected));
-            }}
-          />
-        )}
 
         {/* How and where from are both optional, and most payments are
             logged without either — so they wait behind one row, which says

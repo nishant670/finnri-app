@@ -1,8 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { Platform, Pressable, TextInput, View } from 'react-native';
+import { Pressable, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatDateLabel, parseDateLabel } from '@/lib/transactions';
 
@@ -10,12 +10,9 @@ type TransactionRefundFieldsProps = {
   refundableAmount: string;
   expectedOn: string;
   reminderEnabled: boolean;
-  /** iOS shows the date as an inline picker; the parent owns whether it is open. */
-  isPickerVisible: boolean;
   onChangeAmount: (value: string) => void;
   onChangeExpectedOn: (value: string) => void;
   onToggleReminder: () => void;
-  onChangePickerVisible: (visible: boolean) => void;
 };
 
 /** The refund tracking card, shown when a personal payment is tagged Refundable. */
@@ -23,12 +20,11 @@ export function TransactionRefundFields({
   refundableAmount,
   expectedOn,
   reminderEnabled,
-  isPickerVisible,
   onChangeAmount,
   onChangeExpectedOn,
   onToggleReminder,
-  onChangePickerVisible,
 }: TransactionRefundFieldsProps) {
+  const { pickDate } = useDatePicker();
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const accent = theme.accent;
@@ -75,20 +71,12 @@ export function TransactionRefundFields({
           </View>
           <Pressable
             accessibilityRole="button"
-            onPress={() => {
-              const current = parseDateLabel(expectedOn) ?? new Date();
-              if (Platform.OS === 'android') {
-                DateTimePickerAndroid.open({
-                  value: current,
-                  mode: 'date',
-                  onValueChange: (_event, selected) => {
-                    if (selected) onChangeExpectedOn(formatDateLabel(selected));
-                  },
-                  onDismiss: () => undefined,
-                });
-              } else {
-                onChangePickerVisible(true);
-              }
+            onPress={async () => {
+              const selected = await pickDate({
+                title: 'Expected back',
+                value: parseDateLabel(expectedOn) ?? new Date(),
+              });
+              if (selected) onChangeExpectedOn(formatDateLabel(selected));
             }}
             className="flex-row items-center justify-between rounded-2xl bg-gray-50 p-4 dark:bg-gray-800/50">
             <View>
@@ -101,17 +89,6 @@ export function TransactionRefundFields({
             </View>
             <MaterialCommunityIcons name="calendar-outline" size={20} color={accent} />
           </Pressable>
-          {isPickerVisible && Platform.OS !== 'android' ? (
-            <DateTimePicker
-              value={parseDateLabel(expectedOn) ?? new Date()}
-              mode="date"
-              display="inline"
-              onChange={(_event, selected) => {
-                if (selected) onChangeExpectedOn(formatDateLabel(selected));
-                onChangePickerVisible(false);
-              }}
-            />
-          ) : null}
           <View
             className="flex-row items-center justify-between rounded-2xl border p-3"
             style={{ borderColor: theme.border }}>

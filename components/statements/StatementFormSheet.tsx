@@ -1,12 +1,12 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { cssInterop } from 'nativewind';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -88,7 +88,7 @@ export function StatementFormSheet({
   const [totalDue, setTotalDue] = useState('');
   const [minimumDue, setMinimumDue] = useState('');
   const [dueDateTouched, setDueDateTouched] = useState(false);
-  const [picker, setPicker] = useState<'statement' | 'due' | null>(null);
+  const { pickDate } = useDatePicker();
   const [source, setSource] = useState<StatementUploadSource | null>(null);
   const [sourceError, setSourceError] = useState<string | null>(null);
   // A refusal for credits, which the See plans link below the error answers.
@@ -259,24 +259,17 @@ export function StatementFormSheet({
     }
   };
 
-  const openPicker = (which: 'statement' | 'due') => {
-    const current = which === 'statement' ? statementDate : dueDate;
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: fromISODate(current),
-        onValueChange: (_event, selected) => {
-          if (!selected) return;
-          if (which === 'statement') handleStatementDate(toISODate(selected));
-          else {
-            setDueDate(toISODate(selected));
-            setDueDateTouched(true);
-          }
-        },
-        onDismiss: () => undefined,
-      });
-      return;
+  const openPicker = async (which: 'statement' | 'due') => {
+    const selected = await pickDate({
+      title: which === 'statement' ? 'Statement date' : 'Due date',
+      value: fromISODate(which === 'statement' ? statementDate : dueDate),
+    });
+    if (!selected) return;
+    if (which === 'statement') handleStatementDate(toISODate(selected));
+    else {
+      setDueDate(toISODate(selected));
+      setDueDateTouched(true);
     }
-    setPicker(which);
   };
 
   return (
@@ -504,23 +497,6 @@ export function StatementFormSheet({
             </TText>
           </Pressable>
         ) : null}
-
-        {picker && Platform.OS !== 'android' && (
-          <DateTimePicker
-            value={fromISODate(picker === 'statement' ? statementDate : dueDate)}
-            mode="date"
-            display="spinner"
-            onChange={(_event, selected) => {
-              setPicker(null);
-              if (!selected) return;
-              if (picker === 'statement') handleStatementDate(toISODate(selected));
-              else {
-                setDueDate(toISODate(selected));
-                setDueDateTouched(true);
-              }
-            }}
-          />
-        )}
 
         <Pressable
           accessibilityRole="button"
