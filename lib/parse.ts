@@ -251,6 +251,11 @@ export type ParseResponse = ParseDraft;
 export type ParseDraftInput = {
   token?: string | null;
   hintText?: string;
+  /**
+   * Aborts the read. The server gives the reserved credits back when the
+   * request goes away before the answer, so a Cancel on the draft sheet is free.
+   */
+  signal?: AbortSignal;
   audio?: {
     file: Blob;
     name: string;
@@ -522,6 +527,7 @@ export const parseEntryDraft = async ({
   audio,
   tz = getClientTimeZone(),
   contextQuestion,
+  signal,
 }: ParseDraftInput): Promise<ParseResult> => {
   const formData = new FormData();
   const trimmedHint = hintText?.trim() ?? '';
@@ -542,6 +548,7 @@ export const parseEntryDraft = async ({
       Authorization: `Bearer ${token}`,
     },
     body: formData,
+    signal,
   });
   if (!response.ok) {
     throw await readParseError(response);

@@ -5,6 +5,7 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
+import { PushPermissionCard } from '@/components/notifications/PushPermissionCard';
 import { SwipeActionRow } from '@/components/split/rows/SwipeActionRow';
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
@@ -508,6 +509,8 @@ export default function NotificationsScreen() {
               </View>
             </View>
           ) : null}
+
+          <PushPermissionCard />
 
           {actionError ? (
             <ThemedText tone="negative" style={styles.actionError}>

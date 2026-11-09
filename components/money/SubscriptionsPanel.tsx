@@ -1,7 +1,6 @@
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useFocusEffect, useLocalSearchParams, useRouter, useScrollToTop } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { recurringVisuals } from '@/components/money/money-visuals';
 import { PanelActionRow } from '@/components/money/PanelActionRow';
@@ -62,7 +61,7 @@ import { apiDateToLocalDate, dateToApiDate, defaultReminderDays, looksLikeCardBi
 import { Field } from '@/components/money/subscriptions/Field';
 import { Pill } from '@/components/money/subscriptions/Pill';
 import { SubscriptionAdvancedFields } from '@/components/money/subscriptions/SubscriptionAdvancedFields';
-import { SubscriptionDatePickerModal } from '@/components/money/subscriptions/SubscriptionDatePickerModal';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { SubscriptionInvestmentFields } from '@/components/money/subscriptions/SubscriptionInvestmentFields';
 import { InvestmentTypePicker } from '@/components/money/subscriptions/InvestmentTypePicker';
 import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
@@ -91,7 +90,10 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 export function SubscriptionsPanel({
   embedded = false,
   header,
+  startAdding = false,
 }: MoneyPanelProps & {
+  /** Opens with the add sheet up: "+ Add" on the Money overview. */
+  startAdding?: boolean;
   /**
    * Drawn first inside the list's scroll — Bills & dues puts what is due
    * there (P18). `version` moves after every load, and `reload` refreshes
@@ -115,7 +117,6 @@ export function SubscriptionsPanel({
   const dialog = useAppDialog();
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const muted = `${colors.text}99`;
   const [isIntervalPickerVisible, setIsIntervalPickerVisible] = useState(false);
 
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
@@ -176,9 +177,7 @@ export function SubscriptionsPanel({
   const [isMarkPaidVisible, setIsMarkPaidVisible] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
   const [markPaidError, setMarkPaidError] = useState<string | null>(null);
-  const [isDatePickerVisible, setIsDatePickerVisible] = useState(false);
-  const [pendingDate, setPendingDate] = useState(apiDateToLocalDate(nextDueDate));
-  const [datePickerTarget, setDatePickerTarget] = useState<'due' | 'cancel' | 'start'>('due');
+  const { pickDate } = useDatePicker();
   const source = toParam(params.source);
   const prefillName = toParam(params.name);
   const prefillMerchant = toParam(params.merchant);
@@ -236,6 +235,15 @@ export function SubscriptionsPanel({
   );
   const formTitle = editing ? kindMeta.editTitle : kindMeta.newTitle;
   const visibleCandidates = candidatesHidden ? [] : candidates;
+
+  const startedAdding = useRef(false);
+  useEffect(() => {
+    if (!startAdding || startedAdding.current) return;
+    startedAdding.current = true;
+    openCreateForm();
+    // Once, when the panel opens for it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startAdding]);
 
   /**
    * "Track this SIP / loan" on the calculators (P53): the add sheet opens as
@@ -486,60 +494,31 @@ export function SubscriptionsPanel({
     if (checked && !autopay) ensurePaymentAccount();
   };
 
-  const openStartDatePicker = () => {
-    const currentDate = apiDateToLocalDate(startDate || todayISO());
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: currentDate,
-        mode: 'date',
-        onValueChange: (_event, selectedDate) =>
-          selectedDate && setStartDate(dateToApiDate(selectedDate)),
-        onDismiss: () => undefined,
-      });
-      return;
-    }
-    setDatePickerTarget('start');
-    setPendingDate(currentDate);
-    setIsDatePickerVisible(true);
+  // A loan or SIP started in the past; only upcoming dates are bounded.
+  const openStartDatePicker = async () => {
+    const selected = await pickDate({
+      title: 'Started on',
+      value: apiDateToLocalDate(startDate || todayISO()),
+    });
+    if (selected) setStartDate(dateToApiDate(selected));
   };
 
-  const openDueDatePicker = () => {
-    const currentDate = apiDateToLocalDate(nextDueDate);
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: currentDate,
-        mode: 'date',
-        minimumDate: new Date(),
-        onValueChange: (_event, selectedDate) => {
-          if (selectedDate) {
-            setNextDueDate(dateToApiDate(selectedDate));
-          }
-        },
-        onDismiss: () => undefined,
-      });
-      return;
-    }
-    setDatePickerTarget('due');
-    setPendingDate(currentDate);
-    setIsDatePickerVisible(true);
+  const openDueDatePicker = async () => {
+    const selected = await pickDate({
+      title: 'Next payment on',
+      value: apiDateToLocalDate(nextDueDate),
+      minimumDate: new Date(),
+    });
+    if (selected) setNextDueDate(dateToApiDate(selected));
   };
 
-  const openCancellationDatePicker = () => {
-    const currentDate = apiDateToLocalDate(cancelOnDate || todayISO());
-    if (Platform.OS === 'android') {
-      DateTimePickerAndroid.open({
-        value: currentDate,
-        mode: 'date',
-        minimumDate: new Date(),
-        onValueChange: (_event, selectedDate) =>
-          selectedDate && setCancelOnDate(dateToApiDate(selectedDate)),
-        onDismiss: () => undefined,
-      });
-      return;
-    }
-    setDatePickerTarget('cancel');
-    setPendingDate(currentDate);
-    setIsDatePickerVisible(true);
+  const openCancellationDatePicker = async () => {
+    const selected = await pickDate({
+      title: 'Cancellation reminder',
+      value: apiDateToLocalDate(cancelOnDate || todayISO()),
+      minimumDate: new Date(),
+    });
+    if (selected) setCancelOnDate(dateToApiDate(selected));
   };
 
   const saveSubscription = async () => {
@@ -1230,21 +1209,6 @@ export function SubscriptionsPanel({
         }}
       />
 
-      <SubscriptionDatePickerModal
-        visible={isDatePickerVisible}
-        target={datePickerTarget}
-        pendingDate={pendingDate}
-        onChangePendingDate={setPendingDate}
-        onClose={() => setIsDatePickerVisible(false)}
-        onDone={() => {
-          if (datePickerTarget === 'cancel') setCancelOnDate(dateToApiDate(pendingDate));
-          else if (datePickerTarget === 'start') setStartDate(dateToApiDate(pendingDate));
-          else setNextDueDate(dateToApiDate(pendingDate));
-          setIsDatePickerVisible(false);
-        }}
-        colors={colors}
-        muted={muted}
-      />
     </View>
   );
 }

@@ -4,6 +4,7 @@ import { createEntry } from '@/lib/entries';
 import {
   DuplicateSaveCancelled,
   describeLikelyDuplicate,
+  editCouldDuplicate,
   findLikelyDuplicate,
   saveNewTransaction,
 } from '@/lib/transaction-composer';
@@ -216,4 +217,32 @@ it('names the logged transaction in the warning', () => {
   const { title, message } = describeLikelyDuplicate(logged());
   expect(title).toBe('Similar transaction found');
   expect(message).toContain('"HSBC loan EMI" for ₹20,938 from SBI Bank');
+});
+
+// Staging, 8 Nov 2026: an edit that made an entry match another saved silently.
+describe('editing into a duplicate', () => {
+  it('does not report the edited entry as a duplicate of itself', async () => {
+    serve(logged({ id: 41 }));
+    expect(await findLikelyDuplicate('t', emi, 3, '41')).toBeNull();
+    serve(logged({ id: 41 }), logged({ id: 77 }));
+    expect((await findLikelyDuplicate('t', emi, 3, '41'))?.id).toBe('77');
+  });
+
+  it('asks when the amount, day or direction moved', () => {
+    expect(editCouldDuplicate(emi, { ...emi, amount: '500' })).toBe(true);
+    expect(editCouldDuplicate(emi, { ...emi, date: '16 October 2026' })).toBe(true);
+    expect(editCouldDuplicate(emi, { ...emi, type: 'Income' })).toBe(true);
+  });
+
+  it('leaves alone an edit that cannot have caused it', () => {
+    expect(editCouldDuplicate(emi, { ...emi, notes: 'Paid early' })).toBe(false);
+    expect(editCouldDuplicate(emi, { ...emi, title: 'Home loan' })).toBe(false);
+    expect(editCouldDuplicate({ ...emi, amount: '20938.00' }, { ...emi, amount: '20,938' })).toBe(false);
+  });
+
+  it('under ₹100, a changed detail can be what makes the match', () => {
+    const water = { ...emi, amount: '50', title: 'Water' };
+    expect(editCouldDuplicate(water, { ...water, title: 'Chai' })).toBe(true);
+    expect(editCouldDuplicate(water, { ...water, notes: 'Cold' })).toBe(false);
+  });
 });

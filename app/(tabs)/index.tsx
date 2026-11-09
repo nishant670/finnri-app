@@ -24,7 +24,6 @@ import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
 import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { CAPTURE_COLLAPSED_HEIGHT, CollapsibleCapture } from '@/components/home/CollapsibleCapture';
-import { FirstEntryCard } from '@/components/home/FirstEntryCard';
 import { GetStartedCard, getStartedSteps } from '@/components/home/GetStartedCard';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { MonthStrip } from '@/components/home/MonthStrip';
@@ -93,8 +92,6 @@ import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubs
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { fetchBudgets } from '@/lib/budgets';
-import { FIRST_ENTRY_PHRASE, loadSpeakLanguage, useSpeakLanguage } from '@/lib/speak-language';
-import { isFirstEntryDismissed, dismissFirstEntry } from '@/lib/first-entry';
 import {
   captureCreditsFor,
   creditBlockFor,
@@ -157,6 +154,11 @@ const CAPTURE_EXPAND_MS = 260;
  * the highlight off mid-fade.
  */
 const NEW_ROW_HIGHLIGHT_MS = 1200;
+/**
+ * Shorter than this is a mis-tap on the mic, not a sentence: it is dropped
+ * instead of being sent (and charged) to come back empty.
+ */
+const MIN_RECORDING_SECONDS = 0.8;
 
 /**
  * `RecordingPresets.HIGH_QUALITY` does not enable metering, so `getStatus()`
@@ -387,6 +389,8 @@ export default function HomeScreen() {
    * `recordedUri` instead, and both are cleared only on success.
    */
   const lastPromptText = useRef<string | null>(null);
+  /** The read in flight, so the draft sheet's Cancel can stop it. */
+  const parseAbort = useRef<AbortController | null>(null);
   const resumeDraftAfterAccounts = useRef(false);
   const saveConfirmationAnim = useRef(new RNAnimated.Value(0)).current;
   const motion = useMotion();
@@ -875,42 +879,13 @@ export default function HomeScreen() {
     !outgrewGetStarted &&
     startSteps.some((step) => !step.done);
 
-  /**
-   * A brand-new Home offers one sentence to send (P70, board
-   * R13-FirstEntry-Proposals) in place of the microphone card: no entries yet,
-   * credits to read it with, nothing else under way, and not put away before.
-   */
-  const speakLanguage = useSpeakLanguage();
-  const [firstEntryDismissed, setFirstEntryDismissed] = useState<boolean | null>(null);
-  useEffect(() => {
-    void isFirstEntryDismissed().then(setFirstEntryDismissed);
-  }, []);
-  const showFirstEntry =
-    firstEntryDismissed === false &&
+  /** A Home with nothing on it yet: the header says welcome. */
+  const isBrandNewHome =
     hasLoadedEntries &&
     !isEntriesLoading &&
     !entriesError &&
     entryTotal === 0 &&
-    transactions.length === 0 &&
-    !captureCreditBlock &&
-    !parseFailure &&
-    !isRecording &&
-    !recordedUri;
-  const firstEntrySeeded = useRef(false);
-  useEffect(() => {
-    if (!showFirstEntry || firstEntrySeeded.current) return;
-    firstEntrySeeded.current = true;
-    // The saved language, not the English the hook starts on before storage
-    // answers: a Hindi speaker must not get the English sentence for good.
-    void loadSpeakLanguage().then((language) =>
-      setInputText((current) => current || FIRST_ENTRY_PHRASE[language])
-    );
-  }, [showFirstEntry]);
-  const putAwayFirstEntry = useCallback(() => {
-    setFirstEntryDismissed(true);
-    void dismissFirstEntry();
-    setInputText('');
-  }, []);
+    transactions.length === 0;
 
   /**
    * The guest upgrade ask. It waits for entries because an account is only worth
@@ -967,16 +942,55 @@ export default function HomeScreen() {
     }
   }, [audioRecorder, dialog]);
 
+  /**
+   * Stopping sends. There used to be a "Recording ready → Use this" step here,
+   * kept for the person who realises they said the wrong thing; but with no
+   * playback that step could not show them what they said, and the realisation
+   * comes while speaking, not after. That person now has Discard while it
+   * records and Cancel on the draft sheet while it reads, and neither costs a
+   * credit.
+   *
+   * A clip too short to hold a sentence is a mis-tap: it is dropped here
+   * rather than sent to be charged for nothing.
+   */
   const stopRecording = useCallback(async () => {
     if (!isRecording) return;
     try {
+      const seconds = audioRecorder.currentTime;
       await audioRecorder.stop();
+      if (seconds > 0 && seconds < MIN_RECORDING_SECONDS) {
+        setRecordedUri(null);
+        setErrorMessage('That was too short to hear. Tap the mic and say what you spent.');
+        haptics.captureStop();
+        return;
+      }
+      captureAwaitingSubmit.current = true;
       setRecordedUri(audioRecorder.uri);
       haptics.captureStop();
     } catch {
       setErrorMessage("Couldn't stop recording. Try again.");
     } finally {
       setIsRecording(false);
+      try {
+        await setAudioModeAsync({ allowsRecording: false });
+      } catch {
+        // Ignore
+      }
+    }
+  }, [audioRecorder, isRecording]);
+
+  /** Stop listening and keep nothing: nothing is sent, so nothing is charged. */
+  const discardRecording = useCallback(async () => {
+    if (!isRecording) return;
+    try {
+      await audioRecorder.stop();
+    } catch {
+      // The clip is being thrown away; a recorder that will not stop cleanly
+      // has nothing worth reporting.
+    } finally {
+      setIsRecording(false);
+      setRecordedUri(null);
+      haptics.captureStop();
       try {
         await setAudioModeAsync({ allowsRecording: false });
       } catch {
@@ -1576,6 +1590,8 @@ export default function HomeScreen() {
       if (!deferSheet) {
         setIsEditOpen(true);
       }
+      const controller = new AbortController();
+      parseAbort.current = controller;
       try {
         let audio:
           | {
@@ -1593,8 +1609,16 @@ export default function HomeScreen() {
             name: fileName,
           };
         }
-        const result = await parseEntryDraft({ token, hintText: trimmed, audio });
+        const result = await parseEntryDraft({
+          token,
+          hintText: trimmed,
+          audio,
+          signal: controller.signal,
+        });
         void fetchCredits();
+        // Cancelled as the answer landed: the person has already moved on, so
+        // it is tidied up exactly like a Cancel that beat the answer.
+        if (controller.signal.aborted) throw new Error('Read cancelled');
         createIdempotencyKey.current = null;
         createSaveProgress.current = {};
 
@@ -1632,9 +1656,20 @@ export default function HomeScreen() {
         // behind it.
         setIsEditOpen(false);
         setPendingQuestion(null);
+        // Cancelled on purpose. Not a failure: no card, and the server gave the
+        // credits back. A recording goes (they cancelled to say it again); a
+        // typed sentence stays in the field to be fixed.
+        if (controller.signal.aborted) {
+          void fetchCredits();
+          setAiReview(null);
+          setRecordedUri(null);
+          lastPromptText.current = null;
+          return;
+        }
         if (showCreditParseError(error, kind)) return;
         setParseFailure(describeParseFailure(error));
       } finally {
+        if (parseAbort.current === controller) parseAbort.current = null;
         setIsParsing(false);
         setIsSubmitting(false);
       }
@@ -1660,9 +1695,8 @@ export default function HomeScreen() {
    * got dropped on Home with no sign anything had happened, which reads as the
    * feature being broken rather than waiting.
    *
-   * In-app recording is deliberately left alone — there the user is already
-   * looking at the card and holding the send control, so submitting for them
-   * would take the decision away at the one moment they can see it.
+   * In-app recording takes the same path since stopping the mic now sends:
+   * `stopRecording` raises the same flag.
    */
   useEffect(() => {
     if (!captureAwaitingSubmit.current || !recordedUri) return;
@@ -1695,8 +1729,16 @@ export default function HomeScreen() {
 
   const handleAddManuallyAfterFailure = useCallback(() => {
     setParseFailure(null);
+    // Typing it in replaces the recording; leaving it would bring back a
+    // "not sent" clip on Home once the sheet closes.
+    setRecordedUri(null);
     handleOpenManualEntry();
   }, [handleOpenManualEntry]);
+
+  /** Stops the read under way; the catch in `submitPrompt` tidies up. */
+  const cancelParse = useCallback(() => {
+    parseAbort.current?.abort();
+  }, []);
 
   const renderRecentActivity = () => (
     <HomeRecentActivity
@@ -1804,7 +1846,6 @@ export default function HomeScreen() {
             onSelect={handleQuickPromptSelect}
             onAdd={handleAddPrompt}
             onLongPress={handleLongPressPrompt}
-            hideAmounts={isStealthMode}
           />
 
           {showGetStarted ? (
@@ -1822,10 +1863,11 @@ export default function HomeScreen() {
             <ParseErrorCard
               failure={parseFailure}
               onRetry={handleRetryPrompt}
-              onDismiss={() => setParseFailure(null)}
+              onDismiss={recordedUri ? handleClearRecording : () => setParseFailure(null)}
               onUseExample={handleUseExample}
               onAddManually={handleAddManuallyAfterFailure}
               isRetrying={isSubmitting}
+              keptRecording={Boolean(recordedUri)}
               style={{ marginHorizontal: 16, marginBottom: 12 }}
             />
           )}
@@ -1867,7 +1909,7 @@ export default function HomeScreen() {
           <View
             onLayout={(event) => setPinnedTopHeight(Math.round(event.nativeEvent.layout.height))}>
             <HomeHeader
-              welcome={showFirstEntry}
+              welcome={isBrandNewHome}
               unreadCount={unreadNotifications}
               onNotificationsPress={() => router.push('/notifications')}
             />
@@ -1889,17 +1931,6 @@ export default function HomeScreen() {
             isRecording={isRecording}
             locked={isCaptureLocked || !isCaptureCollapsible}
             onExpandedHeightChange={setCaptureExpandedHeight}>
-            {showFirstEntry ? (
-              <FirstEntryCard
-                text={inputText}
-                placeholder={FIRST_ENTRY_PHRASE[speakLanguage]}
-                onChangeText={setInputText}
-                onSend={handleSubmitPrompt}
-                isSending={isSubmitting}
-                onSayInstead={putAwayFirstEntry}
-                onAddByHand={handleOpenManualEntry}
-              />
-            ) : (
             <VoiceInputCard
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}
@@ -1911,6 +1942,8 @@ export default function HomeScreen() {
               onChangeText={setInputText}
               onProcess={handleSubmitPrompt}
               onClear={handleClearRecording}
+              onDiscardRecording={() => void discardRecording()}
+              onCancelProcessing={cancelParse}
               hasFailed={Boolean(parseFailure)}
               isProcessing={isSubmitting}
               isTextInputVisible={isTextInputVisible}
@@ -1920,7 +1953,6 @@ export default function HomeScreen() {
               creditBlock={captureCreditBlock}
               creditNote={captureCreditNote}
             />
-            )}
           </CollapsibleCapture>
         </View>
       </View>
@@ -1932,6 +1964,9 @@ export default function HomeScreen() {
       <TransactionFormModal
         visible={isEditOpen}
         onClose={() => {
+          // Closed while it was still reading: that is the Cancel. The read is
+          // stopped and its credits come back.
+          parseAbort.current?.abort();
           setIsEditOpen(false);
           setIsBlankEntry(false);
           receiptScanId.current += 1;

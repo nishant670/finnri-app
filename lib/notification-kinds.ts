@@ -97,7 +97,9 @@ const RECURRING: Href = { pathname: '/(tabs)/money', params: { segment: 'subscri
  * now open Budgets; recurring reminders carry `/subscriptions`, which had no
  * route, and now open Money › Recurring.
  */
-export function notificationDestination(notification: AppNotification): Href | null {
+export function notificationDestination(
+  notification: Pick<AppNotification, 'type' | 'action_url'>
+): Href | null {
   const url = notification.action_url ?? undefined;
 
   if (notification.type.startsWith('budget.')) return '/budgets';

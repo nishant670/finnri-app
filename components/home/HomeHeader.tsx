@@ -10,7 +10,7 @@ import { userDisplayName } from '@/lib/display-name';
 type HomeHeaderProps = {
   unreadCount?: number;
   onNotificationsPress?: () => void;
-  /** "Hey there, welcome to Finnri!" while Home offers a first entry (P70). */
+  /** "Hey there, welcome to Finnri!" while Home has no entries yet. */
   welcome?: boolean;
 };
 

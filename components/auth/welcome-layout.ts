@@ -22,6 +22,16 @@
 export const HERO_BASE_SIZE = 210;
 
 /**
+ * The most the panel grows to on a tall phone. It used to stop at
+ * `HERO_BASE_SIZE`, and every dp past that went to the spacer above the
+ * buttons: on a 6.7" handset a third of the screen sat empty between the
+ * subtitle and "Start for free". The panel now takes that room and spends it
+ * on showing the other ways in (see `welcomeHeroExamples`); only past this
+ * (a tablet, a foldable open) does the spacer grow again.
+ */
+export const HERO_MAX_SIZE = 440;
+
+/**
  * Below this the artwork reads as a smudge rather than an illustration, so it
  * is dropped entirely and its space returned to the layout. The alternative —
  * letting it shrink to nothing — spends the last of a small screen's height on
@@ -56,5 +66,16 @@ const CHROME_HEIGHT =
 export function welcomeHeroSize(available: number): number {
   const leftover = available - CHROME_HEIGHT;
   if (leftover < HERO_MIN_SIZE) return 0;
-  return Math.min(HERO_BASE_SIZE, leftover);
+  return Math.min(HERO_MAX_SIZE, leftover);
+}
+
+/**
+ * How many capture examples fit a panel this tall: typed, then spoken, then a
+ * scanned bill. Each one is a request bubble over the entry it became (about
+ * 112dp with its gap), inside the panel's own padding.
+ */
+export function welcomeHeroExamples(heroHeight: number): 1 | 2 | 3 {
+  if (heroHeight >= 400) return 3;
+  if (heroHeight >= 290) return 2;
+  return 1;
 }

@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Platform, StyleSheet, TextInput, View } from 'react-native';
+import { StyleSheet, TextInput, View } from 'react-native';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import DateTimePicker from '@react-native-community/datetimepicker';
 
 import { ThemedText } from '@/components/themed-text';
 import { Button, PrimaryButton } from '@/components/ui/Button';
@@ -9,6 +8,7 @@ import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { PressableView } from '@/components/ui/PressableView';
 import { Segments } from '@/components/ui/Segments';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
 import { getAccountVisual } from '@/lib/account-display';
@@ -20,7 +20,6 @@ import { PAYMENT_MODES, paymentModeVisual } from '@/lib/payment-modes';
 import {
   TRANSACTION_SORTS,
   formatApiDate,
-  parseDateLabel,
   type TransactionSort,
 } from '@/lib/transactions';
 import {
@@ -218,7 +217,7 @@ export const AdvancedFilter = ({
   const footerBottom = useBottomInset(16);
 
   const [draft, setDraft] = useState<TransactionFilterState>(currentFilters);
-  const [showPicker, setShowPicker] = useState<'start' | 'end' | null>(null);
+  const { pickDate } = useDatePicker();
   const [isAccountPickerOpen, setIsAccountPickerOpen] = useState(false);
   const [isEventPickerOpen, setIsEventPickerOpen] = useState(false);
   const events = useEvents((state) => state.events);
@@ -251,15 +250,18 @@ export const AdvancedFilter = ({
   const selectedEvent = events.find((event) => event.id === draft.eventId);
   const filterCount = activeFilterCount(draft);
 
-  const onDateChange = (selected?: Date) => {
-    const target = showPicker;
-    setShowPicker(null);
-    if (!selected || !target) return;
-    patch(
-      target === 'start'
-        ? { startDate: formatApiDate(selected) }
-        : { endDate: formatApiDate(selected) }
-    );
+  /** From can't pass To, and To can't come before From. */
+  const pickEdge = async (edge: 'start' | 'end') => {
+    const start = parseApiDate(draft.startDate);
+    const end = parseApiDate(draft.endDate);
+    const selected = await pickDate({
+      title: edge === 'start' ? 'From' : 'To',
+      value: (edge === 'start' ? start : end) ?? null,
+      minimumDate: edge === 'end' ? start : null,
+      maximumDate: edge === 'start' ? end : null,
+    });
+    if (!selected) return;
+    patch(edge === 'start' ? { startDate: formatApiDate(selected) } : { endDate: formatApiDate(selected) });
   };
 
   return (
@@ -348,7 +350,7 @@ export const AdvancedFilter = ({
                   testID={`filter-date-${edge}`}
                   accessibilityRole="button"
                   accessibilityLabel={`${edge === 'start' ? 'From' : 'To'}, ${parsed ? dayMonthYear(parsed) : 'any'}`}
-                  onPress={() => setShowPicker(edge)}
+                  onPress={() => void pickEdge(edge)}
                   style={styles.field}
                   pressedStyle={styles.pressed}>
                   <ThemedText tone="muted" style={styles.fieldLabel}>
@@ -504,18 +506,6 @@ export const AdvancedFilter = ({
           <MaterialCommunityIcons name="chevron-right" size={20} color={colors.muted} />
         </PressableView>
       </KeyboardAvoidingScreen>
-
-      {showPicker && (
-        <DateTimePicker
-          value={
-            parseDateLabel(showPicker === 'start' ? draft.startDate : draft.endDate) ?? new Date()
-          }
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onValueChange={(_event, selected) => onDateChange(selected)}
-          onDismiss={() => setShowPicker(null)}
-        />
-      )}
 
       {/* No count on Show results: the one it carried was for the filters
           already applied, so it never moved while choosing — a number that

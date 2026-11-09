@@ -73,7 +73,21 @@ describe('the failed-capture card', () => {
   });
 });
 
-describe('the capture card after a failure', () => {
+describe('a failed recording is offered once, on the failure card', () => {
+  it('says the recording is kept and its × throws it away', async () => {
+    const failure = describeParseFailure(new TypeError('Network request failed'));
+    const onDismiss = jest.fn();
+    const screen = await render(
+      <ParseErrorCard failure={failure} {...cardProps} onDismiss={onDismiss} keptRecording />
+    );
+
+    expect(screen.getByText('Your recording is saved for Try again.')).toBeTruthy();
+    await fireEvent.press(screen.getByLabelText('Discard recording'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the capture card around a recording', () => {
   const captureProps = {
     onMicPress: jest.fn(),
     isRecording: false,
@@ -84,24 +98,40 @@ describe('the capture card after a failure', () => {
     onClear: jest.fn(),
   };
 
-  it('offers to process a fresh recording', async () => {
-    const screen = await render(<VoiceInputCard {...captureProps} />);
-
-    expect(screen.getByText('Use this')).toBeTruthy();
-    expect(screen.getByText('Recording ready')).toBeTruthy();
-  });
-
-  // "Process" under an error about the thing it just failed to process reads
-  // as though the app did not notice.
-  it('offers to try again once that recording has failed', async () => {
-    const onProcess = jest.fn();
+  it('has no "Use this" step: a clip being read shows the read and a Cancel', async () => {
+    const onCancelProcessing = jest.fn();
     const screen = await render(
-      <VoiceInputCard {...captureProps} onProcess={onProcess} hasFailed />
+      <VoiceInputCard {...captureProps} isProcessing onCancelProcessing={onCancelProcessing} />
     );
 
     expect(screen.queryByText('Use this')).toBeNull();
-    await fireEvent.press(screen.getByText('Try again'));
-    expect(onProcess).toHaveBeenCalledTimes(1);
-    expect(screen.getByText('Cancel')).toBeTruthy();
+    expect(screen.getByText('Reading your recording…')).toBeTruthy();
+    await fireEvent.press(screen.getByText('Cancel'));
+    expect(onCancelProcessing).toHaveBeenCalledTimes(1);
+  });
+
+  // The failure card below carries Try again; the capture card offering one
+  // too was the duplicate.
+  it('goes back to the mic once that recording has failed', async () => {
+    const screen = await render(<VoiceInputCard {...captureProps} hasFailed />);
+
+    expect(screen.queryByText('Try again')).toBeNull();
+    expect(screen.queryByText('Recording kept')).toBeNull();
+    expect(screen.getByLabelText('Record an expense')).toBeTruthy();
+  });
+
+  it('offers Discard while it records', async () => {
+    const onDiscardRecording = jest.fn();
+    const screen = await render(
+      <VoiceInputCard
+        {...captureProps}
+        hasRecording={false}
+        isRecording
+        onDiscardRecording={onDiscardRecording}
+      />
+    );
+
+    await fireEvent.press(screen.getByTestId('voice-discard-recording'));
+    expect(onDiscardRecording).toHaveBeenCalledTimes(1);
   });
 });

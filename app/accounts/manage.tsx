@@ -7,11 +7,13 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/Button';
+import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
 import { SheetCloseButton } from '@/components/ui/SheetCloseButton';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { SkeletonFrame } from '@/components/ui/Skeleton';
 import { useAuthStore } from '@/hooks/use-auth-store';
+import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
   Account,
@@ -32,15 +34,18 @@ import { withSetupDetail, type AccountSetupItem } from '@/lib/account-display';
 import { haptics } from '@/lib/haptics';
 
 import { styles } from '@/components/accounts/account-form-styles';
-import { AccountFormStepOne, AccountStyleFold } from '@/components/accounts/AccountFormStepOne';
+import { AccountStyleFold } from '@/components/accounts/AccountFormStepOne';
 import { AccountFormStepTwo } from '@/components/accounts/AccountFormStepTwo';
 import { AccountFormSuccess } from '@/components/accounts/AccountFormSuccess';
+import { AccountIdentityFields, AccountTypeChips } from '@/components/accounts/AccountSheetFields';
 import {
   DEFAULT_ACCOUNT_COLORS,
   DEFAULT_ACCOUNT_NAMES,
   ACCOUNT_DETAIL_COPY,
   PAY_LATER_DETAIL_COPY,
+  moreDetailsSummary,
   providerIcon,
+  suggestAccountName,
   type ProviderOption,
 } from '@/lib/account-form';
 
@@ -48,6 +53,7 @@ export default function ManageAccountScreen() {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
   const { token } = useAuthStore();
+  const keyboardInset = useKeyboardInset();
   const {
     id,
     type,
@@ -55,6 +61,7 @@ export default function ManageAccountScreen() {
     provider,
     identifier,
     color,
+    focus,
   } = useLocalSearchParams<{
     id?: string;
     type?: string;
@@ -62,6 +69,7 @@ export default function ManageAccountScreen() {
     provider?: string;
     identifier?: string;
     color?: string;
+    focus?: string;
   }>();
   const accountId = id ? Number(id) : null;
   const isEditing = Number.isInteger(accountId) && accountId !== null && accountId > 0;
@@ -81,6 +89,9 @@ export default function ManageAccountScreen() {
   const [creditKind, setCreditKind] = useState<CreditKind>('');
   const [selectedColor, setSelectedColor] = useState('#54A0FF');
   const [name, setName] = useState('');
+  // Until the user types a name, the name follows the bank and last 4 digits.
+  // An account being edited, or a name a caller suggested, is left alone.
+  const [nameTouched, setNameTouched] = useState(isEditing || Boolean(suggestedName));
 
   // Step 2 States
   const [issuerQuery, setIssuerQuery] = useState('');
@@ -105,6 +116,9 @@ export default function ManageAccountScreen() {
 
   // Folds: the optional settings each screen keeps out of the way.
   const [showStyleOptions, setShowStyleOptions] = useState(false);
+  // Open when editing, or when the Account added screen sent someone here to
+  // fill a detail in: the field they came for must be on screen.
+  const [showMoreDetails, setShowMoreDetails] = useState(isEditing || focus === 'details');
   const [showReminderOptions, setShowReminderOptions] = useState(false);
   const [showAnnualFee, setShowAnnualFee] = useState(false);
 
@@ -217,18 +231,25 @@ export default function ManageAccountScreen() {
     if (match) {
       setSelectedIssuer(match);
       setIssuerQuery(match.name);
+      setShowIssuerResults(false);
     }
   }, [issuerQuery, providerOptions, selectedIssuer]);
 
-  const defaultNameFor = (accountType: AccountType, kind: CreditKind) =>
-    kind === 'pay_later' ? 'Pay later' : DEFAULT_ACCOUNT_NAMES[accountType];
+  const nameSuggestion = suggestAccountName({
+    type: selectedType,
+    creditKind,
+    provider: selectedIssuer?.name || issuerQuery,
+    identifier: last4,
+  });
+  useEffect(() => {
+    if (!nameTouched) setName(nameSuggestion);
+  }, [nameSuggestion, nameTouched]);
 
   const updateSelectedType = (nextType: AccountType, nextKind: CreditKind = '') => {
     if (nextType === selectedType && nextKind === creditKind) {
       setTypeError(null);
       return;
     }
-    const previousName = defaultNameFor(selectedType, creditKind);
     setSelectedType(nextType);
     setCreditKind(nextKind);
     setSelectedColor((currentColor) =>
@@ -236,12 +257,6 @@ export default function ManageAccountScreen() {
         ? DEFAULT_ACCOUNT_COLORS[nextType]
         : currentColor
     );
-    setName((currentName) => {
-      if (!currentName || currentName === previousName) {
-        return defaultNameFor(nextType, nextKind);
-      }
-      return currentName;
-    });
     setIssuerQuery('');
     setSelectedIssuer(null);
     setShowIssuerResults(false);
@@ -262,7 +277,8 @@ export default function ManageAccountScreen() {
     setSelectedType(nextType);
     setCreditKind('');
     setSelectedColor(DEFAULT_ACCOUNT_COLORS[nextType]);
-    setName(DEFAULT_ACCOUNT_NAMES[nextType]);
+    setNameTouched(false);
+    setShowMoreDetails(false);
     setIssuerQuery('');
     setSelectedIssuer(null);
     setShowIssuerResults(false);
@@ -285,7 +301,7 @@ export default function ManageAccountScreen() {
 
   const handleSave = async () => {
     if (!token) return;
-    if (!name) {
+    if (!name.trim()) {
       haptics.rejected();
       setSaveError('Give this account a name.');
       return;
@@ -389,6 +405,10 @@ export default function ManageAccountScreen() {
     }
   };
 
+  const isCardType =
+    (selectedType === 'credit_card' && creditKind !== 'pay_later') || selectedType === 'debit_card';
+  const identifierIsDigits =
+    selectedType === 'bank' || selectedType === 'credit_card' || selectedType === 'debit_card';
   const detailCopy =
     creditKind === 'pay_later' ? PAY_LATER_DETAIL_COPY : ACCOUNT_DETAIL_COPY[selectedType];
   const changeBalance: Dispatch<SetStateAction<string>> = (value) => {
@@ -397,14 +417,19 @@ export default function ManageAccountScreen() {
   };
 
   const filteredIssuers = useMemo(() => {
-    if (!issuerQuery) return [];
-    return providerOptions.filter(
-      (i) =>
-        i.name.toLowerCase().includes(issuerQuery.toLowerCase()) &&
-        // A card's issuers and a pay-later line's lenders are separate lists.
-        (selectedType !== 'credit_card' || (i.creditKind ?? '') === creditKind)
-    );
-  }, [creditKind, issuerQuery, providerOptions, selectedType]);
+    const query = issuerQuery.trim().toLowerCase();
+    // Once one is chosen, reopening the list offers all of them again, not
+    // just the one whose name is now in the field.
+    const searching = query !== '' && selectedIssuer?.name.toLowerCase() !== query;
+    return providerOptions
+      .filter(
+        (i) =>
+          (!searching || i.name.toLowerCase().includes(query)) &&
+          // A card's issuers and a pay-later line's lenders are separate lists.
+          (selectedType !== 'credit_card' || (i.creditKind ?? '') === creditKind)
+      )
+      .slice(0, 6);
+  }, [creditKind, issuerQuery, providerOptions, selectedIssuer, selectedType]);
 
   const selectProvider = (provider: ProviderOption) => {
     setSelectedIssuer(provider);
@@ -413,11 +438,7 @@ export default function ManageAccountScreen() {
   };
 
   const updateIdentifier = (value: string) => {
-    if (
-      selectedType === 'bank' ||
-      selectedType === 'credit_card' ||
-      selectedType === 'debit_card'
-    ) {
+    if (identifierIsDigits) {
       setLast4(value.replace(/[^0-9]/g, '').slice(0, 4));
       return;
     }
@@ -507,9 +528,8 @@ export default function ManageAccountScreen() {
           </SkeletonFrame>
         ) : step !== 3 ? (
           <>
-            {/* One sheet for a new account (P21, board R5-Account-Proposals):
-                the type, the name, what that type needs, then colour and
-                default folded away — and one Save. */}
+            {/* One sheet, one question at a time (P21, board R16-Account-A):
+                what it is, which one, its name, and the rest folded away. */}
             <View style={sheetStyles.header}>
               <ThemedText accessibilityRole="header" style={[sheetStyles.title, { color: theme.text }]}>
                 {isEditing ? 'Edit account' : 'Add an account'}
@@ -519,37 +539,61 @@ export default function ManageAccountScreen() {
             <KeyboardAvoidingScreen
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.scrollContent}>
-              <AccountFormStepOne
-                embedded
-                isDefault={isDefault}
-                isEditing={isEditing}
-                isSaving={isSaving}
-                name={name}
-                saveError={saveError}
-                selectedColor={selectedColor}
+              <AccountTypeChips
                 selectedType={selectedType}
-                setIsDefault={setIsDefault}
-                setName={setName}
-                setSelectedColor={setSelectedColor}
-                setShowStyleOptions={setShowStyleOptions}
-                setStep={setStep}
-                showStyleOptions={showStyleOptions}
-                typeError={typeError}
-                updateSelectedType={updateSelectedType}
                 creditKind={creditKind}
+                typeError={typeError}
+                onSelect={updateSelectedType}
               />
-              {stepTwo(true)}
-              <AccountStyleFold
-                isDefault={isDefault}
-                selectedColor={selectedColor}
-                setIsDefault={setIsDefault}
-                setSelectedColor={setSelectedColor}
-                open={showStyleOptions}
-                setOpen={setShowStyleOptions}
+              <AccountIdentityFields
+                detailCopy={detailCopy}
+                noun={isCardType ? 'card' : 'account'}
+                filteredIssuers={filteredIssuers}
+                issuerIcon={selectedIssuer?.icon}
+                issuerQuery={issuerQuery}
+                last4={last4}
+                name={name}
+                nameIsSuggested={!nameTouched}
+                onChangeName={(value) => {
+                  setNameTouched(true);
+                  setName(value);
+                }}
+                selectProvider={selectProvider}
+                setIssuerQuery={setIssuerQuery}
+                setSelectedIssuer={setSelectedIssuer}
+                setShowIssuerResults={setShowIssuerResults}
+                showIssuerResults={showIssuerResults}
+                isDigitsIdentifier={identifierIsDigits}
+                updateIdentifier={updateIdentifier}
               />
+              {/* How much cash is on you is the one fact a cash account has. */}
+              {selectedType === 'cash' ? stepTwo(true) : null}
+              <View style={sheetStyles.more}>
+                <FormDisclosure
+                  testID="account-more-details"
+                  label="More details"
+                  summary={moreDetailsSummary(selectedType, creditKind)}
+                  expanded={showMoreDetails}
+                  onToggle={() => setShowMoreDetails((open) => !open)}>
+                  {selectedType === 'cash' ? null : stepTwo(true)}
+                  <ThemedText style={styles.sectionHeaderLabel}>Colour & default</ThemedText>
+                  <AccountStyleFold
+                    flat
+                    isDefault={isDefault}
+                    selectedColor={selectedColor}
+                    setIsDefault={setIsDefault}
+                    setSelectedColor={setSelectedColor}
+                    open={showStyleOptions}
+                    setOpen={setShowStyleOptions}
+                  />
+                </FormDisclosure>
+              </View>
             </KeyboardAvoidingScreen>
             <View
-              style={[styles.footer, { backgroundColor: theme.background, borderTopColor: theme.border }]}>
+              style={[
+                styles.footer,
+                { backgroundColor: theme.background, borderTopColor: theme.border, marginBottom: keyboardInset },
+              ]}>
               {saveError ? (
                 <View style={styles.errorContainer}>
                   <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.negative} />
@@ -558,7 +602,7 @@ export default function ManageAccountScreen() {
               ) : null}
               <PrimaryButton
                 testID="account-save"
-                label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : 'Save account'}
+                label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : isCardType ? 'Save card' : 'Save account'}
                 loading={isSaving}
                 onPress={handleSave}
               />
@@ -589,6 +633,10 @@ const sheetStyles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingLeft: 20,
     paddingRight: 8,
+  },
+  more: {
+    marginTop: 20,
+    marginBottom: 8,
   },
   title: {
     fontSize: 20,

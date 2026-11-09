@@ -88,6 +88,29 @@ export type FilterPreset = {
   label: string;
   /** The state this preset represents, over and above whatever is already set. */
   patch: (now: Date) => Partial<TransactionFilterState>;
+  /**
+   * When the preset counts as applied, if more than its own patch should.
+   * Without it, applied means every field of the patch is set exactly.
+   */
+  matches?: (state: TransactionFilterState, now: Date) => boolean;
+};
+
+const endOfMonth = (now: Date) => new Date(now.getFullYear(), now.getMonth() + 1, 0);
+
+/**
+ * "This month" is the first of the month to any day from today to the month's
+ * end. The chip sets the end to today, but a link into the list (a category
+ * in November, an account's month) sends the month's last day, and that is the
+ * same set of rows — so the chip shows it as on, and a tap takes it off.
+ */
+const isThisMonthRange = (state: TransactionFilterState, now: Date) => {
+  const today = formatApiDate(now);
+  return (
+    state.startDate === formatApiDate(startOfMonth(now)) &&
+    state.endDate != null &&
+    state.endDate >= today &&
+    state.endDate <= formatApiDate(endOfMonth(now))
+  );
 };
 
 /**
@@ -102,6 +125,7 @@ export const FILTER_PRESETS: FilterPreset[] = [
     key: 'this-month',
     label: 'This month',
     patch: (now) => ({ startDate: formatApiDate(startOfMonth(now)), endDate: formatApiDate(now) }),
+    matches: isThisMonthRange,
   },
   {
     key: 'last-30',
@@ -133,6 +157,7 @@ export const isPresetApplied = (
   state: TransactionFilterState,
   now: Date
 ): boolean => {
+  if (preset.matches) return preset.matches(state, now);
   const patch = preset.patch(now);
   return (Object.keys(patch) as (keyof TransactionFilterState)[]).every(
     (key) => state[key] === patch[key]

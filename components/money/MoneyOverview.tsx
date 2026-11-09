@@ -43,7 +43,14 @@ export type MoneyFullList = 'bills' | 'budgets' | 'accounts';
  * what the cards owe, the budget, and the accounts by kind. Each section's
  * "See all" opens its full list.
  */
-export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList) => void }) {
+export function MoneyOverview({
+  onOpenList,
+  onAddTo,
+}: {
+  onOpenList: (list: MoneyFullList) => void;
+  /** Opens a list with its add form already up. */
+  onAddTo: (list: Exclude<MoneyFullList, 'accounts'>) => void;
+}) {
   const router = useRouter();
   const { colors } = useThemeTokens();
   const { token } = useAuthStore();
@@ -235,6 +242,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
           title="Bills & dues"
           link={dues.length > 0 ? 'See all' : undefined}
           onLink={() => onOpenList('bills')}
+          onAdd={dues.length > 0 ? () => onAddTo('bills') : undefined}
         />
         {shownDues.length > 0 ? (
           <View style={cardStyle}>
@@ -286,7 +294,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
             title="Nothing due in the next 30 days"
             body="Renewals, card due dates and money expected back show up here."
             actionLabel="Add"
-            onAction={() => onOpenList('bills')}
+            onAction={() => onAddTo('bills')}
           />
         )}
 
@@ -295,6 +303,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
           title="Budgets"
           link={budgets.length > 0 ? 'See all' : undefined}
           onLink={() => onOpenList('budgets')}
+          onAdd={budgets.length > 0 ? () => onAddTo('budgets') : undefined}
         />
         {budgets.length > 0 ? (
           <View style={cardStyle}>
@@ -332,7 +341,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
             title="Set a monthly budget"
             body="See what is left as you spend."
             actionLabel="Add"
-            onAction={() => onOpenList('budgets')}
+            onAction={() => onAddTo('budgets')}
           />
         )}
 
@@ -341,6 +350,7 @@ export function MoneyOverview({ onOpenList }: { onOpenList: (list: MoneyFullList
           title="Accounts"
           link={accounts.length > 0 ? 'See all' : undefined}
           onLink={() => onOpenList('accounts')}
+          onAdd={accounts.length > 0 ? () => router.push('/accounts/manage') : undefined}
         />
         {groups.length > 0 ? (
           <View style={cardStyle}>
@@ -383,10 +393,13 @@ function SectionHeading({
   title,
   link,
   onLink,
+  onAdd,
 }: {
   title: string;
   link?: string;
   onLink: () => void;
+  /** "+ Add" beside the link, so adding is not one screen deeper. */
+  onAdd?: () => void;
 }) {
   const { colors } = useThemeTokens();
   return (
@@ -394,17 +407,30 @@ function SectionHeading({
       <ThemedText accessibilityRole="header" style={[styles.headingText, { color: colors.text }]}>
         {title}
       </ThemedText>
-      {link ? (
-        <Pressable
-          accessibilityRole="link"
-          accessibilityLabel={`${link}, ${title}`}
-          onPress={onLink}
-          hitSlop={10}
-          style={styles.link}>
-          <ThemedText style={[styles.linkLabel, { color: colors.text }]}>{link}</ThemedText>
-          <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text} />
-        </Pressable>
-      ) : null}
+      <View style={styles.headingActions}>
+        {onAdd ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Add, ${title}`}
+            onPress={onAdd}
+            hitSlop={10}
+            style={styles.link}>
+            <MaterialCommunityIcons name="plus" size={18} color={colors.text} />
+            <ThemedText style={[styles.linkLabel, { color: colors.text }]}>Add</ThemedText>
+          </Pressable>
+        ) : null}
+        {link ? (
+          <Pressable
+            accessibilityRole="link"
+            accessibilityLabel={`${link}, ${title}`}
+            onPress={onLink}
+            hitSlop={10}
+            style={styles.link}>
+            <ThemedText style={[styles.linkLabel, { color: colors.text }]}>{link}</ThemedText>
+            <MaterialCommunityIcons name="chevron-right" size={18} color={colors.text} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 }
@@ -490,6 +516,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '700',
+  },
+  headingActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   link: {
     flexDirection: 'row',

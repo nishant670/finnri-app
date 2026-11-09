@@ -1,12 +1,12 @@
-import DateTimePicker, { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { cssInterop } from 'nativewind';
 import { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, View } from 'react-native';
 
 import { DateField, SheetInput, SheetLabel } from '@/components/statements/StatementFormSheet';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
+import { useDatePicker } from '@/components/ui/DatePickerProvider';
 import { ErrorBanner } from '@/components/ui/ErrorBanner';
 import { Fonts } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -53,7 +53,7 @@ export function EMIPlanFormSheet({
   const [tenure, setTenure] = useState(12);
   const [rate, setRate] = useState('');
   const [purchasedOn, setPurchasedOn] = useState('');
-  const [showPicker, setShowPicker] = useState(false);
+  const { pickDate } = useDatePicker();
 
   useEffect(() => {
     if (!visible) return;
@@ -162,32 +162,15 @@ export function EMIPlanFormSheet({
         <SheetLabel>Purchased on</SheetLabel>
         <DateField
           value={purchasedOn}
-          onPress={() => {
-            if (Platform.OS === 'android') {
-              DateTimePickerAndroid.open({
-                value: fromISODate(purchasedOn),
-                onValueChange: (_event, selected) => {
-                  if (selected) setPurchasedOn(toISODate(selected));
-                },
-                onDismiss: () => undefined,
-              });
-              return;
-            }
-            setShowPicker(true);
+          onPress={async () => {
+            const selected = await pickDate({
+              title: 'Purchased on',
+              value: fromISODate(purchasedOn),
+            });
+            if (selected) setPurchasedOn(toISODate(selected));
           }}
         />
 
-        {showPicker && Platform.OS !== 'android' && (
-          <DateTimePicker
-            value={fromISODate(purchasedOn)}
-            mode="date"
-            display="spinner"
-            onChange={(_event, selected) => {
-              setShowPicker(false);
-              if (selected) setPurchasedOn(toISODate(selected));
-            }}
-          />
-        )}
 
         {preview && (
           <View

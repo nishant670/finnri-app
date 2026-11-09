@@ -1,6 +1,5 @@
 import { fireEvent, render } from '@testing-library/react-native';
 
-import { FirstEntryCard } from '@/components/home/FirstEntryCard';
 import Screen1 from '@/components/onboarding/Screen1';
 import {
   CAPTURE_HINTS,
@@ -27,40 +26,7 @@ describe('Say it. Check it. Done. (P68, P69)', () => {
   });
 });
 
-describe('First entry on Home (P70)', () => {
-  const setup = (over: Partial<React.ComponentProps<typeof FirstEntryCard>> = {}) => {
-    const props = {
-      text: FIRST_ENTRY_PHRASE.en,
-      placeholder: FIRST_ENTRY_PHRASE.en,
-      onChangeText: jest.fn(),
-      onSend: jest.fn(),
-      isSending: false,
-      onSayInstead: jest.fn(),
-      onAddByHand: jest.fn(),
-      ...over,
-    };
-    return render(<FirstEntryCard {...props} />).then((screen) => ({ screen, props }));
-  };
-
-  it('sends the offered sentence, or puts it away for the microphone', async () => {
-    const { screen, props } = await setup();
-    expect(screen.getByDisplayValue(FIRST_ENTRY_PHRASE.en)).toBeTruthy();
-    await fireEvent.press(screen.getByTestId('first-entry-send'));
-    expect(props.onSend).toHaveBeenCalled();
-    await fireEvent.press(screen.getByText('Say it instead'));
-    expect(props.onSayInstead).toHaveBeenCalled();
-    await fireEvent.press(screen.getByText('Add by hand'));
-    expect(props.onAddByHand).toHaveBeenCalled();
-  });
-
-  it('cannot send an empty field', async () => {
-    const { screen, props } = await setup({ text: '' });
-    await fireEvent.press(screen.getByTestId('first-entry-send'));
-    expect(props.onSend).not.toHaveBeenCalled();
-  });
-});
-
-describe('The chosen language reaches Home (P69, P70)', () => {
+describe('The chosen language reaches Home (P69)', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const languages = require('@/lib/speak-language');
   it('answers with the latest choice, not the first read', async () => {

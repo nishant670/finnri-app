@@ -326,6 +326,32 @@ jest.mock('expo-image-manipulator', () => {
   };
 });
 
+/**
+ * Every date picker goes through `useDatePicker()`, which needs the provider
+ * the app root mounts. Most tests render one form bare, so outside a provider
+ * they get a picker that answers with `globalThis.pickDateMock` (null — closed
+ * without choosing — unless a test says otherwise). A test that wraps
+ * `DatePickerProvider` gets the real sheet.
+ */
+jest.mock('@/components/ui/DatePickerProvider', () => {
+  const actual = jest.requireActual('@/components/ui/DatePickerProvider');
+  const { useContext } = jest.requireActual('react');
+  return {
+    ...actual,
+    useDatePicker: () =>
+      useContext(actual.DatePickerContext) ?? {
+        pickDate: (...args: unknown[]) =>
+          (globalThis as unknown as { pickDateMock: (...a: unknown[]) => Promise<Date | null> }).pickDateMock(
+            ...args
+          ),
+      },
+  };
+});
+
+beforeEach(() => {
+  (globalThis as unknown as { pickDateMock: jest.Mock }).pickDateMock = jest.fn(async () => null);
+});
+
 jest.mock('@react-native-community/datetimepicker', () => {
   return {
     __esModule: true,

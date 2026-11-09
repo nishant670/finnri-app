@@ -66,8 +66,9 @@ type AccountFormStepTwoProps = {
   /** A pay-later line: no last 4 digits or annual fee, and its own words. */
   payLater?: boolean;
   /**
-   * Part of the one-sheet account form (P21): the detail fields only, with
-   * no header, intro, scroll or footer of their own.
+   * Inside the one-sheet form's More details fold: limit, dates, fee and
+   * balance only. No header, scroll or footer, no bank or last-4 fields (the
+   * sheet asks those up front), and no folds of its own.
    */
   embedded?: boolean;
 };
@@ -81,6 +82,44 @@ function DetailsScroll({ embedded, children }: { embedded: boolean; children: Re
       contentContainerStyle={styles.scrollContent}>
       {children}
     </KeyboardAvoidingScreen>
+  );
+}
+
+/** One setting group: its own fold, or a plain heading when already inside one. */
+function DetailsGroup({
+  embedded,
+  label,
+  summary,
+  expanded,
+  onToggle,
+  testID,
+  children,
+}: {
+  embedded: boolean;
+  label: string;
+  summary: string;
+  expanded: boolean;
+  onToggle: () => void;
+  testID: string;
+  children: ReactNode;
+}) {
+  if (embedded) {
+    return (
+      <View>
+        <ThemedText style={styles.sectionHeaderLabel}>{label}</ThemedText>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <FormDisclosure
+      testID={testID}
+      label={label}
+      summary={summary}
+      expanded={expanded}
+      onToggle={onToggle}>
+      {children}
+    </FormDisclosure>
   );
 }
 
@@ -157,6 +196,8 @@ export function AccountFormStepTwo({
             </View>
           )}
 
+          {embedded ? null : (
+          <>
           <ThemedText style={styles.sectionHeaderLabel}>Card</ThemedText>
 
           <ThemedText style={[styles.labelSmall, { color: theme.text }]}>
@@ -264,6 +305,9 @@ export function AccountFormStepTwo({
 
           <View style={{ height: 24 }} />
 
+          </>
+          )}
+
           <ThemedText style={styles.sectionHeaderLabel}>
             {payLater ? 'Limit & repay date' : 'Limit & due date'}
           </ThemedText>
@@ -316,7 +360,8 @@ export function AccountFormStepTwo({
               already on at three days, and an annual fee most people do not
               know offhand. Each folds behind a row that reads it back. */}
           <View style={{ gap: 12 }}>
-            <FormDisclosure
+            <DetailsGroup
+              embedded={embedded}
               testID="card-reminder-options"
               label="Due-date reminder"
               summary={
@@ -377,10 +422,11 @@ export function AccountFormStepTwo({
                   </View>
                 </>
               )}
-            </FormDisclosure>
+            </DetailsGroup>
 
             {payLater ? null : (
-            <FormDisclosure
+            <DetailsGroup
+              embedded={embedded}
               testID="card-annual-fee-options"
               label="Annual fee"
               summary={
@@ -467,7 +513,7 @@ export function AccountFormStepTwo({
                   style={[styles.textInputSmall, { color: theme.text }]}
                 />
               </View>
-            </FormDisclosure>
+            </DetailsGroup>
             )}
           </View>
         </DetailsScroll>
@@ -548,7 +594,7 @@ export function AccountFormStepTwo({
           </View>
         )}
 
-        {detailCopy.providerLabel && (
+        {detailCopy.providerLabel && !embedded && (
           <>
             <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>
               {detailCopy.providerLabel}
@@ -662,7 +708,7 @@ export function AccountFormStepTwo({
           />
         </View>
 
-        {detailCopy.identifierLabel && (
+        {detailCopy.identifierLabel && !embedded && (
           <>
             <ThemedText style={[styles.sectionTitle, { color: theme.text }]}>
               {detailCopy.identifierLabel}

@@ -40,6 +40,10 @@ import { fetchEntry, updateEntry } from '@/lib/entries';
 import {
   buildTransactionPayload,
   createRecurringFromForm,
+  DuplicateSaveCancelled,
+  describeLikelyDuplicate,
+  editCouldDuplicate,
+  findLikelyDuplicate,
   saveNewTransaction,
   type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
@@ -457,6 +461,13 @@ export default function TransactionDetailsScreen() {
     try {
       if (!token) throw new Error('Please sign in again.');
 
+      if (editInitialData && editCouldDuplicate(editInitialData, formData)) {
+        const match = await findLikelyDuplicate(token, formData, formData.accountId, String(params.id));
+        if (match && !(await dialog.confirm(describeLikelyDuplicate(match)))) {
+          throw new DuplicateSaveCancelled();
+        }
+      }
+
       const payload = await buildTransactionPayload(token, formData, {
         refundStatus: displayData.refund_status ?? 'pending',
       });
@@ -489,6 +500,7 @@ export default function TransactionDetailsScreen() {
         await offerBudgetAlert(budgetNotificationIds);
       }
     } catch (error) {
+      if (error instanceof DuplicateSaveCancelled) throw error;
       console.error(error);
       throw error instanceof Error ? error : new Error("Couldn't update this transaction.");
     }

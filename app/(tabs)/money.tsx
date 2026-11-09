@@ -58,8 +58,16 @@ export default function MoneyScreen() {
     if (isMoneySegment(requestedSegment)) setList(listForSegment(requestedSegment));
   }, [requestedSegment]);
 
+  /** Set by "+ Add" on the overview: the list opens with its form up. */
+  const [startAdding, setStartAdding] = useState(false);
+  const openList = useCallback((next: MoneyFullList, add = false) => {
+    setStartAdding(add);
+    setList(next);
+  }, []);
+
   const closeList = useCallback(() => {
     setList(null);
+    setStartAdding(false);
     if (requestedSegment) router.setParams({ segment: undefined });
   }, [requestedSegment, router]);
 
@@ -101,10 +109,13 @@ export default function MoneyScreen() {
         }
       />
 
-      {list === null && <MoneyOverview onOpenList={setList} />}
+      {list === null && (
+        <MoneyOverview onOpenList={openList} onAddTo={(next) => openList(next, true)} />
+      )}
       {list === 'bills' && (
         <SubscriptionsPanel
           embedded
+          startAdding={startAdding}
           header={({ reload, version, add, open }) => (
             <UpcomingPanel
               scroll={false}
@@ -116,7 +127,7 @@ export default function MoneyScreen() {
           )}
         />
       )}
-      {list === 'budgets' && <BudgetsPanel embedded />}
+      {list === 'budgets' && <BudgetsPanel embedded startAdding={startAdding} />}
       {list === 'accounts' && (
         <AccountsPanel
           suggestedAccount={

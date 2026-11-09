@@ -110,12 +110,21 @@ type VoiceInputCardProps = {
   onClear: () => void;
   isProcessing?: boolean;
   /**
-   * The last attempt on this recording came back as a failure.
-   *
-   * It changes what the card offers, not what it does: the primary action is
-   * still `onProcess`, but a button labelled "Process" directly under an error
-   * about the thing it just failed to process reads as though the app did not
-   * notice. "Try again" is the same press, described honestly.
+   * Throws the clip away while it is still recording: the moment someone
+   * hears themselves say the wrong amount. Nothing is sent, so nothing is
+   * charged. Stopping (the mic button) sends straight away; there is no
+   * "Use this" step after it any more.
+   */
+  onDiscardRecording?: () => void;
+  /**
+   * Stops a read that is under way. The draft sheet carries the same Cancel;
+   * this one is for the moment before the sheet is up, or if it was closed.
+   */
+  onCancelProcessing?: () => void;
+  /**
+   * The last attempt on this recording came back as a failure. The failure
+   * card below says so and offers Try again; this card goes back to the mic
+   * so the two never both offer a retry.
    */
   hasFailed?: boolean;
   isTextInputVisible?: boolean;
@@ -173,6 +182,8 @@ export function VoiceInputCard({
   onProcess,
   onClear,
   isProcessing = false,
+  onDiscardRecording,
+  onCancelProcessing,
   hasFailed = false,
   isTextInputVisible = false,
   onToggleTextInput,
@@ -385,42 +396,71 @@ export function VoiceInputCard({
     );
   }
 
-  // A finished clip, waiting to be used or dropped.
-  if (hasRecording && !isRecording) {
+  // A clip being read. Stopping the mic sends it straight away, so this is
+  // usually under the draft sheet; it shows when the sheet is not up.
+  if (hasRecording && !isRecording && isProcessing) {
     return (
       <View style={cardStyle}>
         <View style={styles.hero}>
           <View style={[styles.micFrame, { backgroundColor: halo }]}>
             <View style={[styles.mic, { backgroundColor: colors.card }]}>
-              <MaterialCommunityIcons
-                name={hasFailed ? 'microphone-message' : 'waveform'}
-                size={28}
-                color={hasFailed ? colors.negative : colors.text}
-              />
+              <ActivityIndicator color={colors.text} />
             </View>
           </View>
           <View style={styles.heroText}>
-            <ThemedText style={[styles.title, { color: colors.text }]}>
-              {hasFailed ? 'Recording kept' : 'Recording ready'}
+            <ThemedText
+              accessibilityLiveRegion="polite"
+              style={[styles.title, { color: colors.text }]}>
+              Reading your recording…
             </ThemedText>
+          </View>
+        </View>
+        {onCancelProcessing ? (
+          <View style={[styles.footerActions, { borderTopColor: colors.border }]}>
+            <Button
+              label="Cancel"
+              variant="outline"
+              icon="close"
+              height={44}
+              onPress={onCancelProcessing}
+              style={styles.footerButton}
+            />
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
+  // A clip that was never sent: only when a send was refused before it went
+  // out (credits, for one). A failed read falls through to the mic below, and
+  // the failure card carries the retry.
+  if (hasRecording && !isRecording && !hasFailed) {
+    return (
+      <View style={cardStyle}>
+        <View style={styles.hero}>
+          <View style={[styles.micFrame, { backgroundColor: halo }]}>
+            <View style={[styles.mic, { backgroundColor: colors.card }]}>
+              <MaterialCommunityIcons name="waveform" size={28} color={colors.text} />
+            </View>
+          </View>
+          <View style={styles.heroText}>
+            <ThemedText style={[styles.title, { color: colors.text }]}>Recording not sent</ThemedText>
           </View>
         </View>
 
         <View style={[styles.footerActions, { borderTopColor: colors.border }]}>
           <Button
-            label={hasFailed ? 'Try again' : 'Use this'}
-            icon={hasFailed ? 'refresh' : 'flash'}
+            label="Send"
+            icon="send-outline"
             height={44}
-            loading={isProcessing}
             onPress={onProcess}
             style={styles.footerButton}
           />
           <Button
-            label="Cancel"
+            label="Discard"
             variant="outline"
             icon="close"
             height={44}
-            disabled={isProcessing}
             onPress={onClear}
             style={styles.footerButton}
           />
@@ -480,7 +520,9 @@ export function VoiceInputCard({
             {isRecording ? 'Listening…' : 'Tap and speak'}
           </ThemedText>
           <ThemedText tone="muted" style={styles.body}>
-            Talk the way you normally would. Finnri sorts it out.
+            {isRecording
+              ? 'Tap stop when you’re done. Finnri reads it straight away.'
+              : 'Talk the way you normally would. Finnri sorts it out.'}
           </ThemedText>
           <Animated.Text
             numberOfLines={1}
@@ -490,7 +532,24 @@ export function VoiceInputCard({
         </View>
       </View>
 
-      {shouldShowTextInput ? (
+      {isRecording && onDiscardRecording ? (
+        // While it records, the footer's other ways in are off anyway; its one
+        // job is the way out. Discarding sends nothing, so it costs nothing.
+        <View style={[styles.footer, { borderTopColor: colors.border }]}>
+          <PressableView
+            testID="voice-discard-recording"
+            accessibilityRole="button"
+            accessibilityHint="Stops listening and throws the recording away. Nothing is sent."
+            onPress={onDiscardRecording}
+            style={styles.footerAction}
+            pressedStyle={styles.pressed}>
+            <MaterialCommunityIcons name="close" size={18} color={colors.muted} />
+            <ThemedText numberOfLines={1} style={[styles.footerLabel, { color: colors.text }]}>
+              Discard
+            </ThemedText>
+          </PressableView>
+        </View>
+      ) : shouldShowTextInput ? (
         <Animated.View style={[styles.typeArea, { borderTopColor: colors.border }, textEntryStyle]}>
           <View style={[styles.field, { borderColor: colors.text, backgroundColor: colors.card }]}>
             <TextInput
