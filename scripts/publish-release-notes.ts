@@ -40,6 +40,9 @@ function readArgs(argv: string[]) {
     throw new Error('Pass --env staging or --env production.');
   }
   const version = value('--version');
+  if (version !== undefined && !(Number.isInteger(Number(version)) && Number(version) > 0)) {
+    throw new Error(`--version takes a versionCode such as 13, not "${version}".`);
+  }
   return {
     env: env as Env,
     versionCode: version ? Number(version) : null,

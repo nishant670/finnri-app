@@ -39,6 +39,12 @@ class FinnriUpdatesModule : Module() {
     )
   }
 
+  private fun listen(updates: AppUpdateManager) {
+    if (listening) return
+    updates.registerListener(stateListener)
+    listening = true
+  }
+
   private fun updateManager(): AppUpdateManager? {
     manager?.let { return it }
     val context = appContext.reactContext ?: return null
@@ -59,6 +65,10 @@ class FinnriUpdatesModule : Module() {
       updates.appUpdateInfo
         .addOnSuccessListener { info ->
           val availability = info.updateAvailability()
+          // A download started before this launch still needs its progress and its Restart.
+          if (info.installStatus() == InstallStatus.DOWNLOADING || info.installStatus() == InstallStatus.PENDING) {
+            listen(updates)
+          }
           promise.resolve(
             mapOf(
               "available" to (availability == UpdateAvailability.UPDATE_AVAILABLE),
@@ -94,10 +104,7 @@ class FinnriUpdatesModule : Module() {
             promise.resolve(false)
             return@addOnSuccessListener
           }
-          if (updateType == AppUpdateType.FLEXIBLE && !listening) {
-            updates.registerListener(stateListener)
-            listening = true
-          }
+          if (updateType == AppUpdateType.FLEXIBLE) listen(updates)
           try {
             val started = updates.startUpdateFlowForResult(
               info,
@@ -116,6 +123,7 @@ class FinnriUpdatesModule : Module() {
     // Installs a downloaded flexible update. The app restarts into the new build.
     Function("completeUpdate") {
       updateManager()?.completeUpdate()
+      Unit
     }
 
     OnActivityResult { _, payload ->

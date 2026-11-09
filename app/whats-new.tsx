@@ -26,16 +26,16 @@ type Resolved = { release: WhatsNewRelease; live: boolean } | null;
  * A bundled release is this build's own, so it is live: previews and Try it.
  * A release from the API is a build not installed yet, so it is text, with
  * Update at the bottom (board R15-WhatsNew-SkyBefore). With no version asked
- * for, a pending update's notes come first, then this build's.
+ * for, the notes of the update on offer come first, then this build's.
  */
-function resolveRelease(version: number | null, pending: WhatsNewRelease[], hasOffer: boolean): Resolved {
+function resolveRelease(version: number | null, pending: WhatsNewRelease[], offered: WhatsNewRelease | null): Resolved {
   if (version) {
     const bundled = findBundledRelease(version);
     if (bundled) return { release: bundled, live: true };
     const upcoming = pending.find((release) => release.versionCode === version);
     return upcoming ? { release: upcoming, live: false } : null;
   }
-  if (hasOffer && pending[0]) return { release: pending[0], live: false };
+  if (offered) return { release: offered, live: false };
   const build = currentBuild();
   const own = BUNDLED_RELEASES.find((release) => release.versionCode <= build) ?? BUNDLED_RELEASES[0];
   return own ? { release: own, live: true } : null;
@@ -52,7 +52,7 @@ function AllUpdates() {
           icon="creation"
           hue="#6A4BBC"
           title={`Finnri ${release.versionName}`}
-          meta={[releaseMonthLabel(release.month), `${release.items.length} changes`].filter(Boolean).join(' · ')}
+          meta={[releaseMonthLabel(release.month), `${release.items.length} ${release.items.length === 1 ? 'change' : 'changes'}`].filter(Boolean).join(' · ')}
           chevron
           divider={index > 0}
           onPress={() => router.push({ pathname: '/whats-new', params: { version: String(release.versionCode) } })}
@@ -75,7 +75,7 @@ export default function WhatsNewScreen() {
 
   const showAll = params.all === '1';
   const version = Number(params.version) || null;
-  const resolved = showAll ? null : resolveRelease(version, pending, offer.kind !== 'none');
+  const resolved = showAll ? null : resolveRelease(version, pending, offer.kind === 'none' ? null : offer.release);
   const canUpdate = resolved !== null && !resolved.live && offer.kind !== 'none';
 
   return (

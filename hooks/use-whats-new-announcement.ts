@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { currentBuild, markNotesSeen, readSeenNotesBuild } from '@/lib/app-update';
+import { currentBuild, markNotesSeen, readSeenNotesBuild, useAppUpdateStore } from '@/lib/app-update';
 import { unseenBundledReleases, type WhatsNewRelease } from '@/lib/whats-new/releases';
 
 /**
@@ -11,13 +11,17 @@ import { unseenBundledReleases, type WhatsNewRelease } from '@/lib/whats-new/rel
  * A phone with nothing stored has had the app since before notes existed —
  * `AppUpdateWatcher` already marked fresh installs — so it counts as having
  * seen nothing and gets this build's notes.
+ *
+ * Home mounts under the splash on every cold start, whoever the user turns out
+ * to be, so nothing is shown until the splash has gone. By then a locked or
+ * signed-out launch has already replaced Home, and this check does not run.
  */
 export function useWhatsNewAnnouncement({ canInterrupt }: { canInterrupt: () => boolean }) {
   const [release, setRelease] = useState<WhatsNewRelease | null>(null);
   const shownRef = useRef(false);
 
   const check = useCallback(async () => {
-    if (shownRef.current) return;
+    if (shownRef.current || !useAppUpdateStore.getState().entered) return;
     const seen = await readSeenNotesBuild();
     const unseen = unseenBundledReleases(seen ?? 0, currentBuild());
     if (unseen.length === 0 || shownRef.current || !canInterrupt()) return;

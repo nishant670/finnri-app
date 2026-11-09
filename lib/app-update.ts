@@ -149,11 +149,15 @@ export function releaseFromApi(release: ApiRelease): WhatsNewRelease {
   };
 }
 
-/** Published notes newer than `build`. Never throws: no notes is a quiet failure. */
-export async function fetchPendingReleases(build: number): Promise<PendingReleases> {
+/**
+ * Published notes newer than `build`, or null when the API could not be asked.
+ * Null is not "nothing published": a bad connection must not lift a required
+ * update or take the words off the card.
+ */
+export async function fetchPendingReleases(build: number): Promise<PendingReleases | null> {
   try {
     const response = await fetch(`${API_BASE_URL}/v1/app/releases?platform=android&since=${build}`);
-    if (!response.ok) return EMPTY_PENDING;
+    if (!response.ok) return null;
     const payload = (await response.json()) as {
       releases?: ApiRelease[];
       latest_version_code?: number;
@@ -165,7 +169,7 @@ export async function fetchPendingReleases(build: number): Promise<PendingReleas
       minSupportedVersionCode: payload.min_supported_version_code ?? 0,
     };
   } catch {
-    return EMPTY_PENDING;
+    return null;
   }
 }
 
@@ -188,23 +192,31 @@ type DecideInput = {
 };
 
 /**
- * Required beats the card; the card needs Play (or, in Preview, the API) to
- * say a newer build exists; and "hide for now" holds for that version only, so
- * an even newer build brings the card straight back.
+ * Required beats the card; both need Play (or, in Preview, the API) to say a
+ * newer build exists; and "hide for now" holds for that version only, so an
+ * even newer build brings the card straight back.
+ *
+ * Required also needs that build to reach the minimum. During a staged rollout
+ * the API can name a build Play won't give this phone yet, and blocking the
+ * app then would leave nothing to update to.
+ *
+ * Notes are matched to the exact build on offer. Notes for a newer one would
+ * describe features this update doesn't contain.
  */
 export function decideUpdate({ build, play, pending, dismissed, apiOnly, now }: DecideInput): UpdateOffer {
   const playNewer = play.available || play.inProgress ? play.availableVersionCode : 0;
   const apiNewer = pending.latestVersionCode > build ? pending.latestVersionCode : 0;
   const target = Math.max(playNewer, apiOnly ? apiNewer : 0);
   const releaseFor = (versionCode: number) =>
-    pending.releases.find((release) => release.versionCode === versionCode) ?? pending.releases[0] ?? null;
+    pending.releases.find((release) => release.versionCode === versionCode) ?? null;
 
-  if (pending.minSupportedVersionCode > build && build > 0) {
-    const versionCode = Math.max(target, pending.minSupportedVersionCode);
-    return { kind: 'required', versionCode, release: releaseFor(versionCode) };
+  const floor = pending.minSupportedVersionCode;
+  if (floor > build && build > 0 && target >= floor) {
+    return { kind: 'required', versionCode: floor, release: releaseFor(floor) };
   }
   if (play.status === 'downloaded') {
-    return { kind: 'card', versionCode: target || play.availableVersionCode, release: releaseFor(target) };
+    const versionCode = target || play.availableVersionCode;
+    return { kind: 'card', versionCode, release: releaseFor(versionCode) };
   }
   if (target <= build) return { kind: 'none' };
   if (dismissed && dismissed.versionCode >= target && dismissed.until > now) return { kind: 'none' };
@@ -265,6 +277,9 @@ type AppUpdateStore = {
   /** Newer releases from the API, for "What's new" before updating. */
   pending: PendingReleases;
   lastCheckedAt: number;
+  /** True once the splash has gone, so Home can tell it is really on screen. */
+  entered: boolean;
+  markEntered: () => void;
   /** Asks Play and the API. Throttled unless `force`. */
   check: (options?: { force?: boolean }) => Promise<void>;
   /** Starts the update: flexible normally, immediate when required, the Play listing when neither works. */
@@ -306,6 +321,8 @@ export const useAppUpdateStore = create<AppUpdateStore>((set, get) => {
     download: { phase: 'idle' },
     pending: EMPTY_PENDING,
     lastCheckedAt: 0,
+    entered: false,
+    markEntered: () => set({ entered: true }),
 
     check: async ({ force = false } = {}) => {
       if (Platform.OS !== 'android') return;
@@ -315,16 +332,22 @@ export const useAppUpdateStore = create<AppUpdateStore>((set, get) => {
       attachListeners();
 
       const build = currentBuild();
-      const [play, pending, dismissed] = await Promise.all([
+      const [play, fetched, dismissed] = await Promise.all([
         checkPlay(),
         fetchPendingReleases(build),
         readDismissed(),
       ]);
+      // Keep what was known, and let the next return to the app try again.
+      if (!fetched) set({ lastCheckedAt: 0 });
+      const pending = fetched ?? get().pending;
       const offer = decideUpdate({ build, play, pending, dismissed, apiOnly: isPreviewVariant(), now });
+      // A download already running was started before this launch.
+      const running = (play.status === 'downloading' || play.status === 'pending') && get().download.phase === 'idle';
       set({
         offer,
         pending,
         ...(play.status === 'downloaded' ? { download: { phase: 'downloaded' } as const } : null),
+        ...(running ? { download: { phase: 'downloading', progress: 0 } as const } : null),
       });
     },
 

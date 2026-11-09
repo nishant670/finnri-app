@@ -1,4 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useRef } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -31,7 +32,11 @@ export function WhatsNewSheet({ release, onSeeAll, onClose }: Props) {
   const theme = useThemeTokens();
   const { colors } = theme;
   const bottomInset = useBottomInset(20);
-  const rows = release?.items.slice(0, MAX_ROWS) ?? [];
+  // `release` goes null as the sheet starts closing; keep drawing it on the way out.
+  const lastRelease = useRef(release);
+  if (release) lastRelease.current = release;
+  const shown = lastRelease.current;
+  const rows = shown?.items.slice(0, MAX_ROWS) ?? [];
 
   return (
     <AnimatedBottomSheet visible={release !== null} onClose={onClose}>
@@ -42,7 +47,7 @@ export function WhatsNewSheet({ release, onSeeAll, onClose }: Props) {
             <MaterialCommunityIcons name="creation" size={30} color={colors.onAccent} />
           </View>
           <ThemedText accessibilityRole="header" style={[styles.title, { color: colors.text }]}>
-            You’re on Finnri {release?.versionName}
+            You’re on Finnri {shown?.versionName}
           </ThemedText>
           <ThemedText tone="muted" style={styles.subtitle}>
             Here’s what changed since you last opened the app.

@@ -27,6 +27,7 @@ import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
 import { monthFromActionURL } from '@/lib/monthly-review';
 import { isBillingActionURL } from '@/lib/notifications';
+import { useAppUpdateStore } from '@/lib/app-update';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
 
 export const unstable_settings = {
@@ -144,7 +145,10 @@ export default function RootLayout() {
     // Stack below is configured with, so the two cannot drift apart, and it is
     // 0 under reduced motion — where the navigation is instant and there is
     // nothing to wait for either.
-    setTimeout(() => setShowCustomSplash(false), motion.exitDuration('sheet') + FRAME_MS);
+    setTimeout(() => {
+      setShowCustomSplash(false);
+      useAppUpdateStore.getState().markEntered();
+    }, motion.exitDuration('sheet') + FRAME_MS);
   }, [motion, router]);
 
   useEffect(() => {

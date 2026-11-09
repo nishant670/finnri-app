@@ -36,7 +36,9 @@ export function UpdateCard() {
     ? 'Restart to finish. It takes a few seconds, and everything you’ve logged stays.'
     : downloading
       ? 'Keep using Finnri. We’ll tell you when it’s ready.'
-      : (offer.release?.headline ?? 'New features and fixes are ready.');
+      : download.phase === 'failed'
+        ? 'The download didn’t finish. Check your connection and try again.'
+        : (offer.release?.headline ?? 'New features and fixes are ready.');
 
   return (
     <View
