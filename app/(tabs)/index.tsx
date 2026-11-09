@@ -24,7 +24,6 @@ import { PendingQuestionNotice } from '@/components/home/PendingQuestionNotice';
 import { SaveConfirmationToast } from '@/components/home/SaveConfirmationToast';
 import { AnswerCard } from '@/components/home/AnswerCard';
 import { CAPTURE_COLLAPSED_HEIGHT, CollapsibleCapture } from '@/components/home/CollapsibleCapture';
-import { FirstEntryCard } from '@/components/home/FirstEntryCard';
 import { GetStartedCard, getStartedSteps } from '@/components/home/GetStartedCard';
 import { HomeHeader } from '@/components/home/HomeHeader';
 import { MonthStrip } from '@/components/home/MonthStrip';
@@ -93,8 +92,6 @@ import { confirmSubscriptionOccurrence, fetchSubscriptionOccurrences, revertSubs
 import { notifyTransactionsChanged, subscribeTransactionsChanged } from '@/lib/transaction-events';
 import { fetchBillingStatus, type BillingStatus } from '@/lib/billing';
 import { fetchBudgets } from '@/lib/budgets';
-import { FIRST_ENTRY_PHRASE, loadSpeakLanguage, useSpeakLanguage } from '@/lib/speak-language';
-import { isFirstEntryDismissed, dismissFirstEntry } from '@/lib/first-entry';
 import {
   captureCreditsFor,
   creditBlockFor,
@@ -875,42 +872,13 @@ export default function HomeScreen() {
     !outgrewGetStarted &&
     startSteps.some((step) => !step.done);
 
-  /**
-   * A brand-new Home offers one sentence to send (P70, board
-   * R13-FirstEntry-Proposals) in place of the microphone card: no entries yet,
-   * credits to read it with, nothing else under way, and not put away before.
-   */
-  const speakLanguage = useSpeakLanguage();
-  const [firstEntryDismissed, setFirstEntryDismissed] = useState<boolean | null>(null);
-  useEffect(() => {
-    void isFirstEntryDismissed().then(setFirstEntryDismissed);
-  }, []);
-  const showFirstEntry =
-    firstEntryDismissed === false &&
+  /** A Home with nothing on it yet: the header says welcome. */
+  const isBrandNewHome =
     hasLoadedEntries &&
     !isEntriesLoading &&
     !entriesError &&
     entryTotal === 0 &&
-    transactions.length === 0 &&
-    !captureCreditBlock &&
-    !parseFailure &&
-    !isRecording &&
-    !recordedUri;
-  const firstEntrySeeded = useRef(false);
-  useEffect(() => {
-    if (!showFirstEntry || firstEntrySeeded.current) return;
-    firstEntrySeeded.current = true;
-    // The saved language, not the English the hook starts on before storage
-    // answers: a Hindi speaker must not get the English sentence for good.
-    void loadSpeakLanguage().then((language) =>
-      setInputText((current) => current || FIRST_ENTRY_PHRASE[language])
-    );
-  }, [showFirstEntry]);
-  const putAwayFirstEntry = useCallback(() => {
-    setFirstEntryDismissed(true);
-    void dismissFirstEntry();
-    setInputText('');
-  }, []);
+    transactions.length === 0;
 
   /**
    * The guest upgrade ask. It waits for entries because an account is only worth
@@ -1804,7 +1772,6 @@ export default function HomeScreen() {
             onSelect={handleQuickPromptSelect}
             onAdd={handleAddPrompt}
             onLongPress={handleLongPressPrompt}
-            hideAmounts={isStealthMode}
           />
 
           {showGetStarted ? (
@@ -1867,7 +1834,7 @@ export default function HomeScreen() {
           <View
             onLayout={(event) => setPinnedTopHeight(Math.round(event.nativeEvent.layout.height))}>
             <HomeHeader
-              welcome={showFirstEntry}
+              welcome={isBrandNewHome}
               unreadCount={unreadNotifications}
               onNotificationsPress={() => router.push('/notifications')}
             />
@@ -1889,17 +1856,6 @@ export default function HomeScreen() {
             isRecording={isRecording}
             locked={isCaptureLocked || !isCaptureCollapsible}
             onExpandedHeightChange={setCaptureExpandedHeight}>
-            {showFirstEntry ? (
-              <FirstEntryCard
-                text={inputText}
-                placeholder={FIRST_ENTRY_PHRASE[speakLanguage]}
-                onChangeText={setInputText}
-                onSend={handleSubmitPrompt}
-                isSending={isSubmitting}
-                onSayInstead={putAwayFirstEntry}
-                onAddByHand={handleOpenManualEntry}
-              />
-            ) : (
             <VoiceInputCard
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}
@@ -1920,7 +1876,6 @@ export default function HomeScreen() {
               creditBlock={captureCreditBlock}
               creditNote={captureCreditNote}
             />
-            )}
           </CollapsibleCapture>
         </View>
       </View>
