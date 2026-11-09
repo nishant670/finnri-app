@@ -3,6 +3,8 @@ import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import {
   TransactionPaymentPicker,
   buildPaymentRows,
+  searchPaymentAccounts,
+  usualPaymentAccounts,
 } from '@/components/transactions/TransactionPaymentPicker';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
 import { TransactionFormModal, paymentRowValue } from '@/components/transactions/TransactionFormModal';
@@ -99,6 +101,115 @@ describe('Paid with picker (P6)', () => {
     expect(paymentRowValue('UPI', 'Salary UPI', true)).toBe('UPI · Salary UPI');
     expect(paymentRowValue('Cash', 'Cash Account', true)).toBe('Cash');
     expect(paymentRowValue('UPI', 'Salary UPI', false)).toBe('UPI');
+  });
+});
+
+describe('Paid with for someone with many accounts (R16)', () => {
+  const used = (entries_this_month: number, last_activity_date = '2026-11-01') => ({
+    summary: { entries_this_month, last_activity_date, entries_total: entries_this_month + 1 },
+  });
+  const many = [
+    { id: 1, type: 'cash', name: 'Cash', ...used(2) },
+    { id: 2, type: 'upi', name: 'HDFC UPI', ...used(9) },
+    { id: 3, type: 'bank', name: 'HDFC Savings', last4: '1111' },
+    { id: 4, type: 'credit_card', name: 'SBI BPCL', last4: '4321', ...used(5) },
+    { id: 5, type: 'credit_card', name: 'Axis Ace', last4: '2207', provider: 'Axis Bank' },
+    { id: 6, type: 'credit_card', name: 'OneCard', last4: '0091', ...used(1) },
+  ] as unknown as Account[];
+
+  it('keeps the plain list below six accounts', async () => {
+    const { screen } = await setup({ accounts: many.slice(0, 5) });
+    expect(screen.queryByText('Your usual')).toBeNull();
+    expect(screen.queryByLabelText('Search your accounts')).toBeNull();
+  });
+
+  it('ranks the usual accounts by use, and always includes the chosen one', () => {
+    const ids = (selectedAccountId: number | null) =>
+      usualPaymentAccounts({ modes, accounts: many, selectedAccountId }).map((c) => c.account.id);
+    expect(ids(null)).toEqual([2, 4, 1]);
+    expect(ids(4)).toEqual([2, 4, 1]);
+    // Never used, but chosen: takes the last place rather than being hidden.
+    expect(ids(5)).toEqual([2, 4, 5]);
+  });
+
+  it('leaves out accounts never used unless they are the default', () => {
+    const fresh = [
+      { id: 1, type: 'upi', name: 'New UPI' },
+      { id: 2, type: 'bank', name: 'Main', is_default: true },
+    ] as unknown as Account[];
+    expect(
+      usualPaymentAccounts({ modes, accounts: fresh, selectedAccountId: null }).map((c) => c.account.id)
+    ).toEqual([2]);
+  });
+
+  it('folds a method with several accounts behind its count and picks from inside', async () => {
+    const { screen, onSelect } = await setup({ accounts: many, selectedMode: 'Cash', selectedAccountId: 1 });
+    expect(screen.getByText('3 cards')).toBeTruthy();
+    expect(screen.queryByTestId('payment-account-5')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('payment-group-Credit Card'));
+    await fireEvent.press(screen.getByTestId('payment-account-5'));
+    expect(onSelect).toHaveBeenCalledWith('Credit Card', expect.objectContaining({ id: 5 }));
+  });
+
+  it('opens one method at a time', async () => {
+    const twoUpi = [...many, { id: 7, type: 'upi', name: 'Spare UPI' }] as unknown as Account[];
+    const { screen } = await setup({ accounts: twoUpi, selectedMode: 'Cash', selectedAccountId: 1 });
+    await fireEvent.press(screen.getByTestId('payment-group-Credit Card'));
+    await fireEvent.press(screen.getByTestId('payment-group-UPI'));
+    expect(screen.queryByTestId('payment-account-5')).toBeNull();
+    expect(screen.getByTestId('payment-account-7')).toBeTruthy();
+  });
+
+  it('picks a usual account in one tap and selects a single-account method directly', async () => {
+    const { screen, onSelect } = await setup({ accounts: many, selectedMode: 'Cash', selectedAccountId: 1 });
+    await fireEvent.press(screen.getByTestId('payment-usual-4'));
+    expect(onSelect).toHaveBeenLastCalledWith('Credit Card', expect.objectContaining({ id: 4 }));
+    await fireEvent.press(screen.getByTestId('payment-mode-Bank Account'));
+    expect(onSelect).toHaveBeenLastCalledWith('Bank Account', expect.objectContaining({ id: 3 }));
+  });
+
+  it('searches by name, bank, last digits and method', async () => {
+    const found = (query: string) =>
+      searchPaymentAccounts(modes, many, query).map((c) => c.account.id);
+    expect(found('sbi')).toEqual([4]);
+    expect(found('axis bank')).toEqual([5]);
+    expect(found('0091')).toEqual([6]);
+    expect(found('credit')).toEqual([4, 5, 6]);
+    expect(found('  ')).toEqual([]);
+
+    const { screen, onSelect } = await setup({ accounts: many, selectedMode: 'Cash', selectedAccountId: 1 });
+    await fireEvent.changeText(screen.getByLabelText('Search your accounts'), 'one');
+    expect(screen.queryByText('Your usual')).toBeNull();
+    await fireEvent.press(screen.getByTestId('payment-result-6'));
+    expect(onSelect).toHaveBeenCalledWith('Credit Card', expect.objectContaining({ id: 6 }));
+
+    await fireEvent.changeText(screen.getByLabelText('Search your accounts'), 'zzz');
+    expect(screen.getByText('No account matches "zzz".')).toBeTruthy();
+  });
+
+  it('stays a list of methods when a friend paid, however many accounts there are', async () => {
+    const { screen } = await setup({ accounts: many, showAccounts: false });
+    expect(screen.queryByText('Your usual')).toBeNull();
+  });
+
+  it('still ends with managing accounts, and still offers setup for an empty method', async () => {
+    const onManageAccounts = jest.fn();
+    const noBank = [
+      ...many.filter((a) => a.id !== 3),
+      { id: 8, type: 'upi', name: 'Third UPI' },
+    ] as unknown as Account[];
+    const { screen } = await setup({
+      accounts: noBank,
+      selectedMode: 'Bank Account',
+      selectedAccountId: null,
+      suggestion: { name: 'Bank' } as unknown as AccountSuggestion,
+      onSetupSuggestedAccount: jest.fn(),
+      onManageAccounts,
+    });
+    expect(screen.getByTestId('payment-setup-panel')).toBeTruthy();
+    await fireEvent.press(screen.getByTestId('payment-manage-accounts'));
+    expect(onManageAccounts).toHaveBeenCalled();
   });
 });
 
