@@ -5,7 +5,7 @@ import type { MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   ThemedAlertDialog,
   ThemedConfirmDialog,
-  type DialogTone,
+  type AlertTone,
 } from '@/components/ui/ThemedConfirmDialog';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
@@ -13,8 +13,8 @@ type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 export type AppAlertOptions = {
   title: string;
   message: string;
-  /** How it should feel: see `DialogTone`. Failures are `error`, not `danger`. */
-  tone?: DialogTone;
+  /** How it should feel: see `DialogTone`. */
+  tone?: AlertTone;
   buttonLabel?: string;
   iconName?: IconName;
 };

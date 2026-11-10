@@ -8,7 +8,7 @@ describe('budgetAlertDialog', () => {
   });
 
   it('treats a budget nearing its limit as a caution', () => {
-    expect(budgetAlertDialog(notification('budget.nearing')).tone).toBe('warning');
+    expect(budgetAlertDialog(notification('budget.warning')).tone).toBe('warning');
   });
 
   it('shows the words the server wrote', () => {

@@ -1101,7 +1101,6 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         title,
         message,
         confirmLabel: action === 'archive' ? 'Archive' : 'Delete',
-        destructive: action !== 'archive',
         tone: 'warning',
         iconName: action === 'archive' ? 'archive-outline' : 'delete-outline',
       })

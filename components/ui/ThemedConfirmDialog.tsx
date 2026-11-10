@@ -27,6 +27,9 @@ type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
  */
 export type DialogTone = 'info' | 'success' | 'warning' | 'error' | 'danger';
 
+/** A one-button alert reports something, so it is never a stop: failures are `error`. */
+export type AlertTone = Exclude<DialogTone, 'danger'>;
+
 /** `destructive` is its own look: serious, but the person asked for it. */
 type Look = DialogTone | 'destructive';
 
@@ -144,7 +147,7 @@ type DialogFrameProps = {
 };
 
 /**
- * Both dialogs sit on `colors.card`, not `colors.background`.
+ * Both dialogs sit on `colors.card`, or a tint of it, not `colors.background`.
  *
  * `background` is the colour of the page the dialog is covering — in the light
  * theme they are the same `#FDF5F7` — so the card had nothing but a hairline
@@ -167,7 +170,8 @@ function DialogFrame({
 
   useEffect(() => {
     if (visible && buzz) haptics.rejected();
-  }, [buzz, visible]);
+    // The words are here so a queued dialog that replaces this one buzzes too.
+  }, [buzz, visible, title, message]);
 
   const icon = (
     <View style={[styles.iconShell, { backgroundColor: lookStyle.shell }]}>
@@ -318,7 +322,7 @@ type ThemedAlertDialogProps = {
   message: string;
   buttonLabel?: string;
   iconName?: IconName;
-  tone?: DialogTone;
+  tone?: AlertTone;
   onDismiss: () => void;
 };
 

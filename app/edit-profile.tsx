@@ -20,7 +20,7 @@ import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
-import { ThemedAlertDialog, type DialogTone } from '@/components/ui/ThemedConfirmDialog';
+import { ThemedAlertDialog, type AlertTone } from '@/components/ui/ThemedConfirmDialog';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -42,7 +42,7 @@ const OTP_LENGTH = 6;
 type AlertState = {
   title: string;
   message: string;
-  tone?: DialogTone;
+  tone?: AlertTone;
   onDismiss?: () => void;
 };
 
