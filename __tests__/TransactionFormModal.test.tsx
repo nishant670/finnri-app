@@ -15,6 +15,12 @@ import { formatDateLabel } from '@/lib/transactions';
 import { useEvents } from '@/lib/events';
 import type { Transaction } from '@/types/transaction';
 
+const mockConfirm = jest.fn();
+jest.mock('@/components/ui/AppDialogProvider', () => ({
+  ...jest.requireActual('@/components/ui/AppDialogProvider'),
+  useOptionalAppDialog: () => ({ alert: jest.fn(), confirm: mockConfirm }),
+}));
+
 const recentEntry = (overrides: Partial<Transaction>): Transaction => ({
   id: '1',
   name: 'Entry',
@@ -1273,5 +1279,77 @@ describe('TransactionFormModal — across midnight', () => {
     await fireEvent.press(await ui.findByTestId('entry-date-yesterday'));
     await fireEvent.press(await ui.findByTestId('entry-save-button'));
     expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ date: '24 October 2026' }));
+  });
+});
+
+describe('TransactionFormModal — refundable with no amount entered', () => {
+  const refundable: Partial<EntryForm> = {
+    ...completeInitialData,
+    amount: '1000',
+    tag: 'Refundable',
+    refundExpectedOn: '12 November 2026',
+  };
+
+  beforeEach(() => mockConfirm.mockReset());
+
+  it('asks first, then saves the full amount as refundable', async () => {
+    mockConfirm.mockResolvedValue(true);
+    const ui = await renderModal({ initialData: refundable });
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    await waitFor(() => expect(ui.onSave).toHaveBeenCalled());
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Is the full amount refundable?' })
+    );
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ refundableAmount: '1000' }));
+  });
+
+  it('holds the save when the user would rather enter an amount', async () => {
+    mockConfirm.mockResolvedValue(false);
+    const ui = await renderModal({ initialData: refundable });
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    await waitFor(() => expect(mockConfirm).toHaveBeenCalled());
+    expect(ui.onSave).not.toHaveBeenCalled();
+  });
+
+  it('does not ask when an amount is there', async () => {
+    const ui = await renderModal({ initialData: { ...refundable, refundableAmount: '400' } });
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    await waitFor(() => expect(ui.onSave).toHaveBeenCalled());
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(ui.onSave).toHaveBeenCalledWith(expect.objectContaining({ refundableAmount: '400' }));
+  });
+
+  it('asks only once and saves only once on a double tap', async () => {
+    const ui = await renderModal({ initialData: refundable });
+    const save = await ui.findByTestId('entry-save-button');
+    // The second tap lands while the question is still open.
+    mockConfirm.mockImplementationOnce(async () => {
+      await fireEvent.press(save);
+      return true;
+    });
+    await fireEvent.press(save);
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(ui.onSave).toHaveBeenCalledTimes(1));
+  });
+
+  it('leaves a typed part-refund alone when the amount is edited through it', async () => {
+    const ui = await renderModal({ initialData: { ...refundable, refundableAmount: '100' } });
+    await fireEvent.changeText(await ui.findByTestId('refund-amount-input'), '100');
+    const backspace = await ui.findByLabelText('Delete last digit');
+    await fireEvent.press(backspace);
+    await fireEvent.press(backspace);
+    expect(await ui.findByDisplayValue('100')).toBeTruthy();
+  });
+
+  it('keeps Full amount in step when the payment amount is corrected', async () => {
+    const ui = await renderModal({ initialData: refundable });
+    await fireEvent.press(await ui.findByTestId('refund-full-amount'));
+    // 1000 → 100 on the keypad's backspace.
+    await fireEvent.press(await ui.findByLabelText('Delete last digit'));
+    await fireEvent.press(await ui.findByTestId('entry-save-button'));
+    await waitFor(() => expect(ui.onSave).toHaveBeenCalled());
+    expect(ui.onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ amount: '100', refundableAmount: '100' })
+    );
   });
 });
