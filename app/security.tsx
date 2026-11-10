@@ -36,7 +36,7 @@ export default function SecurityScreen() {
   const [isRevokingSessions, setIsRevokingSessions] = React.useState(false);
 
   const showSecurityAlert = (message: string) => {
-    void dialog.alert({ title: 'Security settings', message, tone: 'danger' });
+    void dialog.alert({ title: 'Security settings', message, tone: 'error' });
   };
 
   const toggleLock = async (enabled: boolean) => {
@@ -128,7 +128,7 @@ export default function SecurityScreen() {
       void dialog.alert({
         title: 'Could not delete account',
         message: getFriendlyAuthErrorMessage(error, 'Unable to delete your account right now.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setIsDeletingAccount(false);
@@ -155,7 +155,7 @@ export default function SecurityScreen() {
       void dialog.alert({
         title: 'Could not sign out devices',
         message: getFriendlyAuthErrorMessage(error, 'Unable to sign out all devices right now.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setIsRevokingSessions(false);

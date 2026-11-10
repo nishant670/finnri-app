@@ -117,6 +117,7 @@ export default function AskFinnriScreen() {
     if (isGuest) {
       const signIn = await dialog.confirm({
         title: 'Sign in for more AI credits',
+        tone: 'warning',
         message:
           'Your guest credits are used up. Sign in to keep asking Finnri — everything you have added so far comes with you.',
         confirmLabel: 'Sign in',
@@ -127,6 +128,7 @@ export default function AskFinnriScreen() {
     }
     if (await plansPrompt.offerForBlockedAI(blocked)) return;
     const seePlans = await dialog.confirm({
+      tone: 'warning',
       title:
         blocked === 'daily_limit'
           ? 'Today’s AI credits are used up'

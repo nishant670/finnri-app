@@ -117,7 +117,7 @@ export function TransactionDeleteProvider({ children }: { children: React.ReactN
         void dialog.alert({
           title: 'Delete failed',
           message: `${target.name} is still in your ledger. Check your connection and try again.`,
-          tone: 'danger',
+          tone: 'error',
         });
         notifyTransactionsChanged();
       });

@@ -20,7 +20,7 @@ import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
-import { ThemedAlertDialog } from '@/components/ui/ThemedConfirmDialog';
+import { ThemedAlertDialog, type DialogTone } from '@/components/ui/ThemedConfirmDialog';
 import { useAuthStore } from '@/hooks/use-auth-store';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
@@ -42,7 +42,7 @@ const OTP_LENGTH = 6;
 type AlertState = {
   title: string;
   message: string;
-  tone?: 'info' | 'success' | 'danger';
+  tone?: DialogTone;
   onDismiss?: () => void;
 };
 
@@ -119,14 +119,14 @@ export default function EditProfileScreen() {
       showAlert({
         title: 'Photo not updated',
         message: 'Unable to select that image right now.',
-        tone: 'danger',
+        tone: 'error',
       });
     }
   };
 
   const handleUpdate = async () => {
     if (!name.trim()) {
-      showAlert({ title: 'Add your name', message: "Your name can't be blank.", tone: 'danger' });
+      showAlert({ title: 'Add your name', message: "Your name can't be blank.", tone: 'warning' });
       return;
     }
     if (!token) return;
@@ -170,7 +170,7 @@ export default function EditProfileScreen() {
       showAlert({
         title: "Code not sent",
         message: getFriendlyAuthErrorMessage(error, "We couldn't send your code. Try again in a moment."),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setIsLoading(false);
@@ -182,7 +182,7 @@ export default function EditProfileScreen() {
       showAlert({
         title: 'Enter the code',
         message: `Enter the ${OTP_LENGTH}-digit code we sent you.`,
-        tone: 'danger',
+        tone: 'warning',
       });
       return;
     }
@@ -193,7 +193,7 @@ export default function EditProfileScreen() {
       setOtpCode('');
       performUpdate(res.claim_token);
     } catch {
-      showAlert({ title: 'Code didn’t match', message: "That code didn't work. Check it and try again.", tone: 'danger' });
+      showAlert({ title: 'Code didn’t match', message: "That code didn't work. Check it and try again.", tone: 'warning' });
     } finally {
       setIsVerifying(false);
     }
@@ -224,12 +224,12 @@ export default function EditProfileScreen() {
         showAlert({
           title: 'Username taken',
           message: 'This username is already in use. Please choose another.',
-          tone: 'danger',
+          tone: 'warning',
         });
       } else if (msg.includes('verification required')) {
-        showAlert({ title: 'Verify it’s you', message: msg, tone: 'danger' });
+        showAlert({ title: 'Verify it’s you', message: msg, tone: 'warning' });
       } else {
-        showAlert({ title: 'Not saved', message: msg, tone: 'danger' });
+        showAlert({ title: 'Not saved', message: msg, tone: 'error' });
       }
     } finally {
       setIsLoading(false);

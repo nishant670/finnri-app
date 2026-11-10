@@ -997,6 +997,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         await dialog.alert({
           title: 'Photo not selected',
           message: 'Please choose an image file to use as the group photo.',
+          tone: 'warning',
         });
         return;
       }
@@ -1005,7 +1006,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
       await dialog.alert({
         title: 'Photo not updated',
         message: 'Unable to select that image right now.',
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setGroupPhotoBusy(false);
@@ -1100,7 +1101,8 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         title,
         message,
         confirmLabel: action === 'archive' ? 'Archive' : 'Delete',
-        destructive: true,
+        destructive: action !== 'archive',
+        tone: 'warning',
         iconName: action === 'archive' ? 'archive-outline' : 'delete-outline',
       })
       .then((confirmed) => {
@@ -1789,6 +1791,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
     void dialog
       .confirm({
         title: 'Report this group?',
+        tone: 'warning',
         message:
           'Use this if something here is abusive, offensive or unlawful. We review every report and may remove the content or the account behind it.',
         confirmLabel: 'Report',
@@ -1815,7 +1818,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
           await dialog.alert({
             title: 'Could not send the report',
             message: 'Check your connection and try again.',
-            tone: 'danger',
+            tone: 'error',
           });
         }
       });
@@ -2544,6 +2547,7 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
         <ThemedConfirmDialog
           visible={Boolean(duplicateFriendPair)}
           title="These look like the same person"
+          tone="warning"
           message={`${duplicateFriendPair?.survivor.name ?? 'This friend'} and ${
             duplicateFriendPair?.duplicate.name ?? 'this friend'
           } share contact details in one group. Merge their expenses, balances, and memberships?`}
