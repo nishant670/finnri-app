@@ -1,12 +1,228 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { ComponentProps } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
+import { useEffect } from 'react';
 import { ActivityIndicator, Modal, Pressable, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
+import { mixHex } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { haptics } from '@/lib/haptics';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
+
+/**
+ * What a dialog is saying, which decides how it feels before it is read.
+ *
+ * - `info`: nothing is wrong. A question or a note.
+ * - `success`: it worked.
+ * - `warning`: careful. Amber, a caution triangle, and a buzz: nearing a limit,
+ *   something blocking the next step, an entry that needs fixing.
+ * - `error`: the app could not do it. Soft and apologetic on purpose, with a calm
+ *   button: it is not the person's fault, and if every failed request looked
+ *   alarming the one alert that matters would stop being noticed.
+ * - `danger`: stop. The loudest thing the app can say, kept for a line that has
+ *   been crossed, such as a blown budget: a stop sign, a red card over a red
+ *   dimmed screen, and a buzz.
+ */
+export type DialogTone = 'info' | 'success' | 'warning' | 'error' | 'danger';
+
+/** A one-button alert reports something, so it is never a stop: failures are `error`. */
+export type AlertTone = Exclude<DialogTone, 'danger'>;
+
+/** `destructive` is its own look: serious, but the person asked for it. */
+type Look = DialogTone | 'destructive';
+
+const RED = '#D92D20';
+
+type LookStyle = {
+  icon: IconName;
+  iconColor: string;
+  shell: string;
+  /** The halo around the icon, for the one tone that needs to shout. */
+  ring?: string;
+  title: string;
+  card: string;
+  border: string;
+  thickBorder: boolean;
+  scrim: string;
+  buttonFill: string;
+  buttonLabel: string;
+  buzz: boolean;
+};
+
+function useLookStyle(look: Look): LookStyle {
+  const theme = useThemeTokens();
+  const { colors } = theme;
+  const isDark = theme.mode === 'dark';
+  const scrim = 'rgba(0,0,0,0.6)';
+  const plain = {
+    title: colors.text,
+    card: colors.card,
+    border: colors.border,
+    thickBorder: false,
+    scrim,
+    buzz: false,
+  };
+  const roseShell = mixHex(colors.card, RED, isDark ? 0.22 : 0.09);
+
+  switch (look) {
+    case 'danger':
+      return {
+        icon: 'alert-octagon',
+        iconColor: '#FFFFFF',
+        shell: RED,
+        ring: mixHex(colors.card, RED, isDark ? 0.3 : 0.14),
+        title: isDark ? colors.negative : '#B42318',
+        card: mixHex(colors.card, RED, isDark ? 0.1 : 0.035),
+        border: mixHex(colors.card, RED, isDark ? 0.6 : 0.4),
+        thickBorder: true,
+        scrim: isDark ? 'rgba(36,4,4,0.76)' : 'rgba(70,10,10,0.66)',
+        buttonFill: RED,
+        buttonLabel: '#FFFFFF',
+        buzz: true,
+      };
+    case 'warning':
+      return {
+        ...plain,
+        icon: 'alert-outline',
+        iconColor: colors.warning,
+        shell: colors.warningSurface,
+        border: colors.warningOutline,
+        thickBorder: true,
+        buttonFill: colors.warning,
+        // The dark theme's amber is a pale one, which white cannot be read on.
+        buttonLabel: isDark ? '#2A1A05' : '#FFFFFF',
+        buzz: true,
+      };
+    case 'destructive':
+      return {
+        ...plain,
+        icon: 'delete-outline',
+        iconColor: isDark ? colors.negative : RED,
+        shell: roseShell,
+        buttonFill: RED,
+        buttonLabel: '#FFFFFF',
+      };
+    case 'error':
+      return {
+        ...plain,
+        icon: 'alert-circle-outline',
+        iconColor: isDark ? colors.negative : RED,
+        shell: roseShell,
+        buttonFill: colors.accent,
+        buttonLabel: colors.onAccent,
+      };
+    case 'success':
+      return {
+        ...plain,
+        icon: 'check-decagram',
+        iconColor: '#2E9E6B',
+        shell: isDark ? 'rgba(255,255,255,0.08)' : '#2E9E6B1A',
+        buttonFill: '#2E9E6B',
+        buttonLabel: '#FFFFFF',
+      };
+    default:
+      return {
+        ...plain,
+        icon: 'information-outline',
+        iconColor: colors.accent,
+        shell: colors.secondary,
+        buttonFill: colors.accent,
+        buttonLabel: colors.onAccent,
+      };
+  }
+}
+
+type DialogFrameProps = {
+  visible: boolean;
+  lookStyle: LookStyle;
+  iconName: IconName;
+  title: string;
+  message: string;
+  dismissLabel: string;
+  dismissDisabled?: boolean;
+  onDismiss: () => void;
+  children: ReactNode;
+};
+
+/**
+ * Both dialogs sit on `colors.card`, or a tint of it, not `colors.background`.
+ *
+ * `background` is the colour of the page the dialog is covering — in the light
+ * theme they are the same `#FDF5F7` — so the card had nothing but a hairline
+ * border and a soft shadow separating it from what it interrupted, and its
+ * contents read as loose text on the screen rather than as a dialog.
+ */
+function DialogFrame({
+  visible,
+  lookStyle,
+  iconName,
+  title,
+  message,
+  dismissLabel,
+  dismissDisabled = false,
+  onDismiss,
+  children,
+}: DialogFrameProps) {
+  const theme = useThemeTokens();
+  const { buzz } = lookStyle;
+
+  useEffect(() => {
+    if (visible && buzz) haptics.rejected();
+    // The words are here so a queued dialog that replaces this one buzzes too.
+  }, [buzz, visible, title, message]);
+
+  const icon = (
+    <View style={[styles.iconShell, { backgroundColor: lookStyle.shell }]}>
+      <MaterialCommunityIcons name={iconName} size={27} color={lookStyle.iconColor} />
+    </View>
+  );
+
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      visible={visible}
+      statusBarTranslucent
+      onRequestClose={dismissDisabled ? undefined : onDismiss}>
+      <View style={styles.overlay}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={dismissLabel}
+          disabled={dismissDisabled}
+          onPress={onDismiss}
+          style={[styles.backdrop, { backgroundColor: lookStyle.scrim }]}
+        />
+        <View
+          style={[
+            styles.dialog,
+            theme.shadows.soft,
+            {
+              backgroundColor: lookStyle.card,
+              borderColor: lookStyle.border,
+              borderWidth: lookStyle.thickBorder ? 1.5 : StyleSheet.hairlineWidth,
+            },
+          ]}>
+          {lookStyle.ring ? (
+            <View style={[styles.iconRing, { backgroundColor: lookStyle.ring }]}>{icon}</View>
+          ) : (
+            icon
+          )}
+          <ThemedText style={[styles.title, { color: lookStyle.title }]}>{title}</ThemedText>
+          <ThemedText
+            style={[
+              styles.message,
+              { color: theme.mode === 'dark' ? 'rgba(255,255,255,0.58)' : '#6B7280' },
+            ]}>
+            {message}
+          </ThemedText>
+          {children}
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 type ThemedConfirmDialogProps = {
   visible: boolean;
@@ -15,6 +231,8 @@ type ThemedConfirmDialogProps = {
   confirmLabel: string;
   cancelLabel?: string;
   iconName?: IconName;
+  /** How serious this question is. `destructive` wins over it. */
+  tone?: 'info' | 'warning' | 'danger';
   destructive?: boolean;
   loading?: boolean;
   onCancel: () => void;
@@ -27,7 +245,8 @@ export function ThemedConfirmDialog({
   message,
   confirmLabel,
   cancelLabel = 'Cancel',
-  iconName = 'alert-circle-outline',
+  iconName,
+  tone = 'info',
   destructive = false,
   loading = false,
   onCancel,
@@ -35,109 +254,67 @@ export function ThemedConfirmDialog({
 }: ThemedConfirmDialogProps) {
   const theme = useThemeTokens();
   const colors = theme.colors;
-  const actionColor = destructive ? '#EF5B5B' : colors.accent;
-  const iconBackground = destructive
-    ? theme.mode === 'dark'
-      ? '#3A2424'
-      : '#FFF0EC'
-    : colors.secondary;
+  const look: Look = destructive ? 'destructive' : tone;
+  const lookStyle = useLookStyle(look);
+  // An ordinary question keeps a quiet outlined action. Anything heavier fills
+  // it, so the serious choice is also the visually serious one.
+  const filled = look !== 'info';
+  const confirmInk = filled ? lookStyle.buttonLabel : lookStyle.iconColor;
 
   return (
-    <Modal
-      transparent
-      animationType="fade"
+    <DialogFrame
       visible={visible}
-      statusBarTranslucent
-      onRequestClose={loading ? undefined : onCancel}>
-      <View style={styles.overlay}>
-        <Pressable
+      lookStyle={lookStyle}
+      iconName={iconName ?? (look === 'info' ? 'help-circle-outline' : lookStyle.icon)}
+      title={title}
+      message={message}
+      dismissLabel={cancelLabel}
+      dismissDisabled={loading}
+      onDismiss={onCancel}>
+      <View style={styles.actions}>
+        <PressableView
           accessibilityRole="button"
-          accessibilityLabel={cancelLabel}
           disabled={loading}
           onPress={onCancel}
-          style={styles.backdrop}
-        />
-        <View
           style={[
-            styles.dialog,
-            theme.shadows.soft,
+            styles.button,
+            styles.cancelButton,
             {
-              backgroundColor: colors.card,
+              // The card is white in the light theme now, so the cancel
+              // button takes the page colour to stay a visible second
+              // option rather than a white rectangle on white.
+              backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.08)' : colors.background,
               borderColor: colors.border,
+              opacity: loading ? 0.72 : 1,
             },
-          ]}>
-          <View style={[styles.iconShell, { backgroundColor: iconBackground }]}>
-            <MaterialCommunityIcons name={iconName} size={27} color={actionColor} />
-          </View>
-          <ThemedText style={[styles.title, { color: colors.text }]}>{title}</ThemedText>
-          <ThemedText
-            style={[
-              styles.message,
-              { color: theme.mode === 'dark' ? 'rgba(255,255,255,0.58)' : '#6B7280' },
-            ]}>
-            {message}
-          </ThemedText>
-
-          <View style={styles.actions}>
-            <PressableView
-              accessibilityRole="button"
-              disabled={loading}
-              onPress={onCancel}
-              style={[
-                styles.button,
-                styles.cancelButton,
-                {
-                  // The card is white in the light theme now, so the cancel
-                  // button takes the page colour to stay a visible second
-                  // option rather than a white rectangle on white.
-                  backgroundColor: theme.mode === 'dark' ? 'rgba(255,255,255,0.08)' : colors.background,
-                  borderColor: colors.border,
-                  opacity: loading ? 0.72 : 1,
-                },
-              ]}
-              pressedStyle={styles.pressed}>
-              <ThemedText style={[styles.cancelLabel, { color: colors.text }]}>
-                {cancelLabel}
-              </ThemedText>
-            </PressableView>
-            <PressableView
-              accessibilityRole="button"
-              disabled={loading}
-              onPress={onConfirm}
-              style={[
-                styles.button,
-                styles.confirmButton,
-                {
-                  borderColor: actionColor,
-                  opacity: loading ? 0.72 : 1,
-                },
-              ]}
-              pressedStyle={styles.pressed}>
-              {loading ? (
-                <ActivityIndicator color={actionColor} />
-              ) : (
-                <ThemedText style={[styles.confirmLabel, { color: actionColor }]}>
-                  {confirmLabel}
-                </ThemedText>
-              )}
-            </PressableView>
-          </View>
-        </View>
+          ]}
+          pressedStyle={styles.pressed}>
+          <ThemedText style={[styles.cancelLabel, { color: colors.text }]}>{cancelLabel}</ThemedText>
+        </PressableView>
+        <PressableView
+          accessibilityRole="button"
+          disabled={loading}
+          onPress={onConfirm}
+          style={[
+            styles.button,
+            styles.confirmButton,
+            {
+              backgroundColor: filled ? lookStyle.buttonFill : 'transparent',
+              borderColor: filled ? lookStyle.buttonFill : lookStyle.iconColor,
+              opacity: loading ? 0.72 : 1,
+            },
+          ]}
+          pressedStyle={styles.pressed}>
+          {loading ? (
+            <ActivityIndicator color={confirmInk} />
+          ) : (
+            <ThemedText style={[styles.confirmLabel, { color: confirmInk }]}>{confirmLabel}</ThemedText>
+          )}
+        </PressableView>
       </View>
-    </Modal>
+    </DialogFrame>
   );
 }
-
-/**
- * Both dialogs sit on `colors.card`, not `colors.background`.
- *
- * `background` is the colour of the page the dialog is covering — in the light
- * theme they are the same `#FDF5F7` — so the card had nothing but a hairline
- * border and a soft shadow separating it from what it interrupted, and its
- * contents read as loose text on the screen rather than as a dialog.
- */
-
-type AlertTone = 'info' | 'success' | 'danger';
 
 type ThemedAlertDialogProps = {
   visible: boolean;
@@ -164,70 +341,29 @@ export function ThemedAlertDialog({
   tone = 'info',
   onDismiss,
 }: ThemedAlertDialogProps) {
-  const theme = useThemeTokens();
-  const colors = theme.colors;
-  const isDark = theme.mode === 'dark';
-  const accentByTone: Record<AlertTone, string> = {
-    info: colors.accent,
-    success: '#2E9E6B',
-    danger: '#EF5B5B',
-  };
-  const iconByTone: Record<AlertTone, IconName> = {
-    info: 'information-outline',
-    success: 'check-decagram',
-    danger: 'alert-circle-outline',
-  };
-  const actionColor = accentByTone[tone];
-  const iconBackground =
-    tone === 'info' ? colors.secondary : isDark ? 'rgba(255,255,255,0.08)' : `${actionColor}1A`;
+  const lookStyle = useLookStyle(tone);
 
   return (
-    <Modal
-      transparent
-      animationType="fade"
+    <DialogFrame
       visible={visible}
-      statusBarTranslucent
-      onRequestClose={onDismiss}>
-      <View style={styles.overlay}>
-        <Pressable
+      lookStyle={lookStyle}
+      iconName={iconName ?? lookStyle.icon}
+      title={title}
+      message={message}
+      dismissLabel={buttonLabel}
+      onDismiss={onDismiss}>
+      <View style={styles.actions}>
+        <PressableView
           accessibilityRole="button"
-          accessibilityLabel={buttonLabel}
           onPress={onDismiss}
-          style={styles.backdrop}
-        />
-        <View
-          style={[
-            styles.dialog,
-            theme.shadows.soft,
-            { backgroundColor: colors.card, borderColor: colors.border },
-          ]}>
-          <View style={[styles.iconShell, { backgroundColor: iconBackground }]}>
-            <MaterialCommunityIcons
-              name={iconName ?? iconByTone[tone]}
-              size={27}
-              color={actionColor}
-            />
-          </View>
-          <ThemedText style={[styles.title, { color: colors.text }]}>{title}</ThemedText>
-          <ThemedText
-            style={[styles.message, { color: isDark ? 'rgba(255,255,255,0.58)' : '#6B7280' }]}>
-            {message}
+          style={[styles.button, { backgroundColor: lookStyle.buttonFill }]}
+          pressedStyle={styles.pressed}>
+          <ThemedText style={[styles.confirmLabel, { color: lookStyle.buttonLabel }]}>
+            {buttonLabel}
           </ThemedText>
-
-          <View style={styles.actions}>
-            <PressableView
-              accessibilityRole="button"
-              onPress={onDismiss}
-              style={[styles.button, { backgroundColor: actionColor }]}
-              pressedStyle={styles.pressed}>
-              <ThemedText style={[styles.confirmLabel, { color: '#FFFFFF' }]}>
-                {buttonLabel}
-              </ThemedText>
-            </PressableView>
-          </View>
-        </View>
+        </PressableView>
       </View>
-    </Modal>
+    </DialogFrame>
   );
 }
 
@@ -249,15 +385,17 @@ const styles = StyleSheet.create({
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   dialog: {
     alignItems: 'center',
     borderRadius: 32,
-    borderWidth: StyleSheet.hairlineWidth,
     maxWidth: 384,
     padding: 24,
     width: '100%',
+  },
+  iconRing: {
+    borderRadius: 999,
+    padding: 7,
   },
   iconShell: {
     alignItems: 'center',
@@ -298,7 +436,6 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
   },
   confirmButton: {
-    backgroundColor: 'transparent',
     borderWidth: StyleSheet.hairlineWidth,
   },
   cancelLabel: {

@@ -125,6 +125,18 @@ export const fetchNewUnreadBudgetNotification = async (
   );
 };
 
+/**
+ * The prompt for a budget alert. Past the limit is a stop; nearing it is only a
+ * caution, so the two must not look alike.
+ */
+export const budgetAlertDialog = (notification: Pick<AppNotification, 'type' | 'title' | 'body'>) => ({
+  title: notification.title,
+  message: notification.body,
+  confirmLabel: 'View Budgets',
+  cancelLabel: 'Later',
+  tone: notification.type === 'budget.exceeded' ? ('danger' as const) : ('warning' as const),
+});
+
 export const markNotificationRead = async (token: string, id: number) => {
   const response = await fetch(`${API_BASE_URL}/v1/notifications/${id}/read`, {
     method: 'PATCH',

@@ -264,6 +264,8 @@ export default function EMIPlanDetailScreen() {
         <ThemedConfirmDialog
           visible={isForecloseVisible}
           title="Foreclose this plan?"
+          destructive
+          iconName="calendar-remove-outline"
           message="Every instalment still to come is cancelled, and the credit limit it was holding comes back at once. Instalments already on a bill stay."
           confirmLabel="Foreclose"
           loading={isPending}

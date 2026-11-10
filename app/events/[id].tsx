@@ -236,7 +236,7 @@ export default function EventScreen() {
       await dialog.alert({
         title: 'Could not delete the event',
         message: getFriendlyErrorMessage(err, 'Try again in a moment.'),
-        tone: 'danger',
+        tone: 'error',
       });
     }
   };
@@ -251,7 +251,7 @@ export default function EventScreen() {
       await dialog.alert({
         title: 'Export failed',
         message: getFriendlyErrorMessage(err, 'Unable to export these transactions.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setIsExporting(false);

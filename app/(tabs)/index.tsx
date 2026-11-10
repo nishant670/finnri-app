@@ -49,6 +49,7 @@ import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
+  budgetAlertDialog,
   isBillingActionURL,
   fetchNotifications,
   fetchNewUnreadBudgetNotification,
@@ -742,11 +743,7 @@ export default function HomeScreen() {
         promptQuietUntilRef.current = Date.now() + 60_000;
         if (
           await dialog.confirm({
-            title: notification.title,
-            message: notification.body,
-            confirmLabel: 'View Budgets',
-            cancelLabel: 'Later',
-            iconName: 'wallet-outline',
+            ...budgetAlertDialog(notification),
           })
         ) {
           router.push('/budgets');
@@ -914,6 +911,8 @@ export default function HomeScreen() {
       setErrorMessage(null);
       const openSettings = await dialog.confirm({
         title: 'Microphone is off for Finnri',
+        tone: 'warning',
+        iconName: 'microphone-off',
         message:
           Platform.OS === 'ios'
             ? 'Turn on Microphone for Finnri in Settings to log by voice. You can still type or scan a bill.'
@@ -1188,7 +1187,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: 'Statement not available',
           message: getFriendlyErrorMessage(error, 'Unable to open the transaction form.'),
-          tone: 'danger',
+          tone: 'error',
         });
       });
 
@@ -1229,7 +1228,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: "Couldn't update the balance",
           message: getFriendlyErrorMessage(error, 'Try again from the account screen.'),
-          tone: 'danger',
+          tone: 'error',
         });
       }
     },
@@ -1475,7 +1474,7 @@ export default function HomeScreen() {
         setAiReview(null);
         setForm((prev) => ({ ...prev, attachment: uri }));
         const failure = describeReceiptScanFailure(error);
-        void dialog.alert({ title: failure.title, message: failure.message, tone: 'danger' });
+        void dialog.alert({ title: failure.title, message: failure.message, tone: 'error' });
       } finally {
         setIsParsing(false);
         setIsSubmitting(false);
@@ -1520,6 +1519,8 @@ export default function HomeScreen() {
         if (pick.canAskAgain) return;
         const openSettings = await dialog.confirm({
           title: 'Camera is off for Finnri',
+          tone: 'warning',
+          iconName: 'camera-off',
           message:
             'Turn on camera access in Settings to photograph a bill, or choose a photo instead.',
           confirmLabel: 'Open Settings',
@@ -1532,7 +1533,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: 'That photo did not open',
           message: 'Try again, or pick a different photo of the bill.',
-          tone: 'danger',
+          tone: 'error',
         });
       }
     },

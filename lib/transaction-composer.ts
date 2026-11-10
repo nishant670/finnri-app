@@ -225,6 +225,7 @@ export function describeLikelyDuplicate(match: Transaction) {
     confirmLabel: 'Save anyway',
     cancelLabel: 'Go back',
     iconName: 'content-duplicate' as const,
+    tone: 'warning' as const,
   };
 }
 
