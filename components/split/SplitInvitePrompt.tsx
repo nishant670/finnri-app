@@ -85,7 +85,7 @@ export function SplitInvitePrompt() {
       void dialog.alert({
         title: `Could not join ${current.group_name}`,
         message: getFriendlyErrorMessage(acceptError, 'Unable to join this split group right now.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setAccepting(false);

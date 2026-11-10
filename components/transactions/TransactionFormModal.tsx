@@ -75,6 +75,8 @@ import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
 import { describePaymentPick, type PaymentSuggestion } from '@/lib/payment-rules';
 import { notePaymentCorrection } from '@/lib/payment-rule-offer';
 import { useOptionalAppDialog } from '@/components/ui/AppDialogProvider';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
+import { useScrollRevealController } from '@/components/ui/RevealScrollView';
 import { usePaymentSuggestion } from './usePaymentSuggestion';
 import {
   DEFAULT_PAYMENT_MODE,
@@ -439,6 +441,15 @@ const entryDateTime = (date: string, time: string) => {
     : day;
 };
 
+/** Long enough for a themed dialog's window to give focus back to the sheet. */
+const DIALOG_CLOSE_MS = 350;
+
+const tagCards: Partial<Record<string, string>> = {
+  Refundable: 'refund',
+  EMI: 'emi',
+  Subscription: 'subscription',
+};
+
 export function TransactionFormModal({
   visible,
   onClose,
@@ -645,11 +656,13 @@ export function TransactionFormModal({
    */
   const [isSystemKeyboardUp, setIsSystemKeyboardUp] = useState(false);
   const titleInputRef = useRef<TextInput>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollOffsetRef = useRef(0);
-  const splitCardRef = useRef<View>(null);
+  const reveal = useScrollRevealController({ bottomInset: keyboardInset });
+  const refundAmountInputRef = useRef<TextInput>(null);
+  /** Set while the refund is the whole payment, so it follows amount corrections. */
+  const refundIsFullRef = useRef(false);
+  /** Save waits on the full-refund question; a second tap must not ask, or save, again. */
+  const askingFullRefundRef = useRef(false);
   /** Set when the split switch is turned on; the card's next layout scrolls to it. */
-  const revealSplitRef = useRef(false);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
   /** The same for the mode and account: once the user picks either, it stays. */
@@ -1248,7 +1261,12 @@ export function TransactionFormModal({
 
   const handleAmountChange = useCallback((amount: string) => {
     setFormError(null);
-    setForm((prev) => ({ ...prev, amount }));
+    setForm((prev) => ({
+      ...prev,
+      amount,
+      // "Full amount" stays the full amount when the amount is then corrected.
+      refundableAmount: refundIsFullRef.current ? amount : prev.refundableAmount,
+    }));
   }, []);
 
   /** The title is the stronger clue; the merchant fills in when it has none. */
@@ -1483,6 +1501,7 @@ export function TransactionFormModal({
       setMoreDetailsToggled(null);
       setSplitShareMode('amount');
       setIsSubscriptionOptionsOpen(false);
+      refundIsFullRef.current = false;
       setIsTitleFocused(false);
       setFormError(null);
       resetAutoCreateFeedback();
@@ -1661,7 +1680,7 @@ export function TransactionFormModal({
   const handleConfirmEntry = async () => {
     // Mid-parse the form holds none of the AI's answers yet, so a save here
     // submits an empty draft and fails.
-    if (isSaving || (draftReview && isParsing)) return;
+    if (isSaving || askingFullRefundRef.current || (draftReview && isParsing)) return;
     const normalizedForm = {
       ...form,
       // Amount-first means the amount is the only thing the user owes us. The
@@ -1696,29 +1715,67 @@ export function TransactionFormModal({
       rejectSave('Enter an amount above zero.');
       return;
     }
-    if (personalPayment && tagsApply && form.tag === 'Refundable') {
-      const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
-      if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
-        rejectSave('Enter how much you expect back.');
-        return;
-      }
-      if (refundableAmount > amountValue) {
-        rejectSave("The refund can't be more than what you paid.");
-        return;
-      }
+    // A quick prompt is a template with no refund card, so there is nothing to ask.
+    if (mode !== 'quick-prompt' && personalPayment && tagsApply && form.tag === 'Refundable') {
+      const rejectRefund = (message: string) => {
+        rejectSave(message);
+        reveal.now('refund');
+      };
       if (!parseDateLabel(form.refundExpectedOn)) {
-        rejectSave('Pick the date you expect it back.');
+        rejectRefund('Pick the date you expect it back.');
         return;
+      }
+      if (form.refundableAmount.trim().length === 0) {
+        if (!dialog) {
+          rejectRefund('Enter how much you expect back.');
+          return;
+        }
+        setFormError(null);
+        askingFullRefundRef.current = true;
+        const isFull = await dialog
+          .confirm({
+            title: 'Is the full amount refundable?',
+            message: `Finnri will track ${formatMoney(amountValue)} as coming back. If it's only part of that, enter the amount instead.`,
+            confirmLabel: 'Yes, full amount',
+            cancelLabel: 'Enter amount',
+          })
+          .finally(() => {
+            askingFullRefundRef.current = false;
+          });
+        if (!isFull) {
+          reveal.now('refund');
+          // Focusing while the dialog's window is closing places the cursor but
+          // Android drops the keyboard, leaving the keypad typing into the amount.
+          // Blurring first, because focus() is ignored on a field that has it.
+          refundAmountInputRef.current?.blur();
+          setTimeout(() => refundAmountInputRef.current?.focus(), DIALOG_CLOSE_MS);
+          return;
+        }
+        normalizedForm.refundableAmount = form.amount;
+        refundIsFullRef.current = true;
+        setForm((previous) => ({ ...previous, refundableAmount: previous.amount }));
+      } else {
+        const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
+        if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
+          rejectRefund('Enter how much you expect back.');
+          return;
+        }
+        if (refundableAmount > amountValue) {
+          rejectRefund("The refund can't be more than what you paid.");
+          return;
+        }
       }
     }
     if (isEMICreditCard) {
       const tenure = Number(form.emiTenureMonths);
       const rate = Number(form.emiRatePct || 0);
       if (!Number.isInteger(tenure) || tenure < 1 || tenure > 360) {
+        reveal.now('emi');
         rejectSave('Pick how many months the EMI runs.');
         return;
       }
       if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+        reveal.now('emi');
         rejectSave('Enter an interest rate between 0 and 100%.');
         return;
       }
@@ -1732,8 +1789,18 @@ export function TransactionFormModal({
         rejectSave('Only expenses can be split.');
         return;
       }
+      // The split card lives inside More details, which may have been closed.
+      const rejectSplit = (message: string) => {
+        if (isMoreDetailsOpen) {
+          reveal.now('split');
+        } else {
+          reveal.expect('split');
+          setMoreDetailsToggled(true);
+        }
+        rejectSave(message);
+      };
       if (form.splitParticipants.length === 0) {
-        rejectSave('Add at least one friend to split with.');
+        rejectSplit('Add at least one friend to split with.');
         return;
       }
       const totalSplit = form.splitParticipants.reduce(
@@ -1746,11 +1813,11 @@ export function TransactionFormModal({
           (!participant.friendId && participant.friendName.trim().length === 0)
       );
       if (invalidParticipant) {
-        rejectSave('Everyone in the split needs a name and an amount.');
+        rejectSplit('Everyone in the split needs a name and an amount.');
         return;
       }
       if (totalSplit > amountValue) {
-        rejectSave('The shares add up to more than the total.');
+        rejectSplit('The shares add up to more than the total.');
         return;
       }
     }
@@ -1758,48 +1825,58 @@ export function TransactionFormModal({
       const total = Number(form.emiTotalInstalments);
       const paid = Number(form.emiPaidInstalments || 1);
       if (!Number.isInteger(total) || total < 1 || total > 600) {
+        reveal.now('emi');
         rejectSave('Total EMIs should be between 1 and 600.');
         return;
       }
       if (!Number.isInteger(paid) || paid < 1 || paid > total) {
+        reveal.now('emi');
         rejectSave("EMIs paid so far (counting this one) can't be more than the total.");
         return;
       }
     }
     if (personalPayment && form.subscriptionEnabled) {
+      // Opens the card's More options, where the field being asked about is.
+      const rejectSubscriptionOption = (message: string) => {
+        if (isSubscriptionOptionsOpen) {
+          reveal.now('subscription-options');
+        } else {
+          reveal.expect('subscription-options');
+          setIsSubscriptionOptionsOpen(true);
+        }
+        rejectSave(message);
+      };
       const subscriptionAmount = Number(form.subscriptionAmount || form.amount);
       const reminderDays = Number(form.subscriptionReminderDays || 0);
       // Name and amount live under the card's More options and start from the
       // payment, so a blank one is a default nobody overrode, not a mistake.
       if (normalizedForm.subscriptionName.trim().length === 0) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Give the subscription a name.');
+        rejectSubscriptionOption('Give the subscription a name.');
         return;
       }
       if (!Number.isFinite(subscriptionAmount) || subscriptionAmount <= 0) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Enter the amount it renews for.');
+        rejectSubscriptionOption('Enter the amount it renews for.');
         return;
       }
       if (!form.subscriptionBillingInterval) {
+        reveal.now('subscription');
         rejectSave('Choose how often it repeats.');
         return;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionNextDueDate.trim())) {
+        reveal.now('subscription');
         rejectSave('Pick the next payment date.');
         return;
       }
       if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Reminders can be 0 to 30 days before.');
+        rejectSubscriptionOption('Reminders can be 0 to 30 days before.');
         return;
       }
       if (
         form.subscriptionCancelBeforeDue &&
         !/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionCancelOnDate.trim())
       ) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Pick when to remind you to cancel.');
+        rejectSubscriptionOption('Pick when to remind you to cancel.');
         return;
       }
       if (
@@ -1807,6 +1884,7 @@ export function TransactionFormModal({
           form.subscriptionBillingInterval === 'business_daily') &&
         !form.subscriptionAutopay
       ) {
+        reveal.now('subscription');
         rejectSave('Daily payments need Autopay turned on.');
         return;
       }
@@ -1860,6 +1938,7 @@ export function TransactionFormModal({
   };
 
   const addSplitParticipant = () => {
+    reveal.expect('split', { align: 'end' });
     const amountValue = toAmount(form.amount);
     const nextCount = form.splitParticipants.length + 1;
     const defaultShare = equalShareAmount(amountValue, nextCount);
@@ -1971,29 +2050,6 @@ export function TransactionFormModal({
       ),
     }));
   };
-
-  /**
-   * Switching split on adds its fields under the switch, which sits at the
-   * bottom of the sheet and mostly behind the keypad — so they appeared off
-   * screen and looked like nothing had happened. Once the card has grown,
-   * bring its top up to the top of the scroll area.
-   */
-  const revealSplitCard = useCallback(() => {
-    if (!revealSplitRef.current) return;
-    revealSplitRef.current = false;
-    const scroll = scrollRef.current;
-    const scrollHost = scroll?.getNativeScrollRef();
-    const card = splitCardRef.current;
-    if (!scroll || !scrollHost || !card) return;
-    requestAnimationFrame(() => {
-      scrollHost.measureInWindow((_scrollX, scrollTop) => {
-        card.measureInWindow((_cardX, cardTop) => {
-          const y = Math.max(0, scrollOffsetRef.current + cardTop - scrollTop - 12);
-          scroll.scrollTo({ y, animated: true });
-        });
-      });
-    });
-  }, []);
 
   /**
    * Two or more fields typed since the sheet opened — the point the user
@@ -2205,16 +2261,12 @@ export function TransactionFormModal({
                 </View>
               </GestureDetector>
 
-              <ScrollView
-                ref={scrollRef}
-                onScroll={(event) => {
-                  scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
-                }}
-                scrollEventThrottle={32}
+              <KeyboardAvoidingScreen
+                reveal={reveal}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: keyboardInset > 0 ? keyboardInset + 24 : 16 }}>
+                contentContainerStyle={{ paddingBottom: 16 }}>
                 {!splitContext && sheetTitle ? (
                   <View style={formStyles.titleBlock}>
                     <ThemedText style={[formStyles.sheetTitle, { color: theme.text }]}>
@@ -2667,16 +2719,11 @@ export function TransactionFormModal({
                           ) : null}
                         </View>
                         {canSplit ? (
-                          <View
-                            ref={splitCardRef}
-                            onLayout={revealSplitCard}
-                            style={formStyles.splitCard}>
+                          <View {...reveal.target('split')} style={formStyles.splitCard}>
                             <TransactionSplitFields
                               form={form}
                               setForm={setForm}
-                              onTurnedOn={() => {
-                                revealSplitRef.current = true;
-                              }}
+                              onTurnedOn={() => reveal.expect('split')}
                               friends={splitFriends}
                               groups={splitGroups}
                               shareMode={splitShareMode}
@@ -2692,57 +2739,71 @@ export function TransactionFormModal({
                     </View>
 
                     {personalPayment && mode !== 'quick-prompt' && tagsApply && form.tag === 'EMI' && (
-                      <TransactionEmiFields
-                        isEdit={isEdit}
-                        emiLink={emiLink}
-                        paymentMode={form.mode}
-                        isCardConversion={isEMICreditCard}
-                        cardName={selectedAccount?.name}
-                        canRepeat={canRepeatEmi}
-                        repeatActive={emiRepeatActive}
-                        nextDebit={emiNextDebit}
-                        totalInstalments={form.emiTotalInstalments}
-                        paidInstalments={form.emiPaidInstalments}
-                        tenureMonths={form.emiTenureMonths}
-                        ratePct={form.emiRatePct}
-                        firstInstallment={emiFirstInstallment}
-                        calculation={emiCalculation}
-                        calculationError={emiCalculationError}
-                        isCalculating={isCalculatingEMI}
-                        onChangeRepeat={setEmiRepeats}
-                        onChangeTotalInstalments={(emiTotalInstalments) =>
-                          setForm((previous) => ({ ...previous, emiTotalInstalments }))
-                        }
-                        onChangePaidInstalments={(emiPaidInstalments) =>
-                          setForm((previous) => ({ ...previous, emiPaidInstalments }))
-                        }
-                        onChangeTenure={(emiTenureMonths) =>
-                          setForm((previous) => ({ ...previous, emiTenureMonths }))
-                        }
-                        onChangeRate={(emiRatePct) =>
-                          setForm((previous) => ({ ...previous, emiRatePct }))
-                        }
-                      />
+                      <View {...reveal.target('emi')}>
+                        <TransactionEmiFields
+                          isEdit={isEdit}
+                          emiLink={emiLink}
+                          paymentMode={form.mode}
+                          isCardConversion={isEMICreditCard}
+                          cardName={selectedAccount?.name}
+                          canRepeat={canRepeatEmi}
+                          repeatActive={emiRepeatActive}
+                          nextDebit={emiNextDebit}
+                          totalInstalments={form.emiTotalInstalments}
+                          paidInstalments={form.emiPaidInstalments}
+                          tenureMonths={form.emiTenureMonths}
+                          ratePct={form.emiRatePct}
+                          firstInstallment={emiFirstInstallment}
+                          calculation={emiCalculation}
+                          calculationError={emiCalculationError}
+                          isCalculating={isCalculatingEMI}
+                          onChangeRepeat={(repeats) => {
+                            if (repeats) reveal.expect('emi', { align: 'end' });
+                            setEmiRepeats(repeats);
+                          }}
+                          onChangeTotalInstalments={(emiTotalInstalments) =>
+                            setForm((previous) => ({ ...previous, emiTotalInstalments }))
+                          }
+                          onChangePaidInstalments={(emiPaidInstalments) =>
+                            setForm((previous) => ({ ...previous, emiPaidInstalments }))
+                          }
+                          onChangeTenure={(emiTenureMonths) =>
+                            setForm((previous) => ({ ...previous, emiTenureMonths }))
+                          }
+                          onChangeRate={(emiRatePct) =>
+                            setForm((previous) => ({ ...previous, emiRatePct }))
+                          }
+                        />
+                      </View>
                     )}
 
                     {mode !== 'quick-prompt' && personalPayment && tagsApply && form.tag === 'Refundable' && (
-                      <TransactionRefundFields
-                        refundableAmount={form.refundableAmount}
-                        expectedOn={form.refundExpectedOn}
-                        reminderEnabled={form.refundReminderEnabled}
-                        onChangeAmount={(refundableAmount) =>
-                          setForm((previous) => ({ ...previous, refundableAmount }))
-                        }
-                        onChangeExpectedOn={(refundExpectedOn) =>
-                          setForm((previous) => ({ ...previous, refundExpectedOn }))
-                        }
-                        onToggleReminder={() =>
-                          setForm((previous) => ({
-                            ...previous,
-                            refundReminderEnabled: !previous.refundReminderEnabled,
-                          }))
-                        }
-                      />
+                      <View {...reveal.target('refund')}>
+                        <TransactionRefundFields
+                          refundableAmount={form.refundableAmount}
+                          fullAmount={form.amount}
+                          amountInputRef={refundAmountInputRef}
+                          expectedOn={form.refundExpectedOn}
+                          reminderEnabled={form.refundReminderEnabled}
+                          onChangeAmount={(refundableAmount) => {
+                            refundIsFullRef.current =
+                              toAmount(refundableAmount) > 0 &&
+                              toAmount(refundableAmount) === toAmount(form.amount);
+                            setFormError(null);
+                            setForm((previous) => ({ ...previous, refundableAmount }));
+                          }}
+                          onChangeExpectedOn={(refundExpectedOn) => {
+                            setFormError(null);
+                            setForm((previous) => ({ ...previous, refundExpectedOn }));
+                          }}
+                          onToggleReminder={() =>
+                            setForm((previous) => ({
+                              ...previous,
+                              refundReminderEnabled: !previous.refundReminderEnabled,
+                            }))
+                          }
+                        />
+                      </View>
                     )}
 
                     {mode !== 'quick-prompt' &&
@@ -2750,29 +2811,31 @@ export function TransactionFormModal({
                       personalPayment &&
                       !emiRepeatActive &&
                       (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
-                        <TransactionSubscriptionFields
-                          form={form}
-                          setForm={setForm}
-                          onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
-                          optionsOpen={isSubscriptionOptionsOpen}
-                          onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
-                          onOpenCancellationDatePicker={async () => {
-                            const date = await pickDate({
-                              title: 'Cancellation reminder date',
-                              value: form.subscriptionCancelOnDate
-                                ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
-                                : new Date(),
-                              minimumDate: new Date(),
-                            });
-                            if (date) {
-                              setForm((p) => ({ ...p, subscriptionCancelOnDate: formatApiDate(date) }));
-                            }
-                          }}
-                        />
+                        <View {...reveal.target('subscription')}>
+                          <TransactionSubscriptionFields
+                            form={form}
+                            setForm={setForm}
+                            onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
+                            optionsOpen={isSubscriptionOptionsOpen}
+                            onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
+                            onOpenCancellationDatePicker={async () => {
+                              const date = await pickDate({
+                                title: 'Cancellation reminder date',
+                                value: form.subscriptionCancelOnDate
+                                  ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
+                                  : new Date(),
+                                minimumDate: new Date(),
+                              });
+                              if (date) {
+                                setForm((p) => ({ ...p, subscriptionCancelOnDate: formatApiDate(date) }));
+                              }
+                            }}
+                          />
+                        </View>
                       )}
                   </>
                 )}
-              </ScrollView>
+              </KeyboardAvoidingScreen>
 
               {/* Pinned under the scroll: the keypad on the capture path, and
                   Save everywhere, so saving never needs a scroll. */}
@@ -2940,6 +3003,9 @@ export function TransactionFormModal({
           onClose={() => setIsTagPickerVisible(false)}
           onSelect={(tag) => {
             haptics.select();
+            // These tags open a card of their own below the fold.
+            const openedCard = tagCards[tag];
+            if (openedCard && tag !== form.tag) reveal.expect(openedCard);
             setForm((p) => ({ ...p, tag }));
             setIsTagPickerVisible(false);
           }}

@@ -72,7 +72,7 @@ export function useDueActions({
       void dialog.alert({
         title: "Couldn't update this refund",
         message: getFriendlyErrorMessage(refundError, 'Try again in a moment.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setReceivingId(null);

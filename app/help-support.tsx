@@ -93,6 +93,7 @@ export default function HelpSupportScreen() {
         void dialog.alert({
           title: 'Support',
           message: 'No email app is available on this device.',
+          tone: 'error',
         });
         return;
       }
@@ -101,7 +102,7 @@ export default function HelpSupportScreen() {
       void dialog.alert({
         title: 'Support',
         message: 'Unable to open support right now.',
-        tone: 'danger',
+        tone: 'error',
       });
     }
   };

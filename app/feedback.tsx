@@ -128,6 +128,7 @@ export default function FeedbackScreen() {
     if (!message.trim()) {
       void dialog.alert({
         title: 'Add a few words',
+        tone: 'warning',
         message: 'Tell us what happened, or what you would like to see.',
       });
       return;
@@ -172,7 +173,7 @@ export default function FeedbackScreen() {
           error,
           'Check your connection and try again. Your message is still here.'
         ),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setSubmitting(false);
