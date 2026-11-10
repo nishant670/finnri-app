@@ -5,6 +5,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useScrollReveal } from '@/components/ui/RevealScrollView';
 import { formatMoney } from '@/lib/money';
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import type { BillingInterval } from '@/lib/subscriptions';
@@ -82,6 +83,7 @@ export function TransactionSubscriptionFields({
   const toggleOptions = onToggleOptions ?? (() => setOwnOptionsOpen((open) => !open));
   const isDaily = isDailyInterval(form.subscriptionBillingInterval);
   const inputStyle = { color: theme.text, backgroundColor: theme.background };
+  const reveal = useScrollReveal();
 
   const selectInterval = (interval: BillingInterval) =>
     setForm((p) => ({
@@ -162,7 +164,8 @@ export function TransactionSubscriptionFields({
             accessibilityRole="switch"
             accessibilityLabel="Track as a subscription"
             accessibilityState={{ checked: form.subscriptionEnabled }}
-            onPress={() =>
+            onPress={() => {
+              if (!form.subscriptionEnabled) reveal?.expect('subscription');
               setForm((prev) => {
                 if (prev.subscriptionEnabled) return { ...prev, subscriptionEnabled: false };
                 const interval = prev.subscriptionBillingInterval || 'monthly';
@@ -182,8 +185,8 @@ export function TransactionSubscriptionFields({
                     ? '0'
                     : prev.subscriptionReminderDays || '3',
                 };
-              })
-            }
+              });
+            }}
             className="h-8 w-14 justify-center rounded-full px-1"
             style={{
               backgroundColor: form.subscriptionEnabled ? accent : theme.border,
@@ -275,6 +278,7 @@ export function TransactionSubscriptionFields({
 
             <FormDisclosure
               testID="subscription-more-options"
+              revealKey="subscription-options"
               label="More options"
               summary={summary}
               expanded={isOptionsOpen}
@@ -388,12 +392,15 @@ export function TransactionSubscriptionFields({
                 <Pressable
                   accessibilityRole="switch"
                   accessibilityState={{ checked: form.subscriptionCancelBeforeDue }}
-                  onPress={() =>
+                  onPress={() => {
+                    if (!form.subscriptionCancelBeforeDue) {
+                      reveal?.expect('subscription-options', { align: 'end' });
+                    }
                     setForm((p) => ({
                       ...p,
                       subscriptionCancelBeforeDue: !p.subscriptionCancelBeforeDue,
-                    }))
-                  }
+                    }));
+                  }}
                   className="flex-row items-center justify-between rounded-2xl px-4 py-3"
                   style={{ backgroundColor: theme.background }}>
                   <View className="flex-1 pr-3">

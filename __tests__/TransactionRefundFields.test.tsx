@@ -42,6 +42,24 @@ describe('TransactionRefundFields', () => {
     expect(onChangeAmount).toHaveBeenCalledWith('5,000');
   });
 
+  it('fills in the whole payment from the Full amount chip', async () => {
+    const { screen, onChangeAmount } = await setup({ fullAmount: '1000' });
+    await fireEvent.press(screen.getByTestId('refund-full-amount'));
+    expect(onChangeAmount).toHaveBeenCalledWith('1000');
+  });
+
+  it('marks the chip once the whole amount is refundable', async () => {
+    const { screen } = await setup({ fullAmount: '1000', refundableAmount: '1,000' });
+    expect(screen.getByTestId('refund-full-amount').props.accessibilityState).toEqual(
+      expect.objectContaining({ selected: true })
+    );
+  });
+
+  it('offers no chip until the payment has an amount', async () => {
+    const { screen } = await setup({ fullAmount: '' });
+    expect(screen.queryByTestId('refund-full-amount')).toBeNull();
+  });
+
   it('picks the date from the themed calendar and reports it', async () => {
     pickDateMock().mockResolvedValueOnce(new Date(2026, 10, 12));
     const { screen, onChangeExpectedOn } = await setup();

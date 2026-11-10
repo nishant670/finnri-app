@@ -1,4 +1,11 @@
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import React, {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  type ComponentProps,
+} from 'react';
 import {
   ScrollView,
   TextInput,
@@ -8,9 +15,12 @@ import {
   type ScrollViewProps,
 } from 'react-native';
 
+import { RevealScrollView } from '@/components/ui/RevealScrollView';
 import { useKeyboardInset } from '@/hooks/use-keyboard-inset';
 
 type KeyboardAvoidingScreenProps = ScrollViewProps & {
+  /** Passed through for a form that also scrolls to sections it opens. */
+  reveal?: ComponentProps<typeof RevealScrollView>['reveal'];
   /**
    * Clearance between the focused field and the keyboard.
    *
@@ -86,7 +96,7 @@ export const KeyboardAvoidingScreen = forwardRef<ScrollView, KeyboardAvoidingScr
     }, [keyboardInset, revealFocusedInput]);
 
     return (
-      <ScrollView
+      <RevealScrollView
         ref={scrollRef}
         keyboardShouldPersistTaps={keyboardShouldPersistTaps ?? 'handled'}
         automaticallyAdjustKeyboardInsets={false}
@@ -104,7 +114,7 @@ export const KeyboardAvoidingScreen = forwardRef<ScrollView, KeyboardAvoidingScr
           keyboardInset > 0 ? { paddingBottom: keyboardInset + keyboardGap } : null,
         ]}>
         {children}
-      </ScrollView>
+      </RevealScrollView>
     );
   }
 );

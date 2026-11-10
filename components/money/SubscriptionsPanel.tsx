@@ -20,6 +20,7 @@ import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { AnimatedBottomSheet } from '@/components/ui/AnimatedBottomSheet';
 import { PrimaryButton } from '@/components/ui/Button';
+import { RevealScrollView } from '@/components/ui/RevealScrollView';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { LabelRow } from '@/components/ui/LabelRow';
 import { ListRow } from '@/components/ui/ListRow';
@@ -916,7 +917,7 @@ export function SubscriptionsPanel({
           borderTopRightRadius: 28,
           maxHeight: '92%',
         }}>
-        <ScrollView
+        <RevealScrollView
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.sheet, { paddingBottom: sheetBottom }]}>
@@ -1165,7 +1166,7 @@ export function SubscriptionsPanel({
             onPress={saveSubscription}
             style={styles.save}
           />
-        </ScrollView>
+        </RevealScrollView>
       </AnimatedBottomSheet>
 
       <PickerSheet
