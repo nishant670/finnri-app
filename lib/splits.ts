@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { ApiFieldErrors, readApiError } from './api-error';
 import { API_BASE_URL } from './transactions';
 
@@ -713,6 +714,7 @@ export const createSplitGroupInviteLink = async (
   if (!response.ok) {
     throw await readSplitError(response, 'Unable to create this group invite link right now.');
   }
+  track('invite_created', 'link');
   return response.json();
 };
 
@@ -729,6 +731,7 @@ export const createSplitGroupDirectInvite = async (
   if (!response.ok) {
     throw await readSplitError(response, 'Unable to invite this friend right now.');
   }
+  track('invite_created', 'direct');
   return response.json();
 };
 
@@ -787,6 +790,7 @@ export const acceptSplitGroupInvite = async (
   if (!response.ok) {
     throw await readSplitError(response, 'Unable to join this split group right now.');
   }
+  track('invite_accepted');
   return response.json();
 };
 
