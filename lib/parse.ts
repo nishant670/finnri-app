@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { getClientTimeZone } from './datetime';
 import { API_BASE_URL } from './transactions';
 import {
@@ -550,6 +551,8 @@ export const parseEntryDraft = async ({
     formData.append('context_question', contextQuestion.trim());
   }
 
+  const mode = audio ? 'voice' : 'text';
+  track('capture_requested', mode);
   const response = await fetch(`${API_BASE_URL}/v1/parse`, {
     method: 'POST',
     headers: {
@@ -559,8 +562,10 @@ export const parseEntryDraft = async ({
     signal,
   });
   if (!response.ok) {
+    track('capture_failed', mode);
     throw await readParseError(response);
   }
+  track('capture_drafted', mode);
   return response.json();
 };
 
@@ -588,14 +593,17 @@ export const parseReceiptDraft = async ({
     formData.append('image', prepared.file as unknown as Blob);
     formData.append('tz', tz);
 
+    track('capture_requested', 'receipt');
     const response = await fetch(`${API_BASE_URL}/v1/parse/receipt`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
       body: formData,
     });
     if (!response.ok) {
+      track('capture_failed', 'receipt');
       throw await readParseError(response);
     }
+    track('capture_drafted', 'receipt');
     return response.json();
   } finally {
     discardPreparedUpload(prepared);

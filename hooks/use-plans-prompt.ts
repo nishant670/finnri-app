@@ -15,6 +15,7 @@ import {
   type BlockedAIReason,
   type PlansSheetReason,
 } from '@/lib/plans-prompt';
+import { track } from '@/lib/analytics';
 import { CHECKOUT_LINK_ENABLED, IN_APP_PURCHASE_ENABLED } from '@/lib/purchase-policy';
 
 /** Long enough for the save confirmation to land before anything new appears. */
@@ -89,6 +90,7 @@ export function usePlansPrompt({
           setPlans(planList);
           setReason(decided);
           setVisible(true);
+          track('paywall_shown', decided);
           void recordPlansPrompt('shown');
         } catch {
           // A sales prompt that cannot load simply does not appear.
@@ -128,6 +130,7 @@ export function usePlansPrompt({
         setPlans(planList);
         setReason(blocked);
         setVisible(true);
+        track('paywall_shown', blocked);
         return true;
       } catch {
         return false;

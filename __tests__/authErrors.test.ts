@@ -33,7 +33,7 @@ describe('auth errors', () => {
   it('maps guest backend error codes to friendly copy', async () => {
     global.fetch = jest.fn().mockResolvedValue(response({ error: 'failed_create_guest' }));
 
-    await expect(guestCheckin({ device_id: 'device-1' })).rejects.toThrow(
+    await expect(guestCheckin({ device_id: 'device-1', guest_secret: 'a'.repeat(64) })).rejects.toThrow(
       'Could not continue as guest right now. Please try again.',
     );
   });
