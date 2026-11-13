@@ -6,17 +6,37 @@ import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useBottomInset } from '@/hooks/use-bottom-inset';
+import { MAX_BILLS_PER_BATCH } from '@/lib/bill-batch';
 import type { ReceiptPhotoSource } from '@/lib/receipt-photo';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 type ReceiptSourceSheetProps = {
   visible: boolean;
+  /** From Home a scan can take several bills (P95); inside the entry sheet it fills one entry. */
+  multiple?: boolean;
   onChoose: (source: ReceiptPhotoSource) => void;
   onClose: () => void;
 };
 
-const OPTIONS: { source: ReceiptPhotoSource; icon: IconName; label: string; hint: string }[] = [
+type SourceOption = { source: ReceiptPhotoSource; icon: IconName; label: string; hint: string };
+
+const SEVERAL_OPTIONS: SourceOption[] = [
+  {
+    source: 'camera',
+    icon: 'camera-outline',
+    label: 'Take photos',
+    hint: 'One bill after another, then Done',
+  },
+  {
+    source: 'library',
+    icon: 'image-outline',
+    label: 'Choose photos',
+    hint: `Bills or payment screenshots, pick up to ${MAX_BILLS_PER_BATCH}`,
+  },
+];
+
+const OPTIONS: SourceOption[] = [
   {
     source: 'camera',
     icon: 'camera-outline',
@@ -38,7 +58,13 @@ const OPTIONS: { source: ReceiptPhotoSource; icon: IconName; label: string; hint
  * camera or photo picker takes over the screen, and a JS-driven animation is
  * exactly what got frozen part-way when the app was paused for the picker.
  */
-export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSourceSheetProps) {
+export function ReceiptSourceSheet({
+  visible,
+  multiple = false,
+  onChoose,
+  onClose,
+}: ReceiptSourceSheetProps) {
+  const options = multiple ? SEVERAL_OPTIONS : OPTIONS;
   const theme = useThemeTokens();
   const colors = theme.colors;
   const isDark = theme.mode === 'dark';
@@ -67,14 +93,17 @@ export function ReceiptSourceSheet({ visible, onChoose, onClose }: ReceiptSource
             { backgroundColor: colors.card, borderColor: colors.border, paddingBottom: bottomInset },
           ]}>
           <View style={[styles.handle, { backgroundColor: colors.border }]} />
-          <ThemedText style={[styles.title, { color: colors.text }]}>Scan a bill</ThemedText>
+          <ThemedText style={[styles.title, { color: colors.text }]}>
+            {multiple ? 'Scan bills' : 'Scan a bill'}
+          </ThemedText>
           <ThemedText style={[styles.subtitle, { color: muted }]}>
-            Finnri reads the total, date and shop, and you check them before saving. It uses AI
-            credits only when it finds a total.
+            {multiple
+              ? `Up to ${MAX_BILLS_PER_BATCH} at once. Each becomes its own transaction, and you check them before anything is saved. A bill Finnri can't read costs nothing.`
+              : 'Finnri reads the total, date and shop, and you check them before saving. It uses AI credits only when it finds a total.'}
           </ThemedText>
 
           <View style={styles.options}>
-            {OPTIONS.map((option) => (
+            {options.map((option) => (
               <PressableView
                 key={option.source}
                 testID={`receipt-source-${option.source}`}
