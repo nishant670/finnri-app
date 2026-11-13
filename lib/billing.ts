@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { readApiError } from './api-error';
 import { API_BASE_URL } from './transactions';
 
@@ -262,6 +263,7 @@ export const createBillingCheckout = async (
   if (!response.ok) {
     throw await readApiError(response, 'Checkout is not available right now.');
   }
+  track('checkout_started', planCode);
   return response.json();
 };
 

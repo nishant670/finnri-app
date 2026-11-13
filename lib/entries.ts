@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { readApiError } from './api-error';
 import { API_BASE_URL, type ApiEntry } from './transactions';
 
@@ -93,6 +94,7 @@ export const createEntry = async (
   if (!response.ok) {
     throw await readApiError(response, 'Unable to save the entry right now.', entryFieldLabels);
   }
+  track('entry_saved', payload.source ?? 'manual');
   return response.json();
 };
 
