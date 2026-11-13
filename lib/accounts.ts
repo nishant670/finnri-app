@@ -32,6 +32,8 @@ export type AccountSummary = {
   current_statement?: CurrentStatementSummary;
   /** Cards with an annual fee and a fee month: this card year's waiver progress. */
   annual_fee?: AnnualFeeStatus;
+  /** Credit cards: bills paid in full in a row, newest first. */
+  paid_in_full_streak?: number;
 };
 
 /**
@@ -126,6 +128,15 @@ export type Account = {
   balance_tracked?: boolean;
   /** Credit cards only: "pay_later" for a pay-later line such as CRED flash. */
   credit_kind?: CreditKind;
+  /**
+   * Credit cards: the exact card from the catalogue (`/v1/card-products`),
+   * and its name and sketch so the card can be drawn. Null when the card is
+   * not listed or the user has not said which it is.
+   */
+  card_product_id?: string | null;
+  card_product?: CardProductSummary | null;
+  /** Credit cards: the network, shown as plain text and never as a logo. */
+  card_network?: CardNetwork | '';
   fee_month?: string;
   /** Yearly membership fee before GST; 0 when unknown. */
   annual_fee?: number;
@@ -166,6 +177,9 @@ export type AccountPayload = {
   current_balance?: number;
   balance_tracked?: boolean;
   credit_kind?: CreditKind;
+  /** Credit cards. Omitted: left as it is; '': cleared. */
+  card_product_id?: string;
+  card_network?: CardNetwork | '';
   is_default?: boolean;
   /** Set only by the one-tap capture shortcut; cleared by the first user edit. */
   auto_created?: boolean;
@@ -173,6 +187,19 @@ export type AccountPayload = {
 
 /** '' is a card; 'pay_later' a pay-later credit line on the same machinery. */
 export type CreditKind = '' | 'pay_later';
+
+export type CardNetwork = 'visa' | 'mastercard' | 'rupay' | 'amex' | 'diners';
+
+/** What an account carries about its catalogue product: enough to draw and name it. */
+export type CardProductSummary = {
+  id: string;
+  issuer_id: string;
+  /** The product alone, without the bank: "Millennia". */
+  name: string;
+  tone: string;
+  drawing: string;
+  orientation: 'landscape' | 'portrait' | string;
+};
 
 export type AccountType =
   'cash' | 'upi' | 'bank' | 'credit_card' | 'debit_card' | 'wallet' | 'other';
