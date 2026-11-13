@@ -63,7 +63,7 @@ describe('mobile MVP flows', () => {
         })
       );
 
-    const session = await guestCheckin({ device_id: 'device-1' });
+    const session = await guestCheckin({ device_id: 'device-1', guest_secret: 'a'.repeat(64) });
     const entry = await createEntry(
       session.token,
       {
@@ -100,7 +100,7 @@ describe('mobile MVP flows', () => {
       expect.stringContaining('/v1/auth/guest'),
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ device_id: 'device-1' }),
+        body: JSON.stringify({ device_id: 'device-1', guest_secret: 'a'.repeat(64) }),
       })
     );
     expect(fetchMock()).toHaveBeenNthCalledWith(
