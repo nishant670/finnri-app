@@ -370,7 +370,8 @@ export function MoneyOverview({
                 amount={group.amount !== null ? formatMoney(group.amount) : undefined}
                 status={group.amount !== null ? group.amountLabel : undefined}
                 divider={index > 0}
-                onPress={() => onOpenList('accounts')}
+                // Cards open drawn in full, bill on the face (board R18-AllCards).
+                onPress={() => (group.key === 'cards' ? router.push('/cards') : onOpenList('accounts'))}
               />
             ))}
           </View>

@@ -283,6 +283,7 @@ export default function RootLayout() {
           options={{ presentation: 'modal', title: 'Account', animation: 'slide_from_bottom' }}
         />
         <Stack.Screen name="accounts/[id]" />
+        <Stack.Screen name="cards" />
         <Stack.Screen name="statements/index" />
         <Stack.Screen name="statements/review" />
         <Stack.Screen name="statements/[id]" />

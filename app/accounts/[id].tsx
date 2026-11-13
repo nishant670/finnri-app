@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AccountDetailSkeleton } from '@/components/accounts/AccountSkeletons';
@@ -11,6 +11,7 @@ import { TransactionItem } from '@/components/home/TransactionItem';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { SettingsRow } from '@/components/profile/SettingsRow';
 import { CardLimitRing } from '@/components/accounts/CardLimitRing';
+import { SketchCard } from '@/components/cards/SketchCard';
 import { CreditUsageBar } from '@/components/accounts/CreditUsageBar';
 import { AnnualFeeCard } from '@/components/accounts/AnnualFeeCard';
 import { EMIPlanFormSheet } from '@/components/statements/EMIPlanFormSheet';
@@ -50,6 +51,10 @@ import {
   type AccountSetupItem,
 } from '@/lib/account-display';
 import { haptics } from '@/lib/haptics';
+import { CARD_H, CARD_W, cardArtFor, cardBankName, cardNetworkLabel } from '@/lib/card-art';
+import { isDrawnCard } from '@/lib/card-list';
+import { fetchCardProducts } from '@/lib/card-products';
+import { userDisplayName } from '@/lib/display-name';
 import { formatMoney } from '@/lib/money';
 import { entryMonthRange, openFilteredTransactions } from '@/lib/transaction-links';
 import {
@@ -171,9 +176,12 @@ export default function AccountDetailsScreen() {
   const accountId = Number(id);
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  const { width: screenWidth } = useWindowDimensions();
 
   const [account, setAccount] = useState<Account | null>(null);
+  // An unlinked card whose bank has catalogued cards: ask which one it is.
+  const [canPickProduct, setCanPickProduct] = useState(false);
   const [activity, setActivity] = useState<Transaction[]>([]);
   /** P63: this month by category, beside last month; null until loaded or unavailable. */
   const [categories, setCategories] = useState<AccountCategories | null>(null);
@@ -293,6 +301,25 @@ export default function AccountDetailsScreen() {
 
   const accountType = account ? normalizeAccountType(account.type) : 'other';
   const isCreditCard = accountType === 'credit_card';
+  const drawnCard = account && isDrawnCard(account) ? account : null;
+  const unlinkedIssuer = drawnCard && !drawnCard.card_product_id ? drawnCard.provider_id ?? '' : '';
+  useEffect(() => {
+    if (!token || !unlinkedIssuer) {
+      setCanPickProduct(false);
+      return;
+    }
+    let active = true;
+    fetchCardProducts(token, unlinkedIssuer)
+      .then((products) => {
+        if (active) setCanPickProduct(products.length > 0);
+      })
+      .catch(() => {
+        if (active) setCanPickProduct(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, unlinkedIssuer]);
   const openedFromAdd = useRef(false);
   useEffect(() => {
     if (add !== 'statement' || !isCreditCard || openedFromAdd.current) return;
@@ -571,9 +598,42 @@ export default function AccountDetailsScreen() {
         {/* Board R5-AcctCard / R5-AcctBank: no card around the hero, the
             figure the account is opened for under its name. */}
         <View accessibilityLabel={account.name} style={styles.hero}>
-          <View style={[styles.heroTile, { backgroundColor: visual.bg }]}>
-            <MaterialCommunityIcons name={visual.icon} size={26} color={visual.color} />
-          </View>
+          {drawnCard ? (
+            // The card itself, drawn as its sketch (P91). Portrait cards stand
+            // upright at the same scale.
+            <View style={themeTokens.mode === 'dark' ? styles.cardShadowDark : styles.cardShadowLight}>
+              <SketchCard
+                testID="account-sketch-card"
+                art={cardArtFor(drawnCard)}
+                bank={cardBankName(drawnCard.provider_id, drawnCard.provider, drawnCard.name)}
+                product={drawnCard.card_product?.name}
+                last4={drawnCard.last4 || undefined}
+                network={cardNetworkLabel(drawnCard.card_network)}
+                holder={userDisplayName(user?.username, '')}
+                width={
+                  cardArtFor(drawnCard).portrait
+                    ? (Math.min(342, screenWidth - 32) * CARD_H) / CARD_W
+                    : Math.min(342, screenWidth - 32)
+                }
+              />
+            </View>
+          ) : (
+            <View style={[styles.heroTile, { backgroundColor: visual.bg }]}>
+              <MaterialCommunityIcons name={visual.icon} size={26} color={visual.color} />
+            </View>
+          )}
+          {canPickProduct ? (
+            <PressableView
+              testID="account-pick-product"
+              accessibilityRole="button"
+              onPress={() => handleEdit()}
+              style={[styles.pickProduct, { borderColor: theme.border, backgroundColor: theme.card }]}
+              pressedStyle={styles.pressedRow}>
+              <MaterialCommunityIcons name="card-search-outline" size={16} color={theme.text} />
+              <ThemedText style={[styles.pickProductLabel, { color: theme.text }]}>Which card is this?</ThemedText>
+              <MaterialCommunityIcons name="chevron-right" size={16} color={theme.text} />
+            </PressableView>
+          ) : null}
           <ThemedText numberOfLines={1} style={[styles.heroName, { color: theme.text }]}>
             {account.name}
           </ThemedText>
@@ -1043,6 +1103,41 @@ const styles = StyleSheet.create({
   hero: {
     alignItems: 'center',
     marginTop: 4,
+  },
+  cardShadowLight: {
+    borderRadius: 14,
+    shadowColor: '#281E3C',
+    shadowOpacity: 0.3,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 6,
+  },
+  cardShadowDark: {
+    borderRadius: 14,
+    shadowColor: '#000000',
+    shadowOpacity: 0.6,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 8,
+  },
+  pickProduct: {
+    marginTop: 12,
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingLeft: 12,
+    paddingRight: 10,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  pickProductLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  pressedRow: {
+    opacity: 0.7,
   },
   heroTile: {
     width: 52,
