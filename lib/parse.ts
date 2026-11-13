@@ -576,10 +576,13 @@ export const parseReceiptDraft = async ({
   token,
   uri,
   tz = getClientTimeZone(),
+  batchId,
 }: {
   token?: string | null;
   uri: string;
   tz?: string;
+  /** Sent with every read of one multi-bill scan (P95); see lib/bill-batch.ts. */
+  batchId?: string;
 }): Promise<ParseDraft> => {
   const prepared = await prepareReceiptScanImage(uri);
   try {
@@ -590,7 +593,10 @@ export const parseReceiptDraft = async ({
 
     const response = await fetch(`${API_BASE_URL}/v1/parse/receipt`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(batchId ? { 'X-Finnri-Batch': batchId } : {}),
+      },
       body: formData,
     });
     if (!response.ok) {
