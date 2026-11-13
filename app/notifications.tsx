@@ -184,7 +184,8 @@ export default function NotificationsScreen() {
     setActionError(null);
     try {
       const decided = await decideSplitSettlement(token, id, decision);
-      decision === 'confirm' ? haptics.saved() : haptics.select();
+      if (decision === 'confirm') haptics.saved();
+      else haptics.select();
       // Null: already answered elsewhere, or gone. Nothing is left to do,
       // so the prompt goes rather than staying in Needs you for good.
       if (!decided) await deleteNotification(token, notification.id).catch(() => undefined);
