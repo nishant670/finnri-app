@@ -19,7 +19,9 @@ import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { haptics } from '@/lib/haptics';
 import { formatMoney } from '@/lib/money';
 import {
+  autopayCharge,
   buildNotificationSections,
+  NEEDS_YOU_PREVIEW,
   notificationAmount,
   type NotificationJob,
 } from '@/lib/notification-jobs';
@@ -111,6 +113,9 @@ export default function NotificationsScreen() {
   const unreadFill = mode === 'dark' ? withAlpha(colors.accent, 0.08) : mixHex(colors.card, colors.accent, 0.07);
   /** One swiped-open row at a time (P49 swipe to clear). */
   const [openSwipeKey, setOpenSwipeKey] = useState<string | null>(null);
+  // "Needs you" shows its first few jobs; the rest wait behind See all, so
+  // Updates is not a long scroll away (2026-11-13).
+  const [showAllNeeds, setShowAllNeeds] = useState(false);
   /** Settle-ups being answered, so their buttons wait. */
   const [deciding, setDeciding] = useState<number | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -160,20 +165,82 @@ export default function NotificationsScreen() {
     }
   };
 
+  /**
+   * Answered, so it leaves Needs you at once instead of keeping its buttons
+   * (2026-11-11). The reload that follows brings the server's copy, which says
+   * the same once the API resolves answered autopays.
+   */
+  const resolveLocally = (answered: AppNotification[]) => {
+    const ids = new Set(answered.map((item) => item.id));
+    const resolvedAt = new Date().toISOString();
+    setNotifications((current) =>
+      current.map((item) =>
+        ids.has(item.id) ? { ...item, resolved_at: resolvedAt, read_at: item.read_at ?? resolvedAt } : item
+      )
+    );
+    const unread = answered.filter((item) => !item.read_at).length;
+    if (unread) setUnreadCount((current) => Math.max(0, current - unread));
+  };
+
+  /** Confirm every autopay charge in a stack, one at a time, keeping what fails. */
+  const confirmAllOccurrences = async (items: AppNotification[]) => {
+    if (!token || deciding) return;
+    setDeciding(-1);
+    setActionError(null);
+    const confirmed: AppNotification[] = [];
+    for (const item of items) {
+      const id = occurrenceIdFromActionURL(item.action_url);
+      if (!id) continue;
+      try {
+        await confirmSubscriptionOccurrence(token, id);
+        confirmed.push(item);
+      } catch {
+        // Kept in the stack; said below.
+      }
+    }
+    resolveLocally(confirmed);
+    if (confirmed.length === items.length) {
+      haptics.saved();
+    } else {
+      haptics.rejected();
+      setActionError(`Confirmed ${confirmed.length} of ${items.length}. Try the rest again.`);
+    }
+    setDeciding(null);
+    void load(true);
+  };
+
   const handleOccurrence = async (notification: AppNotification, action: 'confirm' | 'revert') => {
     if (!token) return;
     const id = occurrenceIdFromActionURL(notification.action_url);
-    if (!id) return;
-    if (action === 'confirm') {
-      await confirmSubscriptionOccurrence(token, id);
-      await load(true);
-      return;
+    if (!id || deciding) return;
+    setDeciding(id);
+    setActionError(null);
+    try {
+      const reverted =
+        action === 'confirm'
+          ? (await confirmSubscriptionOccurrence(token, id), null)
+          : await revertSubscriptionOccurrence(token, id);
+      if (action === 'confirm') haptics.saved();
+      else haptics.select();
+      resolveLocally([notification]);
+      void load(true);
+      if (reverted) {
+        router.push({
+          pathname: '/entry/[id]',
+          params: { id: String(reverted.entry_id), edit: '1' },
+        });
+      }
+    } catch (occurrenceError) {
+      haptics.rejected();
+      setActionError(
+        getFriendlyErrorMessage(
+          occurrenceError,
+          action === 'confirm' ? 'Could not confirm that payment.' : 'Could not open that payment.'
+        )
+      );
+    } finally {
+      setDeciding(null);
     }
-    const occurrence = await revertSubscriptionOccurrence(token, id);
-    router.push({
-      pathname: '/entry/[id]',
-      params: { id: String(occurrence.entry_id), edit: '1' },
-    });
   };
 
   /** P47: answer a settle-up without leaving the list. */
@@ -275,11 +342,12 @@ export default function NotificationsScreen() {
     const tile = categoryTile(kind, mode);
     const occurrenceId = occurrenceIdFromActionURL(notification.action_url);
     const isSettlements = notification.type === 'split.settlement.recorded';
+    const isAutopayStack = notification.type === 'subscription.autopay' && job.items.length > 1;
     const isSetupStack = notification.type === 'account.needs_setup' && job.items.length > 1;
-    const amount = isSettlements && job.items.length > 1 ? null : notificationAmount(notification);
+    const amount = (isSettlements && job.items.length > 1) || isAutopayStack ? null : notificationAmount(notification);
     const repeats = !job.stackTitle && job.items.length > 1 ? job.items.length : 0;
     const title = job.stackTitle ?? notification.title;
-    const body = isSettlements && job.items.length > 1 ? null : notification.body;
+    const body = (isSettlements && job.items.length > 1) || isAutopayStack ? null : notification.body;
     const actions = isSettlements || occurrenceId ? [] : jobActions(notification);
 
     return (
@@ -392,6 +460,63 @@ export default function NotificationsScreen() {
             </View>
           ) : null}
 
+          {/* Autopay charges answered here, one line each, or all at once. */}
+          {isAutopayStack ? (
+            <View style={styles.inlineList}>
+              {job.items.map((item) => {
+                const id = occurrenceIdFromActionURL(item.action_url);
+                const charge = autopayCharge(item);
+                return (
+                  <View key={item.id} style={[styles.inlineItem, { borderTopColor: colors.border }]}>
+                    <View style={styles.rowText}>
+                      <ThemedText numberOfLines={1} style={styles.inlineTitle}>
+                        {charge.name}
+                      </ThemedText>
+                      <ThemedText tone="muted" style={styles.meta}>
+                        {[charge.amount !== null ? formatMoney(charge.amount) : null, notificationTimeLabel(item.created_at)]
+                          .filter(Boolean)
+                          .join(' · ')}
+                      </ThemedText>
+                    </View>
+                    <PressableView
+                      testID={`autopay-fix-${id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Fix ${charge.name}`}
+                      disabled={deciding !== null}
+                      onPress={() => void handleOccurrence(item, 'revert')}
+                      style={[styles.chip, styles.inlineButton, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
+                      pressedStyle={styles.pressed}>
+                      <ThemedText style={styles.actionLabel}>Fix it</ThemedText>
+                    </PressableView>
+                    <PressableView
+                      testID={`autopay-confirm-${id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Confirm ${charge.name}`}
+                      disabled={deciding !== null}
+                      onPress={() => void handleOccurrence(item, 'confirm')}
+                      style={[styles.chip, styles.inlineButton, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
+                      pressedStyle={styles.pressed}>
+                      <ThemedText style={styles.actionLabel}>Confirm</ThemedText>
+                    </PressableView>
+                  </View>
+                );
+              })}
+              <View style={styles.occurrenceActions}>
+                <PressableView
+                  testID="autopay-confirm-all"
+                  accessibilityRole="button"
+                  disabled={deciding !== null}
+                  onPress={() => void confirmAllOccurrences(job.items)}
+                  style={[styles.chip, styles.occurrenceChip, { backgroundColor: colors.text, borderColor: colors.text }]}
+                  pressedStyle={styles.pressed}>
+                  <ThemedText style={[styles.actionLabel, { color: colors.background }]}>
+                    {deciding === -1 ? 'Confirming…' : `Confirm all ${job.items.length}`}
+                  </ThemedText>
+                </PressableView>
+              </View>
+            </View>
+          ) : null}
+
           {actions.length > 0 ? (
             <View style={styles.occurrenceActions}>
               {actions.map((action) => (
@@ -420,12 +545,13 @@ export default function NotificationsScreen() {
 
           {/* Outside the row's own press target, so each button is its own tap
               rather than a button nested in a button. */}
-          {occurrenceId ? (
+          {occurrenceId && !isAutopayStack ? (
             <View style={styles.occurrenceActions}>
               {(['confirm', 'revert'] as const).map((choice) => (
                 <PressableView
                   key={choice}
                   accessibilityRole="button"
+                  disabled={deciding != null}
                   onPress={() => void handleOccurrence(notification, choice)}
                   style={[styles.chip, styles.occurrenceChip, { backgroundColor: colors.card, borderColor: colors.borderStrong }]}
                   pressedStyle={styles.pressed}>
@@ -547,12 +673,29 @@ export default function NotificationsScreen() {
                 </ThemedText>
               </View>
               <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                {needs.map((job, index) => (
+                {(showAllNeeds ? needs : needs.slice(0, NEEDS_YOU_PREVIEW)).map((job, index) => (
                   <Fragment key={job.key}>
                     {index > 0 ? <View style={[styles.divider, { backgroundColor: colors.border }]} /> : null}
                     {renderJob(job)}
                   </Fragment>
                 ))}
+                {needs.length > NEEDS_YOU_PREVIEW ? (
+                  <PressableView
+                    testID="notifications-needs-toggle"
+                    accessibilityRole="button"
+                    onPress={() => setShowAllNeeds((current) => !current)}
+                    style={[styles.seeAll, { borderTopColor: colors.border }]}
+                    pressedStyle={styles.pressed}>
+                    <ThemedText style={styles.seeAllLabel}>
+                      {showAllNeeds ? 'Show fewer' : `See all ${needs.length}`}
+                    </ThemedText>
+                    <MaterialCommunityIcons
+                      name={showAllNeeds ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color={colors.text}
+                    />
+                  </PressableView>
+                ) : null}
               </View>
             </View>
           ) : null}
@@ -627,6 +770,19 @@ const styles = StyleSheet.create({
   clearLabel: {
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '600',
+  },
+  seeAll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  seeAllLabel: {
+    fontSize: 14,
+    lineHeight: 20,
     fontWeight: '600',
   },
   amount: {
