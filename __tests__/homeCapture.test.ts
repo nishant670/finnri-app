@@ -257,8 +257,12 @@ describe('buildAiReview', () => {
   });
 
   it('notes when the draft named the account, which no habit may replace', () => {
-    expect(buildAiReview(draft({ account_hint: 'HDFC' }), 'x', 'text', split(), true).accountNamed).toBe(true);
-    expect(buildAiReview(draft({ account_hint: '  ' }), 'x', 'text', split(), true).accountNamed).toBe(false);
+    expect(
+      buildAiReview(draft({ account_hint: 'HDFC' }), 'x', 'text', split(), true).accountNamed
+    ).toBe(true);
+    expect(
+      buildAiReview(draft({ account_hint: '  ' }), 'x', 'text', split(), true).accountNamed
+    ).toBe(false);
   });
 
   it('with Smart Sorting off adds the fields the user must now choose', () => {
@@ -471,5 +475,47 @@ describe('a wallet top-up scan', () => {
   it('still leaves the mode to the user when no account was named', () => {
     const form = apply(draft({ type: 'income', mode: null, missing_fields: ['mode'] }));
     expect(form.mode).toBe('');
+  });
+});
+
+describe('a spoken event (2026-11-11)', () => {
+  it('files an expense under the event the API matched', () => {
+    expect(apply(draft({ event_name: 'Kanatal trip', event_id: 12 })).eventId).toBe(12);
+  });
+
+  it('keeps the event the sheet was opened with when none was spoken', () => {
+    const prev = { ...createDefaultEntryForm(), eventId: 4 };
+    const form = applyParsedDraftToForm(prev, draft(), {
+      fallbackText: 'x',
+      smartSorting: true,
+      splitDraft: split(),
+      hintedAccount: null,
+    });
+    expect(form.eventId).toBe(4);
+  });
+
+  it('never puts income in an event', () => {
+    expect(apply(draft({ type: 'income', event_id: 12 })).eventId).toBeNull();
+  });
+
+  it('says so when no saved event matched', () => {
+    const review = buildAiReview(
+      draft({ event_name: 'Shimla', event_id: null }),
+      'x',
+      'voice',
+      split(),
+      true
+    );
+    expect(review.clarifications).toContain(
+      'No event called "Shimla" yet. Pick one under Event, or create it there.'
+    );
+    const matched = buildAiReview(
+      draft({ event_name: 'Kanatal trip', event_id: 12 }),
+      'x',
+      'voice',
+      split(),
+      true
+    );
+    expect(matched.clarifications?.some((line) => line.includes('No event'))).toBe(false);
   });
 });

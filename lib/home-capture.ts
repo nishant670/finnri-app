@@ -160,6 +160,9 @@ export const applyParsedDraftToForm = (
     notes: data.note?.trim() || fallbackDraftNote(data.source_text ?? fallbackText),
     date: formattedDate,
     tag: smartSorting && tagValue ? (toTitleCase(tagValue) ?? '') : '',
+    // Only expenses belong to an event. A draft that named none keeps the one
+    // the sheet was opened with (adding from an event's own screen).
+    eventId: newType !== 'Expense' ? null : (data.event_id ?? prev.eventId),
     splitEnabled: splitDraft.splitEnabled,
     splitGroupId: splitDraft.splitGroupId,
     splitGroupName: splitDraft.splitGroupName,
@@ -195,6 +198,13 @@ export const applyParsedDraftToForm = (
   };
 };
 
+/** An event was asked for but none of the user's events matched it. */
+const unmatchedEventNote = (data: ParseResponse) => {
+  const name = data.event_name?.trim();
+  if (!name || data.event_id != null || data.type?.toLowerCase() === 'income') return [];
+  return [`No event called "${name}" yet. Pick one under Event, or create it there.`];
+};
+
 /** What the review sheet needs to say about how sure the parser was. */
 export const buildAiReview = (
   data: ParseResponse,
@@ -216,6 +226,7 @@ export const buildAiReview = (
   clarifications: [
     ...(data.clarifications ?? []),
     ...(splitDraft.splitDefaultWarning ? [splitDraft.splitDefaultWarning] : []),
+    ...unmatchedEventNote(data),
   ],
   smartSortingDisabled: !smartSorting,
   // What the AI worked from, so the review sheet can show it back. A
