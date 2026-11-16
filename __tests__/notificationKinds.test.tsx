@@ -35,6 +35,12 @@ jest.mock('@/lib/splits', () => ({
   decideSplitSettlement: (...args: unknown[]) => mockDecide(...args),
 }));
 
+const mockConfirmOccurrence = jest.fn().mockResolvedValue(undefined);
+jest.mock('@/lib/subscriptions', () => ({
+  ...jest.requireActual('@/lib/subscriptions'),
+  confirmSubscriptionOccurrence: (...args: unknown[]) => mockConfirmOccurrence(...args),
+}));
+
 // eslint-disable-next-line import/first
 import NotificationsScreen from '@/app/notifications';
 
@@ -179,9 +185,10 @@ describe('Notifications with proposals (P45–P49)', () => {
       notification({ id: 5, type: 'monthly_review', action_url: '/monthly-review/2026-09', title: 'September in review' }),
       notification({ id: 6, type: 'subscription.overdue', action_url: '/recurring/3', resolved_at: '2026-10-23T09:00:00Z' }),
     ]);
+    // The overdue bill first: most urgent leads (2026-11-13).
     expect(needs.map((job: { stackTitle: string | null; items: unknown[] }) => [job.stackTitle, job.items.length])).toEqual([
-      ['Finish setting up 2 accounts', 2],
       [null, 2],
+      ['Finish setting up 2 accounts', 2],
     ]);
     expect(updates.map((item: AppNotification) => item.id)).toEqual([5]);
   });
@@ -224,3 +231,184 @@ describe('Notifications with proposals (P45–P49)', () => {
   });
 });
 
+describe('an autopay notification (2026-11-11)', () => {
+  beforeEach(() => {
+    mockFetchNotifications.mockReset();
+    mockConfirmOccurrence.mockClear();
+  });
+
+  it('leaves Needs you once confirmed, instead of keeping Confirm and Fix it', async () => {
+    const autopay = notification({
+      id: 41,
+      type: 'subscription.autopay',
+      title: 'Autopay transaction added',
+      body: 'Added Google play for ₹299 from SBI Account. Confirm it or open it to make changes.',
+      action_url: '/subscription-occurrences/7',
+    });
+    // The reload after Confirm never answers: the row must go without it.
+    mockFetchNotifications
+      .mockResolvedValueOnce({ notifications: [autopay], unread_count: 1 })
+      .mockReturnValue(new Promise(() => undefined));
+
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByText('Autopay transaction added')).toBeTruthy());
+    expect(screen.getByText('Fix it')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByText('Confirm'));
+    });
+
+    expect(mockConfirmOccurrence).toHaveBeenCalledWith('token', 7);
+    await waitFor(() => expect(screen.queryByText('Autopay transaction added')).toBeNull());
+    expect(screen.queryByText('Fix it')).toBeNull();
+  });
+
+  it('keeps the row when Confirm fails', async () => {
+    mockConfirmOccurrence.mockRejectedValueOnce(new Error('Unable to confirm this transaction.'));
+    mockFetchNotifications.mockResolvedValue({
+      notifications: [
+        notification({
+          id: 42,
+          type: 'subscription.autopay',
+          title: 'Autopay transaction added',
+          action_url: '/subscription-occurrences/8',
+        }),
+      ],
+      unread_count: 1,
+    });
+
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByText('Confirm')).toBeTruthy());
+    await act(async () => {
+      fireEvent.press(screen.getByText('Confirm'));
+    });
+
+    expect(screen.getByText('Autopay transaction added')).toBeTruthy();
+    expect(screen.getByText('Fix it')).toBeTruthy();
+  });
+});
+
+describe('a long "Needs you" (2026-11-13)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { buildNotificationSections, autopayCharge } = require('@/lib/notification-jobs');
+  const autopay = (id: number, body: string, created = '2026-10-19T08:00:00Z') =>
+    notification({
+      id,
+      type: 'subscription.autopay',
+      title: 'Autopay transaction added',
+      body,
+      action_url: `/subscription-occurrences/${id + 100}`,
+      created_at: created,
+    });
+
+  beforeEach(() => {
+    mockFetchNotifications.mockReset();
+    mockConfirmOccurrence.mockReset().mockResolvedValue(undefined);
+  });
+
+  it('stacks every autopay charge into one job', () => {
+    const { needs } = buildNotificationSections([
+      autopay(1, 'Added Zee Entertainment for ₹399 from SBI simply save. Confirm it or open it to make changes.'),
+      autopay(2, 'Added Google play for ₹299 from SBI Account. Confirm it or open it to make changes.'),
+      autopay(3, 'Added Netflix for ₹649 from HDFC. Confirm it or open it to make changes.'),
+    ]);
+    expect(needs).toHaveLength(1);
+    expect(needs[0].stackTitle).toBe('Three autopay charges to confirm');
+  });
+
+  it('reads the payee and amount of an autopay charge', () => {
+    expect(autopayCharge(autopay(1, 'Added Zee Entertainment for ₹399 from SBI simply save. Confirm it.'))).toEqual({
+      name: 'Zee Entertainment',
+      amount: 399,
+    });
+    expect(autopayCharge(autopay(2, 'Added Rent for ₹1,250.50 from SBI. Confirm it.'))).toEqual({
+      name: 'Rent',
+      amount: 1250.5,
+    });
+    expect(autopayCharge({ ...autopay(3, 'Something else'), amount: '99.00' })).toEqual({
+      name: 'Something else',
+      amount: 99,
+    });
+  });
+
+  it('orders by urgency: overdue, due today, soonest due, then newest', () => {
+    const { needs } = buildNotificationSections([
+      notification({ id: 1, action_url: '/accounts/4', created_at: '2026-11-12T08:00:00Z' }),
+      notification({ id: 2, type: 'refund.due', action_url: '/entries/5', due_date: '2026-11-20', created_at: '2026-11-01T08:00:00Z' }),
+      notification({ id: 3, type: 'card_statement.due_soon', action_url: '/accounts/9', due_date: '2026-11-15', created_at: '2026-11-02T08:00:00Z' }),
+      notification({ id: 4, type: 'card_statement.due_today', action_url: '/accounts/7', created_at: '2026-11-03T08:00:00Z' }),
+      notification({ id: 5, type: 'subscription.overdue', action_url: '/recurring/3', created_at: '2026-10-01T08:00:00Z' }),
+    ]);
+    expect(needs.map((job: { items: AppNotification[] }) => job.items[0].id)).toEqual([5, 4, 3, 2, 1]);
+  });
+
+  it('shows three jobs, then See all, with Updates still in reach', async () => {
+    mockFetchNotifications.mockResolvedValue({
+      notifications: [
+        notification({ id: 1, action_url: '/accounts/1', title: 'Job one' }),
+        notification({ id: 2, action_url: '/accounts/2', title: 'Job two', type: 'card_statement.statement_expected' }),
+        notification({ id: 3, action_url: '/accounts/3', title: 'Job three', type: 'card_statement.itemize_pending' }),
+        notification({ id: 4, action_url: '/recurring/4', title: 'Job four', type: 'subscription.cancel' }),
+        notification({ id: 5, action_url: '/recurring/5', title: 'Job five', type: 'subscription.due' }),
+        notification({ id: 9, type: 'monthly_review', action_url: '/monthly-review/2026-10', title: 'October in review' }),
+      ],
+      unread_count: 6,
+    });
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByText('5 to sort')).toBeTruthy());
+    expect(screen.queryAllByText(/^Job /)).toHaveLength(3);
+    expect(screen.getByText('See all 5')).toBeTruthy();
+    expect(screen.getByText('October in review')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('notifications-needs-toggle'));
+    });
+    expect(screen.queryAllByText(/^Job /)).toHaveLength(5);
+    expect(screen.getByText('Show fewer')).toBeTruthy();
+  });
+
+  it('confirms a whole autopay stack at once', async () => {
+    const stack = [
+      autopay(1, 'Added Zee Entertainment for ₹399 from SBI simply save. Confirm it or open it to make changes.'),
+      autopay(2, 'Added Google play for ₹299 from SBI Account. Confirm it or open it to make changes.'),
+    ];
+    mockFetchNotifications
+      .mockResolvedValueOnce({ notifications: stack, unread_count: 2 })
+      .mockReturnValue(new Promise(() => undefined));
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByText('Two autopay charges to confirm')).toBeTruthy());
+    expect(screen.getByText('Zee Entertainment')).toBeTruthy();
+    expect(screen.getByText('Google play')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('autopay-confirm-all'));
+    });
+    expect(mockConfirmOccurrence.mock.calls).toEqual([
+      ['token', 101],
+      ['token', 102],
+    ]);
+    await waitFor(() => expect(screen.queryByText('Two autopay charges to confirm')).toBeNull());
+  });
+
+  it('keeps what failed when Confirm all half works', async () => {
+    mockConfirmOccurrence.mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error('nope'));
+    const stack = [
+      autopay(1, 'Added Zee Entertainment for ₹399 from SBI simply save. Confirm it.', '2026-10-20T08:00:00Z'),
+      autopay(2, 'Added Google play for ₹299 from SBI Account. Confirm it.'),
+    ];
+    mockFetchNotifications
+      .mockResolvedValueOnce({ notifications: stack, unread_count: 2 })
+      .mockReturnValue(new Promise(() => undefined));
+    const screen = await render(<NotificationsScreen />);
+    await waitFor(() => expect(screen.getByTestId('autopay-confirm-all')).toBeTruthy());
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('autopay-confirm-all'));
+    });
+    expect(screen.getByText('Confirmed 1 of 2. Try the rest again.')).toBeTruthy();
+    // One charge left is no longer a stack: it is the plain card again.
+    expect(screen.queryByText(/Zee Entertainment/)).toBeNull();
+    expect(screen.getByText(/Added Google play for ₹299/)).toBeTruthy();
+    expect(screen.getByText('Fix it')).toBeTruthy();
+  });
+});
