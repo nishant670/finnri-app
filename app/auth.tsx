@@ -44,6 +44,7 @@ import {
   saveAuthProgress,
   type AuthStep,
 } from '@/lib/auth-progress';
+import { track } from '@/lib/analytics';
 import { getDeviceId } from '@/lib/device';
 import { saveLocalSecurityPin } from '@/lib/security';
 
@@ -219,6 +220,7 @@ export default function AuthFlow() {
       });
       if (response?.user) {
         setAuth(response.user, response.token);
+        track('auth_completed', 'guest');
       }
       finish();
     } catch (error) {
@@ -317,7 +319,9 @@ export default function AuthFlow() {
         device_id: deviceId,
         biometrics_enabled: false,
       });
+      const wasGuest = !!user?.is_guest;
       setAuth(response.user, response.token);
+      track('auth_completed', wasGuest ? 'upgrade' : 'google');
       finish();
     } catch (error) {
       setIdentifyError(getFriendlyAuthErrorMessage(error, 'Google sign-in failed.'));
