@@ -68,7 +68,11 @@ import { InvestmentTypePicker } from '@/components/money/subscriptions/Investmen
 import { LogCurrentPaymentCard } from '@/components/money/subscriptions/LogCurrentPaymentCard';
 import { RECURRING_LABEL_WIDTH } from '@/components/money/subscriptions/FormRows';
 import { MarkPaidSheet, type MarkPaidChoice } from '@/components/money/subscriptions/MarkPaidSheet';
-import { usablePayment } from '@/components/money/subscriptions/PaymentAccountPicker';
+import {
+  INCOME_PAYMENT_MODES,
+  RECURRING_PAYMENT_MODES,
+  usablePayment,
+} from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SubscriptionLoanFields } from '@/components/money/subscriptions/SubscriptionLoanFields';
 export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
 
@@ -465,6 +469,11 @@ export function SubscriptionsPanel({
   const chooseFormKind = (kind: RecurringKind) => {
     haptics.select();
     setFormKind(kind);
+    // Income is reminded on the day it is expected, and never lands on a card.
+    if (kind === 'income') {
+      setReminderDays(0);
+      if (paymentMode === 'Credit Card') ensurePaymentAccount('income');
+    }
     // Follow the kind's usual category unless the user already picked one.
     if (category === recurringKindMeta[formKind].defaultCategory) {
       setCategory(recurringKindMeta[kind].defaultCategory);
@@ -472,8 +481,13 @@ export function SubscriptionsPanel({
   };
 
   /** A mode and account to start on, for whatever now needs one. */
-  const ensurePaymentAccount = () => {
-    const next = usablePayment(accounts, paymentMode, accountID);
+  const ensurePaymentAccount = (kind: RecurringKind = formKind) => {
+    const next = usablePayment(
+      accounts,
+      paymentMode,
+      accountID,
+      kind === 'income' ? INCOME_PAYMENT_MODES : RECURRING_PAYMENT_MODES
+    );
     setPaymentMode(next.paymentMode);
     setAccountID(next.accountID);
   };
@@ -721,7 +735,13 @@ export function SubscriptionsPanel({
       : reminderDays === 0
         ? 'Reminder on the due date'
         : `Reminder ${reminderLabel(reminderDays)}`,
-    autopay ? `Autopay${autopayAccountName ? ` from ${autopayAccountName}` : ''}` : 'Autopay off',
+    formKind === 'income'
+      ? autopay
+        ? `Added automatically${autopayAccountName ? ` to ${autopayAccountName}` : ''}`
+        : 'Asks on the day'
+      : autopay
+        ? `Autopay${autopayAccountName ? ` from ${autopayAccountName}` : ''}`
+        : 'Autopay off',
     cancelBeforeDue ? 'Cancel reminder on' : '',
   ]
     .filter(Boolean)
@@ -1007,7 +1027,15 @@ export function SubscriptionsPanel({
               value={amount}
               onChangeText={(value) => setAmount(sanitizeAmount(value))}
               keyboardType="decimal-pad"
-              placeholder={formKind === 'loan' ? '9,965' : formKind === 'investment' ? '5,000' : '199'}
+              placeholder={
+                formKind === 'loan'
+                  ? '9,965'
+                  : formKind === 'investment'
+                    ? '5,000'
+                    : formKind === 'income'
+                      ? '85,000'
+                      : '199'
+              }
               placeholderTextColor={colors.muted}
               style={[styles.amountInput, { color: colors.text }]}
             />
@@ -1016,7 +1044,13 @@ export function SubscriptionsPanel({
           <View style={[styles.rows, { backgroundColor: colors.card, borderColor: colors.border }]}>
             <LabelRow
               label={
-                formKind === 'loan' ? 'Next EMI' : formKind === 'subscription' ? 'Renews on' : 'Next payment'
+                formKind === 'loan'
+                  ? 'Next EMI'
+                  : formKind === 'subscription'
+                    ? 'Renews on'
+                    : formKind === 'income'
+                      ? 'Expected on'
+                      : 'Next payment'
               }
               value={formatDueDateLabel(nextDueDate)}
               icon="calendar-blank-outline"
@@ -1051,6 +1085,7 @@ export function SubscriptionsPanel({
               }}
               onAddAccount={() => router.push('/accounts/manage')}
               style={styles.block}
+              income={formKind === 'income'}
             />
           ) : null}
 

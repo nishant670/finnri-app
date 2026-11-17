@@ -2855,7 +2855,12 @@ export function TransactionFormModal({
                       !isEdit &&
                       personalPayment &&
                       !emiRepeatActive &&
-                      (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
+                      // Income always offers it (device feedback 2026-11-17): a
+                      // salary is the commonest thing anyone receives monthly,
+                      // and income has no tags to reach it through.
+                      (form.subscriptionEnabled ||
+                        form.type === 'Income' ||
+                        (tagsApply && form.tag === 'Subscription')) && (
                         <View {...reveal.target('subscription')}>
                           <TransactionSubscriptionFields
                             form={form}

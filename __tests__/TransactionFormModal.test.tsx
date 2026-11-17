@@ -1353,3 +1353,36 @@ describe('TransactionFormModal — refundable with no amount entered', () => {
     );
   });
 });
+
+// Device feedback 2026-11-17: a salary had no way to repeat.
+describe('TransactionFormModal — recurring income', () => {
+  const salary: Partial<EntryForm> = {
+    ...completeInitialData,
+    title: 'Salary',
+    amount: '85000.00',
+    type: 'Income',
+    category: 'Salary',
+    mode: 'Cash',
+    tag: '',
+    merchant: '',
+  };
+
+  it('offers "Make it recurring" on a new income, switched off', async () => {
+    const ui = await renderModal({ mode: 'audio', initialData: salary });
+    expect(await ui.findByText('Make it recurring')).toBeTruthy();
+    expect((await ui.findByTestId('subscription-switch')).props.accessibilityState).toMatchObject({
+      checked: false,
+    });
+  });
+
+  it('keeps it off an expense that is not a subscription', async () => {
+    const ui = await renderModal({ mode: 'audio' });
+    expect(ui.queryByText('Make it recurring')).toBeNull();
+    expect(ui.queryByText('Track as a subscription')).toBeNull();
+  });
+
+  it('is not offered when editing', async () => {
+    const ui = await renderModal({ isEdit: true, initialData: salary });
+    expect(ui.queryByText('Make it recurring')).toBeNull();
+  });
+});
