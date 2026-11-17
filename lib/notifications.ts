@@ -125,6 +125,18 @@ export const fetchNewUnreadBudgetNotification = async (
   );
 };
 
+/**
+ * The prompt for a budget alert. Past the limit is a stop; nearing it is only a
+ * caution, so the two must not look alike.
+ */
+export const budgetAlertDialog = (notification: Pick<AppNotification, 'type' | 'title' | 'body'>) => ({
+  title: notification.title,
+  message: notification.body,
+  confirmLabel: 'View Budgets',
+  cancelLabel: 'Later',
+  tone: notification.type === 'budget.exceeded' ? ('danger' as const) : ('warning' as const),
+});
+
 export const markNotificationRead = async (token: string, id: number) => {
   const response = await fetch(`${API_BASE_URL}/v1/notifications/${id}/read`, {
     method: 'PATCH',
@@ -189,6 +201,17 @@ export const recurringIdFromActionURL = (actionURL?: string | null): number | nu
   const match = actionURL?.match(/^\/recurring\/(\d+)$/);
   return match ? Number(match[1]) : null;
 };
+
+/**
+ * A reminder for recurring income rather than a payment. The reminder does not
+ * carry its item's kind, so this reads the server's income titles — "Salary
+ * expected" and "Salary not marked received" (`subscriptionReminderCopy`,
+ * pinned by its Go test). It only picks the button's words: the sheet the
+ * button opens reads the item itself.
+ */
+export const isIncomeReminder = (notification: { type?: string; title?: string | null }) =>
+  (notification.type === 'subscription.due' || notification.type === 'subscription.overdue') &&
+  /\s(expected|not marked received)$/.test(notification.title?.trim() ?? '');
 
 /** The settle-up a "says they paid you" notification is about (P47). */
 export const settlementIdFromActionURL = (actionURL?: string | null): number | null => {

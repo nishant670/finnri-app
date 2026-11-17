@@ -334,3 +334,42 @@ describe('a refund that already came back', () => {
     expect(createEntry).toHaveBeenCalledTimes(1);
   });
 });
+
+// Device feedback 2026-11-17: a salary can be saved as recurring income.
+it('saves a repeating income as recurring income, untagged', async () => {
+  jest.mocked(createEntry).mockResolvedValue({ id: 51 } as never);
+  jest.mocked(createSubscription).mockResolvedValue({ id: 31 } as never);
+  await saveNewTransaction({
+    token: 'token',
+    form: form({
+      type: 'Income',
+      title: 'Salary',
+      amount: '85000',
+      category: 'Salary',
+      mode: 'Bank Account',
+      tag: '',
+      splitEnabled: false,
+      splitParticipants: [],
+      attachment: null,
+      subscriptionEnabled: true,
+      subscriptionName: 'Salary',
+      subscriptionBillingInterval: 'monthly',
+      subscriptionNextDueDate: '2026-10-19',
+      subscriptionReminderDays: '0',
+    }),
+    account: { id: 2, type: 'bank' as const, name: 'HDFC', color: '#fff', is_default: false },
+    idempotencyKey: 'salary-1',
+  });
+  expect(createSubscription).toHaveBeenLastCalledWith(
+    'token',
+    expect.objectContaining({
+      kind: 'income',
+      transaction_tag: 'General',
+      purpose_type: 'normal_spend',
+      name: 'Salary',
+      account_id: 2,
+      payment_mode: 'Bank Account',
+      reminder_days: 0,
+    })
+  );
+});

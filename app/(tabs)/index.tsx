@@ -49,6 +49,7 @@ import { useAppSettingsStore } from '@/hooks/use-app-settings-store';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import {
+  budgetAlertDialog,
   isBillingActionURL,
   fetchNotifications,
   fetchNewUnreadBudgetNotification,
@@ -58,6 +59,7 @@ import {
   type AppNotification,
 } from '@/lib/notifications';
 import { isAccountSetupNudgeSnoozed, snoozeAccountSetupNudge } from '@/lib/account-setup-nudge';
+import { dismissGetStarted, isGetStartedDismissed } from '@/lib/get-started';
 import { API_BASE_URL, formatApiDate, formatDateLabel, groupTransactionsBySection, loadTransactionPage, mapEntryToTransaction, parseDateLabel } from '@/lib/transactions';
 import { Transaction } from '@/types/transaction';
 import { useAuthStore } from '@/hooks/use-auth-store';
@@ -742,11 +744,7 @@ export default function HomeScreen() {
         promptQuietUntilRef.current = Date.now() + 60_000;
         if (
           await dialog.confirm({
-            title: notification.title,
-            message: notification.body,
-            confirmLabel: 'View Budgets',
-            cancelLabel: 'Later',
-            iconName: 'wallet-outline',
+            ...budgetAlertDialog(notification),
           })
         ) {
           router.push('/budgets');
@@ -868,7 +866,22 @@ export default function HomeScreen() {
    * "Get started" belongs to a new Home (P5): it shows until every step is
    * done or a handful of entries say the app is already in use.
    */
-  const outgrewGetStarted = Math.max(entryTotal, transactions.length) >= GET_STARTED_MAX_ENTRIES;
+  const loggedEntries = Math.max(entryTotal, transactions.length);
+  const outgrewGetStarted = loggedEntries >= GET_STARTED_MAX_ENTRIES;
+  /**
+   * Closed from its compact row, on this device. Null until read, so a closed
+   * card never flashes up on launch.
+   */
+  const [getStartedDismissed, setGetStartedDismissed] = useState<boolean | null>(null);
+  useEffect(() => {
+    let active = true;
+    void isGetStartedDismissed().then((dismissed) => {
+      if (active) setGetStartedDismissed(dismissed);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => {
     if (outgrewGetStarted) budgetPresenceSettled.current = true;
   }, [outgrewGetStarted]);
@@ -877,6 +890,7 @@ export default function HomeScreen() {
     !entriesError &&
     hasBudget !== null &&
     !outgrewGetStarted &&
+    getStartedDismissed === false &&
     startSteps.some((step) => !step.done);
 
   /** A Home with nothing on it yet: the header says welcome. */
@@ -914,6 +928,8 @@ export default function HomeScreen() {
       setErrorMessage(null);
       const openSettings = await dialog.confirm({
         title: 'Microphone is off for Finnri',
+        tone: 'warning',
+        iconName: 'microphone-off',
         message:
           Platform.OS === 'ios'
             ? 'Turn on Microphone for Finnri in Settings to log by voice. You can still type or scan a bill.'
@@ -1188,7 +1204,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: 'Statement not available',
           message: getFriendlyErrorMessage(error, 'Unable to open the transaction form.'),
-          tone: 'danger',
+          tone: 'error',
         });
       });
 
@@ -1229,7 +1245,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: "Couldn't update the balance",
           message: getFriendlyErrorMessage(error, 'Try again from the account screen.'),
-          tone: 'danger',
+          tone: 'error',
         });
       }
     },
@@ -1475,7 +1491,7 @@ export default function HomeScreen() {
         setAiReview(null);
         setForm((prev) => ({ ...prev, attachment: uri }));
         const failure = describeReceiptScanFailure(error);
-        void dialog.alert({ title: failure.title, message: failure.message, tone: 'danger' });
+        void dialog.alert({ title: failure.title, message: failure.message, tone: 'error' });
       } finally {
         setIsParsing(false);
         setIsSubmitting(false);
@@ -1520,6 +1536,8 @@ export default function HomeScreen() {
         if (pick.canAskAgain) return;
         const openSettings = await dialog.confirm({
           title: 'Camera is off for Finnri',
+          tone: 'warning',
+          iconName: 'camera-off',
           message:
             'Turn on camera access in Settings to photograph a bill, or choose a photo instead.',
           confirmLabel: 'Open Settings',
@@ -1532,7 +1550,7 @@ export default function HomeScreen() {
         void dialog.alert({
           title: 'That photo did not open',
           message: 'Try again, or pick a different photo of the bill.',
-          tone: 'danger',
+          tone: 'error',
         });
       }
     },
@@ -1700,11 +1718,31 @@ export default function HomeScreen() {
    *
    * In-app recording takes the same path since stopping the mic now sends:
    * `stopRecording` raises the same flag.
+   *
+   * It waits for the app to be in front. The widget's recorder can start a
+   * fresh MainActivity in a process that is still alive, and React renders
+   * Home before Android resumes that activity. Sent then, the review sheet
+   * opened while React Native had no current activity, so Android never showed
+   * it: the card said "Reading your recording…", the draft landed in a sheet
+   * nobody could see, and Home looked as if nothing had happened.
    */
   useEffect(() => {
     if (!captureAwaitingSubmit.current || !recordedUri) return;
-    captureAwaitingSubmit.current = false;
-    void submitPrompt();
+    const send = () => {
+      // Once only: if the read fails the recording stays, and this listener
+      // with it, so a later return to the app must not send it again.
+      if (!captureAwaitingSubmit.current) return;
+      captureAwaitingSubmit.current = false;
+      void submitPrompt();
+    };
+    if (AppState.currentState === 'active') {
+      send();
+      return;
+    }
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') send();
+    });
+    return () => subscription.remove();
   }, [recordedUri, submitPrompt]);
 
   const handleSubmitPrompt = useCallback(() => submitPrompt(), [submitPrompt]);
@@ -1854,6 +1892,13 @@ export default function HomeScreen() {
           {showGetStarted ? (
             <GetStartedCard
               steps={startSteps}
+              // Full on an empty Home, where it is the only thing to do; one
+              // row once anything is logged, so Recent activity stays in view.
+              compact={loggedEntries > 0}
+              onDismiss={() => {
+                setGetStartedDismissed(true);
+                void dismissGetStarted();
+              }}
               onOpen={(step) => {
                 if (step.key === 'accounts') router.push('/accounts/manage');
                 else if (step.key === 'budget') router.push('/budgets');
@@ -1915,6 +1960,7 @@ export default function HomeScreen() {
               welcome={isBrandNewHome}
               unreadCount={unreadNotifications}
               onNotificationsPress={() => router.push('/notifications')}
+              onAskPress={() => router.push('/ask' as never)}
             />
 
             <MonthStrip
@@ -1938,7 +1984,6 @@ export default function HomeScreen() {
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}
               onMicLongPress={() => router.push('/ask' as never)}
-              onAskPress={() => router.push('/ask' as never)}
               isRecording={isRecording}
               hasRecording={!!recordedUri}
               inputText={inputText}

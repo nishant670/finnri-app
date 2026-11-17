@@ -370,3 +370,49 @@ describe('Recurring panel', () => {
     expect(mockSetParams).toHaveBeenCalledWith(expect.objectContaining({ source: undefined }));
   });
 });
+
+// Found on device 2026-11-17: with only a salary tracked, the panel said
+// "Nothing recurring tracked yet" above the Income section.
+describe('Recurring panel — only income tracked', () => {
+  const salary = {
+    ...base,
+    id: 9,
+    name: 'QA Salary',
+    amount: 85000,
+    category: 'Salary',
+    next_due_date: '2026-12-17',
+    transaction_tag: 'General',
+    kind: 'income',
+    schedule: { monthly_equivalent: 85000 },
+  } as unknown as Subscription;
+
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    mockParams = {};
+    jest.spyOn(subscriptions, 'syncSubscriptionReminders').mockResolvedValue(0);
+    jest.spyOn(accounts, 'fetchAccounts').mockResolvedValue([]);
+    jest.spyOn(insights, 'fetchDashboard').mockResolvedValue({ recurring_candidates: [] } as never);
+    jest.spyOn(merchants, 'fetchMerchantSuggestions').mockResolvedValue([]);
+    jest.spyOn(recurring, 'fetchRecurring').mockResolvedValue({
+      summary: {
+        monthly_total: 0,
+        by_kind: {},
+        active_count: 0,
+        monthly_income: 85000,
+        income_active_count: 1,
+        next_income: { name: 'QA Salary', kind: 'income', amount: 85000, date: '2026-12-17' },
+      },
+      items: [salary],
+      card_emis: [],
+    });
+  });
+
+  it('shows the overview with the income line, not the empty state', async () => {
+    const ui = await render(<SubscriptionsPanel embedded />);
+    await ui.findByTestId('recurring-overview');
+    expect(ui.queryByText('Nothing recurring tracked yet')).toBeNull();
+    expect(ui.getByTestId('recurring-monthly-income')).toBeTruthy();
+    expect(ui.getByText(/Nothing going out on a schedule yet/)).toBeTruthy();
+    expect(await ui.findByText('QA Salary')).toBeTruthy();
+  });
+});

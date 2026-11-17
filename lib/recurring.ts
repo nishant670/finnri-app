@@ -34,6 +34,13 @@ export type RecurringSummary = {
   by_kind: Partial<Record<RecurringKind | 'card_emi', number>>;
   active_count: number;
   next_due?: { name: string; kind: RecurringKind | 'card_emi'; amount: number; date: string };
+  /**
+   * Recurring income, summed apart: never part of `monthly_total`,
+   * `by_kind` or `next_due`. Missing from an API older than recurring income.
+   */
+  monthly_income?: number;
+  income_active_count?: number;
+  next_income?: { name: string; kind: 'income'; amount: number; date: string };
 };
 
 export type RecurringOverview = {
@@ -102,9 +109,27 @@ export const recurringKindMeta: Record<
     defaultCategory: 'Bills',
     defaultTag: 'General',
   },
+  income: {
+    label: 'Income',
+    plural: 'Income',
+    icon: 'cash-plus',
+    newTitle: 'New recurring income',
+    editTitle: 'Edit income',
+    nameLabel: 'Income',
+    namePlaceholder: 'Salary, Rent received, Retainer',
+    defaultCategory: 'Salary',
+    defaultTag: 'General',
+  },
 };
 
-export const recurringKinds: RecurringKind[] = ['loan', 'subscription', 'investment', 'bill'];
+/**
+ * Money that comes in on a schedule. Listed with the rest but never counted
+ * as a commitment, and finished with "Mark received" rather than "Mark paid".
+ */
+export const isIncomeKind = (kind: RecurringKind | 'card_emi' | undefined | null) =>
+  kind === 'income';
+
+export const recurringKinds: RecurringKind[] = ['loan', 'subscription', 'investment', 'bill', 'income'];
 
 export const loanTypeOptions: { value: LoanType; label: string }[] = [
   { value: 'personal', label: 'Personal' },
@@ -153,6 +178,11 @@ export const overviewFromSubscriptions = (items: Subscription[]): RecurringOverv
     if (item.status !== 'active') continue;
     const kind = kindOf(item);
     const monthly = monthlyEquivalentOf(Number(item.amount || 0), item.billing_interval);
+    if (isIncomeKind(kind)) {
+      summary.income_active_count = (summary.income_active_count ?? 0) + 1;
+      summary.monthly_income = (summary.monthly_income ?? 0) + monthly;
+      continue;
+    }
     summary.active_count += 1;
     summary.monthly_total += monthly;
     summary.by_kind[kind] = (summary.by_kind[kind] ?? 0) + monthly;

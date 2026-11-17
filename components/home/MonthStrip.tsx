@@ -4,11 +4,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { categoryVisual } from '@/lib/categories';
-import {
-  formatChangeMagnitude,
-  previousWindowLabel,
-  type DashboardResponse,
-} from '@/lib/insights';
+import { describeSpendChange, previousWindowLabel, type DashboardResponse } from '@/lib/insights';
 import { formatMoney } from '@/lib/money';
 
 /**
@@ -84,9 +80,19 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
     const { summary, top_categories: topCategories, period } = dashboard;
 
     const previousWindow = previousWindowLabel(period);
-    const change = summary.spend_change ?? 0;
-    const increased = change >= 0;
-    const changeColor = increased ? theme.negative : theme.positive;
+    const changeLine = describeSpendChange(summary.spend_change ?? 0, previousWindow);
+    const changeColor =
+      changeLine.direction === 'more'
+        ? theme.negative
+        : changeLine.direction === 'less'
+          ? theme.positive
+          : theme.muted;
+    const changeIcon =
+      changeLine.direction === 'more'
+        ? 'trending-up'
+        : changeLine.direction === 'less'
+          ? 'trending-down'
+          : 'trending-neutral';
     const topCategory = topCategories?.[0];
     const categoryIcon = topCategory ? categoryVisual(topCategory.category) : null;
 
@@ -102,16 +108,14 @@ export function MonthStrip({ dashboard, loading, onPress }: MonthStripProps) {
         <View style={styles.factRow}>
           {summary.spend_change_comparable ? (
             <>
-              <MaterialCommunityIcons
-                name={increased ? 'trending-up' : 'trending-down'}
-                size={16}
-                color={changeColor}
-              />
+              <MaterialCommunityIcons name={changeIcon} size={16} color={changeColor} />
               <ThemedText tone="muted" style={styles.factText} numberOfLines={1}>
-                <ThemedText style={[styles.line, styles.strong, { color: changeColor }]}>
-                  {`${formatChangeMagnitude(change)} ${increased ? 'more' : 'less'}`}
+                <ThemedText
+                  testID="month-strip-change"
+                  style={[styles.line, styles.strong, { color: changeColor }]}>
+                  {changeLine.lead}
                 </ThemedText>
-                {` than ${previousWindow}`}
+                {` ${changeLine.rest}`}
               </ThemedText>
             </>
           ) : (

@@ -223,6 +223,13 @@ export type ParseDraft = {
     notes?: string | null;
     missing_fields?: string[];
   } | null;
+  /**
+   * The event the user asked to file this under ("add it to the Kanatal
+   * trip"). `event_id` is set when the API matched one of their events; a name
+   * with no id is an event they do not have. Older APIs omit both.
+   */
+  event_name?: string | null;
+  event_id?: number | null;
   split_candidate?: boolean | null;
   split_candidate_details?: {
     group_name?: string | null;
@@ -378,7 +385,8 @@ const parseFailureCopy: Record<string, ParseFailureCopy> = {
   // help, so there is no Try again, and the server didn't charge for it.
   empty_transcript: {
     title: "Didn't catch that",
-    message: "Finnri couldn't hear anything in that recording, so no credits were used. Tap the mic and say what you spent.",
+    message:
+      "Finnri couldn't hear anything in that recording, so no credits were used. Tap the mic and say what you spent.",
     examples: [],
     canRetry: false,
   },

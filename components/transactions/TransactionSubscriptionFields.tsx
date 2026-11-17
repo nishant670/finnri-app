@@ -5,6 +5,7 @@ import { Pressable, TextInput, View } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { useScrollReveal } from '@/components/ui/RevealScrollView';
 import { formatMoney } from '@/lib/money';
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import type { BillingInterval } from '@/lib/subscriptions';
@@ -38,6 +39,36 @@ const reminderPhrase = (days: string) => {
   const count = Number(days || 0);
   if (!Number.isFinite(count) || count <= 0) return 'Reminder on the day';
   return `Reminder ${count} day${count === 1 ? '' : 's'} before`;
+};
+
+type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
+
+const subscriptionCopy = {
+  icon: 'calendar-sync-outline' as IconName,
+  title: 'Track as a subscription',
+  caption: 'Get a reminder before it renews.',
+  nextDate: 'Next payment date',
+  namePlaceholder: 'Subscription name',
+  merchantPlaceholder: 'Merchant',
+  autopayTitle: 'Autopay',
+  autopayCaption: 'Finnri adds each payment for you, then asks you to confirm it.',
+  autopayOn: 'Autopay on',
+  autopayOff: 'Autopay off',
+  notesPlaceholder: 'Plan tier, cancellation link or renewal notes',
+};
+
+const incomeCopy: typeof subscriptionCopy = {
+  icon: 'cash-sync',
+  title: 'Make it recurring',
+  caption: 'We will remind you on the day to confirm it arrived.',
+  nextDate: 'Next expected on',
+  namePlaceholder: 'Name, e.g. Salary',
+  merchantPlaceholder: 'From, e.g. employer',
+  autopayTitle: 'Add it automatically',
+  autopayCaption: 'Finnri adds it on the day, then asks you to confirm it arrived.',
+  autopayOn: 'Adds automatically',
+  autopayOff: 'Asks on the day',
+  notesPlaceholder: 'Payslip or arrangement notes',
 };
 
 type TransactionSubscriptionFieldsProps = {
@@ -81,7 +112,15 @@ export function TransactionSubscriptionFields({
   const isOptionsOpen = optionsOpen ?? ownOptionsOpen;
   const toggleOptions = onToggleOptions ?? (() => setOwnOptionsOpen((open) => !open));
   const isDaily = isDailyInterval(form.subscriptionBillingInterval);
+  /**
+   * Income repeats too (device feedback 2026-11-17): a salary, rent received,
+   * a retainer. Same schedule, worded for money coming in — it is expected,
+   * not due, and the reminder asks whether it arrived.
+   */
+  const isIncome = form.type === 'Income';
+  const copy = isIncome ? incomeCopy : subscriptionCopy;
   const inputStyle = { color: theme.text, backgroundColor: theme.background };
+  const reveal = useScrollReveal();
 
   const selectInterval = (interval: BillingInterval) =>
     setForm((p) => ({
@@ -103,7 +142,7 @@ export function TransactionSubscriptionFields({
       ? formatMoney(Number(form.subscriptionAmount || form.amount))
       : '',
     isDaily ? '' : reminderPhrase(form.subscriptionReminderDays),
-    isDaily ? '' : form.subscriptionAutopay ? 'Autopay on' : 'Autopay off',
+    isDaily ? '' : form.subscriptionAutopay ? copy.autopayOn : copy.autopayOff,
     form.subscriptionCancelBeforeDue ? 'Cancel reminder set' : '',
   ]
     .filter(Boolean)
@@ -123,10 +162,10 @@ export function TransactionSubscriptionFields({
       style={{ backgroundColor: theme.background }}>
       <View className="flex-1 pr-3">
         <ThemedText className="text-sm font-bold" style={{ color: theme.text }}>
-          Autopay
+          {copy.autopayTitle}
         </ThemedText>
         <ThemedText tone="muted" className="mt-1 text-[11px]">
-          Finnri adds each payment for you, then asks you to confirm it.
+          {copy.autopayCaption}
         </ThemedText>
       </View>
       <MaterialCommunityIcons
@@ -147,29 +186,35 @@ export function TransactionSubscriptionFields({
             <View
               className="h-10 w-10 items-center justify-center rounded-2xl"
               style={{ backgroundColor: accentSurface }}>
-              <MaterialCommunityIcons name="calendar-sync-outline" size={20} color={accent} />
+              <MaterialCommunityIcons name={copy.icon} size={20} color={accent} />
             </View>
             <View className="flex-1">
               <ThemedText className="text-sm font-black" style={{ color: theme.text }}>
-                Track as a subscription
+                {copy.title}
               </ThemedText>
               <ThemedText tone="muted" className="text-xs">
-                Get a reminder before it renews.
+                {copy.caption}
               </ThemedText>
             </View>
           </View>
           <Pressable
             accessibilityRole="switch"
-            accessibilityLabel="Track as a subscription"
+            testID="subscription-switch"
+            accessibilityLabel={copy.title}
             accessibilityState={{ checked: form.subscriptionEnabled }}
-            onPress={() =>
+            onPress={() => {
+              if (!form.subscriptionEnabled) reveal?.expect('subscription');
               setForm((prev) => {
                 if (prev.subscriptionEnabled) return { ...prev, subscriptionEnabled: false };
                 const interval = prev.subscriptionBillingInterval || 'monthly';
                 return {
                   ...prev,
                   subscriptionEnabled: true,
-                  subscriptionName: prev.subscriptionName || prev.merchant || prev.title,
+                  subscriptionName:
+                    prev.subscriptionName ||
+                    (prev.type === 'Income'
+                      ? prev.title || prev.merchant || prev.category
+                      : prev.merchant || prev.title),
                   subscriptionAmount: prev.subscriptionAmount || prev.amount,
                   subscriptionCategory: prev.subscriptionCategory || prev.category,
                   // The two questions the switch can answer itself. Monthly is
@@ -178,12 +223,18 @@ export function TransactionSubscriptionFields({
                   subscriptionBillingInterval: interval,
                   subscriptionNextDueDate:
                     prev.subscriptionNextDueDate || inferNextSubscriptionDate(prev.date, interval),
-                  subscriptionReminderDays: isDailyInterval(interval)
-                    ? '0'
-                    : prev.subscriptionReminderDays || '3',
+                  // Income is reminded on the day it is expected, not before.
+                  // The blank form already holds the payments' default of 3,
+                  // so income sets 0 outright (found on device 2026-11-17).
+                  subscriptionReminderDays:
+                    prev.type === 'Income'
+                      ? '0'
+                      : isDailyInterval(interval)
+                        ? prev.subscriptionReminderDays || '0'
+                        : prev.subscriptionReminderDays || '3',
                 };
-              })
-            }
+              });
+            }}
             className="h-8 w-14 justify-center rounded-full px-1"
             style={{
               backgroundColor: form.subscriptionEnabled ? accent : theme.border,
@@ -233,7 +284,7 @@ export function TransactionSubscriptionFields({
               <Pressable
                 testID="subscription-next-payment-picker"
                 accessibilityRole="button"
-                accessibilityLabel="Choose next payment date"
+                accessibilityLabel={`Choose ${copy.nextDate.toLowerCase()}`}
                 onPress={onOpenNextPaymentDatePicker}
                 className="flex-row items-center justify-between rounded-2xl px-4 py-3"
                 style={{ backgroundColor: theme.background }}>
@@ -241,7 +292,7 @@ export function TransactionSubscriptionFields({
                   <ThemedText
                     tone="muted"
                     className="text-[10px] font-black uppercase tracking-widest">
-                    Next payment date
+                    {copy.nextDate}
                   </ThemedText>
                   <ThemedText
                     className="mt-1 text-sm font-bold"
@@ -275,6 +326,7 @@ export function TransactionSubscriptionFields({
 
             <FormDisclosure
               testID="subscription-more-options"
+              revealKey="subscription-options"
               label="More options"
               summary={summary}
               expanded={isOptionsOpen}
@@ -284,7 +336,7 @@ export function TransactionSubscriptionFields({
                   <TextInput
                     value={form.subscriptionName}
                     onChangeText={(text) => setForm((p) => ({ ...p, subscriptionName: text }))}
-                    placeholder="Subscription name"
+                    placeholder={copy.namePlaceholder}
                     placeholderTextColor={theme.muted}
                     className="flex-1 rounded-2xl px-4 py-3 text-sm font-bold"
                     style={inputStyle}
@@ -308,7 +360,7 @@ export function TransactionSubscriptionFields({
                   <TextInput
                     value={form.subscriptionMerchant}
                     onChangeText={(text) => setForm((p) => ({ ...p, subscriptionMerchant: text }))}
-                    placeholder="Merchant"
+                    placeholder={copy.merchantPlaceholder}
                     placeholderTextColor={theme.muted}
                     className="flex-1 rounded-2xl px-4 py-3 text-sm font-bold"
                     style={inputStyle}
@@ -385,15 +437,19 @@ export function TransactionSubscriptionFields({
 
                 {!isDaily ? autopayRow : null}
 
+                {isIncome ? null : (
                 <Pressable
                   accessibilityRole="switch"
                   accessibilityState={{ checked: form.subscriptionCancelBeforeDue }}
-                  onPress={() =>
+                  onPress={() => {
+                    if (!form.subscriptionCancelBeforeDue) {
+                      reveal?.expect('subscription-options', { align: 'end' });
+                    }
                     setForm((p) => ({
                       ...p,
                       subscriptionCancelBeforeDue: !p.subscriptionCancelBeforeDue,
-                    }))
-                  }
+                    }));
+                  }}
                   className="flex-row items-center justify-between rounded-2xl px-4 py-3"
                   style={{ backgroundColor: theme.background }}>
                   <View className="flex-1 pr-3">
@@ -414,8 +470,9 @@ export function TransactionSubscriptionFields({
                     color={form.subscriptionCancelBeforeDue ? accent : theme.muted}
                   />
                 </Pressable>
+                )}
 
-                {form.subscriptionCancelBeforeDue && (
+                {!isIncome && form.subscriptionCancelBeforeDue && (
                   <Pressable
                     accessibilityRole="button"
                     onPress={onOpenCancellationDatePicker}
@@ -443,7 +500,7 @@ export function TransactionSubscriptionFields({
                   multiline
                   value={form.subscriptionNotes}
                   onChangeText={(text) => setForm((p) => ({ ...p, subscriptionNotes: text }))}
-                  placeholder="Plan tier, cancellation link or renewal notes"
+                  placeholder={copy.notesPlaceholder}
                   placeholderTextColor={theme.muted}
                   className="min-h-[78px] rounded-2xl px-4 py-3 text-sm font-bold"
                   textAlignVertical="top"

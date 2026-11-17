@@ -157,7 +157,7 @@ export default function BillingScreen() {
       void dialog.alert({
         title: 'Billing did not load',
         message: getFriendlyErrorMessage(error, 'Please try again.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setIsLoading(false);
@@ -196,7 +196,7 @@ export default function BillingScreen() {
         void dialog.alert({
           title: 'Quote request failed',
           message: getFriendlyErrorMessage(error, 'Please try again.'),
-          tone: 'danger',
+          tone: 'error',
         });
       } finally {
         setBusyPlan(null);
@@ -214,7 +214,7 @@ export default function BillingScreen() {
         void dialog.alert({
           title: 'Checkout not ready',
           message: 'Payments are not switched on yet. Please try again later.',
-          tone: 'danger',
+          tone: 'error',
         });
         return;
       }
@@ -259,7 +259,7 @@ export default function BillingScreen() {
       void dialog.alert({
         title: 'Checkout not ready',
         message: getFriendlyErrorMessage(error, 'Please try again.'),
-        tone: 'danger',
+        tone: 'error',
       });
     } finally {
       setBusyPlan(null);

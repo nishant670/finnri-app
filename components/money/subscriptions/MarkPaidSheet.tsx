@@ -3,7 +3,9 @@ import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { RowsCard, ToggleRow } from '@/components/money/subscriptions/FormRows';
 import {
+  INCOME_PAYMENT_MODES,
   PaymentAccountPicker,
+  RECURRING_PAYMENT_MODES,
   usablePayment,
 } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { ThemedText } from '@/components/themed-text';
@@ -20,6 +22,7 @@ import {
   toApiDateOnly,
   todayISO,
 } from '@/lib/subscription-form';
+import { isIncomeKind, kindOf } from '@/lib/recurring';
 import type { Subscription } from '@/lib/subscriptions';
 
 export type MarkPaidChoice = {
@@ -81,8 +84,16 @@ export function MarkPaidSheet({
   const { colors } = useThemeTokens();
   const sheetBottom = useBottomInset(24);
   const [logTransaction, setLogTransaction] = useState(true);
+  // Recurring income is marked received, into an account it can land in.
+  const income = subscription != null && isIncomeKind(kindOf(subscription));
+  const modes = income ? INCOME_PAYMENT_MODES : RECURRING_PAYMENT_MODES;
   const [payment, setPayment] = useState(() =>
-    usablePayment(accounts, subscription?.payment_mode ?? '', subscription?.account_id ?? null)
+    usablePayment(
+      accounts,
+      subscription?.payment_mode ?? '',
+      subscription?.account_id ?? null,
+      modes
+    )
   );
 
   const amount = Number(subscription?.amount ?? 0);
@@ -110,12 +121,12 @@ export function MarkPaidSheet({
               accessibilityRole="header"
               numberOfLines={1}
               style={[styles.title, { color: colors.text }]}>
-              Mark {subscription.name} paid
+              Mark {subscription.name} {income ? 'received' : 'paid'}
             </ThemedText>
             <SheetCloseButton onPress={onClose} />
           </View>
           <ThemedText tone="muted" style={styles.lede}>
-            {formatMoney(amount)} due{' '}
+            {formatMoney(amount)} {income ? 'expected' : 'due'}{' '}
             {formatDueDateLabel(toApiDateOnly(subscription.next_due_date))}. The next one moves to{' '}
             {formatDueDateLabel(nextDueAfterPaying(subscription))}.
           </ThemedText>
@@ -139,7 +150,9 @@ export function MarkPaidSheet({
                 paymentMode={payment.paymentMode}
                 onChange={setPayment}
                 onAddAccount={onAddAccount}
-                accountLabel="Paid from"
+                accountLabel={income ? 'Received in' : 'Paid from'}
+                modeLabel={income ? 'Received via' : undefined}
+                modes={modes}
                 divider
               />
             ) : null}
@@ -152,7 +165,7 @@ export function MarkPaidSheet({
           ) : null}
 
           <PrimaryButton
-            label="Mark paid"
+            label={income ? 'Mark received' : 'Mark paid'}
             loading={submitting}
             onPress={() =>
               onConfirm({

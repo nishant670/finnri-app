@@ -47,6 +47,7 @@ import { haptics } from '@/lib/haptics';
 import { createDefaultEntryForm, resolveAccountForEntry } from '@/lib/home-capture';
 import { formatMoney, toAmountString } from '@/lib/money';
 import {
+  budgetAlertDialog,
   fetchNewUnreadBudgetNotification,
   fetchUnreadBudgetNotificationIds,
 } from '@/lib/notifications';
@@ -580,11 +581,7 @@ export default function TransactionsScreen() {
       if (
         notification &&
         (await dialog.confirm({
-          title: notification.title,
-          message: notification.body,
-          confirmLabel: 'View Budgets',
-          cancelLabel: 'Later',
-          iconName: 'wallet-outline',
+          ...budgetAlertDialog(notification),
         }))
       ) {
         router.push('/budgets');
@@ -774,7 +771,7 @@ export default function TransactionsScreen() {
             done > 0
               ? `${done} of ${ids.length} went through before it stopped. The other ${ids.length - done} are still selected, so you can try again.`
               : getFriendlyErrorMessage(err, 'Try again in a moment.'),
-          tone: 'danger',
+          tone: 'error',
         });
       } finally {
         setIsGrouping(false);

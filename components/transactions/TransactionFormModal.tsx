@@ -43,6 +43,7 @@ import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
 import {
+  accountSuggestionFitsPayment,
   getAccountsForPaymentMode,
   getAutoAccountPayloadForPaymentMode,
   getPreferredAccountForPaymentMode,
@@ -75,6 +76,8 @@ import { DuplicateSaveCancelled } from '@/lib/transaction-composer';
 import { describePaymentPick, type PaymentSuggestion } from '@/lib/payment-rules';
 import { notePaymentCorrection } from '@/lib/payment-rule-offer';
 import { useOptionalAppDialog } from '@/components/ui/AppDialogProvider';
+import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
+import { useScrollRevealController } from '@/components/ui/RevealScrollView';
 import { usePaymentSuggestion } from './usePaymentSuggestion';
 import {
   DEFAULT_PAYMENT_MODE,
@@ -439,6 +442,15 @@ const entryDateTime = (date: string, time: string) => {
     : day;
 };
 
+/** Long enough for a themed dialog's window to give focus back to the sheet. */
+const DIALOG_CLOSE_MS = 350;
+
+const tagCards: Partial<Record<string, string>> = {
+  Refundable: 'refund',
+  EMI: 'emi',
+  Subscription: 'subscription',
+};
+
 export function TransactionFormModal({
   visible,
   onClose,
@@ -554,6 +566,50 @@ export function TransactionFormModal({
     });
     return () => subscription.remove();
   }, [settlePanel, showModal]);
+
+  /**
+   * A sheet Android never put on screen gets built again.
+   *
+   * React Native's Android modal makes its dialog once and calls `show()` only
+   * if there is a current activity at that moment. Between one MainActivity
+   * going and the next resuming there is none — which is exactly when a voice
+   * capture from the widget lands — and the dialog then exists but never
+   * appears, for as long as the sheet stays open. Reported from a device: the
+   * read finished into a sheet nobody could see. A new key makes a new native
+   * modal, and by the time the app is active again there is an activity to
+   * show it on. `onShow` marks the sheet as up; until it fires, coming back to
+   * the foreground or a second's wait retries it, at most twice.
+   */
+  const [modalKey, setModalKey] = useState(0);
+  const modalShownRef = useRef(false);
+  const modalRetriesRef = useRef(0);
+  const handleModalShow = useCallback(() => {
+    modalShownRef.current = true;
+    settlePanel();
+  }, [settlePanel]);
+  useEffect(() => {
+    if (showModal) return;
+    modalShownRef.current = false;
+    modalRetriesRef.current = 0;
+  }, [showModal]);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !showModal) return;
+    const retry = () => {
+      if (modalShownRef.current || !visibleRef.current || modalRetriesRef.current >= 2) return;
+      modalRetriesRef.current += 1;
+      setModalKey((key) => key + 1);
+    };
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') retry();
+    });
+    const timer = setTimeout(() => {
+      if (AppState.currentState === 'active') retry();
+    }, 1000);
+    return () => {
+      subscription.remove();
+      clearTimeout(timer);
+    };
+  }, [modalKey, showModal]);
   // iOS's KeyboardAvoidingView already reserves the keyboard. Android modal
   // windows are not reliably resized, so their inset belongs at the end of the
   // scroll content—not inside the mid-list split section.
@@ -645,11 +701,13 @@ export function TransactionFormModal({
    */
   const [isSystemKeyboardUp, setIsSystemKeyboardUp] = useState(false);
   const titleInputRef = useRef<TextInput>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollOffsetRef = useRef(0);
-  const splitCardRef = useRef<View>(null);
+  const reveal = useScrollRevealController({ bottomInset: keyboardInset });
+  const refundAmountInputRef = useRef<TextInput>(null);
+  /** Set while the refund is the whole payment, so it follows amount corrections. */
+  const refundIsFullRef = useRef(false);
+  /** Save waits on the full-refund question; a second tap must not ask, or save, again. */
+  const askingFullRefundRef = useRef(false);
   /** Set when the split switch is turned on; the card's next layout scrolls to it. */
-  const revealSplitRef = useRef(false);
   // Explicit picker/quick-fill choices take precedence over title hints.
   const categoryChosenRef = useRef(false);
   /** The same for the mode and account: once the user picks either, it stays. */
@@ -667,6 +725,11 @@ export function TransactionFormModal({
   const paymentTouchedRef = useRef(false);
   const paymentLockedRef = useRef(false);
   const paymentSeedRef = useRef<Pick<EntryForm, 'mode' | 'accountId' | 'account'> | null>(null);
+  /** The same seed as state, for render: the account suggestion is judged against it. */
+  const [suggestionPaymentSeed, setSuggestionPaymentSeed] = useState<Pick<
+    EntryForm,
+    'mode' | 'accountId'
+  > | null>(null);
   const [autoPick, setAutoPick] = useState<{
     suggestion: PaymentSuggestion;
     accountId: number;
@@ -939,11 +1002,28 @@ export function TransactionFormModal({
   const suggestionKey = accountSuggestion
     ? `${accountSuggestion.type}:${accountSuggestion.provider}:${accountSuggestion.identifier}`
     : '';
-  const visibleAccountSuggestion =
+  /**
+   * The suggestion only stands while Paid with is still the payment it was made
+   * for. Reported from a device: a receipt that named Kotak (no Kotak account
+   * saved) was switched to the user's own One Card, and "Add KOTAK Bank
+   * Account?" kept asking. Once Paid with is an existing account other than
+   * the one the draft opened on, the question is answered; going back to the
+   * draft's own payment — or to the suggestion's kind of account with none
+   * picked — brings it back.
+   */
+  const suggestionFitsPayment = accountSuggestionFitsPayment({
+    suggestionType: accountSuggestion?.type ?? null,
+    seed: suggestionPaymentSeed,
+    mode: form.mode,
+    accountId: form.accountId,
+  });
+  const openAccountSuggestion =
     accountSuggestion && suggestionKey !== dismissedSuggestionKey ? accountSuggestion : null;
+  const visibleAccountSuggestion = suggestionFitsPayment ? openAccountSuggestion : null;
   const genericAutoAccount = getAutoAccountPayloadForPaymentMode(form.mode);
+  // The payment picker still offers it: that is where someone goes back to it.
   const actionableAccountSuggestion: AccountSuggestion | null =
-    visibleAccountSuggestion ??
+    openAccountSuggestion ??
     (genericAutoAccount
       ? {
           type: genericAutoAccount.type,
@@ -1248,7 +1328,12 @@ export function TransactionFormModal({
 
   const handleAmountChange = useCallback((amount: string) => {
     setFormError(null);
-    setForm((prev) => ({ ...prev, amount }));
+    setForm((prev) => ({
+      ...prev,
+      amount,
+      // "Full amount" stays the full amount when the amount is then corrected.
+      refundableAmount: refundIsFullRef.current ? amount : prev.refundableAmount,
+    }));
   }, []);
 
   /** The title is the stronger clue; the merchant fills in when it has none. */
@@ -1469,6 +1554,7 @@ export function TransactionFormModal({
       accountId: nextForm.accountId,
       account: nextForm.account,
     };
+    setSuggestionPaymentSeed({ mode: nextForm.mode, accountId: nextForm.accountId });
     setAutoPick(null);
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
@@ -1483,6 +1569,7 @@ export function TransactionFormModal({
       setMoreDetailsToggled(null);
       setSplitShareMode('amount');
       setIsSubscriptionOptionsOpen(false);
+      refundIsFullRef.current = false;
       setIsTitleFocused(false);
       setFormError(null);
       resetAutoCreateFeedback();
@@ -1661,7 +1748,7 @@ export function TransactionFormModal({
   const handleConfirmEntry = async () => {
     // Mid-parse the form holds none of the AI's answers yet, so a save here
     // submits an empty draft and fails.
-    if (isSaving || (draftReview && isParsing)) return;
+    if (isSaving || askingFullRefundRef.current || (draftReview && isParsing)) return;
     const normalizedForm = {
       ...form,
       // Amount-first means the amount is the only thing the user owes us. The
@@ -1696,29 +1783,67 @@ export function TransactionFormModal({
       rejectSave('Enter an amount above zero.');
       return;
     }
-    if (personalPayment && tagsApply && form.tag === 'Refundable') {
-      const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
-      if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
-        rejectSave('Enter how much you expect back.');
-        return;
-      }
-      if (refundableAmount > amountValue) {
-        rejectSave("The refund can't be more than what you paid.");
-        return;
-      }
+    // A quick prompt is a template with no refund card, so there is nothing to ask.
+    if (mode !== 'quick-prompt' && personalPayment && tagsApply && form.tag === 'Refundable') {
+      const rejectRefund = (message: string) => {
+        rejectSave(message);
+        reveal.now('refund');
+      };
       if (!parseDateLabel(form.refundExpectedOn)) {
-        rejectSave('Pick the date you expect it back.');
+        rejectRefund('Pick the date you expect it back.');
         return;
+      }
+      if (form.refundableAmount.trim().length === 0) {
+        if (!dialog) {
+          rejectRefund('Enter how much you expect back.');
+          return;
+        }
+        setFormError(null);
+        askingFullRefundRef.current = true;
+        const isFull = await dialog
+          .confirm({
+            title: 'Is the full amount refundable?',
+            message: `Finnri will track ${formatMoney(amountValue)} as coming back. If it's only part of that, enter the amount instead.`,
+            confirmLabel: 'Yes, full amount',
+            cancelLabel: 'Enter amount',
+          })
+          .finally(() => {
+            askingFullRefundRef.current = false;
+          });
+        if (!isFull) {
+          reveal.now('refund');
+          // Focusing while the dialog's window is closing places the cursor but
+          // Android drops the keyboard, leaving the keypad typing into the amount.
+          // Blurring first, because focus() is ignored on a field that has it.
+          refundAmountInputRef.current?.blur();
+          setTimeout(() => refundAmountInputRef.current?.focus(), DIALOG_CLOSE_MS);
+          return;
+        }
+        normalizedForm.refundableAmount = form.amount;
+        refundIsFullRef.current = true;
+        setForm((previous) => ({ ...previous, refundableAmount: previous.amount }));
+      } else {
+        const refundableAmount = Number(form.refundableAmount.replace(/,/g, ''));
+        if (!Number.isFinite(refundableAmount) || refundableAmount <= 0) {
+          rejectRefund('Enter how much you expect back.');
+          return;
+        }
+        if (refundableAmount > amountValue) {
+          rejectRefund("The refund can't be more than what you paid.");
+          return;
+        }
       }
     }
     if (isEMICreditCard) {
       const tenure = Number(form.emiTenureMonths);
       const rate = Number(form.emiRatePct || 0);
       if (!Number.isInteger(tenure) || tenure < 1 || tenure > 360) {
+        reveal.now('emi');
         rejectSave('Pick how many months the EMI runs.');
         return;
       }
       if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+        reveal.now('emi');
         rejectSave('Enter an interest rate between 0 and 100%.');
         return;
       }
@@ -1732,8 +1857,18 @@ export function TransactionFormModal({
         rejectSave('Only expenses can be split.');
         return;
       }
+      // The split card lives inside More details, which may have been closed.
+      const rejectSplit = (message: string) => {
+        if (isMoreDetailsOpen) {
+          reveal.now('split');
+        } else {
+          reveal.expect('split');
+          setMoreDetailsToggled(true);
+        }
+        rejectSave(message);
+      };
       if (form.splitParticipants.length === 0) {
-        rejectSave('Add at least one friend to split with.');
+        rejectSplit('Add at least one friend to split with.');
         return;
       }
       const totalSplit = form.splitParticipants.reduce(
@@ -1746,11 +1881,11 @@ export function TransactionFormModal({
           (!participant.friendId && participant.friendName.trim().length === 0)
       );
       if (invalidParticipant) {
-        rejectSave('Everyone in the split needs a name and an amount.');
+        rejectSplit('Everyone in the split needs a name and an amount.');
         return;
       }
       if (totalSplit > amountValue) {
-        rejectSave('The shares add up to more than the total.');
+        rejectSplit('The shares add up to more than the total.');
         return;
       }
     }
@@ -1758,48 +1893,58 @@ export function TransactionFormModal({
       const total = Number(form.emiTotalInstalments);
       const paid = Number(form.emiPaidInstalments || 1);
       if (!Number.isInteger(total) || total < 1 || total > 600) {
+        reveal.now('emi');
         rejectSave('Total EMIs should be between 1 and 600.');
         return;
       }
       if (!Number.isInteger(paid) || paid < 1 || paid > total) {
+        reveal.now('emi');
         rejectSave("EMIs paid so far (counting this one) can't be more than the total.");
         return;
       }
     }
     if (personalPayment && form.subscriptionEnabled) {
+      // Opens the card's More options, where the field being asked about is.
+      const rejectSubscriptionOption = (message: string) => {
+        if (isSubscriptionOptionsOpen) {
+          reveal.now('subscription-options');
+        } else {
+          reveal.expect('subscription-options');
+          setIsSubscriptionOptionsOpen(true);
+        }
+        rejectSave(message);
+      };
       const subscriptionAmount = Number(form.subscriptionAmount || form.amount);
       const reminderDays = Number(form.subscriptionReminderDays || 0);
       // Name and amount live under the card's More options and start from the
       // payment, so a blank one is a default nobody overrode, not a mistake.
       if (normalizedForm.subscriptionName.trim().length === 0) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Give the subscription a name.');
+        rejectSubscriptionOption('Give the subscription a name.');
         return;
       }
       if (!Number.isFinite(subscriptionAmount) || subscriptionAmount <= 0) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Enter the amount it renews for.');
+        rejectSubscriptionOption('Enter the amount it renews for.');
         return;
       }
       if (!form.subscriptionBillingInterval) {
+        reveal.now('subscription');
         rejectSave('Choose how often it repeats.');
         return;
       }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionNextDueDate.trim())) {
+        reveal.now('subscription');
         rejectSave('Pick the next payment date.');
         return;
       }
       if (!Number.isInteger(reminderDays) || reminderDays < 0 || reminderDays > 30) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Reminders can be 0 to 30 days before.');
+        rejectSubscriptionOption('Reminders can be 0 to 30 days before.');
         return;
       }
       if (
         form.subscriptionCancelBeforeDue &&
         !/^\d{4}-\d{2}-\d{2}$/.test(form.subscriptionCancelOnDate.trim())
       ) {
-        setIsSubscriptionOptionsOpen(true);
-        rejectSave('Pick when to remind you to cancel.');
+        rejectSubscriptionOption('Pick when to remind you to cancel.');
         return;
       }
       if (
@@ -1807,6 +1952,7 @@ export function TransactionFormModal({
           form.subscriptionBillingInterval === 'business_daily') &&
         !form.subscriptionAutopay
       ) {
+        reveal.now('subscription');
         rejectSave('Daily payments need Autopay turned on.');
         return;
       }
@@ -1860,6 +2006,7 @@ export function TransactionFormModal({
   };
 
   const addSplitParticipant = () => {
+    reveal.expect('split', { align: 'end' });
     const amountValue = toAmount(form.amount);
     const nextCount = form.splitParticipants.length + 1;
     const defaultShare = equalShareAmount(amountValue, nextCount);
@@ -1971,29 +2118,6 @@ export function TransactionFormModal({
       ),
     }));
   };
-
-  /**
-   * Switching split on adds its fields under the switch, which sits at the
-   * bottom of the sheet and mostly behind the keypad — so they appeared off
-   * screen and looked like nothing had happened. Once the card has grown,
-   * bring its top up to the top of the scroll area.
-   */
-  const revealSplitCard = useCallback(() => {
-    if (!revealSplitRef.current) return;
-    revealSplitRef.current = false;
-    const scroll = scrollRef.current;
-    const scrollHost = scroll?.getNativeScrollRef();
-    const card = splitCardRef.current;
-    if (!scroll || !scrollHost || !card) return;
-    requestAnimationFrame(() => {
-      scrollHost.measureInWindow((_scrollX, scrollTop) => {
-        card.measureInWindow((_cardX, cardTop) => {
-          const y = Math.max(0, scrollOffsetRef.current + cardTop - scrollTop - 12);
-          scroll.scrollTo({ y, animated: true });
-        });
-      });
-    });
-  }, []);
 
   /**
    * Two or more fields typed since the sheet opened — the point the user
@@ -2149,10 +2273,11 @@ export function TransactionFormModal({
 
   return (
     <Modal
+      key={modalKey}
       transparent
       visible={showModal}
       animationType="none" // we handle animations manually for better control
-      onShow={settlePanel}
+      onShow={handleModalShow}
       onRequestClose={splitContext?.onBack ?? requestClose}>
       {/* A modal is its own window on Android, outside the app's gesture root. */}
       <GestureHandlerRootView style={{ flex: 1, justifyContent: 'flex-end' }}>
@@ -2205,16 +2330,12 @@ export function TransactionFormModal({
                 </View>
               </GestureDetector>
 
-              <ScrollView
-                ref={scrollRef}
-                onScroll={(event) => {
-                  scrollOffsetRef.current = event.nativeEvent.contentOffset.y;
-                }}
-                scrollEventThrottle={32}
+              <KeyboardAvoidingScreen
+                reveal={reveal}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 style={{ flex: 1 }}
-                contentContainerStyle={{ paddingBottom: keyboardInset > 0 ? keyboardInset + 24 : 16 }}>
+                contentContainerStyle={{ paddingBottom: 16 }}>
                 {!splitContext && sheetTitle ? (
                   <View style={formStyles.titleBlock}>
                     <ThemedText style={[formStyles.sheetTitle, { color: theme.text }]}>
@@ -2667,16 +2788,11 @@ export function TransactionFormModal({
                           ) : null}
                         </View>
                         {canSplit ? (
-                          <View
-                            ref={splitCardRef}
-                            onLayout={revealSplitCard}
-                            style={formStyles.splitCard}>
+                          <View {...reveal.target('split')} style={formStyles.splitCard}>
                             <TransactionSplitFields
                               form={form}
                               setForm={setForm}
-                              onTurnedOn={() => {
-                                revealSplitRef.current = true;
-                              }}
+                              onTurnedOn={() => reveal.expect('split')}
                               friends={splitFriends}
                               groups={splitGroups}
                               shareMode={splitShareMode}
@@ -2692,87 +2808,108 @@ export function TransactionFormModal({
                     </View>
 
                     {personalPayment && mode !== 'quick-prompt' && tagsApply && form.tag === 'EMI' && (
-                      <TransactionEmiFields
-                        isEdit={isEdit}
-                        emiLink={emiLink}
-                        paymentMode={form.mode}
-                        isCardConversion={isEMICreditCard}
-                        cardName={selectedAccount?.name}
-                        canRepeat={canRepeatEmi}
-                        repeatActive={emiRepeatActive}
-                        nextDebit={emiNextDebit}
-                        totalInstalments={form.emiTotalInstalments}
-                        paidInstalments={form.emiPaidInstalments}
-                        tenureMonths={form.emiTenureMonths}
-                        ratePct={form.emiRatePct}
-                        firstInstallment={emiFirstInstallment}
-                        calculation={emiCalculation}
-                        calculationError={emiCalculationError}
-                        isCalculating={isCalculatingEMI}
-                        onChangeRepeat={setEmiRepeats}
-                        onChangeTotalInstalments={(emiTotalInstalments) =>
-                          setForm((previous) => ({ ...previous, emiTotalInstalments }))
-                        }
-                        onChangePaidInstalments={(emiPaidInstalments) =>
-                          setForm((previous) => ({ ...previous, emiPaidInstalments }))
-                        }
-                        onChangeTenure={(emiTenureMonths) =>
-                          setForm((previous) => ({ ...previous, emiTenureMonths }))
-                        }
-                        onChangeRate={(emiRatePct) =>
-                          setForm((previous) => ({ ...previous, emiRatePct }))
-                        }
-                      />
+                      <View {...reveal.target('emi')}>
+                        <TransactionEmiFields
+                          isEdit={isEdit}
+                          emiLink={emiLink}
+                          paymentMode={form.mode}
+                          isCardConversion={isEMICreditCard}
+                          cardName={selectedAccount?.name}
+                          canRepeat={canRepeatEmi}
+                          repeatActive={emiRepeatActive}
+                          nextDebit={emiNextDebit}
+                          totalInstalments={form.emiTotalInstalments}
+                          paidInstalments={form.emiPaidInstalments}
+                          tenureMonths={form.emiTenureMonths}
+                          ratePct={form.emiRatePct}
+                          firstInstallment={emiFirstInstallment}
+                          calculation={emiCalculation}
+                          calculationError={emiCalculationError}
+                          isCalculating={isCalculatingEMI}
+                          onChangeRepeat={(repeats) => {
+                            if (repeats) reveal.expect('emi', { align: 'end' });
+                            setEmiRepeats(repeats);
+                          }}
+                          onChangeTotalInstalments={(emiTotalInstalments) =>
+                            setForm((previous) => ({ ...previous, emiTotalInstalments }))
+                          }
+                          onChangePaidInstalments={(emiPaidInstalments) =>
+                            setForm((previous) => ({ ...previous, emiPaidInstalments }))
+                          }
+                          onChangeTenure={(emiTenureMonths) =>
+                            setForm((previous) => ({ ...previous, emiTenureMonths }))
+                          }
+                          onChangeRate={(emiRatePct) =>
+                            setForm((previous) => ({ ...previous, emiRatePct }))
+                          }
+                        />
+                      </View>
                     )}
 
                     {mode !== 'quick-prompt' && personalPayment && tagsApply && form.tag === 'Refundable' && (
-                      <TransactionRefundFields
-                        refundableAmount={form.refundableAmount}
-                        expectedOn={form.refundExpectedOn}
-                        reminderEnabled={form.refundReminderEnabled}
-                        onChangeAmount={(refundableAmount) =>
-                          setForm((previous) => ({ ...previous, refundableAmount }))
-                        }
-                        onChangeExpectedOn={(refundExpectedOn) =>
-                          setForm((previous) => ({ ...previous, refundExpectedOn }))
-                        }
-                        onToggleReminder={() =>
-                          setForm((previous) => ({
-                            ...previous,
-                            refundReminderEnabled: !previous.refundReminderEnabled,
-                          }))
-                        }
-                      />
+                      <View {...reveal.target('refund')}>
+                        <TransactionRefundFields
+                          refundableAmount={form.refundableAmount}
+                          fullAmount={form.amount}
+                          amountInputRef={refundAmountInputRef}
+                          expectedOn={form.refundExpectedOn}
+                          reminderEnabled={form.refundReminderEnabled}
+                          onChangeAmount={(refundableAmount) => {
+                            refundIsFullRef.current =
+                              toAmount(refundableAmount) > 0 &&
+                              toAmount(refundableAmount) === toAmount(form.amount);
+                            setFormError(null);
+                            setForm((previous) => ({ ...previous, refundableAmount }));
+                          }}
+                          onChangeExpectedOn={(refundExpectedOn) => {
+                            setFormError(null);
+                            setForm((previous) => ({ ...previous, refundExpectedOn }));
+                          }}
+                          onToggleReminder={() =>
+                            setForm((previous) => ({
+                              ...previous,
+                              refundReminderEnabled: !previous.refundReminderEnabled,
+                            }))
+                          }
+                        />
+                      </View>
                     )}
 
                     {mode !== 'quick-prompt' &&
                       !isEdit &&
                       personalPayment &&
                       !emiRepeatActive &&
-                      (form.subscriptionEnabled || (tagsApply && form.tag === 'Subscription')) && (
-                        <TransactionSubscriptionFields
-                          form={form}
-                          setForm={setForm}
-                          onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
-                          optionsOpen={isSubscriptionOptionsOpen}
-                          onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
-                          onOpenCancellationDatePicker={async () => {
-                            const date = await pickDate({
-                              title: 'Cancellation reminder date',
-                              value: form.subscriptionCancelOnDate
-                                ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
-                                : new Date(),
-                              minimumDate: new Date(),
-                            });
-                            if (date) {
-                              setForm((p) => ({ ...p, subscriptionCancelOnDate: formatApiDate(date) }));
-                            }
-                          }}
-                        />
+                      // Income always offers it (device feedback 2026-11-17): a
+                      // salary is the commonest thing anyone receives monthly,
+                      // and income has no tags to reach it through.
+                      (form.subscriptionEnabled ||
+                        form.type === 'Income' ||
+                        (tagsApply && form.tag === 'Subscription')) && (
+                        <View {...reveal.target('subscription')}>
+                          <TransactionSubscriptionFields
+                            form={form}
+                            setForm={setForm}
+                            onOpenNextPaymentDatePicker={handleOpenSubscriptionDatePicker}
+                            optionsOpen={isSubscriptionOptionsOpen}
+                            onToggleOptions={() => setIsSubscriptionOptionsOpen((open) => !open)}
+                            onOpenCancellationDatePicker={async () => {
+                              const date = await pickDate({
+                                title: 'Cancellation reminder date',
+                                value: form.subscriptionCancelOnDate
+                                  ? new Date(`${form.subscriptionCancelOnDate}T12:00:00`)
+                                  : new Date(),
+                                minimumDate: new Date(),
+                              });
+                              if (date) {
+                                setForm((p) => ({ ...p, subscriptionCancelOnDate: formatApiDate(date) }));
+                              }
+                            }}
+                          />
+                        </View>
                       )}
                   </>
                 )}
-              </ScrollView>
+              </KeyboardAvoidingScreen>
 
               {/* Pinned under the scroll: the keypad on the capture path, and
                   Save everywhere, so saving never needs a scroll. */}
@@ -2940,6 +3077,9 @@ export function TransactionFormModal({
           onClose={() => setIsTagPickerVisible(false)}
           onSelect={(tag) => {
             haptics.select();
+            // These tags open a card of their own below the fold.
+            const openedCard = tagCards[tag];
+            if (openedCard && tag !== form.tag) reveal.expect(openedCard);
             setForm((p) => ({ ...p, tag }));
             setIsTagPickerVisible(false);
           }}

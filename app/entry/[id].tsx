@@ -50,6 +50,7 @@ import {
 import { buildRepeatForm } from '@/lib/repeat-entry';
 import { isPdfAttachment, resolveAttachmentForDisplay } from '@/lib/uploads';
 import {
+  budgetAlertDialog,
   fetchNewUnreadBudgetNotification,
   fetchUnreadBudgetNotificationIds,
 } from '@/lib/notifications';
@@ -367,7 +368,7 @@ export default function TransactionDetailsScreen() {
       void dialog.alert({
         title: 'Receipt unavailable',
         message: 'This receipt could not be opened right now.',
-        tone: 'danger',
+        tone: 'error',
       });
     }
   };
@@ -433,11 +434,7 @@ export default function TransactionDetailsScreen() {
     if (
       notification &&
       (await dialog.confirm({
-        title: notification.title,
-        message: notification.body,
-        confirmLabel: 'View Budgets',
-        cancelLabel: 'Later',
-        iconName: 'wallet-outline',
+        ...budgetAlertDialog(notification),
       }))
     ) {
       router.push('/budgets');
@@ -557,6 +554,7 @@ export default function TransactionDetailsScreen() {
     if (
       !(await dialog.confirm({
         title: status === 'received' ? 'Refund received?' : 'Write off refund?',
+        tone: status === 'received' ? 'info' : 'warning',
         message:
           status === 'received'
             ? 'This closes the reminder. Record the incoming money separately if it should appear in your ledger.'
@@ -575,7 +573,7 @@ export default function TransactionDetailsScreen() {
       await dialog.alert({
         title: 'Refund not updated',
         message: error instanceof Error ? error.message : `Could not ${verb}.`,
-        tone: 'danger',
+        tone: 'error',
       });
     }
   };
@@ -1152,7 +1150,7 @@ export default function TransactionDetailsScreen() {
           void dialog.alert({
             title: 'Could not share',
             message: 'The bill photo could not be shared right now.',
-            tone: 'danger',
+            tone: 'error',
           })
         }
       />

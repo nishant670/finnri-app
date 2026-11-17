@@ -2,15 +2,19 @@ import type { ComponentProps } from 'react';
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { MaterialCommunityIcons } from '@expo/vector-icons';
 
-import { ThemedAlertDialog, ThemedConfirmDialog } from '@/components/ui/ThemedConfirmDialog';
+import {
+  ThemedAlertDialog,
+  ThemedConfirmDialog,
+  type AlertTone,
+} from '@/components/ui/ThemedConfirmDialog';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 export type AppAlertOptions = {
   title: string;
   message: string;
-  /** Colours the icon and the button: accent, green, red. */
-  tone?: 'info' | 'success' | 'danger';
+  /** How it should feel: see `DialogTone`. */
+  tone?: AlertTone;
   buttonLabel?: string;
   iconName?: IconName;
 };
@@ -20,6 +24,8 @@ export type AppConfirmOptions = {
   message: string;
   confirmLabel: string;
   cancelLabel?: string;
+  /** How serious the question is. `destructive` wins over it. */
+  tone?: 'info' | 'warning' | 'danger';
   /** Paints the confirm action red and swaps the icon for a bin. */
   destructive?: boolean;
   iconName?: IconName;
@@ -60,6 +66,10 @@ type Queued = QueuedAlert | QueuedConfirm;
 export function AppDialogProvider({ children }: { children: React.ReactNode }) {
   const [current, setCurrent] = useState<Queued | null>(null);
   const queue = useRef<Queued[]>([]);
+  // What the dialogs draw, which outlives `current` so a dialog keeps its words
+  // and its colour while it fades out instead of blanking to the default look.
+  const [shown, setShown] = useState<Queued | null>(null);
+  if (current && current !== shown) setShown(current);
 
   const push = useCallback((request: Queued) => {
     setCurrent((active) => {
@@ -100,30 +110,30 @@ export function AppDialogProvider({ children }: { children: React.ReactNode }) {
     [advance, current]
   );
 
+  const alertShown = shown?.kind === 'alert' ? shown : null;
+  const confirmShown = shown?.kind === 'confirm' ? shown : null;
+
   return (
     <AppDialogContext.Provider value={value}>
       {children}
       <ThemedAlertDialog
         visible={current?.kind === 'alert'}
-        title={current?.kind === 'alert' ? current.title : ''}
-        message={current?.kind === 'alert' ? current.message : ''}
-        buttonLabel={current?.kind === 'alert' ? current.buttonLabel : undefined}
-        iconName={current?.kind === 'alert' ? current.iconName : undefined}
-        tone={current?.kind === 'alert' ? (current.tone ?? 'info') : 'info'}
+        title={alertShown?.title ?? ''}
+        message={alertShown?.message ?? ''}
+        buttonLabel={alertShown?.buttonLabel}
+        iconName={alertShown?.iconName}
+        tone={alertShown?.tone ?? 'info'}
         onDismiss={() => settle(true)}
       />
       <ThemedConfirmDialog
         visible={current?.kind === 'confirm'}
-        title={current?.kind === 'confirm' ? current.title : ''}
-        message={current?.kind === 'confirm' ? current.message : ''}
-        confirmLabel={current?.kind === 'confirm' ? current.confirmLabel : ''}
-        cancelLabel={current?.kind === 'confirm' ? current.cancelLabel : undefined}
-        destructive={current?.kind === 'confirm' ? current.destructive : false}
-        iconName={
-          current?.kind === 'confirm'
-            ? (current.iconName ?? (current.destructive ? 'delete-outline' : 'alert-circle-outline'))
-            : undefined
-        }
+        title={confirmShown?.title ?? ''}
+        message={confirmShown?.message ?? ''}
+        confirmLabel={confirmShown?.confirmLabel ?? ''}
+        cancelLabel={confirmShown?.cancelLabel}
+        tone={confirmShown?.tone}
+        destructive={confirmShown?.destructive ?? false}
+        iconName={confirmShown?.iconName}
         onCancel={() => settle(false)}
         onConfirm={() => settle(true)}
       />

@@ -16,6 +16,7 @@ import { AppHeader } from '@/components/navigation/AppHeader';
 import { ThemedText } from '@/components/themed-text';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { PrimaryButton } from '@/components/ui/Button';
+import { RevealScrollView } from '@/components/ui/RevealScrollView';
 import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { ListRow } from '@/components/ui/ListRow';
 import { PressableView } from '@/components/ui/PressableView';
@@ -311,7 +312,7 @@ export function BudgetsPanel({ embedded = false, startAdding = false }: MoneyPan
           />
         )}
 
-        <ScrollView
+        <RevealScrollView
           ref={scrollRef}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -505,7 +506,7 @@ export function BudgetsPanel({ embedded = false, startAdding = false }: MoneyPan
               })}
             </View>
           )}
-        </ScrollView>
+        </RevealScrollView>
       </KeyboardAvoidingView>
     </View>
   );

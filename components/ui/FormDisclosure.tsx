@@ -1,10 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { PressableView } from '@/components/ui/PressableView';
+import { useScrollReveal } from '@/components/ui/RevealScrollView';
 import { withAlpha } from '@/constants/theme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
@@ -27,6 +28,8 @@ type FormDisclosureProps = {
   expanded: boolean;
   onToggle: () => void;
   testID?: string;
+  /** Names this fold so its form can scroll to it, as a refused save does. */
+  revealKey?: string;
   children: ReactNode;
 };
 
@@ -52,13 +55,17 @@ export function FormDisclosure({
   expanded,
   onToggle,
   testID,
+  revealKey,
   children,
 }: FormDisclosureProps) {
   const theme = useThemeTokens().colors;
   const motion = useMotion();
+  const reveal = useScrollReveal();
+  const ownKey = useId();
+  const key = revealKey ?? ownKey;
 
   return (
-    <View>
+    <View {...reveal?.target(key)}>
       <PressableView
         testID={testID}
         accessibilityRole="button"
@@ -66,6 +73,9 @@ export function FormDisclosure({
         accessibilityLabel={summary ? `${label}. ${summary}` : label}
         onPress={() => {
           haptics.toggle(!expanded);
+          // Only on a tap: a fold that opens because a field was filled in
+          // must not pull the sheet away from what the user is doing.
+          if (!expanded) reveal?.expect(key);
           onToggle();
         }}
         style={[styles.row, { borderColor: theme.border }]}

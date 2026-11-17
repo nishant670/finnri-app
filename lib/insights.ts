@@ -89,6 +89,33 @@ export const formatChangeMagnitude = (change: number) => {
 };
 
 /**
+ * The spend comparison line in words: "8% less than Oct 1–13", or "About the
+ * same as Oct 1–13" when the change rounds to 0%.
+ *
+ * Home printed "0% more than Oct 1–13" in red (and "0% less" in green) for a
+ * month that was level to within half a percent: the arrow and the colour told
+ * the reader something had moved when the number said nothing had. A change
+ * that rounds to 0% is `direction: 'same'`, which callers draw neutral.
+ */
+export type SpendChangeLine = {
+  direction: 'more' | 'less' | 'same';
+  lead: string;
+  rest: string;
+};
+
+export const describeSpendChange = (change: number, previousWindow: string): SpendChangeLine => {
+  if (!Number.isFinite(change) || Math.round(Math.abs(change)) === 0) {
+    return { direction: 'same', lead: 'About the same', rest: `as ${previousWindow}` };
+  }
+  const more = change > 0;
+  return {
+    direction: more ? 'more' : 'less',
+    lead: `${formatChangeMagnitude(change)} ${more ? 'more' : 'less'}`,
+    rest: `than ${previousWindow}`,
+  };
+};
+
+/**
  * Just the window a change is measured against — "Jul 1–12" out of the
  * backend's "Aug 1–12 vs Jul 1–12".
  *

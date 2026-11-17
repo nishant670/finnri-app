@@ -86,13 +86,6 @@ const PROMPT_ROTATE_MS = 2600;
 const STILL_REACH = 0.18;
 const STILL_OPACITY = 0.2;
 
-/**
- * One question, shown under the capture field so the other direction of the
- * channel is discoverable. It matches the first of the server's own
- * suggestions, so the app never advertises a question shape the API declines.
- */
-const EXAMPLE_QUESTION = 'How much did I spend on food this month?';
-
 type VoiceInputCardProps = {
   /**
    * Read for its metering only. The card never starts or stops it — that stays
@@ -101,7 +94,6 @@ type VoiceInputCardProps = {
   recorder?: AudioRecorder | null;
   onMicPress: () => void;
   onMicLongPress?: () => void;
-  onAskPress?: () => void;
   isRecording: boolean;
   hasRecording: boolean;
   inputText: string;
@@ -174,7 +166,6 @@ export function VoiceInputCard({
   recorder,
   onMicPress,
   onMicLongPress,
-  onAskPress,
   isRecording,
   hasRecording,
   inputText,
@@ -610,31 +601,6 @@ export function VoiceInputCard({
             </Pressable>
           </View>
 
-          {/* The field takes questions as well as captures, and nothing else on
-              the screen says so. A worked example is the only reliable way to
-              tell someone that — and tapping it asks it, so the first question
-              costs a tap rather than a sentence they have to compose. */}
-          {!trimmedInput ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Ask ${EXAMPLE_QUESTION}`}
-              onPress={() => (onAskPress ? onAskPress() : onChangeText(EXAMPLE_QUESTION))}
-              disabled={busy}
-              hitSlop={6}
-              style={styles.askLine}>
-              <ThemedText tone="muted" style={styles.caption}>
-                Or ask —{' '}
-                <ThemedText
-                  style={[
-                    styles.caption,
-                    styles.askLink,
-                    { color: colors.text, textDecorationColor: withAlpha(colors.text, 0.3) },
-                  ]}>
-                  “{EXAMPLE_QUESTION}”
-                </ThemedText>
-              </ThemedText>
-            </Pressable>
-          ) : null}
         </Animated.View>
       ) : (
         <View style={[styles.footer, stacked && styles.footerStacked, { borderTopColor: colors.border }]}>
@@ -887,14 +853,6 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  askLine: {
-    alignSelf: 'flex-start',
-    paddingLeft: 4,
-  },
-  askLink: {
-    fontWeight: '500',
-    textDecorationLine: 'underline',
   },
   inactive: {
     opacity: 0.45,
