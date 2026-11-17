@@ -96,6 +96,18 @@ export const createDefaultEntryForm = (): EntryForm => ({
 });
 
 /**
+ * A new capture's form: the defaults, with no account, merchant or notes
+ * carried over. Home's composer and the bills tray both start from it.
+ */
+export const createBlankEntryForm = (): EntryForm => ({
+  ...createDefaultEntryForm(),
+  accountId: null,
+  account: '',
+  merchant: '',
+  notes: '',
+});
+
+/**
  * Lay a parsed capture draft over the form it will be reviewed in. Text, voice
  * and receipt scans all land here, so a draft reads the same whichever way it
  * arrived.

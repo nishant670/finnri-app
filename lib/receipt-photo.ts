@@ -48,6 +48,43 @@ export const pickReceiptPhoto = async (source: ReceiptPhotoSource): Promise<Rece
   }
 };
 
+export type ReceiptPhotosPick =
+  | { status: 'picked'; uris: string[] }
+  | { status: 'cancelled' }
+  | { status: 'camera-denied'; canAskAgain: boolean }
+  | { status: 'failed' };
+
+/**
+ * Several bills at once (P95). The gallery opens Android's photo picker with
+ * multi-select, capped at `limit`; the camera still takes one photo per open,
+ * and the bills screen offers "Take another" for the next.
+ */
+export const pickReceiptPhotos = async (
+  source: ReceiptPhotoSource,
+  limit: number
+): Promise<ReceiptPhotosPick> => {
+  if (source === 'camera' || limit <= 1) {
+    const pick = await pickReceiptPhoto(source);
+    return pick.status === 'picked' ? { status: 'picked', uris: [pick.uri] } : pick;
+  }
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      ...PICK_OPTIONS,
+      allowsMultipleSelection: true,
+      selectionLimit: limit,
+      orderedSelection: true,
+    });
+    if (result.canceled) return { status: 'cancelled' };
+    const uris = (result.assets ?? [])
+      .map((asset) => asset.uri)
+      .filter(Boolean)
+      .slice(0, limit);
+    return uris.length > 0 ? { status: 'picked', uris } : { status: 'failed' };
+  } catch {
+    return { status: 'failed' };
+  }
+};
+
 /**
  * A photo taken while Android stopped Finnri to free memory for the camera.
  *

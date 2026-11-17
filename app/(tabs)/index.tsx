@@ -80,8 +80,15 @@ import {
 import { haptics } from '@/lib/haptics';
 import { formToQuickPromptPayload } from '@/lib/quick-prompts';
 import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, ParseApiError, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
-import { pickReceiptPhoto, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
+import { pickReceiptPhoto, pickReceiptPhotos, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
 import { ReceiptSourceSheet } from '@/components/transactions/ReceiptSourceSheet';
+import { MAX_BILLS_PER_BATCH } from '@/lib/bill-batch';
+import {
+  loadBillBatch,
+  putBillPhotos,
+  takeBillsSavedToast,
+  takeSingleBill,
+} from '@/lib/bill-batch-store';
 import {
   fetchSplitFriends,
   fetchSplitGroups,
@@ -109,6 +116,7 @@ import { requestMicAccess } from '@/lib/microphone-access';
 import {
   applyParsedDraftToForm,
   buildAiReview,
+  createBlankEntryForm,
   createDefaultEntryForm,
   creditActionForParseError,
   quickPromptEditorData,
@@ -287,16 +295,7 @@ export default function HomeScreen() {
    * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
    * until the app was restarted.
    */
-  const createBlankForm = useCallback(
-    (): EntryForm => ({
-      ...createDefaultEntryForm(),
-      accountId: null,
-      account: '',
-      merchant: '',
-      notes: '',
-    }),
-    []
-  );
+  const createBlankForm = useCallback((): EntryForm => createBlankEntryForm(), []);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
@@ -346,6 +345,8 @@ export default function HomeScreen() {
     scrollY.value = event.contentOffset.y;
   });
   const [saveConfirmation, setSaveConfirmation] = useState<string | null>(null);
+  /** Home's bill scan, for the focus effect above it to call. */
+  const scanReceiptRef = useRef<((uri: string) => Promise<void>) | null>(null);
   const [aiReview, setAiReview] = useState<AiReviewMetadata | null>(null);
   /**
    * The sheet is open on an empty draft while the parse is in flight. Two to
@@ -787,6 +788,12 @@ export default function HomeScreen() {
         resumeDraftAfterAccounts.current = false;
         setIsEditOpen(true);
       }
+      // Back from the bills screen (P95–P102): one bill is read by the scan
+      // below, as before; several were saved there and only need the toast.
+      const billsToast = takeBillsSavedToast();
+      if (billsToast) setSaveConfirmation(billsToast);
+      const singleBill = takeSingleBill();
+      if (singleBill) void scanReceiptRef.current?.(singleBill);
       void fetchEntries();
       void fetchMonthSummary();
       void fetchAccountOptions();
@@ -1509,6 +1516,8 @@ export default function HomeScreen() {
     ]
   );
 
+  scanReceiptRef.current = scanReceipt;
+
   /** "Scan a bill" asks camera or gallery first; the chooser lives here, on Home. */
   const [isReceiptSourceOpen, setIsReceiptSourceOpen] = useState(false);
 
@@ -1527,9 +1536,21 @@ export default function HomeScreen() {
       setIsReceiptSourceOpen(false);
       // iOS will not present the picker while the chooser is still fading out.
       if (Platform.OS === 'ios') await new Promise((resolve) => setTimeout(resolve, 350));
-      const pick = await pickReceiptPhoto(source);
+      // From Home, a scan can take several bills (P95). From inside the entry
+      // sheet it fills the one entry that is open, so it stays a single photo.
+      const several = !isEditOpenRef.current;
+      const pick = several
+        ? await pickReceiptPhotos(source, MAX_BILLS_PER_BATCH)
+        : await pickReceiptPhoto(source).then((single) =>
+            single.status === 'picked' ? { status: 'picked' as const, uris: [single.uri] } : single
+          );
       if (pick.status === 'picked') {
-        void scanReceipt(pick.uri);
+        if (!several || (source === 'library' && pick.uris.length === 1)) {
+          void scanReceipt(pick.uris[0]);
+          return;
+        }
+        putBillPhotos({ uris: pick.uris, origin: source });
+        router.push('/bills');
         return;
       }
       if (pick.status === 'camera-denied') {
@@ -1554,7 +1575,7 @@ export default function HomeScreen() {
         });
       }
     },
-    [dialog, scanReceipt]
+    [dialog, router, scanReceipt]
   );
 
   // Android may stop Finnri while the camera is open on a phone short of
@@ -1563,10 +1584,17 @@ export default function HomeScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android' || !token || checkedPendingReceipt.current) return;
     checkedPendingReceipt.current = true;
-    void takePendingReceiptPhoto().then((uri) => {
+    void Promise.all([takePendingReceiptPhoto(), loadBillBatch()]).then(([uri, batch]) => {
+      // A multi-bill scan was open (P95): the photo, if any, is its next bill,
+      // and the screen reopens where it was.
+      if (batch) {
+        if (uri && batch.phase === 'pick') putBillPhotos({ uris: [uri], origin: 'camera' });
+        router.push('/bills');
+        return;
+      }
       if (uri) void scanReceipt(uri);
     });
-  }, [scanReceipt, token]);
+  }, [router, scanReceipt, token]);
 
   const submitPrompt = useCallback(
     async (overrideText?: string) => {
@@ -2107,6 +2135,7 @@ export default function HomeScreen() {
       />
       <ReceiptSourceSheet
         visible={isReceiptSourceOpen}
+        multiple={!isEditOpen}
         onChoose={(source) => void chooseReceiptSource(source)}
         onClose={() => setIsReceiptSourceOpen(false)}
       />
