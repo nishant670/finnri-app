@@ -27,12 +27,18 @@ import {
   updateAccount,
   type AccountPayload,
   type AccountType,
+  type CardNetwork,
+  type CardProductSummary,
   type CreditKind,
 } from '@/lib/accounts';
+import { cardBankName, cardNetworkLabel, cardProductTitle, productArt } from '@/lib/card-art';
+import { userDisplayName } from '@/lib/display-name';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import { withSetupDetail, type AccountSetupItem } from '@/lib/account-display';
 import { haptics } from '@/lib/haptics';
 
+import { CardNetworkChips, CardProductPicker } from '@/components/cards/CardProductPicker';
+import { SketchCard } from '@/components/cards/SketchCard';
 import { styles } from '@/components/accounts/account-form-styles';
 import { AccountStyleFold } from '@/components/accounts/AccountFormStepOne';
 import { AccountFormStepTwo } from '@/components/accounts/AccountFormStepTwo';
@@ -52,7 +58,7 @@ import {
 export default function ManageAccountScreen() {
   const themeTokens = useThemeTokens();
   const theme = themeTokens.colors;
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
   const keyboardInset = useKeyboardInset();
   const {
     id,
@@ -98,6 +104,12 @@ export default function ManageAccountScreen() {
   const [selectedIssuer, setSelectedIssuer] = useState<ProviderOption | null>(null);
   const [providerOptions, setProviderOptions] = useState<ProviderOption[]>([]);
   const [showIssuerResults, setShowIssuerResults] = useState(false);
+
+  // Credit cards: the exact card from the catalogue (plan §6), or "isn't
+  // listed", and the network printed on it.
+  const [cardProduct, setCardProduct] = useState<CardProductSummary | null>(null);
+  const [cardNotListed, setCardNotListed] = useState(false);
+  const [cardNetwork, setCardNetwork] = useState<CardNetwork | ''>('');
 
   const [last4, setLast4] = useState('');
   const [balance, setBalance] = useState('');
@@ -185,6 +197,8 @@ export default function ManageAccountScreen() {
         setFeeMonth(account.fee_month || '');
         setAnnualFee(account.annual_fee ? String(account.annual_fee) : '');
         setFeeWaiverSpend(account.fee_waiver_spend ? String(account.fee_waiver_spend) : '');
+        setCardProduct(account.card_product ?? null);
+        setCardNetwork(account.card_network ?? '');
         setIsDefault(Boolean(account.is_default));
       })
       .catch((error) => {
@@ -235,10 +249,22 @@ export default function ManageAccountScreen() {
     }
   }, [issuerQuery, providerOptions, selectedIssuer]);
 
+  const pickingProduct = selectedType === 'credit_card' && creditKind !== 'pay_later';
+  // A product belongs to one bank: choosing another bank drops it.
+  useEffect(() => {
+    if (cardProduct && selectedIssuer && cardProduct.issuer_id !== selectedIssuer.id) {
+      setCardProduct(null);
+      setCardNotListed(false);
+    }
+  }, [cardProduct, selectedIssuer]);
+
   const nameSuggestion = suggestAccountName({
     type: selectedType,
     creditKind,
-    provider: selectedIssuer?.name || issuerQuery,
+    provider:
+      pickingProduct && cardProduct
+        ? cardProductTitle(selectedIssuer?.id, selectedIssuer?.name || issuerQuery, cardProduct.name)
+        : selectedIssuer?.name || issuerQuery,
     identifier: last4,
   });
   useEffect(() => {
@@ -268,6 +294,9 @@ export default function ManageAccountScreen() {
     setFeeMonth('');
     setAnnualFee('');
     setFeeWaiverSpend('');
+    setCardProduct(null);
+    setCardNotListed(false);
+    setCardNetwork('');
     setTypeError(null);
   };
 
@@ -293,6 +322,9 @@ export default function ManageAccountScreen() {
     setFeeMonth('');
     setAnnualFee('');
     setFeeWaiverSpend('');
+    setCardProduct(null);
+    setCardNotListed(false);
+    setCardNetwork('');
     setIsDefault(false);
     setSaveError(null);
     setTypeError(null);
@@ -349,6 +381,7 @@ export default function ManageAccountScreen() {
           : {}),
         ...balanceFields,
         ...(isCard ? { credit_kind: creditKind } : {}),
+        ...(pickingProduct ? { card_product_id: cardProduct?.id ?? '', card_network: cardNetwork } : {}),
         is_default: isDefault,
       };
       if (isEditing && accountId !== null) {
@@ -494,6 +527,46 @@ export default function ManageAccountScreen() {
           />
   );
 
+  const pickCardProduct = (product: CardProductSummary & { annual_fee?: number | null; fee_waiver_spend?: number | null }) => {
+    setCardProduct(product);
+    setCardNotListed(false);
+    // The catalogue fills what the user has not typed; the server does the same.
+    if (!annualFee.trim() && product.annual_fee) setAnnualFee(String(product.annual_fee));
+    if (!feeWaiverSpend.trim() && product.fee_waiver_spend) setFeeWaiverSpend(String(product.fee_waiver_spend));
+  };
+
+  const productStep =
+    pickingProduct && selectedIssuer ? (
+      <>
+        <CardProductPicker
+          token={token}
+          issuerId={selectedIssuer.id}
+          bankName={selectedIssuer.name}
+          selectedId={cardProduct?.id ?? ''}
+          notListed={cardNotListed}
+          onSelect={pickCardProduct}
+          onNotListed={() => {
+            setCardProduct(null);
+            setCardNotListed(true);
+          }}
+        />
+        {cardProduct ? (
+          // The card as it will be drawn, updating as the digits go in.
+          <View style={sheetStyles.preview} testID="card-product-preview">
+            <SketchCard
+              art={productArt(cardProduct)}
+              bank={cardBankName(selectedIssuer.id, selectedIssuer.name)}
+              product={cardProduct.name}
+              last4={/^\d{4}$/.test(last4) ? last4 : undefined}
+              network={cardNetworkLabel(cardNetwork)}
+              holder={userDisplayName(user?.username, '')}
+              width={productArt(cardProduct).portrait ? 150 : 260}
+            />
+          </View>
+        ) : null}
+      </>
+    ) : null;
+
   /** P62: a detail filled in on the Account added screen. */
   const saveCreatedDetail = async (item: AccountSetupItem, value: string) => {
     if (!token || !createdAccount) return;
@@ -565,6 +638,10 @@ export default function ManageAccountScreen() {
                 showIssuerResults={showIssuerResults}
                 isDigitsIdentifier={identifierIsDigits}
                 updateIdentifier={updateIdentifier}
+                afterProvider={productStep}
+                afterIdentifier={
+                  pickingProduct ? <CardNetworkChips value={cardNetwork} onChange={setCardNetwork} /> : null
+                }
               />
               {/* How much cash is on you is the one fact a cash account has. */}
               {selectedType === 'cash' ? stepTwo(true) : null}
@@ -637,6 +714,17 @@ const sheetStyles = StyleSheet.create({
   more: {
     marginTop: 20,
     marginBottom: 8,
+  },
+  preview: {
+    marginTop: 14,
+    alignSelf: 'center',
+    borderRadius: 14,
+    // A pale card on a light page needs an edge to sit on.
+    shadowColor: '#281E3C',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
   },
   title: {
     fontSize: 20,

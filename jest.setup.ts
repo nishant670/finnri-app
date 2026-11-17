@@ -389,3 +389,10 @@ beforeEach(() => {
       callback(0, 0, 1, 1);
     });
 });
+
+// The card catalogue is fetched by Add card and the card page. No test should
+// reach the network for it; a test that needs products mocks them itself.
+jest.mock('@/lib/card-products', () => ({
+  ...jest.requireActual('@/lib/card-products'),
+  fetchCardProducts: jest.fn(() => Promise.resolve([])),
+}));

@@ -1,5 +1,5 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import { ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
@@ -151,6 +151,10 @@ type AccountIdentityFieldsProps = {
   showIssuerResults: boolean;
   isDigitsIdentifier: boolean;
   updateIdentifier: (value: string) => void;
+  /** A credit card's product step, between the bank and the last 4 digits. */
+  afterProvider?: ReactNode;
+  /** A credit card's network, after its last 4 digits. */
+  afterIdentifier?: ReactNode;
 };
 
 /**
@@ -176,6 +180,8 @@ export function AccountIdentityFields({
   showIssuerResults,
   isDigitsIdentifier,
   updateIdentifier,
+  afterProvider,
+  afterIdentifier,
 }: AccountIdentityFieldsProps) {
   const theme = useThemeTokens().colors;
   const fieldColors = { backgroundColor: theme.card, borderColor: theme.border };
@@ -242,6 +248,8 @@ export function AccountIdentityFields({
         </View>
       ) : null}
 
+      {afterProvider}
+
       {detailCopy.identifierLabel ? (
         <View style={sheetStyles.field}>
           <ThemedText style={[sheetStyles.label, { color: theme.text }]}>
@@ -260,6 +268,8 @@ export function AccountIdentityFields({
           />
         </View>
       ) : null}
+
+      {afterIdentifier}
 
       <View style={sheetStyles.field}>
         <ThemedText style={[sheetStyles.label, { color: theme.text }]}>Name</ThemedText>

@@ -28,6 +28,7 @@ import { formatMoney } from '@/lib/money';
 import { cardTotalSummary } from '@/lib/money-overview';
 import { Account, type AccountType, fetchAccounts, normalizeAccountType } from '@/lib/accounts';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
+import { isDrawnCard } from '@/lib/card-list';
 
 type AccountFilter = 'all' | string;
 
@@ -215,6 +216,7 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
   }, [accounts]);
 
   const cardTotals = useMemo(() => cardTotalSummary(accounts), [accounts]);
+  const hasDrawnCards = useMemo(() => accounts.some(isDrawnCard), [accounts]);
 
   const handleAddAccount = (type?: AccountType) => {
     const suggestionMatchesType = !type || !suggestedAccount?.type || suggestedAccount.type === type;
@@ -434,9 +436,26 @@ export function AccountsPanel({ suggestedAccount }: { suggestedAccount?: Suggest
                 <GroupHeader
                   label={`${group.label} · ${group.accounts.length}`}
                   total={
-                    group.key === 'credit_cards' && accountSummary.outstanding > 0
+                    group.key === 'credit_cards' && !hasDrawnCards && accountSummary.outstanding > 0
                       ? `${formatMoney(accountSummary.outstanding)} owed`
                       : undefined
+                  }
+                  accessory={
+                    // The owed total is in the tile above; this heading opens
+                    // the cards drawn in full (board R18-AllCards).
+                    group.key === 'credit_cards' && hasDrawnCards ? (
+                      <PressableView
+                        testID="accounts-see-cards"
+                        accessibilityRole="button"
+                        accessibilityLabel="See your cards"
+                        hitSlop={10}
+                        onPress={() => router.push('/cards')}
+                        style={styles.seeCards}
+                        pressedStyle={styles.pressed}>
+                        <ThemedText style={[styles.seeCardsLabel, { color: theme.text }]}>See cards</ThemedText>
+                        <MaterialCommunityIcons name="chevron-right" size={16} color={theme.text} />
+                      </PressableView>
+                    ) : undefined
                   }
                 />
                 <View style={cardStyle}>{group.accounts.map(renderAccountRow)}</View>
@@ -570,6 +589,16 @@ const styles = StyleSheet.create({
   chipLabel: {
     fontSize: 13,
     lineHeight: 18,
+  },
+  seeCards: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  seeCardsLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
   },
   pressed: {
     opacity: 0.7,
