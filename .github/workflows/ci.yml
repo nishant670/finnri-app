@@ -1,0 +1,42 @@
+name: CI
+
+# Types, lint and the Jest suite on every pull request. No native build: EAS
+# builds are started by hand, when one is wanted.
+on:
+  pull_request:
+  push:
+    branches: [master, testing/receipts-and-statements]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      # Expo writes this file on `expo start` and it is git-ignored, so a clean
+      # checkout has no declaration for `import '../global.css'` and the type
+      # check fails on that one line.
+      - name: Expo type references
+        run: printf '/// <reference types="expo/types" />\n' > expo-env.d.ts
+      - name: Types
+        run: npx tsc --noEmit
+      - name: Lint
+        # Warnings fail too: the tree is clean today, and a warning nobody is
+        # made to look at is how it stops being clean.
+        run: npx expo lint -- --max-warnings 0
+      - name: Test
+        # Render-heavy suites pass in a second alone and time out at Jest's
+        # five-second default when the machine is busy; a CI runner is busy.
+        run: npx jest --silent --maxWorkers=2 --testTimeout=20000

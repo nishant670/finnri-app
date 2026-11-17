@@ -8,7 +8,7 @@ import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { CAPTURE_HINTS, useSpeakLanguage } from '@/lib/speak-language';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { AudioRecorder } from 'expo-audio';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   cancelAnimation,

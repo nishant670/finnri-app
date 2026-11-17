@@ -17,7 +17,6 @@ import { SplitFullScreenModal } from '@/components/split/primitives/SplitFullScr
 import { ThemedText } from '@/components/themed-text';
 import { Button, PrimaryButton } from '@/components/ui/Button';
 import { KeyboardAvoidingScreen } from '@/components/ui/KeyboardAvoidingScreen';
-import { ListRow } from '@/components/ui/ListRow';
 import { PressableView } from '@/components/ui/PressableView';
 import { GroupHeader, SCREEN_GUTTER } from '@/components/ui/theme-primitives';
 import { Fonts } from '@/constants/theme';
