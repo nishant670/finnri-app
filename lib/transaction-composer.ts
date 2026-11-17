@@ -258,8 +258,14 @@ export async function createRecurringFromForm(
     cancel_on_date: form.subscriptionCancelOnDate.trim(),
     autopay: form.subscriptionAutopay,
     payment_mode: form.mode,
-    transaction_tag: form.tag || 'Subscription',
-    purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
+    // Income repeats as its own kind: the server writes its payments as
+    // income and keeps it out of what is committed each month.
+    ...(form.type === 'Income'
+      ? { kind: 'income' as const, transaction_tag: 'General', purpose_type: 'normal_spend' }
+      : {
+          transaction_tag: form.tag || 'Subscription',
+          purpose_type: form.tag.toLowerCase() === 'investment' ? 'investment' : 'normal_spend',
+        }),
     notes: form.subscriptionNotes.trim(),
     account_id: account?.id ?? null,
     ...loanInstalments(form),

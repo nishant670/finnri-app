@@ -18,7 +18,9 @@ import { fetchSubscriptions, type Subscription } from '@/lib/subscriptions';
 import { fetchRefundables, type RefundableEntry } from '@/lib/refundables';
 import {
   buildUpcomingDues,
-  formatDueLabel,
+  dueStatusLabel,
+  isIncomingDue,
+  isLateDue,
   totalUpcomingAmount,
   type UpcomingDue,
 } from '@/lib/upcoming';
@@ -131,8 +133,10 @@ export function UpcomingPanel({
     [subscriptions, accounts, refundables]
   );
 
-  const overdue = useMemo(() => dues.filter((due) => due.state === 'overdue'), [dues]);
-  const upcoming = useMemo(() => dues.filter((due) => due.state !== 'overdue'), [dues]);
+  // A salary that has not come in yet is not "overdue" money owed; it stays
+  // with the upcoming rows, worded "3 days late".
+  const overdue = useMemo(() => dues.filter(isLateDue), [dues]);
+  const upcoming = useMemo(() => dues.filter((due) => !isLateDue(due)), [dues]);
   const total = useMemo(() => totalUpcomingAmount(dues), [dues]);
   const overdueTotal = useMemo(() => totalUpcomingAmount(overdue), [overdue]);
   const upcomingTotal = useMemo(() => totalUpcomingAmount(upcoming), [upcoming]);
@@ -159,13 +163,21 @@ export function UpcomingPanel({
 
   // Red once it is late, amber when it wants doing this week, quiet otherwise.
   const statusTone = (due: UpcomingDue): ListRowTone =>
-    due.state === 'overdue' ? 'negative' : due.state === 'scheduled' ? 'muted' : 'warning';
+    due.state === 'overdue'
+      ? due.incoming
+        ? 'warning'
+        : 'negative'
+      : due.state === 'scheduled'
+        ? 'muted'
+        : due.incoming
+          ? 'positive'
+          : 'warning';
 
   const renderGroup = (group: UpcomingDue[]) => (
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
       {group.map((due, index) => {
         const visual = visualFor(due);
-        const isRefund = due.kind === 'refund';
+        const isRefund = isIncomingDue(due);
         const amount =
           due.amount === null
             ? '—'
@@ -174,7 +186,7 @@ export function UpcomingPanel({
               : formatMoney(due.amount);
         // P20: a due that can be finished here says so on its row.
         if (dueAction(due)) {
-          const status = isRefund ? `Expected back · ${formatDueLabel(due)}` : formatDueLabel(due);
+          const status = dueStatusLabel(due);
           return (
             <ListRow
               key={due.key}
@@ -204,10 +216,10 @@ export function UpcomingPanel({
                   : formatMoney(due.amount)
             }
             amountTone={isRefund ? 'positive' : 'default'}
-            status={formatDueLabel(due)}
+            status={dueStatusLabel(due)}
             statusTone={statusTone(due)}
             divider={index > 0}
-            accessibilityLabel={`${due.title}, ${formatDueLabel(due)}`}
+            accessibilityLabel={`${due.title}, ${dueStatusLabel(due)}`}
             onPress={() => openDue(due)}
           />
         );

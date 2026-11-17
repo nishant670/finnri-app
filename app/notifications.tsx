@@ -41,6 +41,7 @@ import {
   fetchNotifications,
   markAllNotificationsRead,
   markNotificationRead,
+  isIncomeReminder,
   recurringIdFromActionURL,
   settlementIdFromActionURL,
 } from '@/lib/notifications';
@@ -312,7 +313,11 @@ export default function NotificationsScreen() {
     const actions: { label: string; primary?: boolean; onPress: () => void }[] = [];
     if (notification.type === 'subscription.due' || notification.type === 'subscription.overdue') {
       if (recurringIdFromActionURL(notification.action_url)) {
-        actions.push({ label: 'Mark paid', primary: true, onPress: () => void startMarkPaid(notification) });
+        actions.push({
+          label: isIncomeReminder(notification) ? 'Mark received' : 'Mark paid',
+          primary: true,
+          onPress: () => void startMarkPaid(notification),
+        });
       }
     }
     if (notification.type === 'card_statement.statement_expected') {

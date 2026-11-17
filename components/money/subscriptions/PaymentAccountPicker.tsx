@@ -18,6 +18,8 @@ import { haptics } from '@/lib/haptics';
 
 /** How a recurring payment can leave an account. Cash has no account to draw on. */
 export const RECURRING_PAYMENT_MODES = ['Bank Account', 'UPI', 'Credit Card'] as const;
+/** Where recurring income can land: never a credit card. */
+export const INCOME_PAYMENT_MODES = ['Bank Account', 'UPI'] as const;
 
 const MODE_NOUN: Record<string, string> = {
   'Bank Account': 'bank account',
@@ -70,9 +72,10 @@ export function selectPaymentMode(accounts: Account[], mode: string) {
 export function usablePayment(
   accounts: Account[],
   paymentMode: string,
-  accountID: number | null
+  accountID: number | null,
+  modes: readonly string[] = RECURRING_PAYMENT_MODES
 ): { paymentMode: string; accountID: number | null } {
-  if (!(RECURRING_PAYMENT_MODES as readonly string[]).includes(paymentMode)) {
+  if (!modes.includes(paymentMode)) {
     return { paymentMode: 'Bank Account', accountID: selectPaymentMode(accounts, 'Bank Account') };
   }
   return { paymentMode, accountID: accountID ?? selectPaymentMode(accounts, paymentMode) };
@@ -91,6 +94,8 @@ type PaymentAccountPickerProps = {
   /** Draws the rule above the first row, when the rows follow others in a card. */
   divider?: boolean;
   testID?: string;
+  /** The modes offered; income passes {@link INCOME_PAYMENT_MODES}. */
+  modes?: readonly string[];
 };
 
 /**
@@ -113,6 +118,7 @@ export function PaymentAccountPicker({
   modeLabel = accountLabel.startsWith('Paid') ? 'Paid via' : 'Pay via',
   divider = false,
   testID,
+  modes = RECURRING_PAYMENT_MODES,
 }: PaymentAccountPickerProps) {
   const { colors } = useThemeTokens();
   const [sheet, setSheet] = useState<'mode' | 'account' | null>(null);
@@ -148,7 +154,7 @@ export function PaymentAccountPicker({
       <PickerSheet visible={sheet === 'mode'} title={modeLabel} onClose={() => setSheet(null)}>
         <PickerOptionList
           accessibilityLabel={modeLabel}
-          options={RECURRING_PAYMENT_MODES.map((mode) => ({ key: mode, label: mode, icon: MODE_ICON[mode] }))}
+          options={modes.map((mode) => ({ key: mode, label: mode, icon: MODE_ICON[mode] }))}
           selectedKey={paymentMode}
           onSelect={(mode) => {
             haptics.select();
