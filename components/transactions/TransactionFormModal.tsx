@@ -565,6 +565,50 @@ export function TransactionFormModal({
     });
     return () => subscription.remove();
   }, [settlePanel, showModal]);
+
+  /**
+   * A sheet Android never put on screen gets built again.
+   *
+   * React Native's Android modal makes its dialog once and calls `show()` only
+   * if there is a current activity at that moment. Between one MainActivity
+   * going and the next resuming there is none — which is exactly when a voice
+   * capture from the widget lands — and the dialog then exists but never
+   * appears, for as long as the sheet stays open. Reported from a device: the
+   * read finished into a sheet nobody could see. A new key makes a new native
+   * modal, and by the time the app is active again there is an activity to
+   * show it on. `onShow` marks the sheet as up; until it fires, coming back to
+   * the foreground or a second's wait retries it, at most twice.
+   */
+  const [modalKey, setModalKey] = useState(0);
+  const modalShownRef = useRef(false);
+  const modalRetriesRef = useRef(0);
+  const handleModalShow = useCallback(() => {
+    modalShownRef.current = true;
+    settlePanel();
+  }, [settlePanel]);
+  useEffect(() => {
+    if (showModal) return;
+    modalShownRef.current = false;
+    modalRetriesRef.current = 0;
+  }, [showModal]);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !showModal) return;
+    const retry = () => {
+      if (modalShownRef.current || !visibleRef.current || modalRetriesRef.current >= 2) return;
+      modalRetriesRef.current += 1;
+      setModalKey((key) => key + 1);
+    };
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') retry();
+    });
+    const timer = setTimeout(() => {
+      if (AppState.currentState === 'active') retry();
+    }, 1000);
+    return () => {
+      subscription.remove();
+      clearTimeout(timer);
+    };
+  }, [modalKey, showModal]);
   // iOS's KeyboardAvoidingView already reserves the keyboard. Android modal
   // windows are not reliably resized, so their inset belongs at the end of the
   // scroll content—not inside the mid-list split section.
@@ -2205,10 +2249,11 @@ export function TransactionFormModal({
 
   return (
     <Modal
+      key={modalKey}
       transparent
       visible={showModal}
       animationType="none" // we handle animations manually for better control
-      onShow={settlePanel}
+      onShow={handleModalShow}
       onRequestClose={splitContext?.onBack ?? requestClose}>
       {/* A modal is its own window on Android, outside the app's gesture root. */}
       <GestureHandlerRootView style={{ flex: 1, justifyContent: 'flex-end' }}>

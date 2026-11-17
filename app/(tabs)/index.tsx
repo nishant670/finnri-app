@@ -1701,11 +1701,31 @@ export default function HomeScreen() {
    *
    * In-app recording takes the same path since stopping the mic now sends:
    * `stopRecording` raises the same flag.
+   *
+   * It waits for the app to be in front. The widget's recorder can start a
+   * fresh MainActivity in a process that is still alive, and React renders
+   * Home before Android resumes that activity. Sent then, the review sheet
+   * opened while React Native had no current activity, so Android never showed
+   * it: the card said "Reading your recording…", the draft landed in a sheet
+   * nobody could see, and Home looked as if nothing had happened.
    */
   useEffect(() => {
     if (!captureAwaitingSubmit.current || !recordedUri) return;
-    captureAwaitingSubmit.current = false;
-    void submitPrompt();
+    const send = () => {
+      // Once only: if the read fails the recording stays, and this listener
+      // with it, so a later return to the app must not send it again.
+      if (!captureAwaitingSubmit.current) return;
+      captureAwaitingSubmit.current = false;
+      void submitPrompt();
+    };
+    if (AppState.currentState === 'active') {
+      send();
+      return;
+    }
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') send();
+    });
+    return () => subscription.remove();
   }, [recordedUri, submitPrompt]);
 
   const handleSubmitPrompt = useCallback(() => submitPrompt(), [submitPrompt]);
