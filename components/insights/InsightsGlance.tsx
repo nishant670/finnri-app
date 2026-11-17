@@ -84,7 +84,14 @@ export function GlanceCard({
                 style={[
                   styles.glanceLine,
                   styles.strong,
-                  { color: comparison.more ? colors.negative : colors.positive },
+                  {
+                    color:
+                      'same' in comparison
+                        ? colors.text
+                        : comparison.more
+                          ? colors.negative
+                          : colors.positive,
+                  },
                 ]}>
                 {comparison.lead}
               </ThemedText>

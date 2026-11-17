@@ -146,3 +146,46 @@ describe('TransactionSubscriptionFields', () => {
     expect(screen.getByText('Cancellation reminder date')).toBeTruthy();
   });
 });
+
+// Device feedback 2026-11-17: income repeats too, worded for money coming in.
+describe('TransactionSubscriptionFields — recurring income', () => {
+  const salary = {
+    type: 'Income',
+    title: '',
+    merchant: '',
+    amount: '85000',
+    category: 'Salary',
+  } as Partial<EntryForm>;
+
+  it('offers "Make it recurring" and fills it from the income', async () => {
+    const { screen } = await setup(salary);
+    expect(screen.getByText('Make it recurring')).toBeTruthy();
+    expect(screen.queryByText('Track as a subscription')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('subscription-switch'));
+    expect(latest.subscriptionEnabled).toBe(true);
+    // No title or merchant: the category names it.
+    expect(latest.subscriptionName).toBe('Salary');
+    expect(latest.subscriptionBillingInterval).toBe('monthly');
+    // Reminded on the day it is expected, not three days before.
+    expect(latest.subscriptionReminderDays).toBe('0');
+    expect(screen.getByText('Next expected on')).toBeTruthy();
+  });
+
+  // Found on device 2026-11-17: the real form starts with the payments'
+  // default reminder of 3 days, and income kept it.
+  it('reminds on the day even when the form holds the default of 3', async () => {
+    const { screen } = await setup({ ...salary, subscriptionReminderDays: '3' });
+    await fireEvent.press(screen.getByTestId('subscription-switch'));
+    expect(latest.subscriptionReminderDays).toBe('0');
+  });
+
+  it('has no cancel reminder and words autopay for money in', async () => {
+    const { screen } = await setup(salary);
+    await fireEvent.press(screen.getByTestId('subscription-switch'));
+    await fireEvent.press(screen.getByTestId('subscription-more-options'));
+    expect(screen.queryByText('Remind me to cancel')).toBeNull();
+    expect(screen.getByText('Add it automatically')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Name, e.g. Salary')).toBeTruthy();
+  });
+});

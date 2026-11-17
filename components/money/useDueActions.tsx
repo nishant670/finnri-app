@@ -16,7 +16,7 @@ import { updateRefundStatus } from '@/lib/refundables';
 import { todayISO } from '@/lib/subscription-form';
 import { markSubscriptionPaid, type Subscription } from '@/lib/subscriptions';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
-import { formatDueLabel, type UpcomingDue } from '@/lib/upcoming';
+import { dueStatusLabel, isIncomingDue, type UpcomingDue } from '@/lib/upcoming';
 
 /**
  * Finishing a due where it is listed (P20): "Mark paid" opens the same sheet
@@ -100,10 +100,10 @@ export function useDueActions({
       return (
         <Button
           testID={`due-mark-paid-${due.sourceID}`}
-          label="Mark paid"
+          label={due.incoming ? 'Mark received' : 'Mark paid'}
           variant="outline"
           height={36}
-          accessibilityLabel={`Mark ${due.title} paid`}
+          accessibilityLabel={`Mark ${due.title} ${due.incoming ? 'received' : 'paid'}`}
           onPress={() => {
             setError(null);
             setPayingFor(subscription);
@@ -142,12 +142,25 @@ export function useDueActions({
  */
 export function DueStatusLine({ due }: { due: UpcomingDue }) {
   const { colors } = useThemeTokens();
-  const isRefund = due.kind === 'refund';
+  const isRefund = isIncomingDue(due);
   const amount =
-    due.amount === null ? null : isRefund ? formatMoney(due.amount, { sign: 'always' }) : formatMoney(due.amount);
-  const status = isRefund ? `Expected back · ${formatDueLabel(due)}` : formatDueLabel(due);
+    due.amount === null
+      ? null
+      : isRefund
+        ? formatMoney(due.amount, { sign: 'always' })
+        : formatMoney(due.amount);
+  const status = dueStatusLabel(due);
+  // Late money coming in is a nudge, not a debt.
   const tone =
-    due.state === 'overdue' ? colors.negative : due.state === 'scheduled' ? colors.muted : colors.warning;
+    due.state === 'overdue'
+      ? due.incoming
+        ? colors.warning
+        : colors.negative
+      : due.state === 'scheduled'
+        ? colors.muted
+        : due.incoming
+          ? colors.positive
+          : colors.warning;
   return (
     <ThemedText numberOfLines={2} style={styles.line}>
       {amount ? (

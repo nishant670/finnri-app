@@ -10,14 +10,16 @@ import {
 } from '@/components/money/subscriptions/FormRows';
 import { DateRow } from '@/components/money/subscriptions/DateRow';
 import {
+  INCOME_PAYMENT_MODES,
   PaymentAccountPicker,
+  RECURRING_PAYMENT_MODES,
   usablePayment,
 } from '@/components/money/subscriptions/PaymentAccountPicker';
 import { SegmentedControl } from '@/components/money/subscriptions/SegmentedControl';
 import { LabelRow } from '@/components/ui/LabelRow';
 import { PickerOptionList, PickerSheet } from '@/components/ui/PickerSheet';
 import { type Account } from '@/lib/accounts';
-import { categoryVisual } from '@/lib/categories';
+import { categoryVisual, INCOME_CATEGORIES } from '@/lib/categories';
 import { haptics } from '@/lib/haptics';
 import {
   reminderOptions,
@@ -34,6 +36,7 @@ const NOTES_PLACEHOLDER: Record<RecurringKind, string> = {
   loan: 'Loan account number, branch, prepayment terms',
   investment: 'Folio number, goal, nominee',
   bill: 'Consumer number, biller ID',
+  income: 'Employer, payslip or arrangement notes',
 };
 
 type SubscriptionAdvancedFieldsProps = {
@@ -108,7 +111,12 @@ export function SubscriptionAdvancedFields({
   // For a trial or a plan to stop — not a loan or an SIP. Still shown when an
   // older item already has it on, so it can be turned off.
   const offersCancel = formKind === 'subscription' || formKind === 'bill' || cancelBeforeDue;
-  const visual = categoryVisual(category);
+  // Income is filed under income categories, lands in an account (never a
+  // card) and is added on the day rather than paid.
+  const income = formKind === 'income';
+  const modes = income ? INCOME_PAYMENT_MODES : RECURRING_PAYMENT_MODES;
+  const categories: readonly string[] = income ? INCOME_CATEGORIES : categoryOptions;
+  const visual = categoryVisual(category, income ? 'income' : undefined);
 
   return (
     <View style={styles.stack}>
@@ -171,13 +179,17 @@ export function SubscriptionAdvancedFields({
 
       <RowsCard>
         <ToggleRow
-          title="Autopay"
-          caption="Finnri adds each payment for you, then asks you to confirm it."
+          title={income ? 'Add it automatically' : 'Autopay'}
+          caption={
+            income
+              ? 'Finnri adds it on the day, then asks you to confirm it arrived.'
+              : 'Finnri adds each payment for you, then asks you to confirm it.'
+          }
           value={autopay}
           onValueChange={(enabled) => {
             setAutopay(enabled);
             if (!enabled) return;
-            const next = usablePayment(accounts, paymentMode, accountID);
+            const next = usablePayment(accounts, paymentMode, accountID, modes);
             setPaymentMode(next.paymentMode);
             setAccountID(next.accountID);
           }}
@@ -193,7 +205,9 @@ export function SubscriptionAdvancedFields({
               setAccountID(next.accountID);
             }}
             onAddAccount={onAddAccount}
-            accountLabel="Pay from"
+            accountLabel={income ? 'Add to' : 'Pay from'}
+            modeLabel={income ? 'Received via' : undefined}
+            modes={modes}
             divider
           />
         )}
@@ -221,13 +235,16 @@ export function SubscriptionAdvancedFields({
         )}
       </RowsCard>
 
-      <PickerSheet visible={picker === 'category'} title="Spending category" onClose={() => setPicker(null)}>
+      <PickerSheet
+        visible={picker === 'category'}
+        title={income ? 'Income category' : 'Spending category'}
+        onClose={() => setPicker(null)}>
         <PickerOptionList
-          accessibilityLabel="Spending category"
-          options={categoryOptions.map((option) => ({
+          accessibilityLabel={income ? 'Income category' : 'Spending category'}
+          options={categories.map((option) => ({
             key: option,
             label: option,
-            icon: categoryVisual(option).icon,
+            icon: categoryVisual(option, income ? 'income' : undefined).icon,
           }))}
           selectedKey={category}
           onSelect={(key) => {

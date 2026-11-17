@@ -91,7 +91,8 @@ export type SubscriptionPayload = {
   log_payment_on?: string;
 };
 
-export type RecurringKind = 'subscription' | 'loan' | 'investment' | 'bill';
+/** `income` is money in on a schedule — a salary, rent received. */
+export type RecurringKind = 'subscription' | 'loan' | 'investment' | 'bill' | 'income';
 
 export type LoanType =
   | 'personal'

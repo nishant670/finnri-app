@@ -29,6 +29,11 @@ export type UpcomingDue = {
   /** Negative when the date has already passed. */
   daysUntil: number;
   state: UpcomingDueState;
+  /**
+   * Money coming in rather than going out: recurring income (a salary). It is
+   * listed so its day is visible, but never added to what is due.
+   */
+  incoming?: boolean;
 };
 
 const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -107,12 +112,16 @@ export const buildUpcomingDues = ({
     if (daysUntil > horizonDays) continue;
 
     const amount = Number(subscription.amount ?? 0);
+    const incoming = subscription.kind === 'income';
     dues.push({
+      ...(incoming ? { incoming: true } : {}),
       key: `subscription-${subscription.id}`,
       kind: 'subscription',
       sourceID: subscription.id,
       title: subscription.name?.trim() || subscription.merchant?.trim() || 'Subscription',
-      subtitle: subscription.merchant?.trim() || subscription.category?.trim() || 'Recurring',
+      subtitle: incoming
+        ? 'Coming in'
+        : subscription.merchant?.trim() || subscription.category?.trim() || 'Recurring',
       amount: Number.isFinite(amount) && amount > 0 ? amount : null,
       dueDate: toApiDate(dueDate),
       daysUntil,
@@ -171,7 +180,28 @@ export const buildUpcomingDues = ({
 
 /** What the panel header states — only figures it can back. */
 export const totalUpcomingAmount = (dues: UpcomingDue[]) =>
-  dues.reduce((sum, due) => sum + (due.kind === 'refund' ? 0 : (due.amount ?? 0)), 0);
+  dues.reduce((sum, due) => sum + (isIncomingDue(due) ? 0 : (due.amount ?? 0)), 0);
+
+/** Money going out that is past its date. Late income is not owed money. */
+export const isLateDue = (due: UpcomingDue) => due.state === 'overdue' && !due.incoming;
+
+/** Money expected in — a refund or recurring income — not money going out. */
+export const isIncomingDue = (due: UpcomingDue) => due.kind === 'refund' || due.incoming === true;
+
+/**
+ * The status words for a due: "Due today" going out; for money coming in,
+ * "Expected back · Due today" on a refund and "Expected today" on income —
+ * and a late salary is "3 days late", not "overdue", which reads as owed.
+ */
+export const dueStatusLabel = (due: UpcomingDue) => {
+  if (due.kind === 'refund') return `Expected back · ${formatDueLabel(due)}`;
+  if (!due.incoming) return formatDueLabel(due);
+  if (due.daysUntil === 0) return 'Expected today';
+  if (due.daysUntil === 1) return 'Expected tomorrow';
+  if (due.daysUntil === -1) return '1 day late';
+  if (due.daysUntil < 0) return `${Math.abs(due.daysUntil)} days late`;
+  return formatDueLabel(due).replace(/^Due/, 'Expected');
+};
 
 export const formatDueLabel = (due: UpcomingDue) => {
   if (due.daysUntil === 0) return 'Due today';

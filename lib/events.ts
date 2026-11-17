@@ -259,6 +259,21 @@ export type EventCategoryShare = {
 };
 
 /**
+ * The transactions query behind an event's list, narrowed to one "Where it
+ * went" row when one is picked. The summary files blank categories under
+ * "Uncategorized", which no entry is literally called, so that row asks the
+ * API's uncategorised filter instead. The same query feeds the CSV export, so
+ * what is exported is what is listed.
+ */
+export const eventTransactionsQuery = (eventId: number, category: string | null) => {
+  if (!category) return { event_id: eventId };
+  if (category.trim().toLowerCase() === 'uncategorized') {
+    return { event_id: eventId, uncategorised: '1' as const };
+  }
+  return { event_id: eventId, category };
+};
+
+/**
  * Where an event's money went, by category, from the same summary report the
  * transactions screen exports — filtered to the event, so the two agree.
  */
