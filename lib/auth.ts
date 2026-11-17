@@ -44,6 +44,12 @@ const authErrorMessages: Record<string, string> = {
   failed_create_guest: 'Could not continue as guest right now. Please try again.',
   failed_create_session: 'Could not start your session. Please try again.',
   invalid_request: 'Something went wrong while starting guest mode. Please try again.',
+  // The guest on this phone could not be proved. Signing in keeps what an
+  // account holds; a guest's records are tied to the install that made them.
+  guest_credentials_invalid: 'Guest mode could not be restored on this phone. Sign in with Google instead.',
+  invalid_guest_secret: 'Guest mode could not be started on this phone. Sign in with Google instead.',
+  guest_secret_required: 'Update Finnri to keep using guest mode.',
+  guest_session_required: 'Could not save your guest records to this account. Close the app, open it again and retry.',
   weak_pin: 'Choose a PIN that is not easy to guess.',
   // The server now actually sends the code, so it can also actually fail to.
   // Before this existed every one of these was "Failed to send OTP", which
@@ -128,7 +134,19 @@ export const identifyUser = async (identifier: string): Promise<IdentifyResponse
 
 type GuestCheckinPayload = {
   device_id: string;
+  /** See `getGuestSecret` in lib/device.ts. */
+  guest_secret: string;
 };
+
+/**
+ * Turning a guest into an account is proved with the guest's own session, not
+ * with the `guest_uuid` in the body — which is an identifier, and used to be
+ * all the server asked for.
+ */
+const upgradeHeaders = (guestSessionToken?: string | null) => ({
+  'Content-Type': 'application/json',
+  ...(guestSessionToken ? { Authorization: `Bearer ${guestSessionToken}` } : {}),
+});
 
 type AuthResponse = {
   token: string;
@@ -169,12 +187,13 @@ export type RegisterPayload = {
   biometrics_enabled: boolean;
 };
 
-export const registerUser = async (payload: RegisterPayload): Promise<AuthResponse> => {
+export const registerUser = async (
+  payload: RegisterPayload,
+  guestSessionToken?: string | null,
+): Promise<AuthResponse> => {
   const response = await fetch(`${API_BASE_URL}/v1/auth/register`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: upgradeHeaders(guestSessionToken),
     body: JSON.stringify(payload),
   });
 
@@ -240,12 +259,13 @@ export type GoogleLoginPayload = {
   biometrics_enabled?: boolean;
 };
 
-export const loginWithGoogle = async (payload: GoogleLoginPayload): Promise<AuthResponse> => {
+export const loginWithGoogle = async (
+  payload: GoogleLoginPayload,
+  guestSessionToken?: string | null,
+): Promise<AuthResponse> => {
   const response = await fetch(`${API_BASE_URL}/v1/auth/google`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: upgradeHeaders(guestSessionToken),
     body: JSON.stringify(payload),
   });
 
