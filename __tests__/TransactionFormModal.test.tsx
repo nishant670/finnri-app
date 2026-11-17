@@ -11,6 +11,7 @@ import {
   type AiReviewMetadata,
 } from '@/components/transactions/TransactionFormModal';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
+import { accountSuggestionFitsPayment } from '@/lib/accounts';
 import { formatDateLabel } from '@/lib/transactions';
 import { useEvents } from '@/lib/events';
 import type { Transaction } from '@/types/transaction';
@@ -1384,5 +1385,85 @@ describe('TransactionFormModal — recurring income', () => {
   it('is not offered when editing', async () => {
     const ui = await renderModal({ isEdit: true, initialData: salary });
     expect(ui.queryByText('Make it recurring')).toBeNull();
+  });
+});
+
+// Device feedback 2026-11-17: a receipt named Kotak (no Kotak account saved),
+// the user switched Paid with to their own One Card, and "Add KOTAK Bank
+// Account?" kept asking.
+describe('TransactionFormModal — account suggestion follows Paid with', () => {
+  const kotak: AccountSuggestion = {
+    type: 'bank',
+    name: 'KOTAK Bank Account',
+    color: '#000',
+    provider: 'KOTAK',
+    identifier: '',
+    reason: 'No matching KOTAK account',
+  };
+  const oneCard: Account = { id: 21, type: 'credit_card', name: 'One Card', color: '#000' };
+  const bankDraft = { ...completeInitialData, mode: 'Bank Account', accountId: null, account: '' };
+
+  const sheet = () => (
+    <TransactionFormModal
+      visible
+      mode="audio"
+      initialData={bankDraft}
+      accounts={[oneCard]}
+      accountSuggestion={kotak}
+      onAutoCreateSuggestedAccount={jest.fn()}
+      onSetupSuggestedAccount={jest.fn()}
+      onSave={jest.fn().mockResolvedValue(undefined)}
+      onClose={jest.fn()}
+    />
+  );
+
+  it('hides once an existing account is chosen, and returns with the draft payment', async () => {
+    const ui = await render(sheet());
+    expect(await ui.findByTestId('account-suggestion')).toBeTruthy();
+
+    await fireEvent.press(await ui.findByTestId('entry-account-picker'));
+    await fireEvent.press(await ui.findByTestId('payment-mode-Credit Card'));
+    await waitFor(() => expect(ui.queryByTestId('account-suggestion')).toBeNull());
+    expect(await ui.findByText('Credit Card · One Card')).toBeTruthy();
+
+    // Back to the payment the bill was read with: the question is open again.
+    await fireEvent.press(await ui.findByTestId('entry-account-picker'));
+    await fireEvent.press(await ui.findByTestId('payment-mode-Bank Account'));
+    expect(await ui.findByTestId('account-suggestion')).toBeTruthy();
+  });
+});
+
+describe('accountSuggestionFitsPayment', () => {
+  const seed = { mode: 'Bank Account', accountId: null };
+  it('fits the payment the draft opened on', () => {
+    expect(
+      accountSuggestionFitsPayment({ suggestionType: 'bank', seed, mode: 'Bank Account', accountId: null })
+    ).toBe(true);
+    expect(
+      accountSuggestionFitsPayment({
+        suggestionType: 'bank',
+        seed: { mode: 'Bank Account', accountId: 4 },
+        mode: 'Bank Account',
+        accountId: 4,
+      })
+    ).toBe(true);
+  });
+
+  it('stands down for any other existing account', () => {
+    expect(
+      accountSuggestionFitsPayment({ suggestionType: 'bank', seed, mode: 'Credit Card', accountId: 21 })
+    ).toBe(false);
+    expect(
+      accountSuggestionFitsPayment({ suggestionType: 'bank', seed, mode: 'Bank Account', accountId: 7 })
+    ).toBe(false);
+  });
+
+  it('fits an unpicked account of its own kind, not of another', () => {
+    expect(
+      accountSuggestionFitsPayment({ suggestionType: 'bank', seed: null, mode: 'Bank Account', accountId: null })
+    ).toBe(true);
+    expect(
+      accountSuggestionFitsPayment({ suggestionType: 'bank', seed, mode: 'Cash', accountId: null })
+    ).toBe(false);
   });
 });

@@ -86,3 +86,19 @@ describe('Home capture card (P1, P2)', () => {
     expect(onAction).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('Home capture card: typing is for logging (device feedback 2026-11-17)', () => {
+  it('no longer offers an "Or ask" question under the open text field', async () => {
+    const screen = await render(<VoiceInputCard {...captureProps} isTextInputVisible />);
+    expect(screen.getByLabelText('Parse typed expense')).toBeTruthy();
+    expect(screen.queryByText(/Or ask/)).toBeNull();
+    expect(screen.queryByText(/How much did I spend on food/)).toBeNull();
+  });
+
+  it('keeps the mic long-press into Ask Finnri', async () => {
+    const onMicLongPress = jest.fn();
+    const screen = await render(<VoiceInputCard {...captureProps} onMicLongPress={onMicLongPress} />);
+    await fireEvent(screen.getByLabelText('Record an expense'), 'longPress');
+    expect(onMicLongPress).toHaveBeenCalledTimes(1);
+  });
+});

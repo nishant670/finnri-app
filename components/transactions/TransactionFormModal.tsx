@@ -43,6 +43,7 @@ import { useEntitlementGate } from '@/hooks/use-entitlement-gate';
 import { UpgradeSheet } from '@/components/billing/UpgradeSheet';
 import type { Account, AccountSuggestion } from '@/lib/accounts';
 import {
+  accountSuggestionFitsPayment,
   getAccountsForPaymentMode,
   getAutoAccountPayloadForPaymentMode,
   getPreferredAccountForPaymentMode,
@@ -724,6 +725,11 @@ export function TransactionFormModal({
   const paymentTouchedRef = useRef(false);
   const paymentLockedRef = useRef(false);
   const paymentSeedRef = useRef<Pick<EntryForm, 'mode' | 'accountId' | 'account'> | null>(null);
+  /** The same seed as state, for render: the account suggestion is judged against it. */
+  const [suggestionPaymentSeed, setSuggestionPaymentSeed] = useState<Pick<
+    EntryForm,
+    'mode' | 'accountId'
+  > | null>(null);
   const [autoPick, setAutoPick] = useState<{
     suggestion: PaymentSuggestion;
     accountId: number;
@@ -996,11 +1002,28 @@ export function TransactionFormModal({
   const suggestionKey = accountSuggestion
     ? `${accountSuggestion.type}:${accountSuggestion.provider}:${accountSuggestion.identifier}`
     : '';
-  const visibleAccountSuggestion =
+  /**
+   * The suggestion only stands while Paid with is still the payment it was made
+   * for. Reported from a device: a receipt that named Kotak (no Kotak account
+   * saved) was switched to the user's own One Card, and "Add KOTAK Bank
+   * Account?" kept asking. Once Paid with is an existing account other than
+   * the one the draft opened on, the question is answered; going back to the
+   * draft's own payment — or to the suggestion's kind of account with none
+   * picked — brings it back.
+   */
+  const suggestionFitsPayment = accountSuggestionFitsPayment({
+    suggestionType: accountSuggestion?.type ?? null,
+    seed: suggestionPaymentSeed,
+    mode: form.mode,
+    accountId: form.accountId,
+  });
+  const openAccountSuggestion =
     accountSuggestion && suggestionKey !== dismissedSuggestionKey ? accountSuggestion : null;
+  const visibleAccountSuggestion = suggestionFitsPayment ? openAccountSuggestion : null;
   const genericAutoAccount = getAutoAccountPayloadForPaymentMode(form.mode);
+  // The payment picker still offers it: that is where someone goes back to it.
   const actionableAccountSuggestion: AccountSuggestion | null =
-    visibleAccountSuggestion ??
+    openAccountSuggestion ??
     (genericAutoAccount
       ? {
           type: genericAutoAccount.type,
@@ -1531,6 +1554,7 @@ export function TransactionFormModal({
       accountId: nextForm.accountId,
       account: nextForm.account,
     };
+    setSuggestionPaymentSeed({ mode: nextForm.mode, accountId: nextForm.accountId });
     setAutoPick(null);
     // No `initialData` dependency, and no suppression needed for its absence:
     // the local read above shadows the prop, so the linter sees a callback that
