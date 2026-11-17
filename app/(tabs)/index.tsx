@@ -1936,6 +1936,7 @@ export default function HomeScreen() {
               welcome={isBrandNewHome}
               unreadCount={unreadNotifications}
               onNotificationsPress={() => router.push('/notifications')}
+              onAskPress={() => router.push('/ask' as never)}
             />
 
             <MonthStrip
@@ -1959,7 +1960,6 @@ export default function HomeScreen() {
               recorder={audioRecorder}
               onMicPress={handleToggleRecording}
               onMicLongPress={() => router.push('/ask' as never)}
-              onAskPress={() => router.push('/ask' as never)}
               isRecording={isRecording}
               hasRecording={!!recordedUri}
               inputText={inputText}
