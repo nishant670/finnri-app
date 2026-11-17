@@ -224,10 +224,14 @@ export function TransactionSubscriptionFields({
                   subscriptionNextDueDate:
                     prev.subscriptionNextDueDate || inferNextSubscriptionDate(prev.date, interval),
                   // Income is reminded on the day it is expected, not before.
+                  // The blank form already holds the payments' default of 3,
+                  // so income sets 0 outright (found on device 2026-11-17).
                   subscriptionReminderDays:
-                    isDailyInterval(interval) || prev.type === 'Income'
-                      ? prev.subscriptionReminderDays || '0'
-                      : prev.subscriptionReminderDays || '3',
+                    prev.type === 'Income'
+                      ? '0'
+                      : isDailyInterval(interval)
+                        ? prev.subscriptionReminderDays || '0'
+                        : prev.subscriptionReminderDays || '3',
                 };
               });
             }}

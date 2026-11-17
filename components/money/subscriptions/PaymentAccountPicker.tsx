@@ -18,10 +18,15 @@ import { haptics } from '@/lib/haptics';
 
 /** How a recurring payment can leave an account. Cash has no account to draw on. */
 export const RECURRING_PAYMENT_MODES = ['Bank Account', 'UPI', 'Credit Card'] as const;
-/** Where recurring income can land: never a credit card. */
-export const INCOME_PAYMENT_MODES = ['Bank Account', 'UPI'] as const;
+/**
+ * Where recurring income can land: never a credit card, but cash is real —
+ * rent or a tuition fee paid in hand. Found on device 2026-11-17: a salary
+ * saved as Cash was forced to "Bank Account · No bank account yet".
+ */
+export const INCOME_PAYMENT_MODES = ['Bank Account', 'UPI', 'Cash'] as const;
 
 const MODE_NOUN: Record<string, string> = {
+  Cash: 'cash account',
   'Bank Account': 'bank account',
   UPI: 'UPI account',
   'Credit Card': 'credit card',
@@ -30,6 +35,7 @@ const MODE_NOUN: Record<string, string> = {
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
 const MODE_ICON: Record<string, IconName> = {
+  Cash: 'cash',
   'Bank Account': 'bank-outline',
   UPI: 'cellphone',
   'Credit Card': 'credit-card-outline',
@@ -44,6 +50,9 @@ const accountIcon = (account: Account): IconName => {
       return 'cellphone';
     case 'wallet':
       return 'wallet-outline';
+    // Income can land in cash; it showed a bank icon (device, 2026-11-17).
+    case 'cash':
+      return 'cash';
     default:
       return 'bank-outline';
   }

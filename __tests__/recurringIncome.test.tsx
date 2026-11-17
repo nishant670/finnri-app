@@ -65,7 +65,7 @@ describe('recurring income in dues', () => {
     const dues = buildUpcomingDues({ subscriptions: [item({}), salary], accounts: [], today });
     const salaryDue = dues.find((due) => due.sourceID === 2)!;
     expect(salaryDue.incoming).toBe(true);
-    expect(salaryDue.subtitle).toBe('Expected in');
+    expect(salaryDue.subtitle).toBe('Coming in');
     expect(dueStatusLabel(salaryDue)).toBe('Expected tomorrow');
     expect(totalUpcomingAmount(dues)).toBe(649);
   });
@@ -136,6 +136,33 @@ describe('MarkPaidSheet for income', () => {
     await fireEvent.press(screen.getAllByText('Mark received').slice(-1)[0]);
     expect(onConfirm).toHaveBeenCalledWith(
       expect.objectContaining({ logTransaction: true, paymentMode: 'Bank Account', accountId: 7 })
+    );
+  });
+
+  // Found on device 2026-11-17: a salary saved as Cash was forced to
+  // "Bank Account · No bank account yet".
+  it('keeps a Cash income in cash', async () => {
+    const onConfirm = jest.fn();
+    const withCash: Account[] = [
+      ...accounts,
+      { id: 1, type: 'cash', name: 'Cash', color: '#000', is_default: true },
+    ];
+    const screen = await render(
+      <MarkPaidSheet
+        visible
+        subscription={{ ...salary, payment_mode: 'Cash', account_id: 1 }}
+        accounts={withCash}
+        submitting={false}
+        error={null}
+        onClose={jest.fn()}
+        onConfirm={onConfirm}
+        onAddAccount={jest.fn()}
+      />
+    );
+    expect(screen.queryByText('No bank account yet')).toBeNull();
+    await fireEvent.press(screen.getAllByText('Mark received').slice(-1)[0]);
+    expect(onConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ paymentMode: 'Cash', accountId: 1 })
     );
   });
 
