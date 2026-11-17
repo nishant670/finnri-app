@@ -14,6 +14,7 @@ import {
   roomForMoreBills,
   spendableCredits,
   tickAffordable,
+  trayIsFinished,
   type BillItem,
 } from '@/lib/bill-batch';
 import { createDefaultEntryForm } from '@/lib/home-capture';
@@ -176,5 +177,16 @@ describe('bill batch', () => {
     ]);
     expect(merged?.title).toBe('DMart + 2 more');
     expect(merged?.amount).toBe('350');
+  });
+
+  it('closes the tray only when nothing is left to save or still being read', () => {
+    const read = readBill('a', { title: 'DMart', amount: '1480' });
+    expect(trayIsFinished([read])).toBe(false);
+    expect(trayIsFinished([{ ...read, status: 'saving' }])).toBe(false);
+    expect(trayIsFinished([{ ...read, included: false }])).toBe(true);
+    expect(trayIsFinished([{ ...read, status: 'saved' }])).toBe(true);
+    expect(trayIsFinished([{ key: 'b', uri: 'x', included: true, status: 'reading' }])).toBe(false);
+    expect(trayIsFinished([{ key: 'c', uri: 'y', included: true, status: 'failed' }])).toBe(true);
+    expect(trayIsFinished([{ ...read, saveError: 'Network down' }])).toBe(false);
   });
 });

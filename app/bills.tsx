@@ -47,6 +47,7 @@ import {
   shortBillDate,
   spendableCredits,
   tickAffordable,
+  trayIsFinished,
   type BillItem,
 } from '@/lib/bill-batch';
 import {
@@ -64,7 +65,7 @@ import { haptics } from '@/lib/haptics';
 import {
   applyParsedDraftToForm,
   buildAiReview,
-  createDefaultEntryForm,
+  createBlankEntryForm,
   resolveAccountForEntry,
 } from '@/lib/home-capture';
 import { formatMoney } from '@/lib/money';
@@ -86,20 +87,11 @@ const SAVE_STAGGER_MS = 60;
 /** How long "Bill removed · Undo" stays up. */
 const UNDO_MS = 4000;
 const MERGED_KEY = '__one_total__';
-/** See BillTrayRow: list motion is phone-only, as Reanimated web piles the tiles up. */
-const LIST_MOTION = Platform.OS !== 'web';
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const rupees = (value: number) => formatMoney(value, { sign: 'never' });
 const plural = (count: number, one: string, many = `${one}s`) => (count === 1 ? one : many);
 
-const blankForm = (): EntryForm => ({
-  ...createDefaultEntryForm(),
-  accountId: null,
-  account: '',
-  merchant: '',
-  notes: '',
-});
 
 /**
  * Several bills at once (canvas Round 20, P95–P102).
@@ -140,7 +132,11 @@ export default function BillsScreen() {
   const mounted = useRef(true);
   const progress = useRef<Record<string, TransactionSaveProgress>>({});
   const saved = useRef({ count: 0, total: 0 });
+  /** Credits used by bills no longer in the list (saved and folded away, or dropped). */
+  const goneCredits = useRef(0);
   const closing = useRef(false);
+  /** The discard question is on screen; a second back press must not ask again. */
+  const confirmOpen = useRef(false);
 
   useEffect(
     () => () => {
@@ -230,6 +226,8 @@ export default function BillsScreen() {
     const unsaved = itemsRef.current.filter((item) => item.status === 'read').length;
     const spent = batchSummary(itemsRef.current).creditsUsed;
     if (phase === 'tray' && unsaved > 0 && spent > 0) {
+      if (confirmOpen.current) return;
+      confirmOpen.current = true;
       const discard = await dialog.confirm({
         title: `Discard ${unsaved} read ${plural(unsaved, 'bill')}?`,
         message: `Nothing gets saved. The ${spent} credits used for reading won't come back.`,
@@ -237,6 +235,8 @@ export default function BillsScreen() {
         cancelLabel: 'Keep checking',
         tone: 'danger',
         iconName: 'receipt-text-remove-outline',
+      }).finally(() => {
+        confirmOpen.current = false;
       });
       if (!discard) return;
     }
@@ -335,7 +335,7 @@ export default function BillsScreen() {
         const draft = await parseReceiptDraft({ token, uri: item.uri, batchId });
         if (!mounted.current) return;
         const splitDraft = resolveSplitDraft(draft, [], []);
-        const form = applyParsedDraftToForm(blankForm(), draft, {
+        const form = applyParsedDraftToForm(createBlankEntryForm(), draft, {
           fallbackText: 'Receipt photo',
           attachment: item.uri,
           smartSorting,
@@ -405,8 +405,9 @@ export default function BillsScreen() {
 
   const dropFromTray = useCallback((key: string) => {
     const index = itemsRef.current.findIndex((item) => item.key === key);
-    if (index < 0) return;
+    if (index < 0 || itemsRef.current[index].status === 'reading') return;
     haptics.removed();
+    goneCredits.current += itemsRef.current[index].creditsCharged ?? 0;
     setUndo({ item: itemsRef.current[index], index });
     setItems((current) => current.filter((item) => item.key !== key));
   }, []);
@@ -419,6 +420,7 @@ export default function BillsScreen() {
 
   const restoreDropped = useCallback(() => {
     if (!undo) return;
+    goneCredits.current -= undo.item.creditsCharged ?? 0;
     setItems((current) => {
       const next = [...current];
       next.splice(Math.min(undo.index, next.length), 0, undo.item);
@@ -435,6 +437,7 @@ export default function BillsScreen() {
       update(key, (item) => ({ ...item, status: 'saved', saveError: undefined }));
       setTimeout(() => {
         if (!mounted.current) return;
+        goneCredits.current += itemsRef.current.find((item) => item.key === key)?.creditsCharged ?? 0;
         setItems((current) => current.filter((item) => item.key !== key));
       }, SAVED_FOLD_MS);
     },
@@ -451,7 +454,7 @@ export default function BillsScreen() {
         account: resolveAccountForEntry(accountsRef.current, form),
         idempotencyKey: `${batchId}-${key}`,
         source: 'receipt',
-        sourceText: item?.draft?.source_text ?? 'Receipt photo',
+        sourceText: item?.draft?.source_text ?? (item ? 'Receipt photo' : 'Receipt photos'),
         aiRequestId: item?.draft?.ai_request_id ?? null,
         progress: progress.current[key],
         refund:
@@ -466,12 +469,6 @@ export default function BillsScreen() {
     [batchId, dialog, token]
   );
 
-  const allDone = useCallback(
-    (list: BillItem[]) =>
-      list.every((item) => item.status === 'saved' || !item.included || item.status === 'failed'),
-    []
-  );
-
   const saveAll = useCallback(async () => {
     if (isSavingAll) return;
     setIsSavingAll(true);
@@ -479,9 +476,9 @@ export default function BillsScreen() {
       if (saveMode === 'one') {
         const merged = mergeBillsIntoOne(itemsRef.current);
         if (!merged) return;
-        const lead = itemsRef.current.find((item) => isPendingSave(item)) ?? null;
         try {
-          await saveForm(merged, lead, MERGED_KEY, false);
+          // No single bill's refund or AI read belongs to the combined entry.
+          await saveForm(merged, null, MERGED_KEY, false);
         } catch (error) {
           void dialog.alert({
             title: "Couldn't save",
@@ -522,13 +519,12 @@ export default function BillsScreen() {
         await wait(SAVE_STAGGER_MS);
       }
       await wait(SAVED_FOLD_MS);
-      const left = itemsRef.current;
       if (saved.current.count > 0) haptics.saved();
-      if (allDone(left) && !left.some((item) => item.saveError)) finish();
+      if (trayIsFinished(itemsRef.current)) finish();
     } finally {
       if (mounted.current) setIsSavingAll(false);
     }
-  }, [allDone, dialog, finish, isSavingAll, markSaved, router, saveForm, saveMode, update]);
+  }, [dialog, finish, isSavingAll, markSaved, router, saveForm, saveMode, update]);
 
   /* ---- The form, for one bill or for One total --------------------------- */
 
@@ -541,8 +537,7 @@ export default function BillsScreen() {
       if (openKey === MERGED_KEY) {
         setSaveMode('one');
         const pending = itemsRef.current.filter(isPendingSave);
-        const lead = pending[0] ?? null;
-        await saveForm(data, lead, MERGED_KEY, true);
+        await saveForm(data, null, MERGED_KEY, true);
         haptics.saved();
         setOpenKey(null);
         putBillsSavedToast(`${pending.length} bills saved as one · ${rupees(Number(data.amount))}`);
@@ -559,11 +554,7 @@ export default function BillsScreen() {
       setOpenKey(null);
       markSaved(openKey, Number(data.amount) || 0);
       setTimeout(() => {
-        if (mounted.current && itemsRef.current.every((candidate) => candidate.status === 'saved' || !candidate.included || candidate.status === 'failed')) {
-          if (!itemsRef.current.some(isPendingSave) && batchSummary(itemsRef.current).reading === 0) {
-            finish();
-          }
-        }
+        if (mounted.current && trayIsFinished(itemsRef.current)) finish();
       }, SAVED_FOLD_MS + 40);
     },
     [finish, markSaved, openKey, router, saveForm]
@@ -639,9 +630,9 @@ export default function BillsScreen() {
             {items.map((item, index) => (
               <Animated.View
                 key={item.key}
-                entering={LIST_MOTION ? motion.rowEntering(index) : undefined}
-                exiting={LIST_MOTION && !motion.reduced ? FadeOut.duration(motion.exitDuration('base')) : undefined}
-                layout={LIST_MOTION ? motion.reflow() : undefined}>
+                entering={motion.rowEntering(index)}
+                exiting={motion.reduced ? undefined : FadeOut.duration(motion.exitDuration('base'))}
+                layout={motion.reflow()}>
                 <Pressable
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: item.included }}
@@ -798,8 +789,9 @@ export default function BillsScreen() {
 
   const isReading = summary.reading > 0;
   const failedFree = items.filter((item) => item.status === 'failed' && item.failure?.free).length;
+  const creditsUsed = summary.creditsUsed + goneCredits.current;
   const creditLine = [
-    summary.creditsUsed > 0 ? `${summary.creditsUsed} credits used` : null,
+    creditsUsed > 0 ? `${creditsUsed} credits used` : null,
     failedFree === 1
       ? "the one we couldn't read was free"
       : failedFree > 1

@@ -12,32 +12,28 @@ const COUNT_MS = 400;
 export function useCountUp(value: number) {
   const motion = useMotion();
   const [shown, setShown] = useState(value);
-  const from = useRef(value);
+  // What is on screen right now, so a new value that arrives mid-count carries
+  // on from there instead of jumping to the old target first.
+  const current = useRef(value);
 
   useEffect(() => {
-    if (motion.reduced || from.current === value) {
-      from.current = value;
+    if (motion.reduced || current.current === value) {
+      current.current = value;
       setShown(value);
       return undefined;
     }
-    const start = from.current;
+    const start = current.current;
     const began = Date.now();
     let frame = 0;
     const tick = () => {
       const progress = Math.min(1, (Date.now() - began) / COUNT_MS);
       const eased = 1 - (1 - progress) ** 3;
-      setShown(start + (value - start) * eased);
-      if (progress < 1) {
-        frame = requestAnimationFrame(tick);
-      } else {
-        from.current = value;
-      }
+      current.current = start + (value - start) * eased;
+      setShown(current.current);
+      if (progress < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(frame);
-      from.current = value;
-    };
+    return () => cancelAnimationFrame(frame);
   }, [motion.reduced, value]);
 
   return shown;

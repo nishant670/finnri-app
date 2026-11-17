@@ -127,6 +127,15 @@ export const billAmount = (item: Pick<BillItem, 'form'>) => {
 /** Ticked, read and not yet saved: what Save will save. */
 export const isPendingSave = (item: BillItem) => item.included && item.status === 'read';
 
+/** Nothing left to save and nothing still being read: the tray can close. */
+export const trayIsFinished = (items: BillItem[]) =>
+  !items.some(
+    (item) =>
+      isPendingSave(item) ||
+      item.status === 'saving' ||
+      (item.included && (item.status === 'waiting' || item.status === 'reading'))
+  );
+
 /** Why a read bill can't be saved as it stands, or null when it can. */
 export const billNeedsAttention = (item: BillItem): string | null => {
   if (!isPendingSave(item)) return null;

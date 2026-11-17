@@ -1,7 +1,7 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   Easing,
@@ -36,12 +36,6 @@ const THUMB_H = 60;
 const SCAN_MS = 1400;
 /** A drag past this share of the row drops it. */
 const DROP_FRACTION = 0.35;
-/**
- * Reanimated's web build leaves an entering/layout wrapper absolutely placed,
- * so rows pile up in the Expo web preview. Web is a development target; the
- * phone gets the motion.
- */
-const LIST_MOTION = Platform.OS !== 'web';
 
 type Props = {
   item: BillItem;
@@ -102,7 +96,9 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
     );
   }, [failed, motion, shake]);
 
-  const canDrop = item.status !== 'saving' && item.status !== 'saved';
+  // A bill being read can't be dropped: its read would land on nothing, and
+  // Undo would bring it back stuck on "Reading…".
+  const canDrop = item.status !== 'reading' && item.status !== 'saving' && item.status !== 'saved';
   const pan = Gesture.Pan()
     .enabled(canDrop && width > 0)
     .activeOffsetX([-12, 12])
@@ -264,6 +260,10 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
               <ThemedText variant="captionStrong" tone="negative" numberOfLines={2}>
                 {attention}
               </ThemedText>
+            ) : item.saveError ? (
+              <ThemedText variant="captionStrong" tone="negative" numberOfLines={2}>
+                {item.saveError}
+              </ThemedText>
             ) : item.duplicate ? (
               <View style={[styles.chip, { backgroundColor: colors.secondary }]}>
                 <ThemedText variant="micro">{item.duplicate.label}</ThemedText>
@@ -279,10 +279,6 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
                   {checkLabel}
                 </ThemedText>
               </View>
-            ) : item.saveError ? (
-              <ThemedText variant="captionStrong" tone="negative" numberOfLines={2}>
-                {item.saveError}
-              </ThemedText>
             ) : null}
           </Animated.View>
           <ThemedText
@@ -300,9 +296,9 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
     <GestureDetector gesture={pan}>
       <Animated.View
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        entering={LIST_MOTION ? motion.rowEntering(index) : undefined}
-        exiting={LIST_MOTION && !motion.reduced ? FadeOut.duration(motion.exitDuration('base')) : undefined}
-        layout={LIST_MOTION ? motion.reflow() : undefined}
+        entering={motion.rowEntering(index)}
+        exiting={motion.reduced ? undefined : FadeOut.duration(motion.exitDuration('base'))}
+        layout={motion.reflow()}
         style={[
           styles.row,
           index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },

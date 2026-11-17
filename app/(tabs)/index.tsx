@@ -116,6 +116,7 @@ import { requestMicAccess } from '@/lib/microphone-access';
 import {
   applyParsedDraftToForm,
   buildAiReview,
+  createBlankEntryForm,
   createDefaultEntryForm,
   creditActionForParseError,
   quickPromptEditorData,
@@ -294,16 +295,7 @@ export default function HomeScreen() {
    * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
    * until the app was restarted.
    */
-  const createBlankForm = useCallback(
-    (): EntryForm => ({
-      ...createDefaultEntryForm(),
-      accountId: null,
-      account: '',
-      merchant: '',
-      notes: '',
-    }),
-    []
-  );
+  const createBlankForm = useCallback((): EntryForm => createBlankEntryForm(), []);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
