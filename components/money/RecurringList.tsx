@@ -90,7 +90,9 @@ export function RecurringSummaryCard({
         </PressableView>
       </View>
       <ThemedText tone="muted" style={[styles.body, styles.summaryLine]}>
-        {summary.active_count} active
+        {summary.active_count > 0
+          ? `${summary.active_count} active`
+          : 'Nothing going out on a schedule yet'}
         {next ? ` · next is ${next.name}, ${formatMoney(next.amount)} on ${formatRecurringDay(next.date)}` : ''}
       </ThemedText>
       {/* Recurring income is never part of what is committed; it gets its own

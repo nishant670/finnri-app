@@ -172,6 +172,14 @@ describe('TransactionSubscriptionFields — recurring income', () => {
     expect(screen.getByText('Next expected on')).toBeTruthy();
   });
 
+  // Found on device 2026-11-17: the real form starts with the payments'
+  // default reminder of 3 days, and income kept it.
+  it('reminds on the day even when the form holds the default of 3', async () => {
+    const { screen } = await setup({ ...salary, subscriptionReminderDays: '3' });
+    await fireEvent.press(screen.getByTestId('subscription-switch'));
+    expect(latest.subscriptionReminderDays).toBe('0');
+  });
+
   it('has no cancel reminder and words autopay for money in', async () => {
     const { screen } = await setup(salary);
     await fireEvent.press(screen.getByTestId('subscription-switch'));

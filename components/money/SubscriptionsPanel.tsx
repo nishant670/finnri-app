@@ -748,7 +748,13 @@ export function SubscriptionsPanel({
     .join(' · ');
 
   const cardStyle = [styles.card, { backgroundColor: colors.card, borderColor: colors.border }];
-  const hasOverview = !loading && Boolean(overview && overview.active_count > 0);
+  // Income is kept out of active_count (it is not a commitment), so a list
+  // holding only a salary must still count as tracked (device, 2026-11-17).
+  const hasOverview =
+    !loading &&
+    Boolean(
+      overview && (overview.active_count > 0 || (overview.income_active_count ?? 0) > 0)
+    );
   // Board R5-RecurringList: a card per kind, cancelled items folded below.
   const liveItems = visibleItems.filter((item) => item.status !== 'cancelled');
   const cancelledItems = visibleItems.filter((item) => item.status === 'cancelled');

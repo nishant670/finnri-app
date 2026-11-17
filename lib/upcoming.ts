@@ -120,7 +120,7 @@ export const buildUpcomingDues = ({
       sourceID: subscription.id,
       title: subscription.name?.trim() || subscription.merchant?.trim() || 'Subscription',
       subtitle: incoming
-        ? 'Expected in'
+        ? 'Coming in'
         : subscription.merchant?.trim() || subscription.category?.trim() || 'Recurring',
       amount: Number.isFinite(amount) && amount > 0 ? amount : null,
       dueDate: toApiDate(dueDate),
