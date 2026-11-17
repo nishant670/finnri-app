@@ -8,9 +8,13 @@ import { EventFormSheet } from '@/components/events/EventFormSheet';
 import { TransactionItem } from '@/components/home/TransactionItem';
 import { ScreenHeader } from '@/components/navigation/ScreenHeader';
 import { ThemedText } from '@/components/themed-text';
-import { TransactionFormModal, type EntryForm } from '@/components/transactions/TransactionFormModal';
+import {
+  TransactionFormModal,
+  type EntryForm,
+} from '@/components/transactions/TransactionFormModal';
 import { useAppDialog } from '@/components/ui/AppDialogProvider';
 import { Button } from '@/components/ui/Button';
+import { PressableView } from '@/components/ui/PressableView';
 import { PickerOptionList, PickerSheet } from '@/components/ui/PickerSheet';
 import { SkeletonFrame, SkeletonRows } from '@/components/ui/Skeleton';
 import { StateView } from '@/components/ui/StateView';
@@ -25,6 +29,7 @@ import {
   deleteEvent,
   describeEventDates,
   eventLabel,
+  eventTransactionsQuery,
   fetchEvent,
   fetchEventCategories,
   updateEvent,
@@ -38,7 +43,12 @@ import { haptics } from '@/lib/haptics';
 import { createDefaultEntryForm, resolveAccountForEntry } from '@/lib/home-capture';
 import { formatApiDate } from '@/lib/datetime';
 import { formatMoney, toAmountString } from '@/lib/money';
-import { fetchSplitFriends, fetchSplitGroups, type SplitFriend, type SplitGroup } from '@/lib/splits';
+import {
+  fetchSplitFriends,
+  fetchSplitGroups,
+  type SplitFriend,
+  type SplitGroup,
+} from '@/lib/splits';
 import {
   describeLikelyDuplicate,
   saveNewTransaction,
@@ -75,7 +85,25 @@ export default function EventScreen() {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
 
-  const query = useMemo(() => ({ event_id: eventId }), [eventId]);
+  /**
+   * The "Where it went" row the list is narrowed to (device feedback
+   * 2026-11-17): tap a category to see only its transactions, tap it again —
+   * or Clear — to see them all. A category that drops out of the breakdown
+   * (its last transaction moved or deleted) clears the filter with it.
+   */
+  const [pickedCategory, setPickedCategory] = useState<string | null>(null);
+  const categoryFilter =
+    pickedCategory && categories.some((share) => share.label === pickedCategory)
+      ? pickedCategory
+      : null;
+  const toggleCategory = (label: string) => {
+    haptics.select();
+    setPickedCategory((current) => (current === label ? null : label));
+  };
+  const query = useMemo(
+    () => eventTransactionsQuery(eventId, categoryFilter),
+    [categoryFilter, eventId]
+  );
   const {
     transactions,
     total: transactionCount,
@@ -245,7 +273,7 @@ export default function EventScreen() {
     if (!token || isExporting) return;
     setIsExporting(true);
     try {
-      await shareTransactionExport(token, 'csv', { event_id: eventId });
+      await shareTransactionExport(token, 'csv', query);
       haptics.saved();
     } catch (err) {
       await dialog.alert({
@@ -312,9 +340,15 @@ export default function EventScreen() {
           <>
             <View
               testID="event-hero"
-              style={[styles.card, styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              style={[
+                styles.card,
+                styles.hero,
+                { backgroundColor: colors.card, borderColor: colors.border },
+              ]}>
               <View style={[styles.heroTile, { backgroundColor: colors.selectedFill }]}>
-                <ThemedText style={styles.heroEmoji}>{event.emoji || DEFAULT_EVENT_EMOJI}</ThemedText>
+                <ThemedText style={styles.heroEmoji}>
+                  {event.emoji || DEFAULT_EVENT_EMOJI}
+                </ThemedText>
               </View>
               {describeEventDates(event) ? (
                 <ThemedText tone="muted" style={styles.small}>
@@ -324,7 +358,9 @@ export default function EventScreen() {
               <ThemedText tone="muted" style={styles.heroLabel}>
                 Your real cost
               </ThemedText>
-              <ThemedText testID="event-net-cost" style={[styles.heroAmount, { color: colors.text }]}>
+              <ThemedText
+                testID="event-net-cost"
+                style={[styles.heroAmount, { color: colors.text }]}>
                 {formatMoney(summary.net_cost)}
               </ThemedText>
               <ThemedText tone="muted" style={[styles.body, styles.center]}>
@@ -333,7 +369,9 @@ export default function EventScreen() {
                   : summary.entry_count === 0
                     ? 'Nothing added yet'
                     : `You paid ${formatMoney(summary.total_paid)} across ${
-                        summary.entry_count === 1 ? '1 transaction' : `${summary.entry_count} transactions`
+                        summary.entry_count === 1
+                          ? '1 transaction'
+                          : `${summary.entry_count} transactions`
                       }`}
               </ThemedText>
               {budget != null ? (
@@ -389,44 +427,89 @@ export default function EventScreen() {
                 <ThemedText tone="muted" style={styles.sectionTitle}>
                   Where it went
                 </ThemedText>
-                <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  {categories.map((share, index) => (
-                    <View
-                      key={share.label}
-                      style={[styles.shareRow, index > 0 && { borderTopWidth: 1, borderTopColor: colors.border }]}>
-                      <View style={styles.shareHead}>
-                        <ThemedText numberOfLines={1} style={[styles.shareLabel, { color: colors.text }]}>
-                          {share.label}
-                        </ThemedText>
-                        <ThemedText style={[styles.shareAmount, { color: colors.text }]}>
-                          {formatMoney(share.amount)}
-                        </ThemedText>
-                      </View>
-                      <View style={[styles.track, { backgroundColor: colors.track }]}>
-                        <View
-                          style={[
-                            styles.fill,
-                            {
-                              width: `${Math.max(2, Math.round(share.percentage))}%`,
-                              backgroundColor: colors.accent,
-                            },
-                          ]}
-                        />
-                      </View>
-                    </View>
-                  ))}
+                <View
+                  style={[
+                    styles.card,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}>
+                  {categories.map((share, index) => {
+                    const selected = categoryFilter === share.label;
+                    const dimmed = categoryFilter != null && !selected;
+                    return (
+                      <PressableView
+                        key={share.label}
+                        testID={`event-category-${share.label}`}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected }}
+                        accessibilityLabel={`${share.label}, ${formatMoney(share.amount)}`}
+                        accessibilityHint={
+                          selected
+                            ? 'Shows every transaction again'
+                            : `Shows only ${share.label} transactions`
+                        }
+                        onPress={() => toggleCategory(share.label)}
+                        style={[
+                          styles.shareRow,
+                          index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
+                          selected && { backgroundColor: colors.selectedFill },
+                          dimmed && styles.dimmed,
+                        ]}
+                        pressedStyle={styles.pressed}>
+                        <View style={styles.shareHead}>
+                          <ThemedText
+                            numberOfLines={1}
+                            style={[
+                              styles.shareLabel,
+                              { color: colors.text },
+                              selected && styles.shareLabelSelected,
+                            ]}>
+                            {share.label}
+                          </ThemedText>
+                          <ThemedText style={[styles.shareAmount, { color: colors.text }]}>
+                            {formatMoney(share.amount)}
+                          </ThemedText>
+                        </View>
+                        <View style={[styles.track, { backgroundColor: colors.track }]}>
+                          <View
+                            style={[
+                              styles.fill,
+                              {
+                                width: `${Math.max(2, Math.round(share.percentage))}%`,
+                                backgroundColor: colors.accent,
+                              },
+                            ]}
+                          />
+                        </View>
+                      </PressableView>
+                    );
+                  })}
                 </View>
+                {categoryFilter == null && categories.length > 1 ? (
+                  <ThemedText tone="muted" style={[styles.small, styles.hint]}>
+                    Tap a category to see just its transactions.
+                  </ThemedText>
+                ) : null}
               </View>
             ) : null}
 
             <View>
               <View style={styles.sectionHead}>
-                <ThemedText tone="muted" style={[styles.sectionTitle, styles.flush]}>
+                <ThemedText
+                  testID="event-transaction-count"
+                  tone="muted"
+                  style={[styles.sectionTitle, styles.flush, styles.flex]}
+                  numberOfLines={1}>
                   {transactionCount === 1 ? '1 transaction' : `${transactionCount} transactions`}
+                  {categoryFilter ? ` in ${categoryFilter}` : ''}
                 </ThemedText>
                 {transactionCount > 0 ? (
                   <Button
                     testID="event-export"
+                    accessibilityLabel={
+                      categoryFilter
+                        ? `Export ${categoryFilter} transactions as CSV`
+                        : 'Export these transactions as CSV'
+                    }
                     label="Export CSV"
                     icon="tray-arrow-up"
                     variant="outline"
@@ -436,15 +519,54 @@ export default function EventScreen() {
                   />
                 ) : null}
               </View>
+              {categoryFilter ? (
+                <PressableView
+                  testID="event-category-filter"
+                  accessibilityRole="button"
+                  accessibilityLabel={`Showing ${categoryFilter}. Clear filter`}
+                  onPress={() => toggleCategory(categoryFilter)}
+                  hitSlop={6}
+                  style={[
+                    styles.filterChip,
+                    { backgroundColor: colors.selectedFill, borderColor: colors.selectedBorder },
+                  ]}
+                  pressedStyle={styles.pressed}>
+                  <MaterialCommunityIcons name="filter-variant" size={16} color={colors.text} />
+                  <ThemedText
+                    numberOfLines={1}
+                    style={[styles.filterChipLabel, { color: colors.text }]}>
+                    {`Showing ${categoryFilter}`}
+                  </ThemedText>
+                  <ThemedText style={[styles.filterChipClear, { color: colors.text }]}>
+                    · Clear
+                  </ThemedText>
+                  <MaterialCommunityIcons name="close" size={14} color={colors.text} />
+                </PressableView>
+              ) : null}
               {transactions.length === 0 ? (
-                <View style={[styles.card, styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
-                  <MaterialCommunityIcons name="receipt-text-plus-outline" size={24} color={colors.muted} />
+                <View
+                  style={[
+                    styles.card,
+                    styles.empty,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}>
+                  <MaterialCommunityIcons
+                    name="receipt-text-plus-outline"
+                    size={24}
+                    color={colors.muted}
+                  />
                   <ThemedText tone="muted" style={[styles.body, styles.center]}>
-                    Add what you spent for this occasion, or pick transactions you already logged.
+                    {categoryFilter
+                      ? `Nothing in ${categoryFilter} for this event any more.`
+                      : 'Add what you spent for this occasion, or pick transactions you already logged.'}
                   </ThemedText>
                 </View>
               ) : (
-                <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View
+                  style={[
+                    styles.card,
+                    { backgroundColor: colors.card, borderColor: colors.border },
+                  ]}>
                   {transactions.map((transaction, index) => (
                     <TransactionItem
                       key={transaction.id}
@@ -483,13 +605,21 @@ export default function EventScreen() {
         ) : null}
       </ScrollView>
 
-      <PickerSheet visible={isMenuOpen} title={event?.name ?? 'Event'} onClose={() => setIsMenuOpen(false)}>
+      <PickerSheet
+        visible={isMenuOpen}
+        title={event?.name ?? 'Event'}
+        onClose={() => setIsMenuOpen(false)}>
         <PickerOptionList
           accessibilityLabel="Event actions"
           selectedKey={null}
           options={[
             { key: 'edit', label: 'Edit event', icon: 'pencil-outline', testID: 'event-menu-edit' },
-            { key: 'delete', label: 'Delete event', icon: 'trash-can-outline', testID: 'event-menu-delete' },
+            {
+              key: 'delete',
+              label: 'Delete event',
+              icon: 'trash-can-outline',
+              testID: 'event-menu-delete',
+            },
           ]}
           onSelect={(key) => {
             if (key === 'edit') {
@@ -623,6 +753,42 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: '500',
+  },
+  shareLabelSelected: {
+    fontWeight: '700',
+  },
+  dimmed: {
+    opacity: 0.55,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  hint: {
+    marginTop: 6,
+    paddingHorizontal: 4,
+  },
+  filterChip: {
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 32,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  filterChipLabel: {
+    flexShrink: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  filterChipClear: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '500',
   },
   shareAmount: {

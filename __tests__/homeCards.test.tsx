@@ -114,6 +114,43 @@ describe('GetStartedCard (P5)', () => {
   });
 });
 
+// Device feedback 2026-11-17: with two entries logged, the full card pushed
+// Recent activity off the screen.
+describe('GetStartedCard compact row', () => {
+  const steps = getStartedSteps({ hasAccount: true, hasBudget: false, hasLock: false });
+
+  it('is one row with progress, and opens the steps on a tap', async () => {
+    const onOpen = jest.fn();
+    const screen = await render(<GetStartedCard compact steps={steps} onOpen={onOpen} />);
+    expect(screen.getByText('Finish setting up')).toBeTruthy();
+    expect(screen.getByText('1 of 3 done')).toBeTruthy();
+    expect(screen.queryByText('Set a monthly budget')).toBeNull();
+
+    await fireEvent.press(screen.getByTestId('get-started-toggle'));
+    await fireEvent.press(screen.getByText('Set a monthly budget'));
+    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ key: 'budget' }));
+
+    await fireEvent.press(screen.getByTestId('get-started-toggle'));
+    expect(screen.queryByText('Set a monthly budget')).toBeNull();
+  });
+
+  it('can be closed', async () => {
+    const onDismiss = jest.fn();
+    const screen = await render(
+      <GetStartedCard compact steps={steps} onOpen={jest.fn()} onDismiss={onDismiss} />
+    );
+    await fireEvent.press(screen.getByTestId('get-started-dismiss'));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the full card on an empty Home, with no close button', async () => {
+    const screen = await render(<GetStartedCard steps={steps} onOpen={jest.fn()} />);
+    expect(screen.getByText('Get started')).toBeTruthy();
+    expect(screen.getByText('Set a monthly budget')).toBeTruthy();
+    expect(screen.queryByTestId('get-started-dismiss')).toBeNull();
+  });
+});
+
 describe('AutopayReviewCard', () => {
   it('confirms or reverts', async () => {
     const onConfirm = jest.fn();
