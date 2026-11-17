@@ -1712,6 +1712,9 @@ export default function HomeScreen() {
   useEffect(() => {
     if (!captureAwaitingSubmit.current || !recordedUri) return;
     const send = () => {
+      // Once only: if the read fails the recording stays, and this listener
+      // with it, so a later return to the app must not send it again.
+      if (!captureAwaitingSubmit.current) return;
       captureAwaitingSubmit.current = false;
       void submitPrompt();
     };
