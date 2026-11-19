@@ -14,7 +14,7 @@ import {
  * branches on it: a `ParseAnswer` must never reach the transaction form, and a
  * `ParseDraft` must never reach the answer card.
  */
-export type ParseResult = ParseDraft | ParseAnswer;
+export type ParseResult = ParseDraft | ParseAnswer | ParseBatch;
 
 export type ParseAnswerStatus = 'answered' | 'no_data' | 'unsupported';
 
@@ -107,6 +107,42 @@ export type ParseAnswer = {
 
 export const isParseAnswer = (result: ParseResult): result is ParseAnswer =>
   (result as ParseAnswer).stage === 'answer';
+
+/** The part of the day a spoken item happened in (P108). */
+export type TimeSlot = 'morning' | 'afternoon' | 'evening' | 'night';
+
+/** One item of a batch: today's draft plus what the batch reader adds. */
+export type ParseBatchItem = ParseDraft & {
+  /** Set by the reader from "morning", "lunch", "at night"… The app picks the time. */
+  time_slot?: TimeSlot | null;
+  /** The payment was said for an earlier item and carried to this one (P109). */
+  mode_carried?: boolean;
+};
+
+/**
+ * Several transactions from one prompt (canvas Round 21, P103). Only sent to
+ * an app that asks with `multi=1`. Charged once, for the whole prompt.
+ */
+export type ParseBatch = {
+  stage: 'batch';
+  kind: 'batch';
+  /** Everything that was said or typed; each item's own words are its source_text. */
+  source_text: string;
+  items: ParseBatchItem[];
+  /** Items the reader could not make into a transaction. */
+  dropped?: number;
+  /** Words past the cap of ten, verbatim, to read again as text (P114). */
+  over_cap_text?: string | null;
+  max_items?: number;
+  ai_request_id?: string;
+  credits_charged?: number;
+  credits_remaining_today?: number;
+  credits_remaining_total?: number;
+  plan_code?: string;
+};
+
+export const isParseBatch = (result: ParseResult): result is ParseBatch =>
+  (result as ParseBatch).stage === 'batch' && Array.isArray((result as ParseBatch).items);
 
 /**
  * A guess at whether typed text is a question, used for **one** thing: deciding
@@ -273,6 +309,11 @@ export type ParseDraftInput = {
    * last month?" is read as a follow-up. Only the model sees it.
    */
   contextQuestion?: string | null;
+  /**
+   * This caller can show several transactions from one prompt (P103), so the
+   * reader may answer with a `ParseBatch`. Callers that can't leave it off.
+   */
+  multi?: boolean;
 };
 
 type ParseErrorPayload = {
@@ -544,6 +585,7 @@ export const parseEntryDraft = async ({
   tz = getClientTimeZone(),
   contextQuestion,
   signal,
+  multi,
 }: ParseDraftInput): Promise<ParseResult> => {
   const formData = new FormData();
   const trimmedHint = hintText?.trim() ?? '';
@@ -556,6 +598,9 @@ export const parseEntryDraft = async ({
   formData.append('tz', tz);
   if (contextQuestion?.trim()) {
     formData.append('context_question', contextQuestion.trim());
+  }
+  if (multi) {
+    formData.append('multi', '1');
   }
 
   const response = await fetch(`${API_BASE_URL}/v1/parse`, {

@@ -16,6 +16,7 @@ import Animated, { FadeIn, FadeOut, useAnimatedStyle, withTiming } from 'react-n
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { BillTrayRow } from '@/components/bills/BillTrayRow';
+import { SaveModeSwitch, TrayFooter, TrayHeader, UndoToast } from '@/components/tray/TrayParts';
 import { ThemedText } from '@/components/themed-text';
 import {
   TransactionFormModal,
@@ -583,24 +584,7 @@ export default function BillsScreen() {
   }
 
   const header = (title: string, chip?: string) => (
-    <View style={styles.header}>
-      <PressableView
-        accessibilityRole="button"
-        accessibilityLabel="Close"
-        onPress={() => void handleClose()}
-        style={styles.headerButton}
-        pressedStyle={styles.pressed}>
-        <MaterialCommunityIcons name="close" size={24} color={colors.text} />
-      </PressableView>
-      <ThemedText variant="screenTitle" style={styles.headerTitle} numberOfLines={1}>
-        {title}
-      </ThemedText>
-      {chip ? (
-        <View style={[styles.headerChip, { backgroundColor: colors.secondary }]}>
-          <ThemedText variant="captionStrong">{chip}</ThemedText>
-        </View>
-      ) : null}
-    </View>
+    <TrayHeader title={title} chip={chip} onClose={() => void handleClose()} />
   );
 
   if (phase === 'pick') {
@@ -822,7 +806,6 @@ export default function BillsScreen() {
     primaryLabel = `Save ${summary.toSave} · ${rupees(summary.total)}`;
     primaryAction = () => void saveAll();
   }
-  const primaryDisabled = !primaryAction || isSavingAll;
   const notIncluded = items.filter((item) => !isPendingSave(item) && item.status !== 'saved');
 
   return (
@@ -862,30 +845,12 @@ export default function BillsScreen() {
         </View>
 
         {showSwitch ? (
-          <View accessibilityRole="radiogroup" style={[styles.switchTrack, { backgroundColor: colors.secondary }]}>
-            {(['separate', 'one'] as const).map((mode) => {
-              const selected = saveMode === mode;
-              return (
-                <PressableView
-                  key={mode}
-                  accessibilityRole="radio"
-                  accessibilityState={{ selected }}
-                  onPress={() => {
-                    haptics.select();
-                    setSaveMode(mode);
-                  }}
-                  style={[
-                    styles.switchOption,
-                    selected && { backgroundColor: theme.mode === 'dark' ? colors.border : colors.card },
-                  ]}
-                  pressedStyle={styles.pressed}>
-                  <ThemedText variant={selected ? 'bodyStrong' : 'body'}>
-                    {mode === 'separate' ? `Separate (${summary.toSave})` : 'One total'}
-                  </ThemedText>
-                </PressableView>
-              );
-            })}
-          </View>
+          <SaveModeSwitch
+            mode={saveMode}
+            onChange={setSaveMode}
+            separateLabel={`Separate (${summary.toSave})`}
+            oneLabel="One total"
+          />
         ) : null}
 
         {saveMode === 'one' && mergedForm ? (
@@ -979,46 +944,15 @@ export default function BillsScreen() {
         ) : null}
       </ScrollView>
 
-      {undo ? (
-        <Animated.View
-          entering={motion.reduced ? undefined : FadeIn.duration(motion.duration('instant'))}
-          exiting={motion.reduced ? undefined : FadeOut.duration(motion.exitDuration('instant'))}
-          style={[styles.undo, { bottom: bottomInset + 84, backgroundColor: theme.mode === 'dark' ? colors.card : colors.text }]}>
-          <ThemedText variant="bodyStrong" style={{ color: theme.mode === 'dark' ? colors.text : colors.background }}>
-            Bill removed
-          </ThemedText>
-          <PressableView
-            accessibilityRole="button"
-            onPress={restoreDropped}
-            style={styles.undoButton}
-            pressedStyle={styles.pressed}>
-            <ThemedText variant="bodyStrong" style={{ color: colors.accent }}>
-              Undo
-            </ThemedText>
-          </PressableView>
-        </Animated.View>
-      ) : null}
+      {undo ? <UndoToast message="Bill removed" onUndo={restoreDropped} bottom={bottomInset + 84} /> : null}
 
-      <View style={[styles.footer, styles.footerRow, { paddingBottom: bottomInset, borderTopColor: colors.border, backgroundColor: colors.background }]}>
-        <PressableView
-          accessibilityRole="button"
-          onPress={() => void handleClose()}
-          style={[styles.secondary, { borderColor: colors.border, backgroundColor: colors.card }]}
-          pressedStyle={styles.pressed}>
-          <ThemedText variant="button">Cancel</ThemedText>
-        </PressableView>
-        <PressableView
-          accessibilityRole="button"
-          accessibilityState={{ disabled: primaryDisabled, busy: isSavingAll }}
-          disabled={primaryDisabled}
-          onPress={primaryAction ?? undefined}
-          style={[styles.primary, styles.flex, { backgroundColor: primaryAction ? colors.accent : colors.secondary }]}
-          pressedStyle={styles.pressed}>
-          <ThemedText variant="button" tone={primaryAction ? 'onAccent' : 'muted'} numberOfLines={1}>
-            {primaryLabel}
-          </ThemedText>
-        </PressableView>
-      </View>
+      <TrayFooter
+        bottomInset={bottomInset}
+        onCancel={() => void handleClose()}
+        primaryLabel={primaryLabel}
+        onPrimary={primaryAction}
+        busy={isSavingAll}
+      />
 
       <TransactionFormModal
         visible={openKey !== null && !!formData}
@@ -1041,22 +975,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   pressed: { opacity: 0.7 },
   centered: { textAlign: 'center' },
-  header: {
-    height: 56,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-  },
-  headerButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { flex: 1 },
-  headerChip: {
-    marginRight: 12,
-    height: 28,
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
   pickContent: { paddingHorizontal: 20, paddingBottom: 24 },
   lead: { marginTop: 4, marginBottom: 16 },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
@@ -1134,7 +1052,6 @@ const styles = StyleSheet.create({
     gap: 8,
     borderTopWidth: 1,
   },
-  footerRow: { flexDirection: 'row', gap: 10 },
   primary: {
     height: 52,
     borderRadius: 26,
@@ -1142,35 +1059,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-  secondary: {
-    height: 52,
-    borderRadius: 26,
-    paddingHorizontal: 20,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   secondaryWide: { height: 48, alignItems: 'center', justifyContent: 'center' },
   trayContent: { paddingBottom: 24 },
   totalBlock: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 14, gap: 2 },
   total: { fontVariant: ['tabular-nums'] },
   progressTrack: { marginTop: 10, marginBottom: 4, height: 6, borderRadius: 3, overflow: 'hidden' },
   progressFill: { height: 6, borderRadius: 3 },
-  switchTrack: {
-    marginHorizontal: 16,
-    marginBottom: 14,
-    padding: 4,
-    borderRadius: 24,
-    flexDirection: 'row',
-    gap: 4,
-  },
-  switchOption: {
-    flex: 1,
-    height: 40,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   card: {
     marginHorizontal: 16,
     borderRadius: 18,
@@ -1186,17 +1080,4 @@ const styles = StyleSheet.create({
   breakdownRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   notIncluded: { marginTop: 16, padding: 14, gap: 6 },
   hint: { marginHorizontal: 20, marginTop: 10 },
-  undo: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    minHeight: 52,
-    borderRadius: 18,
-    paddingLeft: 16,
-    paddingRight: 6,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  undoButton: { minHeight: 44, paddingHorizontal: 14, justifyContent: 'center' },
 });
