@@ -76,8 +76,9 @@ export const CAPTURE_HINTS: Record<SpeakLanguage, string[]> = {
     'Got 2000 from freelance',
     'Paid 1200 rent by bank',
     'Coffee 180 using card',
+    'Breakfast 180 on UPI, then auto 60, lunch 450 on card',
   ],
-  hi: ['खाने पर UPI से 250 खर्च', 'फ्रीलांस से 2000 मिले', 'किराया 1200 बैंक से दिया', 'कॉफ़ी 180 कार्ड से'],
+  hi: ['खाने पर UPI से 250 खर्च', 'फ्रीलांस से 2000 मिले', 'किराया 1200 बैंक से दिया', 'कॉफ़ी 180 कार्ड से', 'नाश्ता 180 UPI से, फिर ऑटो 60, लंच 450 कार्ड से'],
 };
 
 /** Tests only. */
