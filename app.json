@@ -66,6 +66,15 @@
     "plugins": [
       "expo-router",
       [
+        "expo-build-properties",
+        {
+          "android": {
+            "enableMinifyInReleaseBuilds": true,
+            "extraProguardRules": "-keep class com.finnri.app.** { *; }\n-keep class expo.modules.finnritheme.** { *; }\n-keep class expo.modules.finnriupdates.** { *; }"
+          }
+        }
+      ],
+      [
         "expo-notifications",
         {
           "icon": "./assets/images/notification-icon.png",
