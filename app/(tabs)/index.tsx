@@ -89,7 +89,7 @@ import {
   takeBillsSavedToast,
   takeSingleBill,
 } from '@/lib/bill-batch-store';
-import { putDayBatch, takeDaySavedToast } from '@/lib/batch-store';
+import { loadDayBatch, putDayBatch, takeDaySavedToast } from '@/lib/batch-store';
 import { deleteEntry } from '@/lib/entries';
 import {
   fetchSplitFriends,
@@ -187,6 +187,7 @@ const RECORDING_OPTIONS = {
   sampleRate: 22050,
   numberOfChannels: 1,
   bitRate: 32000,
+  web: { ...RecordingPresets.HIGH_QUALITY.web, bitsPerSecond: 32000 },
   isMeteringEnabled: true,
 };
 
@@ -1628,7 +1629,7 @@ export default function HomeScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android' || !token || checkedPendingReceipt.current) return;
     checkedPendingReceipt.current = true;
-    void Promise.all([takePendingReceiptPhoto(), loadBillBatch()]).then(([uri, batch]) => {
+    void Promise.all([takePendingReceiptPhoto(), loadBillBatch(), loadDayBatch()]).then(([uri, batch, day]) => {
       // A multi-bill scan was open (P95): the photo, if any, is its next bill,
       // and the screen reopens where it was.
       if (batch) {
@@ -1636,7 +1637,14 @@ export default function HomeScreen() {
         router.push('/bills');
         return;
       }
-      if (uri) void scanReceipt(uri);
+      if (uri) {
+        void scanReceipt(uri);
+        return;
+      }
+      // A spoken day was being checked when Android stopped Finnri — often
+      // while the person looked up an amount in another app. Its read is
+      // paid for, so it reopens rather than vanishing.
+      if (day) router.push('/batch');
     });
   }, [router, scanReceipt, token]);
 

@@ -127,6 +127,7 @@ export default function DayBatchScreen() {
   const progress = useRef<Record<string, TransactionSaveProgress>>({});
   /** What was saved, for the toast and for Undo (P115). */
   const saved = useRef({ count: 0, out: 0, in: 0, ids: [] as number[], extras: false });
+  const recorded = useRef(new Set<string>());
 
   useEffect(
     () => () => {
@@ -281,14 +282,18 @@ export default function DayBatchScreen() {
   const handleClose = useCallback(async () => {
     const unsaved = itemsRef.current.filter((item) => item.status === 'ready').length;
     const spent = batch?.credits_charged ?? 0;
-    if (unsaved > 0 && saved.current.count === 0) {
+    if (unsaved > 0) {
       if (confirmOpen.current) return;
       confirmOpen.current = true;
+      const someSaved = saved.current.count > 0;
       const discard = await dialog
         .confirm({
-          title: `Discard ${unsaved} ${plural(unsaved, 'expense')}?`,
-          message:
-            spent > 0
+          title: someSaved
+            ? `Discard the other ${unsaved}?`
+            : `Discard ${unsaved} ${plural(unsaved, 'expense')}?`,
+          message: someSaved
+            ? `The ${saved.current.count} already saved stay saved. These ${unsaved} won't be.`
+            : spent > 0
               ? `Nothing gets saved. The ${spent} credits used for reading won't come back.`
               : 'Nothing gets saved.',
           confirmLabel: 'Discard',
@@ -397,6 +402,10 @@ export default function DayBatchScreen() {
   /* ---- Saving ------------------------------------------------------------ */
 
   const record = useCallback((form: EntryForm, key: string) => {
+    // A retried save (a total that failed halfway) lands on the same key and
+    // must not be counted, or offered to Undo, twice.
+    if (recorded.current.has(key)) return;
+    recorded.current.add(key);
     const amount = Number(form.amount) || 0;
     const entryProgress = progress.current[key] ?? {};
     const id = entryProgress.entry?.id;
