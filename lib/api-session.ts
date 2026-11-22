@@ -1,6 +1,7 @@
 import { useAuthStore } from '@/hooks/use-auth-store';
 
 import { fetchWithRetry } from './api-retry';
+import { withClientHeaders } from './client-info';
 import { API_BASE_URL } from './transactions';
 
 type UnauthorizedHandler = () => void;
@@ -35,6 +36,16 @@ const getRequestUrl = (input: FetchInput) => {
     return input.toString();
   }
   return input.url;
+};
+
+// Any request to the Finnri API, sign-in included: they all carry the app's
+// client headers (lib/client-info.ts).
+const isApiOriginRequest = (input: FetchInput) => {
+  try {
+    return new URL(getRequestUrl(input), API_BASE_URL).origin === new URL(API_BASE_URL).origin;
+  } catch {
+    return false;
+  }
 };
 
 const isProtectedApiRequest = (input: FetchInput) => {
@@ -117,11 +128,12 @@ export const installApiSessionGuard = (handler: UnauthorizedHandler) => {
       // rather than patch over it: a second patch would have to be installed in
       // a guaranteed order to see the same requests, and the 401 check below
       // needs the *final* response, not the first attempt's.
-      const response = await fetchWithRetry(originalFetch!, input, init);
+      const requestInit = isApiOriginRequest(input) ? withClientHeaders(input, init) : init;
+      const response = await fetchWithRetry(originalFetch!, input, requestInit);
 
       if (
         response.status === 401 &&
-        shouldInvalidateSession(input, init) &&
+        shouldInvalidateSession(input, requestInit) &&
         (await responseHasSessionInvalidationCode(response))
       ) {
         handleUnauthorized();
