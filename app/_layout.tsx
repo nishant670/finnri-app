@@ -23,6 +23,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { startAnalytics } from '@/lib/analytics';
 import { installApiSessionGuard } from '@/lib/api-session';
 import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
@@ -161,6 +162,10 @@ export default function RootLayout() {
       SplashScreen.hideAsync();
     }
   }, [isAppReady]);
+
+  // After the session guard's effect below would be too late to matter and
+  // before it is harmless: the queue only sends once somebody is signed in.
+  useEffect(() => startAnalytics(), []);
 
   useEffect(() => {
     return installApiSessionGuard(() => {

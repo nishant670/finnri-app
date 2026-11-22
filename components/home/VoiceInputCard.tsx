@@ -10,7 +10,7 @@ import { CAPTURE_HINTS, useSpeakLanguage } from '@/lib/speak-language';
 import { MAX_RECORDING_SECONDS, MAX_ITEMS_PER_PROMPT, RECORDING_WARN_SECONDS } from '@/lib/voice-batch';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { AudioRecorder } from 'expo-audio';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   cancelAnimation,
