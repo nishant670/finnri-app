@@ -518,6 +518,31 @@ export const suggestAccountFromTransaction = (
   };
 };
 
+/**
+ * Whether an "Add <Bank> Account?" suggestion still fits how the form says it
+ * was paid.
+ *
+ * It fits while Paid with is the payment the draft opened on (the one the
+ * suggestion was made for), or while no account is picked and the mode is the
+ * suggestion's own kind of account. Any other existing account means the user
+ * has answered where the money came from, so the suggestion stands down.
+ */
+export const accountSuggestionFitsPayment = ({
+  suggestionType,
+  seed,
+  mode,
+  accountId,
+}: {
+  suggestionType: AccountType | null;
+  seed: { mode: string; accountId: number | null } | null;
+  mode: string;
+  accountId: number | null;
+}) => {
+  if (!suggestionType) return false;
+  if (seed && seed.mode === mode && seed.accountId === accountId) return true;
+  return accountId == null && getAccountTypeForPaymentMode(mode) === suggestionType;
+};
+
 export class AccountApiError extends Error {
   status: number;
   code?: string;

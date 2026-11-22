@@ -202,6 +202,17 @@ export const recurringIdFromActionURL = (actionURL?: string | null): number | nu
   return match ? Number(match[1]) : null;
 };
 
+/**
+ * A reminder for recurring income rather than a payment. The reminder does not
+ * carry its item's kind, so this reads the server's income titles — "Salary
+ * expected" and "Salary not marked received" (`subscriptionReminderCopy`,
+ * pinned by its Go test). It only picks the button's words: the sheet the
+ * button opens reads the item itself.
+ */
+export const isIncomeReminder = (notification: { type?: string; title?: string | null }) =>
+  (notification.type === 'subscription.due' || notification.type === 'subscription.overdue') &&
+  /\s(expected|not marked received)$/.test(notification.title?.trim() ?? '');
+
 /** The settle-up a "says they paid you" notification is about (P47). */
 export const settlementIdFromActionURL = (actionURL?: string | null): number | null => {
   const match = actionURL?.match(/^\/split\/settlements\/(\d+)$/);

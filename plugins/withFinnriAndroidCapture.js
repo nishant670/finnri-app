@@ -96,7 +96,7 @@ const withCaptureStyle = (config) =>
         { $: { name: 'android:colorAccent' }, _: '@color/finnri_accent' },
         { $: { name: 'android:windowLightStatusBar' }, _: 'false' },
         { $: { name: 'android:statusBarColor' }, _: '@android:color/transparent' },
-        { $: { name: 'android:navigationBarColor' }, _: '@color/finnri_background' },
+        { $: { name: 'android:navigationBarColor' }, _: '@android:color/transparent' },
       ],
     });
     nextConfig.modResults.resources.style = styles;

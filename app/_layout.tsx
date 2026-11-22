@@ -284,6 +284,8 @@ export default function RootLayout() {
         />
         <Stack.Screen name="accounts/[id]" />
         <Stack.Screen name="cards" />
+        <Stack.Screen name="bills" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="batch" options={{ gestureEnabled: false }} />
         <Stack.Screen name="statements/index" />
         <Stack.Screen name="statements/review" />
         <Stack.Screen name="statements/[id]" />

@@ -18,18 +18,14 @@ import { categoryVisual } from '@/lib/categories';
 import { formatApiDate } from '@/lib/datetime';
 import { fetchDashboard, type DashboardBudgetStatus } from '@/lib/insights';
 import { formatMoney } from '@/lib/money';
-import {
-  accountKindGroups,
-  cardTotalSummary,
-  dueAction,
-  overviewDues,
-} from '@/lib/money-overview';
+import { accountKindGroups, cardTotalSummary, dueAction, overviewDues } from '@/lib/money-overview';
 import { kindOf } from '@/lib/recurring';
 import { fetchRefundables, type RefundableEntry } from '@/lib/refundables';
 import { fetchSubscriptions, type Subscription } from '@/lib/subscriptions';
 import {
   buildUpcomingDues,
-  formatDueLabel,
+  dueStatusLabel,
+  isIncomingDue,
   totalUpcomingAmount,
   type UpcomingDue,
 } from '@/lib/upcoming';
@@ -192,7 +188,9 @@ export function MoneyOverview({
               numberOfLines={2}
               style={[
                 styles.statCaption,
-                overdueTotal > 0 ? { color: colors.negative, fontWeight: '600' } : { color: colors.muted },
+                overdueTotal > 0
+                  ? { color: colors.negative, fontWeight: '600' }
+                  : { color: colors.muted },
               ]}>
               {overdueTotal > 0 ? `${formatMoney(overdueTotal)} overdue` : 'Nothing overdue'}
             </ThemedText>
@@ -218,7 +216,8 @@ export function MoneyOverview({
               </ThemedText>
             </Pressable>
           ) : (
-            <View style={[styles.stat, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <View
+              style={[styles.stat, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <ThemedText tone="muted" style={styles.statLabel}>
                 Spent this month
               </ThemedText>
@@ -248,7 +247,7 @@ export function MoneyOverview({
           <View style={cardStyle}>
             {shownDues.map((due, index) => {
               const visual = visualFor(due);
-              const isRefund = due.kind === 'refund';
+              const isRefund = isIncomingDue(due);
               const amount =
                 due.amount === null
                   ? '—'
@@ -256,9 +255,17 @@ export function MoneyOverview({
                     ? formatMoney(due.amount, { sign: 'always' })
                     : formatMoney(due.amount);
               const action = dueAction(due);
-              const status = isRefund ? `Expected back · ${formatDueLabel(due)}` : formatDueLabel(due);
+              const status = dueStatusLabel(due);
               const tone =
-                due.state === 'overdue' ? 'negative' : due.state === 'scheduled' ? 'muted' : 'warning';
+                due.state === 'overdue'
+                  ? due.incoming
+                    ? 'warning'
+                    : 'negative'
+                  : due.state === 'scheduled'
+                    ? 'muted'
+                    : due.incoming
+                      ? 'positive'
+                      : 'warning';
               return action ? (
                 <ListRow
                   key={due.key}
@@ -310,7 +317,9 @@ export function MoneyOverview({
             {budgets.map((budget, index) => {
               const visual = budget.category ? categoryVisual(budget.category) : null;
               const share =
-                budget.limit_amount > 0 ? Math.min(1, budget.spent_amount / budget.limit_amount) : 0;
+                budget.limit_amount > 0
+                  ? Math.min(1, budget.spent_amount / budget.limit_amount)
+                  : 0;
               const barColor =
                 budget.status === 'exceeded'
                   ? colors.negative
@@ -451,7 +460,12 @@ function EmptyRow({
 }) {
   const { colors } = useThemeTokens();
   return (
-    <View style={[styles.card, styles.empty, { backgroundColor: colors.card, borderColor: colors.border }]}>
+    <View
+      style={[
+        styles.card,
+        styles.empty,
+        { backgroundColor: colors.card, borderColor: colors.border },
+      ]}>
       <View style={[styles.emptyTile, { backgroundColor: withAlpha(colors.accent, 0.14) }]}>
         <MaterialCommunityIcons name={icon} size={18} color={colors.text} />
       </View>

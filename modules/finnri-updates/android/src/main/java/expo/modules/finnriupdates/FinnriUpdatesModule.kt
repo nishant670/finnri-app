@@ -1,6 +1,7 @@
 package expo.modules.finnriupdates
 
 import android.app.Activity
+import android.provider.Settings
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
@@ -118,6 +119,19 @@ class FinnriUpdatesModule : Module() {
           }
         }
         .addOnFailureListener { promise.resolve(false) }
+    }
+
+    // True on Google Play's pre-launch report devices (Firebase Test Lab),
+    // which set this system setting. Their robot taps "Continue as guest" on
+    // every upload; the app says so in a header and the server keeps those
+    // guests out of the admin console's user numbers.
+    Function("isTestLabDevice") {
+      val context = appContext.reactContext ?: return@Function false
+      try {
+        Settings.System.getString(context.contentResolver, "firebase.test.lab") == "true"
+      } catch (error: Exception) {
+        false
+      }
     }
 
     // Installs a downloaded flexible update. The app restarts into the new build.

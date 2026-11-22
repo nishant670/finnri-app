@@ -65,8 +65,9 @@ const jobKey = (notification: AppNotification) => {
     case 'split.settlement.recorded':
       return 'split.settlement.recorded';
     case 'subscription.autopay':
-      // Each autopay charge has its own Confirm / Fix it.
-      return `autopay:${notification.id}`;
+      // Every autopay charge waiting for a look is one job: confirm them. Each
+      // keeps its own Confirm / Fix it inside the stack (2026-11-13).
+      return 'subscription.autopay';
     default: {
       const url = notification.action_url;
       if (!url || GENERIC_LINKS.has(url)) return `id:${notification.id}`;
@@ -82,6 +83,7 @@ const stackTitleFor = (key: string, count: number): string | null => {
   if (count < 2) return null;
   if (key === 'account.needs_setup') return `Finish setting up ${count} accounts`;
   if (key === 'split.settlement.recorded') return `${countWord(count)} settle-ups are waiting for your OK`;
+  if (key === 'subscription.autopay') return `${countWord(count)} autopay charges to confirm`;
   return null;
 };
 
@@ -105,12 +107,64 @@ export const buildNotificationSections = (notifications: AppNotification[]) => {
     const key = jobKey(notification);
     jobs.set(key, [...(jobs.get(key) ?? []), notification]);
   });
-  const needs: NotificationJob[] = [...jobs.entries()].map(([key, items]) => ({
-    key,
-    items,
-    stackTitle: stackTitleFor(key, items.length),
-  }));
+  const needs: NotificationJob[] = [...jobs.entries()]
+    .map(([key, items]) => ({
+      key,
+      items,
+      stackTitle: stackTitleFor(key, items.length),
+    }))
+    .sort(byUrgency);
   return { needs, updates };
+};
+
+/**
+ * How many jobs "Needs you" shows before "See all" (2026-11-13). Sixteen jobs
+ * in a row pushed Updates a long scroll down, where nobody saw it.
+ */
+export const NEEDS_YOU_PREVIEW = 3;
+
+const OVERDUE_TYPES = new Set(['card_statement.overdue', 'subscription.overdue']);
+const DUE_TODAY_TYPES = new Set(['card_statement.due_today']);
+
+/** 0 is most urgent: late, then due today, then has a due date, then the rest. */
+const urgencyRank = (job: NotificationJob) =>
+  Math.min(
+    ...job.items.map((item) =>
+      OVERDUE_TYPES.has(item.type) ? 0 : DUE_TODAY_TYPES.has(item.type) ? 1 : item.due_date ? 2 : 3
+    )
+  );
+
+const earliestDue = (job: NotificationJob) =>
+  job.items.reduce<string | null>(
+    (earliest, item) => (item.due_date && (!earliest || item.due_date < earliest) ? item.due_date : earliest),
+    null
+  );
+
+/**
+ * The order "Needs you" reads in, so the few it shows first are the ones that
+ * cannot wait: overdue, then due today, then the soonest due, then the newest.
+ * The server's newest-first order put a fresh "add details" above a bill
+ * already late.
+ */
+const byUrgency = (a: NotificationJob, b: NotificationJob) => {
+  const rank = urgencyRank(a) - urgencyRank(b);
+  if (rank !== 0) return rank;
+  const dueA = earliestDue(a);
+  const dueB = earliestDue(b);
+  if (dueA && dueB && dueA !== dueB) return dueA < dueB ? -1 : 1;
+  return byNewest(a.items[0], b.items[0]);
+};
+
+/**
+ * What an autopay notice charged, for its line in a stack: "Zee Entertainment"
+ * and ₹399. Newer notices carry the amount; older ones only say it in the body
+ * ("Added Zee Entertainment for ₹399 from SBI simply save. Confirm it…").
+ */
+export const autopayCharge = (notification: AppNotification): { name: string; amount: number | null } => {
+  const match = notification.body?.match(/^Added (.+?) for ₹\s?([\d,]+(?:\.\d+)?) from /);
+  const stated = notificationAmount(notification);
+  if (!match) return { name: notification.body || notification.title, amount: stated };
+  return { name: match[1], amount: stated ?? Number(match[2].replace(/,/g, '')) };
 };
 
 /** A reminder's amount as a number, or null (P48). */

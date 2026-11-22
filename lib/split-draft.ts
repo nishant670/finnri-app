@@ -84,6 +84,65 @@ const findByName = <T extends { name: string }>(items: T[], name?: string | null
   );
 };
 
+/** Words that say "this is a group" rather than name it: "daily group" is "daily". */
+const GROUP_FILLER_WORDS = new Set(['group', 'grp', 'the', 'my', 'our']);
+
+const groupLookup = (value?: string | null) =>
+  normalizeLookup(value)
+    .split(' ')
+    .filter((word) => word && !GROUP_FILLER_WORDS.has(word))
+    .join('');
+
+const editDistance = (a: string, b: string) => {
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[b.length];
+};
+
+/**
+ * A misheard group name, run together: "Bobududu" for "Bubu Dudu Daily". The
+ * spoken name is compared with the start of each group's name, letter by
+ * letter, allowing a slip per eight letters — and only a single close group
+ * counts.
+ */
+const findGroupBySpelling = (groups: SplitGroup[], name: string): SplitGroup | null => {
+  const spoken = groupLookup(name);
+  if (spoken.length < 6) return null;
+  const allowed = Math.max(1, Math.floor(spoken.length / 8));
+  const close = groups.filter((group) => {
+    const saved = groupLookup(group.name);
+    if (saved.length < spoken.length - allowed) return false;
+    return editDistance(spoken, saved.slice(0, spoken.length)) <= allowed;
+  });
+  return close.length === 1 ? close[0] : null;
+};
+
+const findGroup = (groups: SplitGroup[], name?: string | null): SplitGroup | null => {
+  const trimmed = name?.trim();
+  if (!trimmed) return null;
+  return (
+    findByName(groups, trimmed) ??
+    findUniqueByNormalizedName(groups, trimmed, groupLookup) ??
+    findGroupBySpelling(groups, trimmed)
+  );
+};
+
+/** "Bubu" is a piece of "Bubu Dudu Daily", not a person to add. */
+const isPartOfGroupName = (group: SplitGroup, name: string) => {
+  const piece = compactLookup(name);
+  return piece.length > 0 && compactLookup(group.name).includes(piece);
+};
+
 const formatShare = (value: number | null) =>
   value != null && value > 0 ? toAmountInputValue(value) : '';
 
@@ -264,8 +323,31 @@ export const resolveSplitDraft = (
   splitGroups: SplitGroup[]
 ): ResolvedSplitDraft => {
   const candidate = data.split_candidate_details;
-  const matchedGroup = findByName(splitGroups, candidate?.group_name);
-  const participantCandidates = candidate?.participants ?? [];
+  const spokenParticipants = candidate?.participants ?? [];
+  const isUnknownPerson = (participant: (typeof spokenParticipants)[number]) => {
+    const name = participant.friend_name?.trim() ?? '';
+    return name !== '' && !findByName(splitFriends, name);
+  };
+  const unknownNames = spokenParticipants
+    .filter(isUnknownPerson)
+    .map((participant) => participant.friend_name?.trim() ?? '');
+
+  // A voice capture often hears a group as people: "split with Bubu, Dudu,
+  // daily group" came back as the group "daily group" plus two new friends,
+  // and "Bobududu" as one new friend (2026-11-11). Names that are not saved
+  // friends get one more look as the group they are part of.
+  const namedGroup = findGroup(splitGroups, candidate?.group_name);
+  const groupFromPeople =
+    namedGroup == null && unknownNames.length > 0
+      ? (findGroup(splitGroups, [...unknownNames, candidate?.group_name ?? ''].join(' ')) ??
+        findGroup(splitGroups, unknownNames.join(' ')))
+      : null;
+  const matchedGroup = namedGroup ?? groupFromPeople;
+  const participantCandidates = spokenParticipants.filter((participant) => {
+    if (!matchedGroup || !isUnknownPerson(participant)) return true;
+    // The names that made up the group, or pieces of its name, are the group.
+    return !(groupFromPeople || isPartOfGroupName(matchedGroup, participant.friend_name ?? ''));
+  });
   const participantCount =
     participantCandidates.length ||
     (matchedGroup ? (groupComposerMembers(matchedGroup)?.length ?? 0) : 0) ||
