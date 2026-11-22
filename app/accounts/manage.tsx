@@ -381,7 +381,14 @@ export default function ManageAccountScreen() {
           : {}),
         ...balanceFields,
         ...(isCard ? { credit_kind: creditKind } : {}),
-        ...(pickingProduct ? { card_product_id: cardProduct?.id ?? '', card_network: cardNetwork } : {}),
+        // A pay-later line is not a card from the catalogue: turning one into
+        // pay later clears the link rather than leaving it behind.
+        ...(isCard
+          ? {
+              card_product_id: pickingProduct ? cardProduct?.id ?? '' : '',
+              card_network: pickingProduct ? cardNetwork : '',
+            }
+          : {}),
         is_default: isDefault,
       };
       if (isEditing && accountId !== null) {

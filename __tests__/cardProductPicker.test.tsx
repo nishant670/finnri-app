@@ -99,4 +99,19 @@ describe("Add card picks the product (plan §6)", () => {
     await fireEvent.press(ui.getByTestId('account-type-pay_later'));
     expect(ui.queryByTestId('card-network-rupay')).toBeNull();
   });
+
+  it('clears the card link when the card is turned into a pay-later line', async () => {
+    const save = jest
+      .spyOn(accountsLib, 'saveAccount')
+      .mockResolvedValue({ id: 9, type: 'credit_card', name: 'HDFC Bank', color: '#000' } as never);
+    const ui = await render(<ManageAccountScreen />);
+    await startCard(ui, 'HDFC Bank');
+    await fireEvent.press(await ui.findByTestId('card-product-hdfc-millennia'));
+    await fireEvent.press(ui.getByTestId('account-type-more'));
+    await fireEvent.press(ui.getByTestId('account-type-pay_later'));
+    await fireEvent.press(ui.getByTestId('account-save'));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+    expect(save.mock.calls[0][1]).toMatchObject({ credit_kind: 'pay_later', card_product_id: '', card_network: '' });
+  });
 });
+
