@@ -139,6 +139,15 @@ export const startAnalytics = () => {
     });
 
   const timer = setInterval(() => void flushAnalytics(), FLUSH_INTERVAL_MS);
+  // Signing out leaves nobody to send for. What is still queued belongs to the
+  // account that just left, so it goes too, rather than reaching the server
+  // later under whoever signs in next on this phone.
+  const stopWatchingAuth = useAuthStore.subscribe((state, previous) => {
+    if (previous.token && !state.token) {
+      queue = [];
+      persist();
+    }
+  });
   const subscription = AppState.addEventListener('change', (state) => {
     if (state === 'active') noteOpened();
     else void flushAnalytics();
@@ -147,6 +156,7 @@ export const startAnalytics = () => {
   return () => {
     clearInterval(timer);
     subscription.remove();
+    stopWatchingAuth();
     started = false;
   };
 };

@@ -116,4 +116,23 @@ describe('product analytics', () => {
     for (let index = 0; index < 250; index += 1) track('app_opened');
     expect(queuedAnalyticsEvents()).toHaveLength(200);
   });
+
+  it('drops what was queued for an account when it signs out', async () => {
+    useAuthStore.setState({ user: null, token: 'first-account' });
+    fetchMock().mockResolvedValue({ ok: false, status: 503 });
+    stop = startAnalytics();
+    await jest.runOnlyPendingTimersAsync();
+    track('entry_saved', 'manual');
+    expect(queuedAnalyticsEvents().map((event) => event.name)).toContain('entry_saved');
+
+    useAuthStore.getState().clearAuth();
+    expect(queuedAnalyticsEvents()).toEqual([]);
+
+    fetchMock().mockClear();
+    fetchMock().mockResolvedValue({ ok: true, status: 200 });
+    useAuthStore.setState({ user: null, token: 'second-account' });
+    await flushAnalytics();
+    expect(sentBodies()).toEqual([]);
+  });
 });
+
