@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react-native';
+import { fireEvent, render } from '@testing-library/react-native';
 
 import {
   TransactionDraftSource,
@@ -53,5 +53,43 @@ describe('TransactionDraftStatus', () => {
     expect(screen.getByText('Was this a refund?')).toBeTruthy();
     const parsing = await setup({ isParsing: true, clarifications: ['Which card?'] });
     expect(parsing.queryByText('Which card?')).toBeNull();
+  });
+});
+
+// Device feedback 2026-11-17: a 7-line voice note pushed the amount and every
+// field half a screen down.
+describe('TransactionDraftSource — long quotes', () => {
+  const long =
+    '705 spent on sweets and snacks yesterday, paid by cash, in which it was sweets for family, then we had some snacks like golgappa, rajkachori, then we have diet coke and a water bottle.';
+
+  it('leaves a short quote whole, with no toggle', async () => {
+    const screen = await render(
+      <TransactionDraftSource inputSource="receipt" sourceText="NHAI Annual Pass payment, Rs 3075, 09 Nov 2026" />
+    );
+    expect(screen.getByTestId('draft-source-text').props.numberOfLines).toBeUndefined();
+    expect(screen.queryByTestId('draft-source-toggle')).toBeNull();
+  });
+
+  it.each(['voice', 'receipt', 'text'] as const)(
+    'clamps a long %s quote to two lines and opens it on Show more',
+    async (inputSource) => {
+      const screen = await render(<TransactionDraftSource inputSource={inputSource} sourceText={long} />);
+      expect(screen.getByTestId('draft-source-text').props.numberOfLines).toBe(2);
+      expect(screen.getByText('Show more')).toBeTruthy();
+
+      await fireEvent.press(screen.getByTestId('draft-source-toggle'));
+      expect(screen.getByTestId('draft-source-text').props.numberOfLines).toBeUndefined();
+      expect(screen.getByText('Show less')).toBeTruthy();
+
+      await fireEvent.press(screen.getByTestId('draft-source-toggle'));
+      expect(screen.getByTestId('draft-source-text').props.numberOfLines).toBe(2);
+    }
+  );
+
+  it('starts the next draft clamped again', async () => {
+    const screen = await render(<TransactionDraftSource inputSource="voice" sourceText={long} />);
+    await fireEvent.press(screen.getByTestId('draft-source-toggle'));
+    await screen.rerender(<TransactionDraftSource inputSource="voice" sourceText={`${long} Again.`} />);
+    expect(screen.getByTestId('draft-source-text').props.numberOfLines).toBe(2);
   });
 });

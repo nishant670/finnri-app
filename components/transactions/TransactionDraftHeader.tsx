@@ -1,7 +1,9 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
+import { PressableView } from '@/components/ui/PressableView';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 
 type TransactionDraftSourceProps = {
@@ -10,11 +12,27 @@ type TransactionDraftSourceProps = {
 };
 
 /**
+ * About two lines of the quote on a phone. Longer than this, the quote starts
+ * clamped with "Show more".
+ */
+export const DRAFT_SOURCE_CLAMP_CHARS = 80;
+const DRAFT_SOURCE_CLAMP_LINES = 2;
+
+/**
  * What the AI heard, quoted above its draft so a misheard word is easy to spot
  * (board R2-Draft: a 32dp tile, "You said", then the words).
+ *
+ * Clamped to two lines (device feedback 2026-11-17): a 7-line voice note pushed
+ * the amount and every field half a screen down. The start of the quote is
+ * enough to spot a misheard word; "Show more" opens the rest in place. The
+ * receipt and typed headers share this, so they behave the same. A new quote
+ * (the next draft in the same sheet) starts clamped again.
  */
 export function TransactionDraftSource({ inputSource, sourceText }: TransactionDraftSourceProps) {
   const { colors } = useThemeTokens();
+  const [expandedText, setExpandedText] = useState<string | null>(null);
+  const long = sourceText.trim().length > DRAFT_SOURCE_CLAMP_CHARS;
+  const expanded = long && expandedText === sourceText;
 
   return (
     <View style={[styles.source, { backgroundColor: colors.card, borderColor: colors.border }]}>
@@ -39,9 +57,29 @@ export function TransactionDraftSource({ inputSource, sourceText }: TransactionD
               ? 'You typed'
               : 'You said'}
         </ThemedText>
-        <ThemedText testID="draft-source-text" style={[styles.quote, { color: colors.text }]}>
+        <ThemedText
+          testID="draft-source-text"
+          numberOfLines={long && !expanded ? DRAFT_SOURCE_CLAMP_LINES : undefined}
+          style={[styles.quote, { color: colors.text }]}>
           “{sourceText}”
         </ThemedText>
+        {long ? (
+          <PressableView
+            testID="draft-source-toggle"
+            accessibilityRole="button"
+            accessibilityState={{ expanded }}
+            accessibilityLabel={
+              expanded ? 'Show less of what was read' : 'Show all of what was read'
+            }
+            onPress={() => setExpandedText(expanded ? null : sourceText)}
+            hitSlop={8}
+            style={styles.toggle}
+            pressedStyle={styles.pressed}>
+            <ThemedText style={[styles.toggleLabel, { color: colors.text }]}>
+              {expanded ? 'Show less' : 'Show more'}
+            </ThemedText>
+          </PressableView>
+        ) : null}
       </View>
     </View>
   );
@@ -144,6 +182,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '500',
+  },
+  toggle: {
+    alignSelf: 'flex-start',
+    marginTop: 2,
+  },
+  toggleLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  pressed: {
+    opacity: 0.6,
   },
   statusBlock: {
     alignItems: 'center',

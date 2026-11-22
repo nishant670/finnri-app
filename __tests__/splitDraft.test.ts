@@ -314,4 +314,100 @@ describe('resolveSplitDraft', () => {
       '500.00',
     ]);
   });
+  describe('a group heard as people (2026-11-11)', () => {
+    const groups = [
+      {
+        id: 9,
+        name: 'Bubu Dudu Daily',
+        user_id: 1,
+        archived: false,
+        members: [
+          { id: 1, user_id: 1, group_id: 9, friend_id: 21, friend: { id: 21, name: 'Biwi' } },
+        ],
+      },
+      { id: 10, name: 'Dyninno Diwali lunch', user_id: 1, archived: false, members: [] },
+    ] as unknown as SplitGroup[];
+    const friends = [{ id: 21, name: 'Biwi', user_id: 1, archived: false }] as SplitFriend[];
+
+    it('reads "Bubu, Dudu, daily group" as the Bubu Dudu Daily group', () => {
+      const draft = resolveSplitDraft(
+        baseParse({
+          amount: 140,
+          split_candidate: true,
+          split_candidate_details: {
+            group_name: 'daily group',
+            participants: [
+              { friend_name: 'Bubu', share_amount: 70, direction: 'friend_owes_user' },
+              { friend_name: 'Dudu', share_amount: 70, direction: 'friend_owes_user' },
+            ],
+          },
+        }),
+        friends,
+        groups
+      );
+      expect(draft.splitGroupId).toBe(9);
+      expect(draft.splitGroupName).toBe('');
+      expect(draft.splitParticipants.map((p) => p.friendId)).toEqual([21]);
+    });
+
+    it('reads a run-together "Bobududu" as the group, not a new friend', () => {
+      const draft = resolveSplitDraft(
+        baseParse({
+          amount: 100,
+          split_candidate: true,
+          split_candidate_details: {
+            participants: [
+              { friend_name: 'Bobududu', share_amount: 50, direction: 'friend_owes_user' },
+            ],
+          },
+        }),
+        friends,
+        groups
+      );
+      expect(draft.splitGroupId).toBe(9);
+      expect(draft.splitParticipants.map((p) => p.friendId)).toEqual([21]);
+      expect(draft.splitParticipants.some((p) => p.friendName === 'Bobududu')).toBe(false);
+    });
+
+    it('still adds a real new friend who is not part of any group', () => {
+      const draft = resolveSplitDraft(
+        baseParse({
+          amount: 100,
+          split_candidate: true,
+          split_candidate_details: {
+            participants: [
+              { friend_name: 'Rohan', share_amount: 50, direction: 'friend_owes_user' },
+            ],
+          },
+        }),
+        friends,
+        groups
+      );
+      expect(draft.splitGroupId).toBeNull();
+      expect(draft.splitParticipants).toEqual([
+        expect.objectContaining({ friendId: null, friendName: 'Rohan', shareAmount: '50.00' }),
+      ]);
+    });
+
+    it('keeps a known friend named alongside the group', () => {
+      const draft = resolveSplitDraft(
+        baseParse({
+          amount: 300,
+          split_candidate: true,
+          split_candidate_details: {
+            group_name: 'Bubu Dudu Daily',
+            participants: [
+              { friend_name: 'Biwi', share_amount: 150, direction: 'friend_owes_user' },
+            ],
+          },
+        }),
+        friends,
+        groups
+      );
+      expect(draft.splitGroupId).toBe(9);
+      expect(draft.splitParticipants).toEqual([
+        expect.objectContaining({ friendId: 21, shareAmount: '150.00' }),
+      ]);
+    });
+  });
 });

@@ -169,8 +169,11 @@ export function useMotion(): MotionHelpers {
           : withSpring(toValue, Motion.spring.press);
       },
       stagger: staggerDelay,
+      // Not on web either: see revealEntering below. Reanimated web leaves the
+      // entering and layout wrappers absolutely placed, so list rows piled up
+      // on top of each other in the Expo web preview.
       rowEntering: (index) =>
-        reduced
+        reduced || Platform.OS === 'web'
           ? undefined
           : FadeInDown.duration(duration('base'))
               .delay(staggerDelay(index))
@@ -182,7 +185,9 @@ export function useMotion(): MotionHelpers {
                 transform: [{ translateY: ROW_ENTRANCE_TRAVEL }],
               }),
       reflow: () =>
-        reduced ? undefined : LinearTransition.duration(duration('base')).easing(standard),
+        reduced || Platform.OS === 'web'
+          ? undefined
+          : LinearTransition.duration(duration('base')).easing(standard),
       // Not on web: Reanimated's web build plays an entering animation with
       // custom initial values on an absolutely positioned element, so the
       // revealed field stopped taking up space and the next row drew over

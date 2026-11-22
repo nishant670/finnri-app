@@ -5,17 +5,30 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 import { FinnriLogoMark } from '@/components/FinnriLogoMark';
+import { PressableView } from '@/components/ui/PressableView';
 import { userDisplayName } from '@/lib/display-name';
 
 type HomeHeaderProps = {
   unreadCount?: number;
   onNotificationsPress?: () => void;
+  /**
+   * Opens Ask Finnri. The capture field used to carry an "Or ask — …" link
+   * for this, but typing there is for logging, and the only other way in was
+   * a long-press on the mic nobody discovers. A labelled pill beside the bell
+   * is always on screen (the header is pinned) and says what it does.
+   */
+  onAskPress?: () => void;
   /** "Hey there, welcome to Finnri!" while Home has no entries yet. */
   welcome?: boolean;
 };
 
 /** The 56dp identity row over Home: the mark, the greeting, the bell (board R1-Home-Empty). */
-export function HomeHeader({ unreadCount = 0, onNotificationsPress, welcome = false }: HomeHeaderProps) {
+export function HomeHeader({
+  unreadCount = 0,
+  onNotificationsPress,
+  onAskPress,
+  welcome = false,
+}: HomeHeaderProps) {
   const theme = useThemeTokens();
   const { user } = useAuthStore();
   // A brand-new Home greets rather than names (board R13-FirstEntry-Proposals).
@@ -34,6 +47,26 @@ export function HomeHeader({ unreadCount = 0, onNotificationsPress, welcome = fa
           {displayName}
         </ThemedText>
       </View>
+
+      {onAskPress ? (
+        <PressableView
+          testID="home-ask-finnri"
+          accessibilityRole="button"
+          accessibilityLabel="Ask Finnri about your money"
+          onPress={onAskPress}
+          hitSlop={6}
+          style={[
+            styles.ask,
+            {
+              backgroundColor: theme.colors.selectedFill,
+              borderColor: theme.colors.selectedBorder,
+            },
+          ]}
+          pressedStyle={styles.pressed}>
+          <MaterialCommunityIcons name="creation" size={16} color={theme.colors.accent} />
+          <ThemedText style={[styles.askLabel, { color: theme.colors.text }]}>Ask</ThemedText>
+        </PressableView>
+      ) : null}
 
       <Pressable
         accessibilityRole="button"
@@ -85,6 +118,24 @@ const styles = StyleSheet.create({
     fontSize: 17,
     lineHeight: 22,
     fontWeight: '700',
+  },
+  ask: {
+    height: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingLeft: 10,
+    paddingRight: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  askLabel: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.7,
   },
   bell: {
     width: 44,

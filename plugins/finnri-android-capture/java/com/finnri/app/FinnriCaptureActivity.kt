@@ -23,6 +23,9 @@ import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import java.io.File
 import kotlin.math.min
 
@@ -75,7 +78,15 @@ class FinnriCaptureActivity : Activity() {
       window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
     }
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    window.navigationBarColor = palette.background
+    // Edge to edge: the sheet draws behind a transparent navigation bar and
+    // pads itself by the bar's height (see renderSheet), so the bar shows the
+    // sheet's own colour on every Android version. Android 15 ignores
+    // Window.setNavigationBarColor, and Play flags it as deprecated.
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      // No grey scrim over the 3-button bar; the sheet is already opaque there.
+      window.isNavigationBarContrastEnforced = false
+    }
     renderSheet()
 
     if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
@@ -115,6 +126,14 @@ class FinnriCaptureActivity : Activity() {
       }
       // Taps on the sheet stay on the sheet.
       isClickable = true
+    }
+    // The sheet runs under the navigation bar; keep its buttons above it.
+    ViewCompat.setOnApplyWindowInsetsListener(sheet) { view, insets ->
+      val bottom = insets.getInsets(
+        WindowInsetsCompat.Type.navigationBars() or WindowInsetsCompat.Type.displayCutout()
+      ).bottom
+      view.setPadding(view.paddingLeft, view.paddingTop, view.paddingRight, dp(28) + bottom)
+      insets
     }
 
     val handle = View(this).apply { background = rounded(palette.borderStrong, 2f) }

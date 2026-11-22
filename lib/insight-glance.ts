@@ -90,6 +90,8 @@ export const glanceComparison = (dashboard: DashboardResponse) => {
   if (!summary.spend_change_comparable || !summary.spend_change) return null;
   const change = Math.round(Math.abs(summary.spend_change));
   const previous = period.comparison_label?.split(' vs ')[1] ?? 'last time';
+  // 0.3% would otherwise read "0% more" in red; level is level.
+  if (change === 0) return { more: false, same: true, lead: 'About the same', rest: `as ${previous}` };
   return {
     more: summary.spend_change > 0,
     lead: `${change}% ${summary.spend_change > 0 ? 'more' : 'less'}`,

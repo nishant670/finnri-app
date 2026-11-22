@@ -10,6 +10,7 @@ export const recurringVisuals: Record<RecurringKind, Visual> = {
   subscription: { icon: 'calendar-sync-outline', hue: '#C2185B' },
   investment: { icon: 'chart-line', hue: '#16825D' },
   bill: { icon: 'file-document-outline', hue: '#26A69A' },
+  income: { icon: 'cash-plus', hue: '#2E7D32' },
 };
 
 export const cardVisual: Visual = { icon: 'credit-card-outline', hue: '#6A4BBC' };

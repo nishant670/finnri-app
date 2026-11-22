@@ -14,6 +14,7 @@ import { mixHex } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { formatMoney } from '@/lib/money';
 import {
+  isIncomeKind,
   kindOf,
   recurringKindMeta,
   recurringKinds,
@@ -45,7 +46,9 @@ const formatMonthYear = (value?: string) => {
 export const recurringKindTotal = (summary: RecurringSummary | null, kind: RecurringKind) =>
   kind === 'loan'
     ? (summary?.by_kind.loan ?? 0) + (summary?.by_kind.card_emi ?? 0)
-    : (summary?.by_kind[kind] ?? 0);
+    : kind === 'income'
+      ? (summary?.monthly_income ?? 0)
+      : (summary?.by_kind[kind] ?? 0);
 
 /**
  * What every recurring payment commits a month to (board R5-RecurringList),
@@ -87,9 +90,24 @@ export function RecurringSummaryCard({
         </PressableView>
       </View>
       <ThemedText tone="muted" style={[styles.body, styles.summaryLine]}>
-        {summary.active_count} active
+        {summary.active_count > 0
+          ? `${summary.active_count} active`
+          : 'Nothing going out on a schedule yet'}
         {next ? ` · next is ${next.name}, ${formatMoney(next.amount)} on ${formatRecurringDay(next.date)}` : ''}
       </ThemedText>
+      {/* Recurring income is never part of what is committed; it gets its own
+          line, in the colour money coming in uses everywhere else. */}
+      {(summary.monthly_income ?? 0) > 0 ? (
+        <ThemedText testID="recurring-monthly-income" tone="muted" style={[styles.body, styles.summaryLine]}>
+          <ThemedText style={[styles.body, { color: colors.positive, fontWeight: '600' }]}>
+            {formatMoney(summary.monthly_income ?? 0, { sign: 'always' })}
+          </ThemedText>
+          {' a month coming in'}
+          {summary.next_income
+            ? ` · ${summary.next_income.name} expected ${formatRecurringDay(summary.next_income.date)}`
+            : ''}
+        </ThemedText>
+      ) : null}
     </View>
   );
 }
@@ -291,6 +309,11 @@ export const recurringDue = (item: Subscription): { label: string; tone: Tone; i
   if (item.status === 'cancelled' || item.due_state === 'cancelled') return { label: 'Cancelled', tone: 'muted' };
   if (item.status === 'paused' || item.due_state === 'paused') return { label: 'Paused', tone: 'muted' };
   const day = formatRecurringDay(item.next_due_date);
+  if (isIncomeKind(kindOf(item))) {
+    // Money in is expected, not due, and a late salary is not the user's debt.
+    if (item.due_state === 'overdue') return { label: `Not received · ${day}`, tone: 'warning', icon: 'alert-circle-outline' };
+    return { label: day ? `Expected ${day}` : '', tone: item.due_state === 'due_soon' ? 'positive' : 'muted', icon: 'bell-outline' };
+  }
   if (item.due_state === 'overdue') return { label: `Overdue · ${day}`, tone: 'negative', icon: 'alert-circle-outline' };
   if (item.due_state === 'due_soon') return { label: `Due ${day}`, tone: 'warning', icon: 'bell-outline' };
   return { label: day ? `Due ${day}` : '', tone: 'muted', icon: 'bell-outline' };
@@ -446,6 +469,7 @@ export function RecurringActionsSheet({
   const { colors } = theme;
   if (!item) return null;
   const kind = kindOf(item);
+  const income = isIncomeKind(kind);
   const visual = recurringVisuals[kind];
   const tile = categoryTile({ color: visual.hue, bgColor: mixHex('#FFFFFF', visual.hue, 0.14) }, theme.mode);
   const active = item.status === 'active';
@@ -454,7 +478,7 @@ export function RecurringActionsSheet({
   const summary = [
     formatMoney(item.amount),
     active
-      ? `due ${formatRecurringDay(item.next_due_date)}`
+      ? `${income ? 'expected' : 'due'} ${formatRecurringDay(item.next_due_date)}`
       : item.status === 'paused'
         ? 'paused'
         : 'cancelled',
@@ -488,9 +512,13 @@ export function RecurringActionsSheet({
         {active ? (
           <SettingsRow
             icon="check-circle-outline"
-            title="Mark paid"
-            subtitle={`Log ${currentPaymentPeriod(item.billing_interval)} ${formatMoney(item.amount)} payment`}
-            accessibilityLabel={`Mark ${item.name} paid`}
+            title={income ? 'Mark received' : 'Mark paid'}
+            subtitle={
+              income
+                ? `Log ${currentPaymentPeriod(item.billing_interval)} ${formatMoney(item.amount)} as received`
+                : `Log ${currentPaymentPeriod(item.billing_interval)} ${formatMoney(item.amount)} payment`
+            }
+            accessibilityLabel={`Mark ${item.name} ${income ? 'received' : 'paid'}`}
             onPress={run(onMarkPaid)}
           />
         ) : null}

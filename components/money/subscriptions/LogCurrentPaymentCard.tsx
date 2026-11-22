@@ -1,7 +1,11 @@
 import { View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { RowsCard, RowsNote, ToggleRow } from '@/components/money/subscriptions/FormRows';
-import { PaymentAccountPicker } from '@/components/money/subscriptions/PaymentAccountPicker';
+import {
+  INCOME_PAYMENT_MODES,
+  PaymentAccountPicker,
+  RECURRING_PAYMENT_MODES,
+} from '@/components/money/subscriptions/PaymentAccountPicker';
 import type { Account } from '@/lib/accounts';
 import { formatMoney } from '@/lib/money';
 import {
@@ -28,6 +32,8 @@ type LogCurrentPaymentCardProps = {
   onAddAccount: () => void;
   /** Spacing from the rows around it. */
   style?: StyleProp<ViewStyle>;
+  /** Recurring income: logs what was received, into where it landed. */
+  income?: boolean;
 };
 
 /**
@@ -55,6 +61,7 @@ export function LogCurrentPaymentCard({
   onPaymentChange,
   onAddAccount,
   style,
+  income = false,
 }: LogCurrentPaymentCardProps) {
   const logged = paymentToLog(nextDueDate, interval);
   if (!logged) return null;
@@ -62,14 +69,17 @@ export function LogCurrentPaymentCard({
   const adds =
     Number.isFinite(amountValue) && amountValue > 0
       ? `Adds ${formatMoney(amountValue)}`
-      : 'Adds the payment';
+      : income
+        ? 'Adds the amount'
+        : 'Adds the payment';
   const loggedToday = logged.date === todayISO();
+  const noun = income ? 'income' : 'payment';
   const title = logged.isDuePayment
-    ? `Log ${loggedToday ? "today's" : 'this'} payment now`
-    : `Also log ${currentPaymentPeriod(interval)} payment`;
+    ? `Log ${loggedToday ? "today's" : 'this'} ${noun} now`
+    : `Also log ${currentPaymentPeriod(interval)} ${noun}`;
   const schedule = logged.isDuePayment
     ? `The next one moves to ${formatDueDateLabel(shiftByInterval(nextDueDate, interval, 1))}.`
-    : `Next payment stays ${formatDueDateLabel(nextDueDate)}.`;
+    : `Next ${income ? 'one is expected' : 'payment stays'} ${formatDueDateLabel(nextDueDate)}.`;
   const autopayAccount = accounts.find((account) => account.id === accountID)?.name;
 
   return (
@@ -91,13 +101,17 @@ export function LogCurrentPaymentCard({
             paymentMode={paymentMode}
             onChange={onPaymentChange}
             onAddAccount={onAddAccount}
-            accountLabel="Paid from"
+            accountLabel={income ? 'Received in' : 'Paid from'}
+            modeLabel={income ? 'Received via' : undefined}
+            modes={income ? INCOME_PAYMENT_MODES : RECURRING_PAYMENT_MODES}
             divider
           />
         ) : null}
       </RowsCard>
       {checked && autopay && autopayAccount ? (
-        <RowsNote>From {autopayAccount}, the Autopay account.</RowsNote>
+        <RowsNote>
+          {income ? `Into ${autopayAccount}, the account it is added to.` : `From ${autopayAccount}, the Autopay account.`}
+        </RowsNote>
       ) : null}
     </View>
   );

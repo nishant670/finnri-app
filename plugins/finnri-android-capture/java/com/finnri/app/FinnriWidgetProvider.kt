@@ -18,8 +18,9 @@ import androidx.annotation.RequiresApi
  *
  * It used to show the month's spend on the home screen, for anyone holding the
  * phone to read, while the capture screen promised that balances stay behind
- * the lock screen. It now shows no figure at all: Type opens the app on the
- * capture field, the mic opens the lock-screen-safe recorder.
+ * the lock screen. It now shows no figure at all: the keyboard opens the app on
+ * the capture field, the mic opens the lock-screen-safe recorder, and anywhere
+ * else on the pill just opens the app.
  */
 class FinnriWidgetProvider : AppWidgetProvider() {
   override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
@@ -90,8 +91,16 @@ class FinnriWidgetProvider : AppWidgetProvider() {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
       )
       views.setOnClickPendingIntent(R.id.widget_type, type)
-      // The rest of the pill ("Log an expense") types too.
-      views.setOnClickPendingIntent(R.id.widget_root, type)
+      // The rest of the pill only opens the app. Typing is the keyboard's job:
+      // a tap on the name or the prompt used to raise the keyboard on Home,
+      // which is not what someone reaching for the app expects.
+      val open = PendingIntent.getActivity(
+        context,
+        4200,
+        openIntent(context),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+      )
+      views.setOnClickPendingIntent(R.id.widget_root, open)
       return views
     }
 
@@ -125,6 +134,15 @@ class FinnriWidgetProvider : AppWidgetProvider() {
       views.setColorInt(R.id.widget_logo, "setTextColor", day.logoInk, night.logoInk)
       views.setColorInt(R.id.widget_prompt, "setTextColor", day.hint, night.hint)
     }
+
+    /** Opens the app as its launcher icon would: wherever it was left, or Home. */
+    fun openIntent(context: Context): Intent =
+      context.packageManager.getLaunchIntentForPackage(context.packageName)
+        ?: Intent(context, MainActivity::class.java).apply {
+          action = Intent.ACTION_MAIN
+          addCategory(Intent.CATEGORY_LAUNCHER)
+          addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
 
     /**
      * Opens Home with the capture field focused (`compose=type`). The app's own
