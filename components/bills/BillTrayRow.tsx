@@ -1,13 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useEffect } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import Animated, {
   Easing,
   FadeIn,
-  FadeOut,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -16,6 +13,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
+import { TrayRowShell, TraySavedRow, TrayTick } from '@/components/tray/TrayParts';
 import { PressableView } from '@/components/ui/PressableView';
 import { Shimmer } from '@/components/ui/Shimmer';
 import { Motion } from '@/constants/theme';
@@ -34,8 +32,6 @@ const THUMB_W = 48;
 const THUMB_H = 60;
 /** The scan line's sweep, one way (board R20-Motion: 1.4 s each way). */
 const SCAN_MS = 1400;
-/** A drag past this share of the row drops it. */
-const DROP_FRACTION = 0.35;
 
 type Props = {
   item: BillItem;
@@ -66,8 +62,6 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
   const motion = useMotion();
   const scan = useSharedValue(0);
   const shake = useSharedValue(0);
-  const drag = useSharedValue(0);
-  const [width, setWidth] = useState(0);
 
   const reading = item.status === 'reading';
   useEffect(() => {
@@ -99,28 +93,9 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
   // A bill being read can't be dropped: its read would land on nothing, and
   // Undo would bring it back stuck on "Reading…".
   const canDrop = item.status !== 'reading' && item.status !== 'saving' && item.status !== 'saved';
-  const pan = Gesture.Pan()
-    .enabled(canDrop && width > 0)
-    .activeOffsetX([-12, 12])
-    .failOffsetY([-12, 12])
-    .onUpdate((event) => {
-      drag.value = Math.min(0, event.translationX);
-    })
-    .onEnd(() => {
-      if (drag.value < -width * DROP_FRACTION) {
-        drag.value = withTiming(-width, { duration: motion.duration('base') }, () => {
-          runOnJS(onRemove)(item.key);
-        });
-      } else {
-        drag.value = motion.springTo(0);
-      }
-    });
 
   const scanStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: scan.value * (THUMB_H - 4) }],
-  }));
-  const rowStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: drag.value + shake.value }],
   }));
 
   const checkLabel = billCheckLabel(item);
@@ -129,25 +104,11 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
   const dimmed = !item.included && item.status === 'read';
 
   const tick = (
-    <Pressable
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: item.included }}
-      accessibilityLabel={`Include ${item.form?.title || `bill ${index + 1}`}`}
+    <TrayTick
+      checked={item.included}
+      label={`Include ${item.form?.title || `bill ${index + 1}`}`}
       onPress={() => onToggle(item.key)}
-      hitSlop={4}
-      style={styles.tickTarget}>
-      <View
-        style={[
-          styles.tick,
-          item.included
-            ? { backgroundColor: colors.accent }
-            : { borderWidth: 2, borderColor: colors.borderStrong, backgroundColor: 'transparent' },
-        ]}>
-        {item.included ? (
-          <MaterialCommunityIcons name="check" size={16} color={colors.onAccent} />
-        ) : null}
-      </View>
-    </Pressable>
+    />
   );
 
   const thumb = (
@@ -219,16 +180,7 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
       </View>
     );
   } else if (item.status === 'saved') {
-    body = (
-      <Animated.View entering={motion.reduced ? undefined : FadeIn.duration(200)} style={styles.savedRow}>
-        <View style={[styles.savedTick, { backgroundColor: colors.positive }]}>
-          <MaterialCommunityIcons name="check" size={18} color={colors.card} />
-        </View>
-        <ThemedText variant="bodyStrong" tone="positive">
-          Saved
-        </ThemedText>
-      </Animated.View>
-    );
+    body = <TraySavedRow />;
   } else {
     body = (
       <View style={styles.rowInner}>
@@ -293,21 +245,15 @@ export function BillTrayRow({ item, index, onToggle, onOpen, onRetry, onRemove }
   }
 
   return (
-    <GestureDetector gesture={pan}>
-      <Animated.View
-        onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
-        entering={motion.rowEntering(index)}
-        exiting={motion.reduced ? undefined : FadeOut.duration(motion.exitDuration('base'))}
-        layout={motion.reflow()}
-        style={[
-          styles.row,
-          index > 0 && { borderTopWidth: 1, borderTopColor: colors.border },
-          attention && { backgroundColor: theme.mode === 'dark' ? '#2A1E21' : '#FFF5F6' },
-          rowStyle,
-        ]}>
-        {body}
-      </Animated.View>
-    </GestureDetector>
+    <TrayRowShell
+      index={index}
+      canDrop={canDrop}
+      onRemove={() => onRemove(item.key)}
+      attention={!!attention}
+      nudge={shake}
+      style={styles.row}>
+      {body}
+    </TrayRowShell>
   );
 }
 
@@ -322,19 +268,12 @@ const styles = StyleSheet.create({
     minHeight: 84,
     paddingRight: 8,
   },
-  tickTarget: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   tickSpacer: {
     width: 48,
   },
-  tick: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
+  tickTarget: {
+    width: 48,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -402,19 +341,5 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.6,
-  },
-  savedRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    minHeight: 84,
-  },
-  savedTick: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
