@@ -44,7 +44,8 @@ import {
   saveAuthProgress,
   type AuthStep,
 } from '@/lib/auth-progress';
-import { getDeviceId } from '@/lib/device';
+import { track } from '@/lib/analytics';
+import { getDeviceId, getGuestSecret } from '@/lib/device';
 import { saveLocalSecurityPin } from '@/lib/security';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -96,7 +97,7 @@ export default function AuthFlow() {
   const params = useLocalSearchParams<{ mode?: string; inviteToken?: string }>();
   const colorScheme = useColorScheme() ?? 'light';
   const theme = Colors[colorScheme];
-  const { user, setAuth } = useAuthStore();
+  const { user, token: sessionToken, setAuth } = useAuthStore();
   const isGuestLinking = params.mode === 'link' && !!user?.is_guest;
   // A guest linking used to land straight on the identifier form. With email
   // sign-in off there is no form to land on, so they get Welcome in its
@@ -213,12 +214,14 @@ export default function AuthFlow() {
     setIdentifyError(null);
     setIsGuestChecking(true);
     try {
-      const deviceId = await getDeviceId();
+      const [deviceId, guestSecret] = await Promise.all([getDeviceId(), getGuestSecret()]);
       const response = await guestCheckin({
         device_id: deviceId,
+        guest_secret: guestSecret,
       });
       if (response?.user) {
         setAuth(response.user, response.token);
+        track('auth_completed', 'guest');
       }
       finish();
     } catch (error) {
@@ -316,8 +319,10 @@ export default function AuthFlow() {
         guest_uuid: user?.is_guest ? user.uuid : undefined,
         device_id: deviceId,
         biometrics_enabled: false,
-      });
+      }, user?.is_guest ? sessionToken : null);
+      const wasGuest = !!user?.is_guest;
       setAuth(response.user, response.token);
+      track('auth_completed', wasGuest ? 'upgrade' : 'google');
       finish();
     } catch (error) {
       setIdentifyError(getFriendlyAuthErrorMessage(error, 'Google sign-in failed.'));
@@ -343,7 +348,7 @@ export default function AuthFlow() {
         guest_uuid: user?.is_guest ? user.uuid : undefined,
         device_id: deviceId,
         biometrics_enabled: data.biometricsEnabled,
-      });
+      }, user?.is_guest ? sessionToken : null);
       if (data.pin) {
         await saveLocalSecurityPin(response.user.uuid, data.pin);
       }

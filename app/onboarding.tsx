@@ -17,6 +17,7 @@ import { PressableView } from '@/components/ui/PressableView';
 import Screen1 from '@/components/onboarding/Screen1';
 import Screen3 from '@/components/onboarding/Screen3';
 import Screen4 from '@/components/onboarding/Screen4';
+import { track } from '@/lib/analytics';
 import { hasCompletedOnboarding, markOnboardingComplete } from '@/lib/onboarding';
 
 /**
@@ -91,6 +92,7 @@ export default function OnboardingScreen() {
     } catch {
       // Deliberately swallowed; see above.
     }
+    track('onboarding_completed');
     router.replace('/auth');
   };
 
