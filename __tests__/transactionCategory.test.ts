@@ -21,6 +21,7 @@ describe('title category hints', () => {
     ['Apollo Pharmacy', 'Health'],
     ['Doctor visit', 'Health'],
     ['दवाई', 'Health'],
+    ['Full health checkup', 'Health'],
     // Dishes on their own, without a meal word (device report, 2026-10-24).
     ['Mutton seekh kebab + roomali', 'Food & Drinks'],
     ['Mutton seekh kebab + rumali', 'Food & Drinks'],
@@ -47,6 +48,7 @@ describe('title category hints', () => {
     ['Gift wrap', null],
     ['Petrol + snacks', null],
     ['Metropolis', null],
+    ['Car checkup', null],
     ['Automatic transfer', null],
     ['Cafe + taxi', null],
     ['Something else', null],

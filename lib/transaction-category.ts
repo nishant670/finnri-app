@@ -449,7 +449,7 @@ const expenseRules: CategoryRule[] = [
       'clinic',
       'lab test',
       'blood test',
-      'checkup',
+      // Not a bare 'checkup': "Car checkup" is the car, not a doctor.
       'health checkup',
       'physiotherapy',
       'apollo pharmacy',
