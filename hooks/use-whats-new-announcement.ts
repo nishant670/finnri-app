@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 
-import { currentBuild, markNotesSeen, readSeenNotesBuild, useAppUpdateStore } from '@/lib/app-update';
+import { currentBuild, markNotesSeen, readSeenNotes, useAppUpdateStore } from '@/lib/app-update';
 import { unseenBundledReleases, type WhatsNewRelease } from '@/lib/whats-new/releases';
 
 /**
@@ -22,8 +22,8 @@ export function useWhatsNewAnnouncement({ canInterrupt }: { canInterrupt: () => 
 
   const check = useCallback(async () => {
     if (shownRef.current || !useAppUpdateStore.getState().entered) return;
-    const seen = await readSeenNotesBuild();
-    const unseen = unseenBundledReleases(seen ?? 0, currentBuild());
+    const seen = await readSeenNotes();
+    const unseen = unseenBundledReleases(seen ?? { build: 0, fingerprint: null }, currentBuild());
     if (unseen.length === 0 || shownRef.current || !canInterrupt()) return;
     shownRef.current = true;
     setRelease(unseen[0]);
