@@ -6,7 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/themed-text';
 import { PrimaryButton } from '@/components/ui/Button';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { currentBuild, markNotesSeen, readSeenNotesBuild, useAppUpdateStore } from '@/lib/app-update';
+import { currentBuild, markNotesSeen, readSeenNotes, useAppUpdateStore } from '@/lib/app-update';
 import { hasCompletedOnboarding } from '@/lib/onboarding';
 
 /**
@@ -31,7 +31,7 @@ export function AppUpdateWatcher() {
   // nothing stored yet) is the person the after-update sheet is for.
   useEffect(() => {
     void (async () => {
-      if ((await readSeenNotesBuild()) !== null) return;
+      if ((await readSeenNotes()) !== null) return;
       if (!(await hasCompletedOnboarding())) await markNotesSeen(currentBuild());
     })();
   }, []);

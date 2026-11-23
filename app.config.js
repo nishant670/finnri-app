@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const { readReleaseNotesIndex } = require('./scripts/release-notes-index');
+
 /**
  * Android packaging, which depends on what the build is *for*.
  *
@@ -89,8 +91,34 @@ const withVariant = (config) =>
       }
     : config;
 
+/**
+ * Which build this is, as "What's new" counts builds.
+ *
+ * The after-update sheet and the update card both work by versionCode: notes
+ * for 15 are shown once a phone has 15. Production gets its number from EAS
+ * (`autoIncrement`, recorded in `app.json` afterwards). The preview profile
+ * has no counter of its own, so before this every staging APK reused the last
+ * Play number: a phone that had seen 14's notes saw nothing new on the next
+ * staging build, and the card could never tell one staging build from another.
+ *
+ * A preview build is now numbered after the newest notes it carries — the
+ * release it is staging — and never below the last Play build. The version
+ * name follows the notes too ("1.3"), so About, Play and the notes agree.
+ */
+const withReleaseVersion = (config) => {
+  const notes = readReleaseNotesIndex();
+  const recorded = config.android?.versionCode ?? 0;
+  const versionCode = isPreviewVariant() ? Math.max(recorded, notes[0]?.versionCode ?? 0) : recorded;
+  const named = notes.find((release) => release.versionCode === versionCode);
+  return {
+    ...config,
+    version: named ? named.versionName : config.version,
+    android: { ...config.android, versionCode },
+  };
+};
+
 module.exports = ({ config }) => ({
-  ...withVariant(withPushConfig(config)),
+  ...withVariant(withPushConfig(withReleaseVersion(config))),
   plugins: [
     ...config.plugins,
     ...(crashReportingEnabled() ? ['@sentry/react-native'] : []),

@@ -1,4 +1,6 @@
 import { release1_1 } from './1.1';
+import { release1_2 } from './1.2';
+import { release1_3 } from './1.3';
 import type { WhatsNewRelease } from './types';
 
 export type { WhatsNewItem, WhatsNewKind, WhatsNewPreview, WhatsNewRelease } from './types';
@@ -10,7 +12,7 @@ export type { WhatsNewItem, WhatsNewKind, WhatsNewPreview, WhatsNewRelease } fro
  * list. `scripts/publish-release-notes` sends the same file to the API, which
  * is how older builds learn what is coming.
  */
-export const BUNDLED_RELEASES: readonly WhatsNewRelease[] = [release1_1];
+export const BUNDLED_RELEASES: readonly WhatsNewRelease[] = [release1_3, release1_2, release1_1];
 
 export const findBundledRelease = (versionCode: number) =>
   BUNDLED_RELEASES.find((release) => release.versionCode === versionCode) ?? null;
@@ -39,9 +41,33 @@ export function releaseCountChips(release: Pick<WhatsNewRelease, 'items'>) {
 }
 
 /**
- * Releases installed since the person last saw the notes: newer than
- * `lastSeen`, no newer than this build. Newest first.
+ * A short fingerprint of a release's words. Play builds never change their
+ * notes, but staging builds of the same release do (1.3 grows with each
+ * staging batch), so "seen 15" alone would hide what a later staging APK adds.
  */
-export function unseenBundledReleases(lastSeen: number, build: number) {
-  return BUNDLED_RELEASES.filter((release) => release.versionCode > lastSeen && release.versionCode <= build);
+export function releaseFingerprint(release: Pick<WhatsNewRelease, 'headline' | 'items'>) {
+  const text = JSON.stringify([release.headline, release.items]);
+  let hash = 5381;
+  for (let index = 0; index < text.length; index += 1) hash = ((hash * 33) ^ text.charCodeAt(index)) >>> 0;
+  return hash.toString(36);
+}
+
+/** The notes last shown: the build, and the words it showed (older phones stored no words). */
+export type SeenNotes = { build: number; fingerprint: string | null };
+
+/**
+ * Releases installed since the person last saw the notes, newest first: newer
+ * than the build last seen, or that build's own notes once their words have
+ * changed. Never newer than this build.
+ */
+export function unseenBundledReleases(seen: SeenNotes, build: number) {
+  return BUNDLED_RELEASES.filter((release) => {
+    if (release.versionCode > build) return false;
+    if (release.versionCode > seen.build) return true;
+    return (
+      release.versionCode === seen.build &&
+      seen.fingerprint !== null &&
+      seen.fingerprint !== releaseFingerprint(release)
+    );
+  });
 }

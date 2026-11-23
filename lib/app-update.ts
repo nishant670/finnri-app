@@ -7,7 +7,14 @@ import { create } from 'zustand';
 
 import { PLAY_LISTING_URL, PLAY_MARKET_URL } from './legal';
 import { API_BASE_URL } from './transactions';
-import type { WhatsNewItem, WhatsNewKind, WhatsNewRelease } from './whats-new/releases';
+import {
+  findBundledRelease,
+  releaseFingerprint,
+  type SeenNotes,
+  type WhatsNewItem,
+  type WhatsNewKind,
+  type WhatsNewRelease,
+} from './whats-new/releases';
 
 /**
  * In-app updates (boards R15-Home-Update, R15-UpdateRequired).
@@ -244,20 +251,27 @@ const readDismissed = async () => {
   }
 };
 
-/** The last build whose notes were shown, or null on a phone that has never stored one. */
-export const readSeenNotesBuild = async (): Promise<number | null> => {
+/**
+ * The notes last shown, stored as "15" or "15:<fingerprint>", or null on a
+ * phone that has never stored any.
+ */
+export const readSeenNotes = async (): Promise<SeenNotes | null> => {
   try {
     const raw = await AsyncStorage.getItem(SEEN_NOTES_KEY);
-    const value = raw === null ? NaN : Number(raw);
-    return Number.isFinite(value) ? value : null;
+    if (raw === null) return null;
+    const [build, fingerprint] = raw.split(':');
+    const value = Number(build);
+    return Number.isFinite(value) ? { build: value, fingerprint: fingerprint || null } : null;
   } catch {
     return null;
   }
 };
 
+/** Records this build's notes, words included, as seen. */
 export const markNotesSeen = async (build: number) => {
+  const own = findBundledRelease(build);
   try {
-    await AsyncStorage.setItem(SEEN_NOTES_KEY, String(build));
+    await AsyncStorage.setItem(SEEN_NOTES_KEY, own ? `${build}:${releaseFingerprint(own)}` : String(build));
   } catch {
     // Shown once more next launch: the safe way to fail.
   }
