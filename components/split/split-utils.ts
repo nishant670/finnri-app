@@ -127,6 +127,28 @@ export const formatMonthYear = (value: string) => {
   return date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 };
 
+/**
+ * Where a friend's outstanding balance sits, for the line on their page.
+ *
+ * A group is named only when the whole balance is in it. Aarav's page said
+ * "Aarav owes you ₹3,900 in "Goa Trip"" when ₹800 of that was a dinner split
+ * outside any group (2026-11-23): the one unsettled group was named and the
+ * rest credited to it. When money is open outside groups too, the line says
+ * the total is a total instead.
+ */
+export function friendBalanceWhere(
+  netBalance: number,
+  groupBalances: { name: string; balance: number }[]
+): string {
+  const open = groupBalances.filter((group) => Math.abs(group.balance) >= 0.005);
+  const inGroups = open.reduce((sum, group) => sum + group.balance, 0);
+  const outsideGroups = Math.abs(netBalance - inGroups) >= 0.005;
+  if (outsideGroups) return open.length > 0 ? ' in total' : '';
+  if (open.length === 1) return ` in "${open[0].name}"`;
+  if (open.length > 1) return ` across ${open.length} groups`;
+  return '';
+}
+
 export const getFirstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /**

@@ -405,6 +405,33 @@ describe('saveConfirmationLabel', () => {
       'Saved'
     );
   });
+
+  it('says a recurring income repeats, not that it is a subscription', () => {
+    expect(
+      saveConfirmationLabel({
+        subscriptionEnabled: true,
+        recordsRefund: false,
+        type: 'Income',
+        billingInterval: 'monthly',
+      })
+    ).toBe('Saved · repeats monthly');
+    expect(
+      saveConfirmationLabel({
+        subscriptionEnabled: true,
+        recordsRefund: false,
+        type: 'Income',
+        billingInterval: '',
+      })
+    ).toBe('Saved as recurring income');
+    expect(
+      saveConfirmationLabel({
+        subscriptionEnabled: true,
+        recordsRefund: false,
+        type: 'Expense',
+        billingInterval: 'monthly',
+      })
+    ).toBe('Saved with subscription');
+  });
 });
 
 describe('quick prompts', () => {

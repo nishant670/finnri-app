@@ -51,6 +51,33 @@ describe('resolveSplitDraft', () => {
     );
   });
 
+  it('counts you in when two friends come back without shares (2026-11-23)', () => {
+    // The API now clears the ₹1,200 + ₹1,200 the model gave "Dinner 2400 split
+    // with Aarav and Priya"; the app divides by the two of them and you.
+    const friends = [
+      { id: 3, name: 'Aarav', user_id: 1, archived: false },
+      { id: 4, name: 'Priya', user_id: 1, archived: false },
+    ] as SplitFriend[];
+    const draft = resolveSplitDraft(
+      baseParse({
+        amount: 2400,
+        split_candidate: true,
+        split_candidate_details: {
+          participants: [
+            { friend_name: 'Aarav', share_amount: null, direction: 'friend_owes_user' },
+            { friend_name: 'Priya', share_amount: null, direction: 'friend_owes_user' },
+          ],
+        },
+      }),
+      friends,
+      []
+    );
+    expect(draft.splitParticipants.map((participant) => participant.shareAmount)).toEqual([
+      '800.00',
+      '800.00',
+    ]);
+  });
+
   it('matches an existing group and prefills equal member shares', () => {
     const groups = [
       {

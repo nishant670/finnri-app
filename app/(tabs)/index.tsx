@@ -1347,6 +1347,8 @@ export default function HomeScreen() {
             saveConfirmationLabel({
               subscriptionEnabled: formData.subscriptionEnabled,
               recordsRefund: modalMode === 'audio' && recordRefund && Boolean(refundReceived),
+              type: formData.type,
+              billingInterval: formData.subscriptionBillingInterval,
             })
           );
           setNewTransactionId(createdTransaction.id);
