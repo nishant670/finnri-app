@@ -82,6 +82,7 @@
         }
       ],
       "./plugins/withFinnriAndroidCapture",
+      "./plugins/withOptionalPortraitScreen",
       [
         "expo-splash-screen",
         {
