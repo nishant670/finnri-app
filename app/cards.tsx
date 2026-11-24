@@ -84,7 +84,7 @@ export default function CardsScreen() {
   const cards = useMemo(() => accounts.filter(isDrawnCard), [accounts]);
   const today = todayISO();
   const items = useMemo(
-    () => orderCards(cards, tab).map((account) => describeCard(account, tab, today)),
+    () => orderCards(cards, tab, today).map((account) => describeCard(account, tab, today)),
     [cards, tab, today]
   );
   const summary = cardsSummaryLine(cards, tab, today);

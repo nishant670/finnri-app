@@ -60,7 +60,27 @@ export function nextDueDate(dueDay: number, today: string) {
 export const isDrawnCard = (account: Account) =>
   normalizeAccountType(account.type) === 'credit_card' && account.credit_kind !== 'pay_later';
 
-const remaining = (account: Account) => account.summary?.current_statement?.remaining_due ?? 0;
+const validDueDay = (dueDay: number) => dueDay >= 1 && dueDay <= 31;
+
+/**
+ * What the card owes: the bill's remaining amount once one is entered, else
+ * what Finnri's own ledger says is owed. Money and Bills & dues show the
+ * ledger figure, so a card with spends but no bill must not read "No bill"
+ * here (24 Nov device pass: ₹23,199 owed, "No bills due").
+ */
+const remaining = (account: Account) => {
+  const statement = account.summary?.current_statement;
+  if (statement) return statement.remaining_due;
+  return Math.max(0, account.summary?.outstanding ?? 0);
+};
+
+/** When what is owed falls due: the bill's date, else the card's due day. */
+const dueDateOf = (account: Account, today: string) => {
+  const statement = account.summary?.current_statement;
+  if (statement) return statement.due_date;
+  const dueDay = account.due_day ?? 0;
+  return today && validDueDay(dueDay) ? nextDueDate(dueDay, today) : '';
+};
 
 function chipFor(account: Account): CardChip {
   const summary = account.summary;
@@ -110,10 +130,22 @@ function figureFor(account: Account, tab: CardsTab, today: string): { figure: Ca
     return { figure: { amount: formatMoney(0), sub: 'Paid in full' }, action: null };
   }
   const dueDay = account.due_day ?? 0;
+  const owed = remaining(account);
+  if (owed > 0) {
+    // Owed from logged spends, before a bill: Mark paid needs the bill, so
+    // the button stays Add bill.
+    return {
+      figure: {
+        amount: formatMoney(owed),
+        sub: validDueDay(dueDay) ? `Due ${shortDate(nextDueDate(dueDay, today))}` : 'Owed so far',
+      },
+      action: 'add-bill',
+    };
+  }
   return {
     figure: {
       amount: 'No bill',
-      sub: dueDay >= 1 && dueDay <= 31 ? `Next on ${shortDate(nextDueDate(dueDay, today))}` : 'Add a bill',
+      sub: validDueDay(dueDay) ? `Next on ${shortDate(nextDueDate(dueDay, today))}` : 'Add a bill',
     },
     action: 'add-bill',
   };
@@ -138,14 +170,14 @@ export function describeCard(account: Account, tab: CardsTab, today: string): Ca
  * Bills tab: the cards with something to pay first, soonest due first, then
  * the rest in the order they were added. Spend tab: most spent first.
  */
-export function orderCards(cards: Account[], tab: CardsTab) {
+export function orderCards(cards: Account[], tab: CardsTab, today = '') {
   const indexed = cards.map((account, index) => ({ account, index }));
   indexed.sort((a, b) => {
     if (tab === 'spend') {
       return (b.account.summary?.spent_this_month ?? 0) - (a.account.summary?.spent_this_month ?? 0) || a.index - b.index;
     }
-    const dueA = remaining(a.account) > 0 ? a.account.summary?.current_statement?.due_date ?? '' : '';
-    const dueB = remaining(b.account) > 0 ? b.account.summary?.current_statement?.due_date ?? '' : '';
+    const dueA = remaining(a.account) > 0 ? dueDateOf(a.account, today) : '';
+    const dueB = remaining(b.account) > 0 ? dueDateOf(b.account, today) : '';
     if (dueA && dueB) return dueA.localeCompare(dueB) || a.index - b.index;
     if (dueA || dueB) return dueA ? -1 : 1;
     return a.index - b.index;
@@ -165,7 +197,7 @@ export function cardsSummaryLine(cards: Account[], tab: CardsTab, today = '') {
   const overdue = due.filter((account) => account.summary?.current_statement?.is_overdue).length;
   const next = due
     .filter((account) => !account.summary?.current_statement?.is_overdue)
-    .map((account) => account.summary?.current_statement?.due_date ?? '')
+    .map((account) => dueDateOf(account, today))
     .filter((date) => date && date >= today)
     .sort()[0];
   return {

@@ -363,7 +363,7 @@ export default function BillsScreen() {
           )
         );
         const account = resolveAccountForEntry(accountsRef.current, form);
-        const match = await findLikelyDuplicate(token, form, account?.id ?? null);
+        const match = await findLikelyDuplicate(token, form, account?.id ?? null, undefined, { untick: true });
         if (match && mounted.current) {
           update(key, (current) =>
             current.duplicate

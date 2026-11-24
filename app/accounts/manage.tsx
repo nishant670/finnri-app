@@ -91,6 +91,9 @@ export default function ManageAccountScreen() {
 
   // Step 1 States
   const [selectedType, setSelectedType] = useState<AccountType>('bank');
+  // A fresh Add asks what it is before showing any field. Preselecting Bank
+  // let cards be saved as banks: the two forms look alike (24 Nov device pass).
+  const [typeChosen, setTypeChosen] = useState(isEditing || Boolean(type));
   // Credit and Pay later are both credit_card accounts; this tells them apart.
   const [creditKind, setCreditKind] = useState<CreditKind>('');
   const [selectedColor, setSelectedColor] = useState('#54A0FF');
@@ -142,6 +145,7 @@ export default function ManageAccountScreen() {
     if (isEditing || !type) return;
     const presetType = normalizeAccountType(type);
     setSelectedType(presetType);
+    setTypeChosen(true);
     setSelectedColor(color || DEFAULT_ACCOUNT_COLORS[presetType]);
     setName(suggestedName || DEFAULT_ACCOUNT_NAMES[presetType]);
     setIssuerQuery(provider || '');
@@ -272,6 +276,7 @@ export default function ManageAccountScreen() {
   }, [nameSuggestion, nameTouched]);
 
   const updateSelectedType = (nextType: AccountType, nextKind: CreditKind = '') => {
+    setTypeChosen(true);
     if (nextType === selectedType && nextKind === creditKind) {
       setTypeError(null);
       return;
@@ -301,10 +306,11 @@ export default function ManageAccountScreen() {
   };
 
   const resetNewAccountForm = () => {
-    const nextType: AccountType = 'bank';
+    // Add another keeps the type just added: someone adding cards adds cards.
+    const nextType: AccountType = selectedType;
     setCreatedAccount(null);
     setSelectedType(nextType);
-    setCreditKind('');
+    setTypeChosen(true);
     setSelectedColor(DEFAULT_ACCOUNT_COLORS[nextType]);
     setNameTouched(false);
     setShowMoreDetails(false);
@@ -333,6 +339,11 @@ export default function ManageAccountScreen() {
 
   const handleSave = async () => {
     if (!token) return;
+    if (!typeChosen) {
+      haptics.rejected();
+      setTypeError('Pick what you are adding first.');
+      return;
+    }
     if (!name.trim()) {
       haptics.rejected();
       setSaveError('Give this account a name.');
@@ -620,77 +631,88 @@ export default function ManageAccountScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.scrollContent}>
               <AccountTypeChips
-                selectedType={selectedType}
+                selectedType={typeChosen ? selectedType : null}
                 creditKind={creditKind}
                 typeError={typeError}
                 onSelect={updateSelectedType}
               />
-              <AccountIdentityFields
-                detailCopy={detailCopy}
-                noun={isCardType ? 'card' : 'account'}
-                filteredIssuers={filteredIssuers}
-                issuerIcon={selectedIssuer?.icon}
-                issuerQuery={issuerQuery}
-                last4={last4}
-                name={name}
-                nameIsSuggested={!nameTouched}
-                onChangeName={(value) => {
-                  setNameTouched(true);
-                  setName(value);
-                }}
-                selectProvider={selectProvider}
-                setIssuerQuery={setIssuerQuery}
-                setSelectedIssuer={setSelectedIssuer}
-                setShowIssuerResults={setShowIssuerResults}
-                showIssuerResults={showIssuerResults}
-                isDigitsIdentifier={identifierIsDigits}
-                updateIdentifier={updateIdentifier}
-                afterProvider={productStep}
-                afterIdentifier={
-                  pickingProduct ? <CardNetworkChips value={cardNetwork} onChange={setCardNetwork} /> : null
-                }
-              />
-              {/* How much cash is on you is the one fact a cash account has. */}
-              {selectedType === 'cash' ? stepTwo(true) : null}
-              <View style={sheetStyles.more}>
-                <FormDisclosure
-                  testID="account-more-details"
-                  label="More details"
-                  summary={moreDetailsSummary(selectedType, creditKind)}
-                  expanded={showMoreDetails}
-                  onToggle={() => setShowMoreDetails((open) => !open)}>
-                  {selectedType === 'cash' ? null : stepTwo(true)}
-                  <ThemedText style={styles.sectionHeaderLabel}>Colour & default</ThemedText>
-                  <AccountStyleFold
-                    flat
-                    isDefault={isDefault}
-                    selectedColor={selectedColor}
-                    setIsDefault={setIsDefault}
-                    setSelectedColor={setSelectedColor}
-                    open={showStyleOptions}
-                    setOpen={setShowStyleOptions}
+              {typeChosen ? (
+                <>
+                  <AccountIdentityFields
+                    detailCopy={detailCopy}
+                    noun={isCardType ? 'card' : 'account'}
+                    filteredIssuers={filteredIssuers}
+                    issuerIcon={selectedIssuer?.icon}
+                    issuerQuery={issuerQuery}
+                    last4={last4}
+                    name={name}
+                    nameIsSuggested={!nameTouched}
+                    onChangeName={(value) => {
+                      setNameTouched(true);
+                      setName(value);
+                    }}
+                    selectProvider={selectProvider}
+                    setIssuerQuery={setIssuerQuery}
+                    setSelectedIssuer={setSelectedIssuer}
+                    setShowIssuerResults={setShowIssuerResults}
+                    showIssuerResults={showIssuerResults}
+                    isDigitsIdentifier={identifierIsDigits}
+                    updateIdentifier={updateIdentifier}
+                    afterProvider={productStep}
+                    afterIdentifier={
+                      pickingProduct ? <CardNetworkChips value={cardNetwork} onChange={setCardNetwork} /> : null
+                    }
                   />
-                </FormDisclosure>
-              </View>
+                  {/* How much cash is on you is the one fact a cash account has. */}
+                  {selectedType === 'cash' ? stepTwo(true) : null}
+                  <View style={sheetStyles.more}>
+                    <FormDisclosure
+                      testID="account-more-details"
+                      label="More details"
+                      summary={moreDetailsSummary(selectedType, creditKind)}
+                      expanded={showMoreDetails}
+                      onToggle={() => setShowMoreDetails((open) => !open)}>
+                      {selectedType === 'cash' ? null : stepTwo(true)}
+                      <ThemedText style={styles.sectionHeaderLabel}>Colour & default</ThemedText>
+                      <AccountStyleFold
+                        flat
+                        isDefault={isDefault}
+                        selectedColor={selectedColor}
+                        setIsDefault={setIsDefault}
+                        setSelectedColor={setSelectedColor}
+                        open={showStyleOptions}
+                        setOpen={setShowStyleOptions}
+                      />
+                    </FormDisclosure>
+                  </View>
+                </>
+              ) : (
+                <ThemedText tone="muted" testID="account-type-prompt" style={sheetStyles.prompt}>
+                  Pick one to see what to fill in. A credit card gets its picture, bill and due-date
+                  reminders.
+                </ThemedText>
+              )}
             </KeyboardAvoidingScreen>
-            <View
-              style={[
-                styles.footer,
-                { backgroundColor: theme.background, borderTopColor: theme.border, marginBottom: keyboardInset },
-              ]}>
-              {saveError ? (
-                <View style={styles.errorContainer}>
-                  <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.negative} />
-                  <ThemedText style={styles.errorText}>{saveError}</ThemedText>
-                </View>
-              ) : null}
-              <PrimaryButton
-                testID="account-save"
-                label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : isCardType ? 'Save card' : 'Save account'}
-                loading={isSaving}
-                onPress={handleSave}
-              />
-            </View>
+            {typeChosen ? (
+              <View
+                style={[
+                  styles.footer,
+                  { backgroundColor: theme.background, borderTopColor: theme.border, marginBottom: keyboardInset },
+                ]}>
+                {saveError ? (
+                  <View style={styles.errorContainer}>
+                    <MaterialCommunityIcons name="alert-circle-outline" size={18} color={theme.negative} />
+                    <ThemedText style={styles.errorText}>{saveError}</ThemedText>
+                  </View>
+                ) : null}
+                <PrimaryButton
+                  testID="account-save"
+                  label={isSaving ? 'Saving…' : isEditing ? 'Save changes' : isCardType ? 'Save card' : 'Save account'}
+                  loading={isSaving}
+                  onPress={handleSave}
+                />
+              </View>
+            ) : null}
           </>
         ) : (
           <AccountFormSuccess
@@ -717,6 +739,11 @@ const sheetStyles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingLeft: 20,
     paddingRight: 8,
+  },
+  prompt: {
+    marginTop: 16,
+    fontSize: 14,
+    lineHeight: 20,
   },
   more: {
     marginTop: 20,

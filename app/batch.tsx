@@ -147,7 +147,7 @@ export default function DayBatchScreen() {
         rows.map(async (row) => {
           try {
             const account = resolveAccountForEntry(accountsRef.current, row.form);
-            const match = await findLikelyDuplicate(token, row.form, account?.id ?? null);
+            const match = await findLikelyDuplicate(token, row.form, account?.id ?? null, undefined, { untick: true });
             if (!match || !mounted.current) return;
             setItems((current) =>
               current.map((candidate) =>
