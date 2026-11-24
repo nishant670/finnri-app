@@ -131,6 +131,22 @@ describe('findLikelyDuplicate', () => {
     expect(await findLikelyDuplicate('t', water, 3)).not.toBeNull();
   });
 
+  it('under ₹100, a list that unticks needs a shared title or merchant, not just the account', async () => {
+    const glue = { ...emi, title: 'Glue', amount: '20' };
+    serve(logged({ title: 'Chai', amount: 20 }));
+    expect(await findLikelyDuplicate('t', glue, 3, undefined, { untick: true })).toBeNull();
+    // The form only asks, so the shared account still counts there.
+    serve(logged({ title: 'Chai', amount: 20 }));
+    expect(await findLikelyDuplicate('t', glue, 3)).not.toBeNull();
+    serve(logged({ title: 'glue', amount: 20, account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', glue, 3, undefined, { untick: true })).not.toBeNull();
+  });
+
+  it('from ₹100 up, a list that unticks still matches on the amount alone', async () => {
+    serve(logged({ title: 'Loan auto-debit', account_id: 9, account: undefined }));
+    expect(await findLikelyDuplicate('t', emi, 3, undefined, { untick: true })).not.toBeNull();
+  });
+
   it('names the row that shares a detail when several match', async () => {
     serve(
       logged({ id: 60, title: 'Laptop', account_id: 9, account: undefined }),

@@ -13,7 +13,7 @@ import {
   PORTRAIT_DRAWINGS,
   type Mark,
 } from '@/lib/card-art';
-import { cardsSummaryLine, describeCard, nextDueDate, orderCards, shortDate } from '@/lib/card-list';
+import { billsDueCount, cardsSummaryLine, describeCard, nextDueDate, orderCards, shortDate } from '@/lib/card-list';
 
 // The 40 drawings of canvas Round 19 (docs/redesign/sketch-cards/library.json).
 const CATALOGUE_LANDSCAPE = [
@@ -213,6 +213,34 @@ describe('All cards list (board R18-AllCards)', () => {
       rest: '1 overdue · next on 25 Nov',
     });
     expect(cardsSummaryLine([cards[0]], 'bills')).toEqual({ lead: 'No bills due', rest: 'on 1 card' });
+  });
+
+  // 24 Nov device pass: ₹23,199 owed on Money read "No bill · No bills due" here.
+  it('shows what a card owes before its bill is entered, and counts it as due', () => {
+    const owing = card({ id: 7, due_day: 5, summary: { outstanding: 23199 } as never });
+    const item = describeCard(owing, 'bills', '2026-11-24');
+    expect(item.figure).toEqual({ amount: '₹23,199', sub: 'Due 5 Dec' });
+    expect(item.action).toBe('add-bill');
+    expect(item.chip.target).toBe('add-bill');
+    expect(describeCard(card({ id: 8, summary: { outstanding: 640 } as never }), 'bills', today).figure).toEqual({
+      amount: '₹640',
+      sub: 'Owed so far',
+    });
+
+    const clear = card({ id: 9, due_day: 2, summary: { outstanding: 0 } as never });
+    const billed = card({ id: 10, summary: { current_statement: statement('2026-11-28', 1200) } as never });
+    expect(orderCards([clear, billed, owing], 'bills', '2026-11-24').map((c) => c.id)).toEqual([10, 7, 9]);
+    expect(billsDueCount([clear, billed, owing])).toBe(2);
+    expect(cardsSummaryLine([clear, owing], 'bills', '2026-11-24')).toEqual({
+      lead: '₹23,199 due on 1 card',
+      rest: 'next on 5 Dec',
+    });
+  });
+
+  it('trusts the bill over the ledger once one is entered', () => {
+    const paid = card({ id: 11, summary: { outstanding: 900, current_statement: statement('2026-11-05', 0) } as never });
+    expect(describeCard(paid, 'bills', today).figure).toEqual({ amount: '₹0', sub: 'Paid in full' });
+    expect(billsDueCount([paid])).toBe(0);
   });
 
   it('finds the next due date, clamping to short months', () => {

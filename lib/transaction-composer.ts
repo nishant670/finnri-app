@@ -143,13 +143,19 @@ export const DUPLICATE_SMALL_AMOUNT = 100;
  *
  * Returns null when the check itself fails — a lookup that did not load is no
  * reason to stop a save.
+ *
+ * `untick` is for the lists that untick a match (Speak your day, the bill
+ * tray) rather than ask about it: there, under ₹100 only a shared title or
+ * merchant counts. Most small spends share Cash or UPI, so on 24 Nov "glue 20"
+ * and "tape 30" were unticked as a chai and a pen logged the same day.
  */
 export async function findLikelyDuplicate(
   token: string,
   form: EntryForm,
   accountId: number | null,
   /** An edited entry, which must not be reported as a duplicate of itself. */
-  excludeId?: string
+  excludeId?: string,
+  options: { untick?: boolean } = {}
 ): Promise<Transaction | null> {
   const parsedDate = parseDateLabel(form.date);
   const amount = Number(form.amount.replace(/,/g, '').trim());
@@ -169,13 +175,14 @@ export async function findLikelyDuplicate(
       (candidate) =>
         candidate.id !== excludeId && Math.round(Math.abs(candidate.amount)) === rupees
     );
+    const sharesText = (candidate: Transaction) =>
+      sameText(candidate.title, form.title) || sameText(candidate.merchant, form.merchant);
     const sharesDetail = (candidate: Transaction) =>
-      sameText(candidate.title, form.title) ||
-      sameText(candidate.merchant, form.merchant) ||
-      (accountId != null && candidate.accountId === accountId);
-    const closest = sameAmount.find(sharesDetail);
+      sharesText(candidate) || (accountId != null && candidate.accountId === accountId);
+    const small = amount < DUPLICATE_SMALL_AMOUNT;
+    const closest = sameAmount.find(small && options.untick ? sharesText : sharesDetail);
     if (closest) return closest;
-    if (amount < DUPLICATE_SMALL_AMOUNT) return null;
+    if (small) return null;
     return sameAmount[0] ?? null;
   } catch {
     return null;

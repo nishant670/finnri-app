@@ -34,7 +34,8 @@ export function AccountTypeChips({
   typeError,
   onSelect,
 }: {
-  selectedType: AccountType;
+  /** null until the person picks one: a fresh Add has no type yet. */
+  selectedType: AccountType | null;
   creditKind: CreditKind;
   typeError: string | null;
   onSelect: (type: AccountType, kind: CreditKind) => void;
