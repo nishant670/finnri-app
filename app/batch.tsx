@@ -40,12 +40,18 @@ import { formatMoney } from '@/lib/money';
 import { describeParseFailure, isParseAnswer, isParseBatch, parseEntryDraft, type ParseBatch } from '@/lib/parse';
 import { fetchSplitFriends, fetchSplitGroups } from '@/lib/splits';
 import {
+  DuplicateSaveCancelled,
   describeLikelyDuplicate,
   findLikelyDuplicate,
-  saveNewTransaction,
-  type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
+import {
+  finishBeforeSaving,
+  sendTraySave,
+  totalSaveKey,
+  type TraySaveRequest,
+  type UnconfirmedSave,
+} from '@/lib/tray-save';
 import {
   MAX_ITEMS_PER_PROMPT,
   alreadyLoggedLabel,
@@ -54,6 +60,7 @@ import {
   dayItemsFromBatch,
   daySummary,
   dayTrayIsFinished,
+  foldsIntoTotal,
   isIncome,
   isPendingSave,
   itemAmount,
@@ -83,6 +90,18 @@ const plural = (count: number, one: string, many = `${one}s`) => (count === 1 ? 
 
 type OneMode = 'one' | 'perWay';
 
+/** What saving from the total's form would put in the ledger, as rows. */
+const totalContents = (items: DayItem[]) =>
+  JSON.stringify(
+    items
+      .filter((item) => foldsIntoTotal(item) || (isPendingSave(item) && isIncome(item)))
+      .map((item) => [item.key, itemAmount(item)])
+  );
+
+/** The expenses one "per way paid" total is made of. */
+const rowsPaidBy = (expenses: DayItem[], way: string) =>
+  expenses.filter((item) => paymentWays([item])[0]?.label === way);
+
 /**
  * Speak your day (canvas Round 21, P103–P117).
  *
@@ -93,7 +112,9 @@ type OneMode = 'one' | 'perWay';
  */
 export default function DayBatchScreen() {
   const router = useRouter();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  /** Whose tray this is, for as long as it is open. */
+  const [owner] = useState(() => user?.uuid);
   const theme = useThemeTokens();
   const colors = theme.colors;
   const motion = useMotion();
@@ -124,7 +145,12 @@ export default function DayBatchScreen() {
   const mounted = useRef(true);
   const closing = useRef(false);
   const confirmOpen = useRef(false);
-  const progress = useRef<Record<string, TransactionSaveProgress>>({});
+  /** Sent but not seen to finish; kept on disk with the tray. */
+  const unconfirmed = useRef<UnconfirmedSave[]>([]);
+  /** One save at a time, so two can't send the same rows. */
+  const saving = useRef(false);
+  /** What the total held when its form opened. */
+  const totalAtOpen = useRef('');
   /** What was saved, for the toast and for Undo (P115). */
   const saved = useRef({ count: 0, out: 0, in: 0, ids: [] as number[], extras: false });
   const recorded = useRef(new Set<string>());
@@ -169,12 +195,13 @@ export default function DayBatchScreen() {
     let cancelled = false;
     void (async () => {
       if (!intake) {
-        const stored = await loadDayBatch();
+        const stored = await loadDayBatch(Date.now(), owner);
         if (cancelled) return;
         if (!stored) {
           router.back();
           return;
         }
+        unconfirmed.current = stored.unconfirmed ?? [];
         setBatch(stored.batch);
         setInputSource(stored.inputSource);
         setBatchId(stored.batchId);
@@ -229,12 +256,19 @@ export default function DayBatchScreen() {
   }, [intake, token]);
 
   // Keep the tray on disk while it is open.
+  const persist = useCallback(async () => {
+    if (!ready || closing.current || !batch) return true;
+    const kept = itemsRef.current.filter((item) => item.status !== 'saved');
+    if (kept.length === 0) {
+      await clearDayBatch();
+      return true;
+    }
+    return saveDayBatch({ batchId, owner, batch, inputSource, items: kept, unconfirmed: unconfirmed.current });
+  }, [batch, batchId, inputSource, owner, ready]);
+
   useEffect(() => {
-    if (!ready || closing.current || !batch) return;
-    const kept = items.filter((item) => item.status !== 'saved');
-    if (kept.length === 0) return;
-    void saveDayBatch({ batchId, batch, inputSource, items: kept });
-  }, [batch, batchId, inputSource, items, ready]);
+    void persist();
+  }, [items, persist]);
 
   /* ---- Deal-in: the words light up as their rows land (P107) ------------- */
 
@@ -265,7 +299,9 @@ export default function DayBatchScreen() {
 
   /* ---- Leaving ----------------------------------------------------------- */
 
-  const finish = useCallback(() => {
+  /** `warned`: the person has just been told a save is unconfirmed. */
+  const finish = useCallback((warned = false) => {
+    if (closing.current) return;
     closing.current = true;
     void clearDayBatch();
     const done = saved.current;
@@ -274,28 +310,47 @@ export default function DayBatchScreen() {
         message: savedToastMessage(done.count, done.out, done.in),
         undoIds: done.extras ? [] : done.ids,
       });
-      notifyTransactionsChanged();
     }
+    const unsure = unconfirmed.current.length > 0;
+    if (done.count > 0 || unsure) notifyTransactionsChanged();
     router.back();
-  }, [router]);
+    // The record goes with the tray, so it must not go quietly.
+    if (unsure && !warned) {
+      void dialog.alert({
+        title: "One save couldn't be confirmed",
+        message: 'Check Home before adding any of it again.',
+        tone: 'warning',
+      });
+    }
+  }, [dialog, router]);
 
   const handleClose = useCallback(async () => {
+    // Closing now would drop the tray before its save says how it went.
+    if (saving.current) {
+      void dialog.alert({ title: 'Still saving', message: 'Wait a moment, then close.', tone: 'info' });
+      return;
+    }
     const unsaved = itemsRef.current.filter((item) => item.status === 'ready').length;
     const spent = batch?.credits_charged ?? 0;
-    if (unsaved > 0) {
+    const unsure = unconfirmed.current.length > 0;
+    if (unsaved > 0 || unsure) {
       if (confirmOpen.current) return;
       confirmOpen.current = true;
       const someSaved = saved.current.count > 0;
       const discard = await dialog
         .confirm({
-          title: someSaved
+          title: unsaved === 0
+            ? 'Close this tray?'
+            : someSaved
             ? `Discard the other ${unsaved}?`
             : `Discard ${unsaved} ${plural(unsaved, 'expense')}?`,
-          message: someSaved
-            ? `The ${saved.current.count} already saved stay saved. These ${unsaved} won't be.`
-            : spent > 0
-              ? `Nothing gets saved. The ${spent} credits used for reading won't come back.`
-              : 'Nothing gets saved.',
+          message: unsure
+            ? "Finnri couldn't confirm the last save, so some of this may already be saved. Check Home before adding any of it again."
+            : someSaved
+              ? `The ${saved.current.count} already saved stay saved. These ${unsaved} won't be.`
+              : spent > 0
+                ? `Nothing gets saved. The ${spent} credits used for reading won't come back.`
+                : 'Nothing gets saved.',
           confirmLabel: 'Discard',
           cancelLabel: 'Keep checking',
           tone: 'danger',
@@ -306,7 +361,7 @@ export default function DayBatchScreen() {
         });
       if (!discard) return;
     }
-    finish();
+    finish(unsure);
   }, [batch?.credits_charged, dialog, finish]);
 
   useEffect(() => {
@@ -401,14 +456,14 @@ export default function DayBatchScreen() {
 
   /* ---- Saving ------------------------------------------------------------ */
 
-  const record = useCallback((form: EntryForm, key: string) => {
-    // A retried save (a total that failed halfway) lands on the same key and
-    // must not be counted, or offered to Undo, twice.
-    if (recorded.current.has(key)) return;
-    recorded.current.add(key);
+  const record = useCallback((sent: UnconfirmedSave) => {
+    // A retried save lands on the same key and must not be counted, or offered
+    // to Undo, twice.
+    if (recorded.current.has(sent.key)) return;
+    recorded.current.add(sent.key);
+    const { form, progress } = sent;
     const amount = Number(form.amount) || 0;
-    const entryProgress = progress.current[key] ?? {};
-    const id = entryProgress.entry?.id;
+    const id = progress.entry?.id;
     saved.current = {
       count: saved.current.count + 1,
       out: saved.current.out + (form.type.toLowerCase() === 'income' ? 0 : amount),
@@ -418,51 +473,111 @@ export default function DayBatchScreen() {
         saved.current.extras ||
         typeof id !== 'number' ||
         form.splitEnabled ||
-        !!entryProgress.subscriptionCreated ||
-        !!entryProgress.emiCreated ||
-        !!entryProgress.refundCreated,
+        !!progress.subscriptionCreated ||
+        !!progress.emiCreated ||
+        !!progress.refundCreated,
     };
   }, []);
 
-  const saveForm = useCallback(
-    async (form: EntryForm, item: DayItem | null, key: string, askAboutDuplicate: boolean) => {
-      if (!token) throw new Error('Please sign in again before saving.');
-      progress.current[key] ??= {};
-      await saveNewTransaction({
-        token,
-        form,
-        account: resolveAccountForEntry(accountsRef.current, form),
-        idempotencyKey: `${batchId}-${key}`,
-        source: inputSource,
-        sourceText: item?.draft.source_text ?? batch?.source_text ?? '',
-        aiRequestId: batch?.ai_request_id ?? null,
-        progress: progress.current[key],
-        refund:
-          item?.draft.refund_received && item.draft.refund_received.amount > 0 ? item.draft.refund_received : null,
-        confirmDuplicate: askAboutDuplicate ? (match) => dialog.confirm(describeLikelyDuplicate(match)) : undefined,
-      });
-      record(form, key);
-    },
-    [batch?.ai_request_id, batch?.source_text, batchId, dialog, inputSource, record, token]
-  );
-
-  const markSaved = useCallback(
-    (key: string) => {
-      update(key, (item) => ({ ...item, status: 'saved', saveError: undefined }));
+  /** A save finished: its rows show their tick, then fold away. */
+  const onSaved = useCallback(
+    (sent: UnconfirmedSave) => {
+      record(sent);
+      const done = new Set(sent.rowKeys);
+      const tick = (item: DayItem): DayItem =>
+        done.has(item.key) ? { ...item, status: 'saved', saveError: undefined } : item;
+      // The ref first: the tray is written to disk before the next render.
+      itemsRef.current = itemsRef.current.map(tick);
+      setItems((current) => current.map(tick));
+      // A dropped row that is now saved must not come back as unsaved.
+      setUndo((current) => (current && done.has(current.item.key) ? null : current));
       setTimeout(() => {
         if (!mounted.current) return;
-        setItems((current) => current.filter((item) => item.key !== key));
+        setItems((current) => current.filter((item) => !done.has(item.key)));
       }, SAVED_FOLD_MS);
     },
-    [update]
+    [record]
   );
+
+  const requestFor = useCallback(
+    (form: EntryForm, item: DayItem): TraySaveRequest => ({
+      key: item.key,
+      rowKeys: [item.key],
+      form,
+      account: resolveAccountForEntry(accountsRef.current, form),
+      source: inputSource,
+      sourceText: item.draft.source_text ?? batch?.source_text ?? '',
+      aiRequestId: batch?.ai_request_id ?? null,
+      refund:
+        item.draft.refund_received && item.draft.refund_received.amount > 0 ? item.draft.refund_received : null,
+    }),
+    [batch?.ai_request_id, batch?.source_text, inputSource]
+  );
+
+  /** A total belongs to no single item's refund. */
+  const totalRequestFor = useCallback(
+    (form: EntryForm, rows: DayItem[]): TraySaveRequest => {
+      const rowKeys = rows.map((row) => row.key);
+      return {
+        key: totalSaveKey(rowKeys),
+        rowKeys,
+        form,
+        account: resolveAccountForEntry(accountsRef.current, form),
+        source: inputSource,
+        sourceText: batch?.source_text ?? '',
+        aiRequestId: batch?.ai_request_id ?? null,
+        refund: null,
+      };
+    },
+    [batch?.ai_request_id, batch?.source_text, inputSource]
+  );
+
+  const send = useCallback(
+    async (request: TraySaveRequest, askAboutDuplicate: boolean) => {
+      if (!token) throw new Error('Please sign in again before saving.');
+      await sendTraySave({
+        token,
+        batchId,
+        request,
+        unconfirmed,
+        persist,
+        onSaved,
+        confirmDuplicate: askAboutDuplicate ? (match) => dialog.confirm(describeLikelyDuplicate(match)) : undefined,
+      });
+    },
+    [batchId, dialog, onSaved, persist, token]
+  );
+
+  /** Finishes any earlier save holding one of these rows (`lib/tray-save.ts`). */
+  const finishFirst = useCallback(
+    async (planned: TraySaveRequest[]) => {
+      const outcome = await finishBeforeSaving({
+        planned,
+        dialog,
+        token,
+        batchId,
+        unconfirmed,
+        persist,
+        onSaved,
+      });
+      // Undo can't take back what may only be half made.
+      if (outcome === 'step-missed') saved.current.extras = true;
+      return outcome;
+    },
+    [batchId, dialog, onSaved, persist, token]
+  );
+
+  const finishSoonIfDone = useCallback(() => {
+    setTimeout(() => {
+      if (mounted.current && dayTrayIsFinished(itemsRef.current)) finish();
+    }, SAVED_FOLD_MS + 40);
+  }, [finish]);
 
   const saveOne = useCallback(
     async (item: DayItem) => {
       update(item.key, (current) => ({ ...current, status: 'saving', saveError: undefined }));
       try {
-        await saveForm(item.form, item, item.key, false);
-        markSaved(item.key);
+        await send(requestFor(item.form, item), false);
       } catch (error) {
         update(item.key, (current) => ({
           ...current,
@@ -471,89 +586,126 @@ export default function DayBatchScreen() {
         }));
       }
     },
-    [markSaved, saveForm, update]
+    [requestFor, send, update]
   );
 
   const saveAll = useCallback(async () => {
-    if (isSavingAll) return;
+    if (saving.current) return;
+    saving.current = true;
     setIsSavingAll(true);
     try {
       const pending = itemsRef.current.filter(isPendingSave);
+      // Income never folds into the day's spends (P111): it saves on its own.
+      const alone = saveMode === 'one' ? pending.filter(isIncome) : pending.filter((item) => !itemNeedsAttention(item));
+      const totals: TraySaveRequest[] = [];
       if (saveMode === 'one') {
-        const folded = oneMode === 'perWay' ? mergeDayByPayment(itemsRef.current) : [mergeDayIntoOne(itemsRef.current)];
-        const forms = folded.filter((form): form is EntryForm => !!form);
-        try {
-          for (const [index, form] of forms.entries()) {
-            // A total belongs to no single item's refund or AI read.
-            await saveForm(form, null, `${MERGED_KEY}-${index}`, false);
-          }
-        } catch (error) {
-          void dialog.alert({
-            title: "Couldn't save",
-            message: error instanceof Error ? error.message : 'Try again in a moment.',
-            tone: 'error',
-          });
+        const expenses = pending.filter(foldsIntoTotal);
+        const folded =
+          oneMode === 'perWay'
+            ? mergeDayByPayment(expenses).map((form, index) => ({
+                form,
+                rows: rowsPaidBy(expenses, paymentWays(expenses)[index].label),
+              }))
+            : [{ form: mergeDayIntoOne(expenses), rows: expenses }];
+        for (const { form, rows } of folded) {
+          if (form) totals.push(totalRequestFor(form, rows));
+        }
+      }
+      try {
+        const first = await finishFirst([...totals, ...alone.map((item) => requestFor(item.form, item))]);
+        if (first === 'declined') return;
+        if (first !== 'clear') {
+          finishSoonIfDone();
           return;
         }
-        for (const item of pending) {
-          if (!isIncome(item)) update(item.key, (current) => ({ ...current, status: 'saved' }));
-        }
-        // Income never folds into the day's spends (P111): it saves on its own.
-        for (const item of pending.filter(isIncome)) {
-          if (!mounted.current) return;
-          await saveOne(item);
-          await wait(SAVE_STAGGER_MS);
-        }
-      } else {
-        for (const item of pending) {
-          if (!mounted.current) return;
-          if (itemNeedsAttention(item)) continue;
-          await saveOne(item);
-          await wait(SAVE_STAGGER_MS);
-        }
+        for (const total of totals) await send(total, false);
+      } catch (error) {
+        void dialog.alert({
+          title: "Couldn't save",
+          message: error instanceof Error ? error.message : 'Try again in a moment.',
+          tone: 'error',
+        });
+        return;
+      }
+      for (const item of alone) {
+        if (!mounted.current) return;
+        await saveOne(item);
+        await wait(SAVE_STAGGER_MS);
       }
       await wait(SAVED_FOLD_MS);
       if (saved.current.count > 0) haptics.saved();
-      if (saveMode === 'one' || dayTrayIsFinished(itemsRef.current)) finish();
+      if (dayTrayIsFinished(itemsRef.current)) finish();
+      // What a total left behind is fixed and saved as rows.
+      else if (totals.length > 0) setSaveMode('separate');
     } finally {
+      saving.current = false;
       if (mounted.current) setIsSavingAll(false);
     }
-  }, [dialog, finish, isSavingAll, oneMode, saveForm, saveMode, saveOne, update]);
+  }, [
+    dialog,
+    finish,
+    finishFirst,
+    finishSoonIfDone,
+    oneMode,
+    requestFor,
+    saveMode,
+    saveOne,
+    send,
+    totalRequestFor,
+  ]);
 
   /* ---- The form, for one row or for the day's total ---------------------- */
 
   const openItem = openKey && openKey !== MERGED_KEY ? items.find((item) => item.key === openKey) : null;
-  const mergedForm = useMemo(() => mergeDayIntoOne(items), [items]);
+  // "One per way paid" with only one way left (the others have saved) is that
+  // way's total, and must read and save the same from the card and the button.
+  const mergedForm = useMemo(() => {
+    const byWay = oneMode === 'perWay' ? mergeDayByPayment(items) : [];
+    return byWay.length === 1 ? byWay[0] : mergeDayIntoOne(items);
+  }, [items, oneMode]);
   const formData = openKey === MERGED_KEY ? mergedForm : openItem?.form;
   const openPosition = openItem ? items.filter((item) => item.status !== 'saved').indexOf(openItem) + 1 : 0;
   const openCount = items.filter((item) => item.status !== 'saved').length;
 
   const saveFromForm = useCallback(
     async (data: EntryForm) => {
-      if (openKey === MERGED_KEY) {
-        setSaveMode('one');
-        await saveForm(data, null, MERGED_KEY, true);
-        const pending = itemsRef.current.filter(isPendingSave);
-        for (const item of pending) {
-          if (!isIncome(item)) update(item.key, (current) => ({ ...current, status: 'saved' }));
-        }
-        setOpenKey(null);
-        for (const item of pending.filter(isIncome)) await saveOne(item);
-        haptics.saved();
-        finish();
-        return;
+      if (saving.current) throw new Error('Finnri is still saving. Try again in a moment.');
+      const isTotal = openKey === MERGED_KEY;
+      const item = isTotal ? null : itemsRef.current.find((candidate) => candidate.key === openKey);
+      const pending = itemsRef.current.filter(isPendingSave);
+      const income = isTotal ? pending.filter(isIncome) : [];
+      const request = isTotal
+        ? totalRequestFor(data, pending.filter(foldsIntoTotal))
+        : item
+          ? requestFor(data, item)
+          : null;
+      if (!request) return;
+      // The form filled itself when it opened; rows can arrive or untick under it.
+      if (isTotal && totalContents(itemsRef.current) !== totalAtOpen.current) {
+        throw new Error("What's in this total changed while it was open. Close it and open it again.");
       }
-      const item = itemsRef.current.find((candidate) => candidate.key === openKey);
-      if (!item || !openKey) return;
-      await saveForm(data, item, openKey, true);
-      haptics.saved();
-      setOpenKey(null);
-      markSaved(openKey);
-      setTimeout(() => {
-        if (mounted.current && dayTrayIsFinished(itemsRef.current)) finish();
-      }, SAVED_FOLD_MS + 40);
+      saving.current = true;
+      try {
+        if (isTotal) setSaveMode('one');
+        const first = await finishFirst([request, ...income.map((row) => requestFor(row.form, row))]);
+        // The form stays as it is, with no error on it.
+        if (first === 'declined') throw new DuplicateSaveCancelled();
+        if (first !== 'clear') {
+          setOpenKey(null);
+          finishSoonIfDone();
+          return;
+        }
+        await send(request, true);
+        setOpenKey(null);
+        for (const row of income) await saveOne(row);
+        if (isTotal && !dayTrayIsFinished(itemsRef.current)) setSaveMode('separate');
+        haptics.saved();
+        finishSoonIfDone();
+      } finally {
+        saving.current = false;
+      }
     },
-    [finish, markSaved, openKey, saveForm, saveOne, update]
+    [finishFirst, finishSoonIfDone, openKey, requestFor, saveOne, send, totalRequestFor]
   );
 
   const keepDraft = useCallback(
@@ -570,6 +722,7 @@ export default function DayBatchScreen() {
   const ways = useMemo(() => paymentWays(items), [items]);
   const mergedOut = Number(mergedForm?.amount ?? 0);
   const incomeToSave = items.filter((item) => isPendingSave(item) && isIncome(item));
+  const unpriced = items.filter((item) => isPendingSave(item) && !isIncome(item) && itemAmount(item) <= 0);
   const shownOut = useCountUp(summary.out);
   const landing = lit < items.length;
   const chip = dayChipLabel(items);
@@ -583,6 +736,7 @@ export default function DayBatchScreen() {
   }
 
   const firstAttention = items.find((item) => itemNeedsAttention(item));
+  const splitByWay = oneMode === 'perWay' && ways.length > 1;
   const showSwitch = saveMode === 'one' || summary.toSave - incomeToSave.length >= 2;
   const credits = batch.credits_charged ?? 0;
   const savingCount =
@@ -593,12 +747,13 @@ export default function DayBatchScreen() {
   if (landing) {
     primaryLabel = `Adding ${items.length - lit} more…`;
     primaryAction = null;
-  } else if (saveMode === 'separate' && summary.needingAttention > 0 && firstAttention) {
+  } else if ((saveMode === 'separate' || savingCount === 0) && summary.needingAttention > 0 && firstAttention) {
     primaryLabel = `${summary.needingAttention} ${plural(summary.needingAttention, 'needs', 'need')} an amount`;
     primaryAction = () => setOpenKey(firstAttention.key);
   } else if (summary.toSave === 0) {
     primaryLabel = 'Done';
-    primaryAction = finish;
+    // Done leaves quietly, unless a save is still unconfirmed.
+    primaryAction = () => (unconfirmed.current.length > 0 ? void handleClose() : finish());
   } else {
     const out = saveMode === 'one' ? mergedOut : summary.out;
     primaryLabel = out > 0 ? `Save ${savingCount} · ${rupees(out)} out` : `Save ${savingCount}`;
@@ -705,18 +860,21 @@ export default function DayBatchScreen() {
             <PressableView
               accessibilityRole="button"
               accessibilityLabel={`${mergedForm.title}, ${rupees(mergedOut)}. Open to check or change.`}
-              onPress={() => setOpenKey(MERGED_KEY)}
-              disabled={oneMode === 'perWay'}
+              onPress={() => {
+                totalAtOpen.current = totalContents(itemsRef.current);
+                setOpenKey(MERGED_KEY);
+              }}
+              disabled={splitByWay}
               style={[trayStyles.card, styles.mergedCard, { backgroundColor: colors.card, borderColor: colors.border }]}
               pressedStyle={trayStyles.pressed}>
               <View style={styles.mergedHead}>
                 <TimeTile slot={items.find(isPendingSave)?.slot ?? null} label="" />
                 <View style={styles.mergedText}>
                   <ThemedText variant="bodyStrong" numberOfLines={1}>
-                    {oneMode === 'perWay' ? `Day's spends, ${ways.length} ways paid` : mergedForm.title}
+                    {splitByWay ? `Day's spends, ${ways.length} ways paid` : mergedForm.title}
                   </ThemedText>
                   <ThemedText variant="caption" tone="muted" numberOfLines={1}>
-                    {oneMode === 'perWay'
+                    {splitByWay
                       ? ways.map((way) => `${way.label} ${rupees(way.total)}`).join(' · ')
                       : [mergedForm.category, mergedForm.account || mergedForm.mode, chip].filter(Boolean).join(' · ')}
                   </ThemedText>
@@ -725,10 +883,10 @@ export default function DayBatchScreen() {
               </View>
               <View style={[styles.breakdown, { borderTopColor: colors.border }]}>
                 <ThemedText variant="micro" tone="muted">
-                  MADE FROM {items.filter((item) => isPendingSave(item) && !isIncome(item)).length} EXPENSES
+                  MADE FROM {items.filter(foldsIntoTotal).length} EXPENSES
                 </ThemedText>
                 {items
-                  .filter((item) => isPendingSave(item) && !isIncome(item))
+                  .filter(foldsIntoTotal)
                   .map((item) => (
                     <View key={item.key} style={styles.breakdownRow}>
                       <ThemedText variant="body" tone="muted" style={styles.breakdownTime}>
@@ -784,6 +942,18 @@ export default function DayBatchScreen() {
                       +{rupees(itemAmount(item))}
                     </ThemedText>
                   </View>
+                ))}
+              </View>
+            ) : null}
+            {unpriced.length > 0 ? (
+              <View style={[trayStyles.card, styles.sideCard, { borderColor: colors.border }]}>
+                <ThemedText variant="micro" tone="muted">
+                  NOT IN THE TOTAL · NEEDS AN AMOUNT
+                </ThemedText>
+                {unpriced.map((item) => (
+                  <ThemedText key={item.key} variant="body" numberOfLines={1}>
+                    {item.form.title || 'Expense'}
+                  </ThemedText>
                 ))}
               </View>
             ) : null}

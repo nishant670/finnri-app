@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type { BillItem } from '@/lib/bill-batch';
+import type { UnconfirmedSave } from '@/lib/tray-save';
 
 /**
  * What passes between Home and the bills screen, and what survives Android
@@ -56,20 +57,33 @@ export const takeBillsSavedToast = (): string | null => {
 const STORAGE_KEY = 'finnri.billBatch.v1';
 /** A tray older than this is a forgotten one, not an interrupted one. */
 const STALE_AFTER_MS = 6 * 60 * 60 * 1000;
+/**
+ * A tray holding a save that was never confirmed is kept longer: without it, the
+ * person could add the same money again.
+ */
+const UNCONFIRMED_STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
+const staleAfter = (stored: { unconfirmed?: unknown[] } | null) =>
+  stored?.unconfirmed?.length ? UNCONFIRMED_STALE_AFTER_MS : STALE_AFTER_MS;
 
 export type StoredBillBatch = {
   batchId: string;
   phase: 'pick' | 'tray';
   origin: BillPhotoOrigin;
   items: BillItem[];
+  /** The signed-in user's uuid. Another user is never shown this tray. */
+  owner?: string;
+  /** Requests sent but not seen to finish; see `lib/tray-save.ts`. */
+  unconfirmed?: UnconfirmedSave[];
   savedAt: number;
 };
 
 export const saveBillBatch = async (batch: Omit<StoredBillBatch, 'savedAt'>) => {
   try {
     await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify({ ...batch, savedAt: Date.now() }));
+    return true;
   } catch {
-    // Keeping the tray is a convenience; failing to keep it is not an error.
+    // Only a save about to be sent depends on this (`lib/tray-save.ts`).
+    return false;
   }
 };
 
@@ -85,15 +99,20 @@ export const clearBillBatch = async () => {
  * The tray as it was, or null. A read that was in flight when Finnri stopped
  * comes back as failed with Retry: it may already have been charged, so it is
  * never re-sent without the person asking. Bills that were saving come back as
- * read — the save is idempotent per bill only within one run, so they are
- * offered again rather than assumed saved.
+ * read, offered again rather than assumed saved; `unconfirmed` holds what was
+ * sent for them.
  */
-export const loadBillBatch = async (now = Date.now()): Promise<StoredBillBatch | null> => {
+export const loadBillBatch = async (
+  now = Date.now(),
+  owner?: string
+): Promise<StoredBillBatch | null> => {
   try {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const stored = JSON.parse(raw) as StoredBillBatch;
-    if (!stored?.items?.length || now - stored.savedAt > STALE_AFTER_MS) {
+    // Left on disk, for the person it belongs to.
+    if (stored?.owner && owner && stored.owner !== owner) return null;
+    if (!stored?.items?.length || now - stored.savedAt > staleAfter(stored)) {
       await clearBillBatch();
       return null;
     }

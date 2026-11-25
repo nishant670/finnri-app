@@ -200,6 +200,12 @@ export const isIncome = (item: Pick<DayItem, 'form'>) => item.form.type.toLowerC
 /** Ticked and not yet saved: what Save will save. */
 export const isPendingSave = (item: DayItem) => item.included && item.status === 'ready';
 
+/**
+ * Goes into One total: an expense Save would save, with an amount. One with none
+ * stays in the tray, not folded in at ₹0 and gone.
+ */
+export const foldsIntoTotal = (item: DayItem) => isPendingSave(item) && !isIncome(item) && itemAmount(item) > 0;
+
 /** Nothing left to save: the tray can close. */
 export const dayTrayIsFinished = (items: DayItem[]) =>
   !items.some((item) => isPendingSave(item) || item.status === 'saving');
@@ -268,7 +274,7 @@ export type PaymentWay = { label: string; total: number };
 export const paymentWays = (items: DayItem[]): PaymentWay[] => {
   const totals = new Map<string, number>();
   for (const item of items) {
-    if (!isPendingSave(item) || isIncome(item)) continue;
+    if (!foldsIntoTotal(item)) continue;
     const key = paymentKey(item.form);
     totals.set(key, (totals.get(key) ?? 0) + itemAmount(item));
   }
@@ -310,7 +316,7 @@ const largestBy = (items: DayItem[], keyOf: (item: DayItem) => string) => {
  * it saves on its own.
  */
 export const mergeDayIntoOne = (items: DayItem[], title = "Day's spends"): EntryForm | null => {
-  const expenses = items.filter((item) => isPendingSave(item) && !isIncome(item));
+  const expenses = items.filter(foldsIntoTotal);
   if (expenses.length === 0) return null;
   const byCategory = largestBy(expenses, (item) => item.form.category || 'Misc');
   const byPayment = largestBy(expenses, (item) => paymentKey(item.form));
@@ -359,9 +365,7 @@ export const mergeDayByPayment = (items: DayItem[]): EntryForm[] => {
   const ways = paymentWays(items);
   return ways
     .map((way) => {
-      const group = items.filter(
-        (item) => isPendingSave(item) && !isIncome(item) && paymentKey(item.form) === way.label
-      );
+      const group = items.filter((item) => foldsIntoTotal(item) && paymentKey(item.form) === way.label);
       return mergeDayIntoOne(group, `Day's spends · ${way.label}`);
     })
     .filter((form): form is EntryForm => !!form);

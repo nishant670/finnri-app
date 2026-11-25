@@ -127,6 +127,10 @@ export const billAmount = (item: Pick<BillItem, 'form'>) => {
 /** Ticked, read and not yet saved: what Save will save. */
 export const isPendingSave = (item: BillItem) => item.included && item.status === 'read';
 
+/** Goes into One total. A bill with no total stays in the tray instead. */
+export const foldsIntoTotal = (item: BillItem) =>
+  isPendingSave(item) && !!item.form && billAmount(item) > 0;
+
 /** Nothing left to save and nothing still being read: the tray can close. */
 export const trayIsFinished = (items: BillItem[]) =>
   !items.some(
@@ -266,7 +270,7 @@ export const ledgerDuplicateLabel = (match: {
  * most of the money. The breakdown goes into the note, so nothing is lost.
  */
 export const mergeBillsIntoOne = (items: BillItem[]): EntryForm | null => {
-  const bills = items.filter((item) => isPendingSave(item) && item.form);
+  const bills = items.filter(foldsIntoTotal);
   if (bills.length === 0) return null;
   const lead = [...bills].sort((a, b) => billAmount(b) - billAmount(a))[0];
   const form = lead.form as EntryForm;

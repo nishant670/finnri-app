@@ -1631,7 +1631,12 @@ export default function HomeScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android' || !token || checkedPendingReceipt.current) return;
     checkedPendingReceipt.current = true;
-    void Promise.all([takePendingReceiptPhoto(), loadBillBatch(), loadDayBatch()]).then(([uri, batch, day]) => {
+    const owner = useAuthStore.getState().user?.uuid;
+    void Promise.all([
+      takePendingReceiptPhoto(),
+      loadBillBatch(Date.now(), owner),
+      loadDayBatch(Date.now(), owner),
+    ]).then(([uri, batch, day]) => {
       // A multi-bill scan was open (P95): the photo, if any, is its next bill,
       // and the screen reopens where it was.
       if (batch) {
