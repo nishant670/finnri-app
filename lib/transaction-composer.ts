@@ -2,6 +2,7 @@ import type { EntryForm } from '@/components/transactions/TransactionFormModal';
 import { DEFAULT_CURRENCY } from '@/constants/Currency';
 import { normalizeAccountType, type Account } from './accounts';
 import { toApiTime } from './datetime';
+import { SAVE_STEP_DEADLINE_MS, UPLOAD_DEADLINE_MS, withDeadline } from './deadline';
 import { createEntry, type EntryMutationPayload } from './entries';
 import { createCardEMIPlan } from './emi-plans';
 import { refundReminderAtNineAM } from './refundables';
@@ -279,6 +280,22 @@ export async function createRecurringFromForm(
   });
 }
 
+/** What `progress.entry` was saved from, so a later step can't run on changed details. */
+export const saveFingerprint = (attempt: {
+  form: EntryForm;
+  account: Account | null;
+  source: 'manual' | 'text' | 'voice' | 'receipt';
+  sourceText: string;
+  refund: ReceivedRefund | null;
+}) =>
+  JSON.stringify({
+    form: attempt.form,
+    accountId: attempt.account?.id ?? null,
+    source: attempt.source,
+    sourceText: attempt.sourceText,
+    refund: attempt.refund,
+  });
+
 export async function saveNewTransaction({
   token,
   form,
@@ -290,6 +307,10 @@ export async function saveNewTransaction({
   progress = {},
   refund = null,
   confirmDuplicate,
+  uploadedAttachment,
+  beforeCreate,
+  afterStep,
+  deadlines = false,
 }: {
   token: string;
   form: EntryForm;
@@ -306,42 +327,48 @@ export async function saveNewTransaction({
    * to save it anyway; false stops the save with {@link DuplicateSaveCancelled}.
    */
   confirmDuplicate?: (match: Transaction) => Promise<boolean>;
+  /** The receipt's server path, when an earlier send already uploaded it. */
+  uploadedAttachment?: string | null;
+  /** Runs just before the transaction is sent (the trays record it first). */
+  beforeCreate?: (payload: EntryMutationPayload) => Promise<void>;
+  /** Runs each time `progress` records a finished step. */
+  afterStep?: () => Promise<void>;
+  /** Give up on a request that isn't answered (`lib/deadline.ts`). */
+  deadlines?: boolean;
 }) {
+  const answered = <T>(work: Promise<T>, ms = SAVE_STEP_DEADLINE_MS) =>
+    deadlines ? withDeadline(work, ms) : work;
   const parsedDate = parseDateLabel(form.date);
   if (confirmDuplicate && !progress.entry && !progress.duplicateConfirmed && !progress.createSent) {
-    const match = await findLikelyDuplicate(token, form, account?.id ?? null);
+    const match = await answered(findLikelyDuplicate(token, form, account?.id ?? null)).catch(() => null);
     if (match) {
       if (!(await confirmDuplicate(match))) throw new DuplicateSaveCancelled();
       progress.duplicateConfirmed = true;
     }
   }
-  const fingerprint = JSON.stringify({
-    form,
-    accountId: account?.id ?? null,
-    source,
-    sourceText,
-    refund,
-  });
+  const fingerprint = saveFingerprint({ form, account, source, sourceText, refund });
   if (progress.entry && progress.fingerprint !== fingerprint) {
     throw new Error(
       'The transaction has already been saved. Restore the previous details to retry the payment plan, or edit the saved transaction from Home.'
     );
   }
   if (!progress.entry) progress.createSent = true;
-  const entry =
-    progress.entry ??
-    (await createEntry(
-      token,
-      await buildTransactionPayload(token, form, {
-        accountId: account?.id ?? null,
-        source,
-        sourceText,
-        aiRequestId,
-      }),
-      idempotencyKey
-    ));
-  progress.entry = entry;
-  progress.fingerprint = fingerprint;
+  let entry = progress.entry;
+  if (!entry) {
+    const payload = await answered(
+      buildTransactionPayload(
+        token,
+        uploadedAttachment ? { ...form, attachment: uploadedAttachment } : form,
+        { accountId: account?.id ?? null, source, sourceText, aiRequestId }
+      ),
+      UPLOAD_DEADLINE_MS
+    );
+    await beforeCreate?.(payload);
+    entry = await answered(createEntry(token, payload, idempotencyKey));
+    progress.entry = entry;
+    progress.fingerprint = fingerprint;
+    await afterStep?.();
+  }
   const convertedToEMI =
     entryTag(form) === 'EMI' &&
     account != null &&
@@ -350,7 +377,7 @@ export async function saveNewTransaction({
     const sourceEntryID = Number(entry.id);
     if (!Number.isInteger(sourceEntryID) || sourceEntryID <= 0)
       throw new Error('The saved purchase could not be linked to its EMI plan.');
-    await createCardEMIPlan(token, account.id, {
+    await answered(createCardEMIPlan(token, account.id, {
       title: form.title.trim() || 'EMI purchase',
       merchant: form.merchant.trim(),
       category: form.category,
@@ -360,16 +387,18 @@ export async function saveNewTransaction({
       purchased_on: parsedDate ? formatApiDate(parsedDate) : form.date,
       source_entry_id: sourceEntryID,
       notes: form.notes.trim(),
-    });
+    }));
     progress.emiCreated = true;
+    await afterStep?.();
   }
   if (
     form.subscriptionEnabled &&
     form.subscriptionBillingInterval &&
     !progress.subscriptionCreated
   ) {
-    await createRecurringFromForm(token, form, account);
+    await answered(createRecurringFromForm(token, form, account));
     progress.subscriptionCreated = true;
+    await afterStep?.();
   }
   if (refund && refund.amount > 0 && !progress.refundCreated) {
     // The money came back to the same place it left — the same account, and for
@@ -377,7 +406,7 @@ export async function saveNewTransaction({
     // full amount; the refund is its own income, so history shows both.
     const refundDate = refund.date ? parseDateLabel(refund.date) : null;
     const what = form.merchant.trim() || form.title.trim() || 'purchase';
-    await createEntry(
+    await answered(createEntry(
       token,
       await buildTransactionPayload(
         token,
@@ -400,8 +429,9 @@ export async function saveNewTransaction({
         { accountId: account?.id ?? null, source }
       ),
       `${idempotencyKey}:refund`
-    );
+    ));
     progress.refundCreated = true;
+    await afterStep?.();
   }
   return { entry, convertedToEMI };
 }

@@ -34,12 +34,14 @@ import { accountForParsedDraft, fetchAccounts, type Account } from '@/lib/accoun
 import {
   MAX_BILLS_PER_BATCH,
   affordableBills,
+  billAmount,
   batchSummary,
   billFailureFor,
   billItemsFromUris,
   billNeedsAttention,
   createBatchId,
   flagBatchDuplicates,
+  foldsIntoTotal,
   isPendingSave,
   ledgerDuplicateLabel,
   mergeBillsIntoOne,
@@ -74,12 +76,18 @@ import { parseReceiptDraft } from '@/lib/parse';
 import { pickReceiptPhotos } from '@/lib/receipt-photo';
 import { resolveSplitDraft } from '@/lib/split-draft';
 import {
+  DuplicateSaveCancelled,
   describeLikelyDuplicate,
   findLikelyDuplicate,
-  saveNewTransaction,
-  type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import { notifyTransactionsChanged } from '@/lib/transaction-events';
+import {
+  finishBeforeSaving,
+  sendTraySave,
+  totalSaveKey,
+  type TraySaveRequest,
+  type UnconfirmedSave,
+} from '@/lib/tray-save';
 
 /** How long a saved row shows its tick before it folds away (board R20-Motion). */
 const SAVED_FOLD_MS = 420;
@@ -88,6 +96,10 @@ const SAVE_STAGGER_MS = 60;
 /** How long "Bill removed · Undo" stays up. */
 const UNDO_MS = 4000;
 const MERGED_KEY = '__one_total__';
+
+/** What saving from the total's form would put in the ledger, as bills. */
+const totalContents = (items: BillItem[]) =>
+  JSON.stringify(items.filter(foldsIntoTotal).map((item) => [item.key, billAmount(item)]));
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const rupees = (value: number) => formatMoney(value, { sign: 'never' });
@@ -105,7 +117,9 @@ const plural = (count: number, one: string, many = `${one}s`) => (count === 1 ? 
  */
 export default function BillsScreen() {
   const router = useRouter();
-  const { token } = useAuthStore();
+  const { token, user } = useAuthStore();
+  /** Whose tray this is, for as long as it is open. */
+  const [owner] = useState(() => user?.uuid);
   const theme = useThemeTokens();
   const colors = theme.colors;
   const motion = useMotion();
@@ -131,8 +145,15 @@ export default function BillsScreen() {
   const accountsRef = useRef(accounts);
   accountsRef.current = accounts;
   const mounted = useRef(true);
-  const progress = useRef<Record<string, TransactionSaveProgress>>({});
-  const saved = useRef({ count: 0, total: 0 });
+  /** Sent but not seen to finish; kept on disk with the tray. */
+  const unconfirmed = useRef<UnconfirmedSave[]>([]);
+  /** One save at a time, so two can't send the same bills. */
+  const saving = useRef(false);
+  /** What the total held when its form opened. */
+  const totalAtOpen = useRef('');
+  /** Bills saved and their money; `asOne` while the only save is one total. */
+  const saved = useRef({ count: 0, total: 0, asOne: false });
+  const recorded = useRef(new Set<string>());
   /** Credits used by bills no longer in the list (saved and folded away, or dropped). */
   const goneCredits = useRef(0);
   const closing = useRef(false);
@@ -158,7 +179,7 @@ export default function BillsScreen() {
       void (async () => {
         // Photos handed over now start a new scan. If Android stopped Finnri
         // in the middle of "Take another", the earlier photos come back too.
-        const stored = intake.origin === 'camera' ? await loadBillBatch() : null;
+        const stored = intake.origin === 'camera' ? await loadBillBatch(Date.now(), owner) : null;
         if (cancelled) return;
         const keep = stored?.phase === 'pick' ? stored.items : [];
         const room = Math.max(0, MAX_BILLS_PER_BATCH - keep.length);
@@ -168,12 +189,13 @@ export default function BillsScreen() {
         setReady(true);
       })();
     } else {
-      void loadBillBatch().then((stored) => {
+      void loadBillBatch(Date.now(), owner).then((stored) => {
         if (cancelled) return;
         if (!stored) {
           router.back();
           return;
         }
+        unconfirmed.current = stored.unconfirmed ?? [];
         setBatchId(stored.batchId);
         setPhase(stored.phase);
         setOrigin(stored.origin);
@@ -184,16 +206,23 @@ export default function BillsScreen() {
     return () => {
       cancelled = true;
     };
-  }, [intake, router]);
+  }, [intake, owner, router]);
 
   // Keep the scan on disk while it is open, so Android stopping Finnri for the
   // camera does not lose the photos already taken.
+  const persist = useCallback(async () => {
+    if (!ready || closing.current) return true;
+    const kept = itemsRef.current.filter((item) => item.status !== 'saved');
+    if (kept.length === 0) {
+      await clearBillBatch();
+      return true;
+    }
+    return saveBillBatch({ batchId, owner, phase, origin, items: kept, unconfirmed: unconfirmed.current });
+  }, [batchId, origin, owner, phase, ready]);
+
   useEffect(() => {
-    if (!ready || closing.current) return;
-    const kept = items.filter((item) => item.status !== 'saved');
-    if (kept.length === 0) return;
-    void saveBillBatch({ batchId, phase, origin, items: kept });
-  }, [batchId, items, origin, phase, ready]);
+    void persist();
+  }, [items, persist]);
 
   useEffect(() => {
     if (!token) return;
@@ -211,27 +240,49 @@ export default function BillsScreen() {
 
   /* ---- Leaving ----------------------------------------------------------- */
 
-  const finish = useCallback(() => {
+  /** `warned`: the person has just been told a save is unconfirmed. */
+  const finish = useCallback((warned = false) => {
+    if (closing.current) return;
     closing.current = true;
     void clearBillBatch();
-    if (saved.current.count > 0) {
+    const done = saved.current;
+    if (done.count > 0) {
       putBillsSavedToast(
-        `${saved.current.count} ${plural(saved.current.count, 'bill')} saved · ${rupees(saved.current.total)}`
+        done.asOne
+          ? `${done.count} bills saved as one · ${rupees(done.total)}`
+          : `${done.count} ${plural(done.count, 'bill')} saved · ${rupees(done.total)}`
       );
-      notifyTransactionsChanged();
     }
+    const unsure = unconfirmed.current.length > 0;
+    if (done.count > 0 || unsure) notifyTransactionsChanged();
     router.back();
-  }, [router]);
+    // The record goes with the tray, so it must not go quietly.
+    if (unsure && !warned) {
+      void dialog.alert({
+        title: "One save couldn't be confirmed",
+        message: 'Check Home before adding any of it again.',
+        tone: 'warning',
+      });
+    }
+  }, [dialog, router]);
 
   const handleClose = useCallback(async () => {
+    // Closing now would drop the tray before its save says how it went.
+    if (saving.current) {
+      void dialog.alert({ title: 'Still saving', message: 'Wait a moment, then close.', tone: 'info' });
+      return;
+    }
     const unsaved = itemsRef.current.filter((item) => item.status === 'read').length;
     const spent = batchSummary(itemsRef.current).creditsUsed;
-    if (phase === 'tray' && unsaved > 0 && spent > 0) {
+    const unsure = unconfirmed.current.length > 0;
+    if (phase === 'tray' && (unsure || (unsaved > 0 && spent > 0))) {
       if (confirmOpen.current) return;
       confirmOpen.current = true;
       const discard = await dialog.confirm({
-        title: `Discard ${unsaved} read ${plural(unsaved, 'bill')}?`,
-        message: `Nothing gets saved. The ${spent} credits used for reading won't come back.`,
+        title: unsaved === 0 ? 'Close this tray?' : `Discard ${unsaved} read ${plural(unsaved, 'bill')}?`,
+        message: unsure
+          ? "Finnri couldn't confirm the last save, so some of this may already be saved. Check Home before adding any of it again."
+          : `Nothing gets saved. The ${spent} credits used for reading won't come back.`,
         confirmLabel: 'Discard',
         cancelLabel: 'Keep checking',
         tone: 'danger',
@@ -241,7 +292,7 @@ export default function BillsScreen() {
       });
       if (!discard) return;
     }
-    finish();
+    finish(unsure);
   }, [dialog, finish, phase]);
 
   useEffect(() => {
@@ -432,54 +483,113 @@ export default function BillsScreen() {
 
   /* ---- Tray: saving ------------------------------------------------------ */
 
-  const markSaved = useCallback(
-    (key: string, amount: number) => {
-      saved.current = { count: saved.current.count + 1, total: saved.current.total + amount };
-      update(key, (item) => ({ ...item, status: 'saved', saveError: undefined }));
-      setTimeout(() => {
-        if (!mounted.current) return;
-        goneCredits.current += itemsRef.current.find((item) => item.key === key)?.creditsCharged ?? 0;
-        setItems((current) => current.filter((item) => item.key !== key));
-      }, SAVED_FOLD_MS);
-    },
-    [update]
+  /** A save finished: its bills show their tick, then fold away. */
+  const onSaved = useCallback((sent: UnconfirmedSave) => {
+    if (!recorded.current.has(sent.key)) {
+      recorded.current.add(sent.key);
+      saved.current = {
+        asOne: saved.current.count === 0 && sent.rowKeys.length > 1,
+        count: saved.current.count + sent.rowKeys.length,
+        total: saved.current.total + (Number(sent.form.amount) || 0),
+      };
+    }
+    const done = new Set(sent.rowKeys);
+    const tick = (item: BillItem): BillItem =>
+      done.has(item.key) ? { ...item, status: 'saved', saveError: undefined } : item;
+    // The ref first: the tray is written to disk before the next render.
+    itemsRef.current = itemsRef.current.map(tick);
+    setItems((current) => current.map(tick));
+    // A dropped bill that is now saved must not come back as unsaved.
+    setUndo((current) => (current && done.has(current.item.key) ? null : current));
+    setTimeout(() => {
+      if (!mounted.current) return;
+      for (const item of itemsRef.current) {
+        if (done.has(item.key)) goneCredits.current += item.creditsCharged ?? 0;
+      }
+      setItems((current) => current.filter((item) => !done.has(item.key)));
+    }, SAVED_FOLD_MS);
+  }, []);
+
+  const requestFor = useCallback(
+    (form: EntryForm, item: BillItem): TraySaveRequest => ({
+      key: item.key,
+      rowKeys: [item.key],
+      form,
+      account: resolveAccountForEntry(accountsRef.current, form),
+      source: 'receipt',
+      sourceText: item.draft?.source_text ?? 'Receipt photo',
+      aiRequestId: item.draft?.ai_request_id ?? null,
+      refund:
+        item.draft?.refund_received && item.draft.refund_received.amount > 0 ? item.draft.refund_received : null,
+    }),
+    []
   );
 
-  const saveForm = useCallback(
-    async (form: EntryForm, item: BillItem | null, key: string, askAboutDuplicate: boolean) => {
+  /** No single bill's refund or AI read belongs to the combined entry. */
+  const totalRequestFor = useCallback((form: EntryForm, rows: BillItem[]): TraySaveRequest => {
+    const rowKeys = rows.map((row) => row.key);
+    return {
+      key: totalSaveKey(rowKeys),
+      rowKeys,
+      form,
+      account: resolveAccountForEntry(accountsRef.current, form),
+      source: 'receipt',
+      sourceText: 'Receipt photos',
+      aiRequestId: null,
+      refund: null,
+    };
+  }, []);
+
+  const send = useCallback(
+    async (request: TraySaveRequest, askAboutDuplicate: boolean) => {
       if (!token) throw new Error('Please sign in again before saving.');
-      progress.current[key] ??= {};
-      await saveNewTransaction({
+      await sendTraySave({
         token,
-        form,
-        account: resolveAccountForEntry(accountsRef.current, form),
-        idempotencyKey: `${batchId}-${key}`,
-        source: 'receipt',
-        sourceText: item?.draft?.source_text ?? (item ? 'Receipt photo' : 'Receipt photos'),
-        aiRequestId: item?.draft?.ai_request_id ?? null,
-        progress: progress.current[key],
-        refund:
-          item?.draft?.refund_received && item.draft.refund_received.amount > 0
-            ? item.draft.refund_received
-            : null,
+        batchId,
+        request,
+        unconfirmed,
+        persist,
+        onSaved,
         confirmDuplicate: askAboutDuplicate
           ? (match) => dialog.confirm(describeLikelyDuplicate(match))
           : undefined,
       });
     },
-    [batchId, dialog, token]
+    [batchId, dialog, onSaved, persist, token]
   );
 
+  /** Finishes any earlier save holding one of these bills (`lib/tray-save.ts`). */
+  const finishFirst = useCallback(
+    (planned: TraySaveRequest[]) =>
+      finishBeforeSaving({ planned, dialog, token, batchId, unconfirmed, persist, onSaved }),
+    [batchId, dialog, onSaved, persist, token]
+  );
+
+  const finishSoonIfDone = useCallback(() => {
+    setTimeout(() => {
+      if (mounted.current && trayIsFinished(itemsRef.current)) finish();
+    }, SAVED_FOLD_MS + 40);
+  }, [finish]);
+
   const saveAll = useCallback(async () => {
-    if (isSavingAll) return;
+    if (saving.current) return;
+    saving.current = true;
     setIsSavingAll(true);
     try {
+      const pending = itemsRef.current.filter(isPendingSave);
       if (saveMode === 'one') {
-        const merged = mergeBillsIntoOne(itemsRef.current);
+        const merged = mergeBillsIntoOne(pending);
         if (!merged) return;
+        const folded = pending.filter(foldsIntoTotal);
+        const total = totalRequestFor(merged, folded);
         try {
-          // No single bill's refund or AI read belongs to the combined entry.
-          await saveForm(merged, null, MERGED_KEY, false);
+          const first = await finishFirst([total]);
+          if (first === 'declined') return;
+          if (first !== 'clear') {
+            finishSoonIfDone();
+            return;
+          }
+          await send(total, false);
         } catch (error) {
           void dialog.alert({
             title: "Couldn't save",
@@ -488,28 +598,35 @@ export default function BillsScreen() {
           });
           return;
         }
-        const pending = itemsRef.current.filter(isPendingSave);
         haptics.saved();
-        saved.current = { count: 1, total: Number(merged.amount) };
-        for (const item of pending) update(item.key, (current) => ({ ...current, status: 'saved' }));
         await wait(SAVED_FOLD_MS);
-        putBillsSavedToast(`${pending.length} bills saved as one · ${rupees(Number(merged.amount))}`);
-        saved.current = { count: 0, total: 0 };
-        notifyTransactionsChanged();
-        closing.current = true;
-        void clearBillBatch();
-        router.back();
+        // A bill with no total was left out: stay, so it can be fixed.
+        if (folded.length < pending.length) setSaveMode('separate');
+        else finish();
         return;
       }
 
-      const pending = itemsRef.current.filter(isPendingSave);
-      for (const item of pending) {
+      const ready = pending.filter((item) => !billNeedsAttention(item) && item.form);
+      try {
+        const first = await finishFirst(ready.map((item) => requestFor(item.form as EntryForm, item)));
+        if (first === 'declined') return;
+        if (first !== 'clear') {
+          finishSoonIfDone();
+          return;
+        }
+      } catch (error) {
+        void dialog.alert({
+          title: "Couldn't save",
+          message: error instanceof Error ? error.message : 'Try again in a moment.',
+          tone: 'error',
+        });
+        return;
+      }
+      for (const item of ready) {
         if (!mounted.current) return;
-        if (billNeedsAttention(item) || !item.form) continue;
         update(item.key, (current) => ({ ...current, status: 'saving', saveError: undefined }));
         try {
-          await saveForm(item.form, item, item.key, false);
-          markSaved(item.key, Number(item.form.amount) || 0);
+          await send(requestFor(item.form as EntryForm, item), false);
         } catch (error) {
           update(item.key, (current) => ({
             ...current,
@@ -523,9 +640,20 @@ export default function BillsScreen() {
       if (saved.current.count > 0) haptics.saved();
       if (trayIsFinished(itemsRef.current)) finish();
     } finally {
+      saving.current = false;
       if (mounted.current) setIsSavingAll(false);
     }
-  }, [dialog, finish, isSavingAll, markSaved, router, saveForm, saveMode, update]);
+  }, [
+    dialog,
+    finish,
+    finishFirst,
+    finishSoonIfDone,
+    requestFor,
+    saveMode,
+    send,
+    totalRequestFor,
+    update,
+  ]);
 
   /* ---- The form, for one bill or for One total --------------------------- */
 
@@ -535,30 +663,44 @@ export default function BillsScreen() {
 
   const saveFromForm = useCallback(
     async (data: EntryForm) => {
-      if (openKey === MERGED_KEY) {
-        setSaveMode('one');
-        const pending = itemsRef.current.filter(isPendingSave);
-        await saveForm(data, null, MERGED_KEY, true);
+      if (saving.current) throw new Error('Finnri is still saving. Try again in a moment.');
+      const isTotal = openKey === MERGED_KEY;
+      const item = isTotal ? null : itemsRef.current.find((candidate) => candidate.key === openKey);
+      const request = isTotal
+        ? totalRequestFor(data, itemsRef.current.filter(foldsIntoTotal))
+        : item
+          ? requestFor(data, item)
+          : null;
+      if (!request) return;
+      // The form filled itself when it opened; bills can finish reading under it.
+      if (isTotal && totalContents(itemsRef.current) !== totalAtOpen.current) {
+        throw new Error("What's in this total changed while it was open. Close it and open it again.");
+      }
+      saving.current = true;
+      try {
+        if (isTotal) setSaveMode('one');
+        const first = await finishFirst([request]);
+        // The form stays as it is, with no error on it.
+        if (first === 'declined') throw new DuplicateSaveCancelled();
+        if (first !== 'clear') {
+          setOpenKey(null);
+          finishSoonIfDone();
+          return;
+        }
+        await send(request, true);
         haptics.saved();
         setOpenKey(null);
-        putBillsSavedToast(`${pending.length} bills saved as one · ${rupees(Number(data.amount))}`);
-        notifyTransactionsChanged();
-        closing.current = true;
-        void clearBillBatch();
-        router.back();
-        return;
+        const leftOver =
+          isTotal &&
+          itemsRef.current.some((candidate) => isPendingSave(candidate) && billAmount(candidate) <= 0);
+        if (leftOver) setSaveMode('separate');
+        if (isTotal && !leftOver) finish();
+        else if (!isTotal) finishSoonIfDone();
+      } finally {
+        saving.current = false;
       }
-      const item = itemsRef.current.find((candidate) => candidate.key === openKey);
-      if (!item || !openKey) return;
-      await saveForm(data, item, openKey, true);
-      haptics.saved();
-      setOpenKey(null);
-      markSaved(openKey, Number(data.amount) || 0);
-      setTimeout(() => {
-        if (mounted.current && trayIsFinished(itemsRef.current)) finish();
-      }, SAVED_FOLD_MS + 40);
     },
-    [finish, markSaved, openKey, router, saveForm]
+    [finish, finishFirst, finishSoonIfDone, openKey, requestFor, send, totalRequestFor]
   );
 
   const keepDraft = useCallback(
@@ -793,12 +935,13 @@ export default function BillsScreen() {
   if (isReading) {
     primaryLabel = `Reading ${summary.reading} more…`;
     primaryAction = null;
-  } else if (saveMode === 'separate' && summary.needingAttention > 0 && firstAttention) {
+  } else if ((saveMode === 'separate' || !mergedForm) && summary.needingAttention > 0 && firstAttention) {
     primaryLabel = `${summary.needingAttention} ${plural(summary.needingAttention, 'bill needs', 'bills need')} an amount`;
     primaryAction = () => setOpenKey(firstAttention.key);
   } else if (summary.toSave === 0) {
     primaryLabel = 'Done';
-    primaryAction = finish;
+    // Done leaves quietly, unless a save is still unconfirmed.
+    primaryAction = () => (unconfirmed.current.length > 0 ? void handleClose() : finish());
   } else if (saveMode === 'one') {
     primaryLabel = `Save 1 · ${rupees(mergedTotal)}`;
     primaryAction = () => void saveAll();
@@ -806,7 +949,7 @@ export default function BillsScreen() {
     primaryLabel = `Save ${summary.toSave} · ${rupees(summary.total)}`;
     primaryAction = () => void saveAll();
   }
-  const notIncluded = items.filter((item) => !isPendingSave(item) && item.status !== 'saved');
+  const notIncluded = items.filter((item) => !foldsIntoTotal(item) && item.status !== 'saved');
 
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -858,13 +1001,16 @@ export default function BillsScreen() {
             <PressableView
               accessibilityRole="button"
               accessibilityLabel={`${mergedForm.title}, ${rupees(mergedTotal)}. Open to check or change.`}
-              onPress={() => setOpenKey(MERGED_KEY)}
+              onPress={() => {
+                totalAtOpen.current = totalContents(itemsRef.current);
+                setOpenKey(MERGED_KEY);
+              }}
               style={[styles.card, styles.mergedCard, { backgroundColor: colors.card, borderColor: colors.border }]}
               pressedStyle={styles.pressed}>
               <View style={styles.mergedHead}>
                 <View style={styles.mergedStack}>
                   {items
-                    .filter(isPendingSave)
+                    .filter(foldsIntoTotal)
                     .slice(0, 2)
                     .reverse()
                     .map((item, index) => (
@@ -890,9 +1036,9 @@ export default function BillsScreen() {
               </View>
               <View style={[styles.breakdown, { borderTopColor: colors.border }]}>
                 <ThemedText variant="micro" tone="muted">
-                  MADE FROM {items.filter(isPendingSave).length} BILLS
+                  MADE FROM {items.filter(foldsIntoTotal).length} BILLS
                 </ThemedText>
-                {items.filter(isPendingSave).map((item) => (
+                {items.filter(foldsIntoTotal).map((item) => (
                   <View key={item.key} style={styles.breakdownRow}>
                     <ThemedText variant="body" numberOfLines={1} style={styles.flex}>
                       {item.form?.title || 'Bill'}
@@ -916,7 +1062,9 @@ export default function BillsScreen() {
                       ? "A bill we couldn't read"
                       : item.status === 'waiting' || item.status === 'reading'
                         ? 'A bill still being read'
-                        : `${item.form?.title || 'Bill'} ${rupees(Number(item.form?.amount) || 0)}${item.duplicate ? ' · already logged' : ''}`}
+                        : billAmount(item) <= 0
+                          ? `${item.form?.title || 'Bill'} · needs a total`
+                          : `${item.form?.title || 'Bill'} ${rupees(billAmount(item))}${item.duplicate ? ' · already logged' : ''}`}
                   </ThemedText>
                 ))}
               </View>
