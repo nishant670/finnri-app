@@ -804,7 +804,10 @@ export default function HomeScreen() {
       // Back from the bills screen (P95–P102): one bill is read by the scan
       // below, as before; several were saved there and only need the toast.
       const billsToast = takeBillsSavedToast();
-      if (billsToast) setSaveConfirmation(billsToast);
+      if (billsToast) {
+        setSaveUndoIds([]);
+        setSaveConfirmation(billsToast);
+      }
       // Back from a spoken day (P115): its toast can take the save back.
       const dayToast = takeDaySavedToast();
       if (dayToast) {
@@ -1141,7 +1144,9 @@ export default function HomeScreen() {
       }
     });
     return () => animation.stop();
-    // The Undo ids are set together with the message, never on their own.
+    // The Undo ids are set together with the message, never on their own:
+    // every setSaveConfirmation(message) sets them too, to [] when the toast
+    // has no Undo, so an earlier spoken day's ids never reach a later toast.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [motion, saveConfirmation, saveConfirmationAnim]);
 
@@ -1335,6 +1340,9 @@ export default function HomeScreen() {
           setTransactions((current) =>
             current.filter((transaction) => transaction.id !== String(createdEntry.id))
           );
+          // A spoken day's Undo must not ride on this toast (it would delete
+          // that day's entries, not this one).
+          setSaveUndoIds([]);
           setSaveConfirmation('EMI plan created');
           setNewTransactionId(null);
         } else {
@@ -1343,6 +1351,7 @@ export default function HomeScreen() {
             createdTransaction,
             ...current.filter((transaction) => transaction.id !== createdTransaction.id),
           ]);
+          setSaveUndoIds([]);
           setSaveConfirmation(
             saveConfirmationLabel({
               subscriptionEnabled: formData.subscriptionEnabled,
