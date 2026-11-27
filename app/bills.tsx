@@ -1108,6 +1108,7 @@ export default function BillsScreen() {
         initialData={formData ?? undefined}
         onSave={saveFromForm}
         onDraftChange={keepDraft}
+        keepDraftLabel={openKey !== MERGED_KEY ? 'Back to the list' : undefined}
         mode="audio"
         heading={openKey === MERGED_KEY ? 'One total' : 'Check this bill'}
         aiReview={openItem?.aiReview ?? (openKey === MERGED_KEY ? { inputSource: 'receipt' } : null)}

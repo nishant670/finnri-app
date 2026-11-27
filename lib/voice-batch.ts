@@ -231,6 +231,45 @@ export const itemCheckLabel = (item: DayItem): string | null => {
   return null;
 };
 
+/** The form fields behind each "check it" flag. */
+const CHECKED_BY: Record<string, (keyof EntryForm)[]> = {
+  title: ['title', 'merchant'],
+  merchant: ['title', 'merchant'],
+  mode: ['mode', 'account'],
+  date: ['date', 'time'],
+  category: ['category'],
+};
+
+/**
+ * A row back from its form: the "check it" flags of whatever was changed
+ * since `before` (the form as it opened) are dropped, so a fixed date stops
+ * asking to be checked once the person is back on the list. Run on close,
+ * not per keystroke: the open form rebuilds its review when `aiReview` changes.
+ */
+export const withChecksCleared = (item: DayItem, before: EntryForm): DayItem => {
+  const changed = (fields: (keyof EntryForm)[]) => fields.some((field) => item.form[field] !== before[field]);
+  const clear = (flags: Record<string, boolean> | undefined) => {
+    if (!flags) return { flags, cleared: false };
+    const next = { ...flags };
+    let cleared = false;
+    for (const [flag, fields] of Object.entries(CHECKED_BY)) {
+      if (next[flag] && changed(fields)) {
+        next[flag] = false;
+        cleared = true;
+      }
+    }
+    return { flags: next, cleared };
+  };
+  const review = clear(item.aiReview?.needsConfirmation);
+  const draft = clear(item.draft.needs_confirmation);
+  if (!review.cleared && !draft.cleared) return item;
+  return {
+    ...item,
+    aiReview: item.aiReview ? { ...item.aiReview, needsConfirmation: review.flags } : null,
+    draft: { ...item.draft, needs_confirmation: draft.flags },
+  };
+};
+
 /** "UPI", "HDFC card", "Cash, as above" (P109). */
 export const paidWithLabel = (item: Pick<DayItem, 'form' | 'carried'>) => {
   const form = item.form;

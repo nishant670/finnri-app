@@ -71,6 +71,7 @@ import {
   phraseRanges,
   savedToastMessage,
   tileTimeLabel,
+  withChecksCleared,
   type DayItem,
 } from '@/lib/voice-batch';
 
@@ -716,6 +717,19 @@ export default function DayBatchScreen() {
     [openKey, update]
   );
 
+  /** The row's form as its sheet opened, to tell what was changed on the way back. */
+  const formAtOpen = useRef<{ key: string; form: EntryForm } | null>(null);
+  useEffect(() => {
+    const row = openKey && openKey !== MERGED_KEY ? itemsRef.current.find((item) => item.key === openKey) : null;
+    formAtOpen.current = row ? { key: row.key, form: row.form } : null;
+  }, [openKey]);
+
+  const closeForm = useCallback(() => {
+    const opened = formAtOpen.current;
+    setOpenKey(null);
+    if (opened) update(opened.key, (item) => (item.status === 'ready' ? withChecksCleared(item, opened.form) : item));
+  }, [update]);
+
   /* ---- Render ------------------------------------------------------------ */
 
   const summary = useMemo(() => daySummary(items), [items]);
@@ -1020,10 +1034,11 @@ export default function DayBatchScreen() {
 
       <TransactionFormModal
         visible={openKey !== null && !!formData}
-        onClose={() => setOpenKey(null)}
+        onClose={closeForm}
         initialData={formData ?? undefined}
         onSave={saveFromForm}
         onDraftChange={keepDraft}
+        keepDraftLabel={openKey !== MERGED_KEY ? 'Back to the list' : undefined}
         mode="audio"
         heading={
           openKey === MERGED_KEY

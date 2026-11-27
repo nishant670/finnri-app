@@ -247,6 +247,11 @@ export function TrayRowShell({
   const motion = useMotion();
   const drag = useSharedValue(0);
   const [width, setWidth] = useState(0);
+  // Read here, on the JS thread. `motion.duration` is not a worklet, and the
+  // drop below runs on the UI thread: calling it there threw "Tried to
+  // synchronously call a Remote Function", which killed a release build on
+  // every swipe that went far enough to drop a row (27 Nov device test).
+  const dropMs = motion.duration('base');
 
   const pan = Gesture.Pan()
     .enabled(canDrop && width > 0)
@@ -257,7 +262,7 @@ export function TrayRowShell({
     })
     .onEnd(() => {
       if (drag.value < -width * DROP_FRACTION) {
-        drag.value = withTiming(-width, { duration: motion.duration('base') }, () => {
+        drag.value = withTiming(-width, { duration: dropMs }, () => {
           runOnJS(onRemove)();
         });
       } else {
