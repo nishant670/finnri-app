@@ -17,6 +17,7 @@ import {
   savedToastMessage,
   slotTimesFor,
   tileTimeLabel,
+  withChecksCleared,
   type DayItem,
 } from '@/lib/voice-batch';
 
@@ -145,6 +146,22 @@ describe('speak your day: rows', () => {
     });
     expect(itemCheckLabel(unclear)).toBe("Didn't catch what this was");
     expect(alreadyLoggedLabel({ timeLabel: '9:42 pm' })).toBe('Already logged at 9:42 pm');
+  });
+
+  it('drops a "check it" flag once its field was changed in the form, and only then', () => {
+    const before = form({ title: 'Lunch', amount: '140', date: '18 November 2026' });
+    const flagged = item('d', { title: 'Lunch', amount: '140' }, {
+      aiReview: { needsConfirmation: { date: true, category: true } },
+      draft: draft({ needs_confirmation: { date: true, category: true } }),
+    });
+    // Opened and closed with nothing changed: still asks.
+    expect(withChecksCleared(flagged, before)).toBe(flagged);
+    expect(itemCheckLabel(flagged)).toBe('Date unclear, check it');
+    // The date was fixed: that chip goes, the category guess stays.
+    const fixed = withChecksCleared({ ...flagged, form: { ...flagged.form, date: '17 November 2026' } }, before);
+    expect(fixed.aiReview?.needsConfirmation).toEqual({ date: false, category: true });
+    expect(fixed.draft.needs_confirmation).toEqual({ date: false, category: true });
+    expect(itemCheckLabel(fixed)).toBe('Category is a guess');
   });
 
   it('sums money out and in separately', () => {

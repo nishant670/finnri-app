@@ -249,6 +249,13 @@ interface TransactionFormModalProps {
   onSetupSuggestedAccount?: (suggestion: AccountSuggestion) => void;
   onAutoCreateSuggestedAccount?: (suggestion: AccountSuggestion) => Promise<Account>;
   onDraftChange?: (data: EntryForm) => void;
+  /**
+   * The caller keeps every edit as it is made (through `onDraftChange`), as
+   * the capture trays do with a row. Closing then loses nothing, so no way
+   * out asks "Discard?", and this names a second button under Save that just
+   * goes back with the changes kept, to save later with the rest.
+   */
+  keepDraftLabel?: string;
   initialFocus?: 'category' | 'account';
   categorySuggestions?: string[];
   /**
@@ -478,6 +485,7 @@ export function TransactionFormModal({
   onSetupSuggestedAccount,
   onAutoCreateSuggestedAccount,
   onDraftChange,
+  keepDraftLabel,
   initialFocus,
   categorySuggestions = [],
   recentEntries = emptyRecentEntries,
@@ -2154,7 +2162,7 @@ export function TransactionFormModal({
       onClose();
       return;
     }
-    if (mode !== 'audio' && !isFormDirty()) {
+    if (keepDraftLabel || (mode !== 'audio' && !isFormDirty())) {
       onClose();
       return;
     }
@@ -2180,7 +2188,7 @@ export function TransactionFormModal({
       splitContext.onBack();
       return;
     }
-    if (isSaving || mode === 'audio' || isFormDirty()) settlePanel();
+    if (isSaving || (!keepDraftLabel && (mode === 'audio' || isFormDirty()))) settlePanel();
     requestClose();
   };
   // The gesture is built once; it reaches the current form through the ref.
@@ -2957,6 +2965,17 @@ export function TransactionFormModal({
                   disabled={fastEntry && !amountEntered}
                   onPress={handleConfirmEntry}
                 />
+                {keepDraftLabel && !(draftReview && isParsing) ? (
+                  <Button
+                    testID="entry-keep-draft"
+                    label={keepDraftLabel}
+                    variant="outline"
+                    height={50}
+                    disabled={isSaving}
+                    accessibilityHint="Keeps your changes on this row. Save them later with the rest."
+                    onPress={requestClose}
+                  />
+                ) : null}
                 {draftReview && isParsing ? (
                   <Pressable
                     testID="entry-cancel-reading"
