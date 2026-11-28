@@ -24,7 +24,9 @@ export const release1_3: WhatsNewRelease = {
       kind: 'new',
       title: 'Scan up to 5 bills at once',
       body: 'Take or pick up to five photos, see the price before anything is read, and save them separately or as one total.',
-      link: '/bills',
+      // Home, where Scan a bill starts it: /bills alone has no photos and
+      // closes itself straight away.
+      link: '/',
     },
     {
       kind: 'new',

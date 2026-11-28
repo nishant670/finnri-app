@@ -218,11 +218,16 @@ export const fetchSubscriptions = async (
 
 export const createSubscription = async (
   token: string,
-  payload: SubscriptionPayload
+  payload: SubscriptionPayload,
+  /** Sent again with the same key, the server answers with the first item. */
+  idempotencyKey?: string
 ): Promise<Subscription> => {
   const response = await fetch(`${API_BASE_URL}/v1/subscriptions`, {
     method: 'POST',
-    headers: authHeaders(token),
+    headers: {
+      ...authHeaders(token),
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
+    },
     body: JSON.stringify({
       currency: 'INR',
       billing_interval: 'monthly',

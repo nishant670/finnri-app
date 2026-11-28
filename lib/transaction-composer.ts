@@ -248,7 +248,8 @@ export type ReceivedRefund = { amount: number; date?: string | null };
 export async function createRecurringFromForm(
   token: string,
   form: EntryForm,
-  account: Account | null
+  account: Account | null,
+  idempotencyKey?: string
 ) {
   if (!form.subscriptionBillingInterval) return;
   const parsedDate = parseDateLabel(form.date);
@@ -277,8 +278,21 @@ export async function createRecurringFromForm(
     notes: form.subscriptionNotes.trim(),
     account_id: account?.id ?? null,
     ...loanInstalments(form),
-  });
+  }, idempotencyKey);
 }
+
+/** The API's longest Idempotency-Key. */
+const MAX_IDEMPOTENCY_KEY = 128;
+
+/**
+ * The key for one later step of a save, from the save's own key: the step,
+ * sent again after a lost answer, then lands once. None when it would not fit.
+ */
+export const stepIdempotencyKey = (idempotencyKey: string | undefined, step: 'recurring') => {
+  if (!idempotencyKey) return undefined;
+  const key = `${idempotencyKey}:${step}`;
+  return key.length <= MAX_IDEMPOTENCY_KEY ? key : undefined;
+};
 
 /** What `progress.entry` was saved from, so a later step can't run on changed details. */
 export const saveFingerprint = (attempt: {
@@ -396,7 +410,10 @@ export async function saveNewTransaction({
     form.subscriptionBillingInterval &&
     !progress.subscriptionCreated
   ) {
-    await answered(createRecurringFromForm(token, form, account));
+    // Keyed, so a resend after the deadline finds the first one (finnri-api#124).
+    await answered(
+      createRecurringFromForm(token, form, account, stepIdempotencyKey(idempotencyKey, 'recurring'))
+    );
     progress.subscriptionCreated = true;
     await afterStep?.();
   }
