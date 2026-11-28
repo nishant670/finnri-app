@@ -950,6 +950,9 @@ export default function BillsScreen() {
     primaryAction = () => void saveAll();
   }
   const notIncluded = items.filter((item) => !foldsIntoTotal(item) && item.status !== 'saved');
+  // Saved and folding away: say what was saved, not "0 to save · ₹0" for the
+  // moment before the tray closes (24 Nov retest).
+  const doneSaving = !isReading && summary.toSave === 0 && saved.current.count > 0;
 
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: colors.background }]}>
@@ -959,12 +962,14 @@ export default function BillsScreen() {
           <ThemedText variant="caption" tone="muted">
             {isReading
               ? 'So far'
-              : saveMode === 'one'
-                ? '1 to save'
-                : `${summary.toSave} to save`}
+              : doneSaving
+                ? `${saved.current.count} saved`
+                : saveMode === 'one'
+                  ? '1 to save'
+                  : `${summary.toSave} to save`}
           </ThemedText>
           <ThemedText variant="amountHero" accessibilityLiveRegion="polite" style={styles.total}>
-            {rupees(Math.round(shownTotal))}
+            {rupees(Math.round(doneSaving ? saved.current.total : shownTotal))}
           </ThemedText>
           {isReading ? (
             <>

@@ -92,6 +92,14 @@ export { monthlyEquivalent, toApiDateOnly } from '@/lib/subscription-form';
  * almost every subscription. Status appears only when editing, because a thing
  * being created is not cancelled.
  */
+const DELETE_TITLES: Record<RecurringKind, string> = {
+  loan: 'Delete this loan?',
+  subscription: 'Delete subscription?',
+  investment: 'Delete this investment?',
+  bill: 'Delete this bill?',
+  income: 'Delete this recurring income?',
+};
+
 export function SubscriptionsPanel({
   embedded = false,
   header,
@@ -676,9 +684,15 @@ export function SubscriptionsPanel({
 
   const confirmDelete = async (subscription: Subscription) => {
     if (!token) return;
+    // Each kind is asked about by its own name: a salary is not a
+    // subscription (24 Nov retest).
+    const kind = kindOf(subscription);
     const confirmed = await dialog.confirm({
-      title: 'Delete subscription?',
-      message: `${subscription.name} reminders will stop after deletion.`,
+      title: DELETE_TITLES[kind],
+      message:
+        kind === 'income'
+          ? `${subscription.name} won't be expected any more, and its reminders stop.`
+          : `${subscription.name} reminders will stop after deletion.`,
       confirmLabel: 'Delete',
       destructive: true,
     });
@@ -688,7 +702,7 @@ export function SubscriptionsPanel({
       if (editing?.id === subscription.id) resetForm();
       await load();
     } catch (deleteError) {
-      setListError(getFriendlyErrorMessage(deleteError, 'Unable to delete this subscription.'));
+      setListError(getFriendlyErrorMessage(deleteError, 'Unable to delete this. Try again.'));
     }
   };
 

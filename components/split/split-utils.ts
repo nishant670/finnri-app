@@ -302,6 +302,32 @@ export type BillViewerReading = {
   people: { key: string; name: string; isViewer: boolean; paid: number; share: number }[];
 };
 
+/**
+ * What one bill leaves between the reader and one friend: positive when the
+ * friend owes the reader, negative when the reader owes the friend, 0 when a
+ * third person paid. A friend's page lists bills shared with others too, and
+ * read for the whole bill Aarav's row said "₹1,600 you lent" when ₹800 of it
+ * was Priya's (24 Nov retest).
+ */
+export const billNetWithFriend = (bill: SplitBill, friendId: number): number => {
+  const shares = bill.viewer_shares ?? [];
+  if (shares.length > 0) {
+    const self = shares.find((share) => share.is_viewer);
+    const friend = shares.find((share) => !share.is_viewer && share.friend_id === friendId);
+    if (!self || !friend) return 0;
+    if (self.paid > 0) return Math.max(0, friend.share - friend.paid);
+    if (friend.paid > 0) return -Math.max(0, self.share - self.paid);
+    return 0;
+  }
+  return bill.participants
+    .filter((participant) => participant.friend_id === friendId)
+    .reduce(
+      (sum, participant) =>
+        sum + (participant.direction === 'friend_owes_user' ? participant.share_amount : -participant.share_amount),
+      0
+    );
+};
+
 export const readBillForViewer = (
   bill: SplitBill,
   friendById: Map<number, SplitFriend>,
