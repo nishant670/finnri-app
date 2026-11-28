@@ -97,7 +97,7 @@ import { SPLIT_GROUP_OWNER_SLOT, archiveSplitGroup, archiveSplitFriend, createSp
 import { TView } from '@/components/split/primitives/themed-interop';
 import { friendsLookIdentical, toDeviceContactOption, getBalanceTone, buildParticipantsFromSelection, getSafeExportFileName, buildGroupExportCsv, formatFriendlySplitError, type ParticipantDraft, type DuplicateFriendPair } from '@/lib/split-screen-helpers';
 
-import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildActivityListItems, buildRecentActivity, computeBalanceTotals, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups } from '@/lib/split-screen-model';
+import { buildFriendById, buildFriendDetailSummaries, buildGroupSummaries, buildActivityListItems, buildRecentActivity, computeBalanceTotals, describeOpenFriendBalance, filterVisibleActivity, filterVisibleFriends, filterVisibleGroups } from '@/lib/split-screen-model';
 import { SplitActivityRow } from '@/components/split/rows/SplitActivityRow';
 import { SplitFriendRow } from '@/components/split/rows/SplitFriendRow';
 import { SplitGroupCard } from '@/components/split/rows/SplitGroupCard';
@@ -1085,6 +1085,16 @@ export default function SplitScreen({ embedded = false }: SplitScreenProps) {
   };
 
   const removeFriendFromActiveList = (friend: SplitFriend, action: 'archive' | 'delete') => {
+    const openBalance = describeOpenFriendBalance(
+      friend.name,
+      balanceByFriendId.get(friend.id)?.net_balance ?? 0,
+      action
+    );
+    if (openBalance) {
+      setSelectedFriendActions(null);
+      void dialog.alert({ ...openBalance, tone: 'warning', iconName: 'scale-balance' });
+      return;
+    }
     if (action === 'delete') {
       setSelectedFriendActions(null);
       setPendingFriendDelete(friend);
