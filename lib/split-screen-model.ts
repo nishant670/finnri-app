@@ -32,6 +32,32 @@ export const computeBalanceTotals = (balances: SplitBalance[]) => {
   );
 };
 
+/**
+ * Why a friend with money still open between you cannot be archived or
+ * deleted yet, or null when they are settled.
+ *
+ * Archiving (and "Delete", which archives too) takes the friend off every list,
+ * and the server refuses a settlement or a bill for an archived friend. Their
+ * balance still counts in the Splits totals, though, so archiving someone who
+ * owes you leaves money in the headline that no screen shows and nothing can
+ * clear. There is no unarchive yet, so the only safe order is settle, then
+ * archive.
+ */
+export const describeOpenFriendBalance = (
+  friendName: string,
+  netBalance: number,
+  action: 'archive' | 'delete'
+): { title: string; message: string } | null => {
+  if (!Number.isFinite(netBalance) || Math.abs(netBalance) < 0.005) return null;
+  const amount = formatMoney(Math.abs(netBalance));
+  const owed = netBalance > 0 ? `${friendName} still owes you ${amount}.` : `You still owe ${friendName} ${amount}.`;
+  const verb = action === 'archive' ? 'archive' : 'delete';
+  return {
+    title: `Settle up with ${friendName} first`,
+    message: `${owed} Settle up before you ${verb} them — once they're ${verb}d, this balance can't be settled.`,
+  };
+};
+
 export const buildFriendById = (
   friends: SplitFriend[],
   groups: SplitGroup[],

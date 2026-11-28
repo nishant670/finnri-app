@@ -11,6 +11,7 @@ import {
   buildRecentActivity,
   groupBillsByMonth,
   computeBalanceTotals,
+  describeOpenFriendBalance,
   filterVisibleActivity,
   filterVisibleFriends,
   filterVisibleGroups,
@@ -508,5 +509,38 @@ describe('visible filters', () => {
     expect(filterVisibleActivity(rows, '')).toBe(rows);
     expect(filterVisibleActivity(rows, 'asha').map((r) => r.id)).toEqual(['1']);
     expect(filterVisibleActivity(rows, 'cab').map((r) => r.id)).toEqual(['2']);
+  });
+});
+
+/**
+ * Archiving (or deleting, which archives) a friend with money still open left
+ * the amount in the Splits totals with no row to show it and no way to settle:
+ * the server refuses settlements for archived friends and there is no
+ * unarchive. The screen stops and asks for a settle-up first.
+ */
+describe('describeOpenFriendBalance', () => {
+  it('lets a settled friend go', () => {
+    expect(describeOpenFriendBalance('Riya', 0, 'archive')).toBeNull();
+    expect(describeOpenFriendBalance('Riya', 0.004, 'delete')).toBeNull();
+    expect(describeOpenFriendBalance('Riya', -0.004, 'archive')).toBeNull();
+    expect(describeOpenFriendBalance('Riya', Number.NaN, 'archive')).toBeNull();
+  });
+
+  it('stops an archive while the friend still owes you', () => {
+    const block = describeOpenFriendBalance('Riya', 450, 'archive');
+    expect(block?.title).toBe('Settle up with Riya first');
+    expect(block?.message).toContain('Riya still owes you');
+    expect(block?.message).toContain('450');
+    expect(block?.message).toContain('before you archive them');
+    expect(block?.message).toContain("once they're archived");
+  });
+
+  it('stops a delete while you still owe the friend', () => {
+    const block = describeOpenFriendBalance('Riya', -120, 'delete');
+    expect(block?.message).toContain('You still owe Riya');
+    expect(block?.message).toContain('₹120');
+    expect(block?.message).not.toContain('-');
+    expect(block?.message).toContain('before you delete them');
+    expect(block?.message).toContain("once they're deleted");
   });
 });
