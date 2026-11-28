@@ -180,6 +180,14 @@ describe('TransactionSubscriptionFields — recurring income', () => {
     expect(latest.subscriptionReminderDays).toBe('0');
   });
 
+  // 24 Nov retest: the date read "2026-12-24", as the API stores it.
+  it('shows the next date as a date, keeping the API form underneath', async () => {
+    const { screen } = await setup({ ...salary, subscriptionEnabled: true, subscriptionNextDueDate: '2026-12-24' });
+    expect(screen.queryByText('2026-12-24')).toBeNull();
+    expect(screen.getByText('24 Dec 2026')).toBeTruthy();
+    expect(latest.subscriptionNextDueDate).toBe('2026-12-24');
+  });
+
   it('has no cancel reminder and words autopay for money in', async () => {
     const { screen } = await setup(salary);
     await fireEvent.press(screen.getByTestId('subscription-switch'));

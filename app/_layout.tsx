@@ -23,6 +23,7 @@ import { useAuthStore } from '@/hooks/use-auth-store';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { startAnalytics } from '@/lib/analytics';
 import { installApiSessionGuard } from '@/lib/api-session';
 import { initCrashReporting, reportHandledError } from '@/lib/crash-reporting';
 import { takeInstallReferrerInvite } from '@/lib/install-referrer-invite';
@@ -162,6 +163,10 @@ export default function RootLayout() {
     }
   }, [isAppReady]);
 
+  // After the session guard's effect below would be too late to matter and
+  // before it is harmless: the queue only sends once somebody is signed in.
+  useEffect(() => startAnalytics(), []);
+
   useEffect(() => {
     return installApiSessionGuard(() => {
       clearAuth();
@@ -283,6 +288,9 @@ export default function RootLayout() {
           options={{ presentation: 'modal', title: 'Account', animation: 'slide_from_bottom' }}
         />
         <Stack.Screen name="accounts/[id]" />
+        <Stack.Screen name="cards" />
+        <Stack.Screen name="bills" options={{ gestureEnabled: false }} />
+        <Stack.Screen name="batch" options={{ gestureEnabled: false }} />
         <Stack.Screen name="statements/index" />
         <Stack.Screen name="statements/review" />
         <Stack.Screen name="statements/[id]" />

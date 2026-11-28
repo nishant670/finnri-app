@@ -1,3 +1,4 @@
+import { track } from './analytics';
 import { readApiError } from './api-error';
 import { API_BASE_URL, type ApiEntry } from './transactions';
 
@@ -93,7 +94,43 @@ export const createEntry = async (
   if (!response.ok) {
     throw await readApiError(response, 'Unable to save the entry right now.', entryFieldLabels);
   }
+  track('entry_saved', payload.source ?? 'manual');
   return response.json();
+};
+
+export type EntryKeyCancel =
+  | { state: 'saved'; entry: ApiEntry }
+  /** It saved nothing, and a create carrying this key will be refused. */
+  | { state: 'cancelled' }
+  /** Couldn't settle it: offline, an older server, or an answer that isn't one. */
+  | { state: 'unknown' };
+
+/**
+ * Settles a create that was never answered: either it is in the ledger, or its
+ * Idempotency-Key is cancelled so it can never get there.
+ */
+export const cancelEntryKey = async (
+  token: string,
+  idempotencyKey: string
+): Promise<EntryKeyCancel> => {
+  try {
+    const response = await fetch(
+      `${API_BASE_URL}/v1/entry-keys/${encodeURIComponent(idempotencyKey)}/cancel`,
+      { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!response.ok) return { state: 'unknown' };
+    const body = (await response.json()) as {
+      saved?: boolean;
+      cancelled?: boolean;
+      entry?: ApiEntry;
+    };
+    if (body.saved === false && body.cancelled === true) return { state: 'cancelled' };
+    return body.saved === true && body.entry
+      ? { state: 'saved', entry: body.entry }
+      : { state: 'unknown' };
+  } catch {
+    return { state: 'unknown' };
+  }
 };
 
 export const updateEntry = async (

@@ -3,9 +3,16 @@ import { releaseToApiPayload } from '@/lib/whats-new/api-payload';
 import {
   BUNDLED_RELEASES,
   releaseCountChips,
+  releaseFingerprint,
   releaseMonthLabel,
   unseenBundledReleases,
 } from '@/lib/whats-new/releases';
+
+// Plain Node modules shared with app.config.js and the EAS pre-install hook.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { readReleaseNotesIndex } = require('../scripts/release-notes-index');
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { checkReleaseNotes } = require('../scripts/check-release-notes');
 
 const NOW = 1_800_000_000_000;
 
@@ -125,9 +132,32 @@ describe('bundled notes', () => {
 
   it('finds the releases installed since the last one seen, no newer than this build', () => {
     const [latest] = BUNDLED_RELEASES;
-    expect(unseenBundledReleases(0, latest.versionCode)).toContain(latest);
-    expect(unseenBundledReleases(latest.versionCode, latest.versionCode)).toEqual([]);
-    expect(unseenBundledReleases(0, latest.versionCode - 1)).not.toContain(latest);
+    const seen = (build: number, fingerprint: string | null = null) => ({ build, fingerprint });
+    expect(unseenBundledReleases(seen(0), latest.versionCode)).toContain(latest);
+    expect(unseenBundledReleases(seen(latest.versionCode), latest.versionCode)).toEqual([]);
+    expect(unseenBundledReleases(seen(0), latest.versionCode - 1)).not.toContain(latest);
+  });
+
+  it('shows a staging build’s notes again once their words change, never a Play build’s unchanged ones', () => {
+    const [latest] = BUNDLED_RELEASES;
+    const now = { build: latest.versionCode, fingerprint: releaseFingerprint(latest) };
+    expect(unseenBundledReleases(now, latest.versionCode)).toEqual([]);
+    expect(unseenBundledReleases({ ...now, fingerprint: 'older-words' }, latest.versionCode)).toEqual([latest]);
+    // Phones that stored only a number (before fingerprints) count it as seen.
+    expect(unseenBundledReleases({ ...now, fingerprint: null }, latest.versionCode)).toEqual([]);
+  });
+
+  it('fingerprints the words, so any edit to a card changes it', () => {
+    const [latest] = BUNDLED_RELEASES;
+    const edited = { ...latest, items: [...latest.items, { kind: 'improved' as const, title: 'One more' }] };
+    expect(releaseFingerprint(edited)).not.toBe(releaseFingerprint(latest));
+    expect(releaseFingerprint({ ...latest })).toBe(releaseFingerprint(latest));
+  });
+
+  it('agrees with the plain-text index app.config.js numbers preview builds from', () => {
+    expect(readReleaseNotesIndex().map((entry: { versionCode: number; versionName: string }) => [entry.versionCode, entry.versionName])).toEqual(
+      BUNDLED_RELEASES.map((release) => [release.versionCode, release.versionName])
+    );
   });
 
   it('counts cards for the hero in card order', () => {
@@ -146,6 +176,29 @@ describe('bundled notes', () => {
   it('names the month in words', () => {
     expect(releaseMonthLabel('2026-11')).toMatch(/November 2026/);
     expect(releaseMonthLabel('')).toBe('');
+  });
+});
+
+describe('checkReleaseNotes (EAS pre-install)', () => {
+  const notes = [
+    { file: '1.3.ts', versionCode: 15, versionName: '1.3' },
+    { file: '1.2.ts', versionCode: 14, versionName: '1.2' },
+  ];
+
+  it('lets a staging build through only with notes newer than the last Play build', () => {
+    expect(checkReleaseNotes({ profile: 'preview', recorded: 14, notes })).toBeNull();
+    expect(checkReleaseNotes({ profile: 'preview', recorded: 15, notes })).toMatch(/versionCode: 16/);
+    expect(checkReleaseNotes({ profile: 'preview', recorded: 14, notes: [] })).toMatch(/versionCode: 15/);
+  });
+
+  it('needs notes for exactly the number EAS gave a Play build', () => {
+    expect(checkReleaseNotes({ profile: 'production', recorded: 15, notes })).toBeNull();
+    expect(checkReleaseNotes({ profile: 'production', recorded: 16, notes })).toMatch(/versionCode: 16/);
+  });
+
+  it('leaves development builds alone', () => {
+    expect(checkReleaseNotes({ profile: 'development', recorded: 99, notes: [] })).toBeNull();
+    expect(checkReleaseNotes({ profile: undefined, recorded: 99, notes: [] })).toBeNull();
   });
 });
 

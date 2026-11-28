@@ -16,6 +16,12 @@ describe('title category hints', () => {
     ['Electricity bill', 'Bills'],
     ['Netflix subscription', 'Entertainment'],
     ['Birthday gift', 'Family/Gifts'],
+    // 2026-11-23: "Medicines 460" was filed as Misc.
+    ['Medicines', 'Health'],
+    ['Apollo Pharmacy', 'Health'],
+    ['Doctor visit', 'Health'],
+    ['दवाई', 'Health'],
+    ['Full health checkup', 'Health'],
     // Dishes on their own, without a meal word (device report, 2026-10-24).
     ['Mutton seekh kebab + roomali', 'Food & Drinks'],
     ['Mutton seekh kebab + rumali', 'Food & Drinks'],
@@ -42,6 +48,7 @@ describe('title category hints', () => {
     ['Gift wrap', null],
     ['Petrol + snacks', null],
     ['Metropolis', null],
+    ['Car checkup', null],
     ['Automatic transfer', null],
     ['Cafe + taxi', null],
     ['Something else', null],

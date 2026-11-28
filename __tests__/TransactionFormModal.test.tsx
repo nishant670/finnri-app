@@ -1257,6 +1257,55 @@ describe('TransactionFormModal — closing with unsaved input', () => {
   });
 });
 
+describe('TransactionFormModal — a tray row that keeps its edits', () => {
+  // The capture trays keep every edit on the row as it is made, so going back
+  // loses nothing and must not say it will (27 Nov device test).
+  const trayRow = (onClose: jest.Mock, onDraftChange: jest.Mock) => (
+    <TransactionFormModal
+      visible
+      initialData={completeInitialData}
+      onSave={jest.fn().mockResolvedValue(undefined)}
+      onClose={onClose}
+      onDraftChange={onDraftChange}
+      keepDraftLabel="Back to the list"
+      mode="audio"
+      accounts={[cashAccount]}
+    />
+  );
+
+  it('goes back to the list with the change kept, without asking to discard', async () => {
+    const onClose = jest.fn();
+    const onDraftChange = jest.fn();
+    const ui = await render(trayRow(onClose, onDraftChange));
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Office canteen');
+    await fireEvent.changeText(await ui.findByTestId('entry-amount-input'), '140');
+    expect(onDraftChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ title: 'Office canteen', amount: '140' })
+    );
+
+    await fireEvent.press(await ui.findByText('Back to the list'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this draft?')).toBeNull();
+  });
+
+  it('closes from the × without asking either', async () => {
+    const onClose = jest.fn();
+    const ui = await render(trayRow(onClose, jest.fn()));
+    await fireEvent.changeText(await ui.findByTestId('entry-title-input'), 'Office canteen');
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(ui.queryByText('Discard this draft?')).toBeNull();
+  });
+
+  it('still asks on a review that keeps nothing', async () => {
+    const ui = await renderModal({ mode: 'audio' });
+    expect(ui.queryByText('Back to the list')).toBeNull();
+    await fireEvent.press(await ui.findByLabelText('Close'));
+    expect(await ui.findByText('Discard this draft?')).toBeTruthy();
+    expect(ui.onClose).not.toHaveBeenCalled();
+  });
+});
+
 describe('TransactionFormModal — across midnight', () => {
   afterEach(() => {
     jest.useRealTimers();

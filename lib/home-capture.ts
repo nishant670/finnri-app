@@ -96,6 +96,18 @@ export const createDefaultEntryForm = (): EntryForm => ({
 });
 
 /**
+ * A new capture's form: the defaults, with no account, merchant or notes
+ * carried over. Home's composer and the bills tray both start from it.
+ */
+export const createBlankEntryForm = (): EntryForm => ({
+  ...createDefaultEntryForm(),
+  accountId: null,
+  account: '',
+  merchant: '',
+  notes: '',
+});
+
+/**
  * Lay a parsed capture draft over the form it will be reviewed in. Text, voice
  * and receipt scans all land here, so a draft reads the same whichever way it
  * arrived.
@@ -314,15 +326,43 @@ export const resolveAccountForEntry = (accounts: Account[], formData: EntryForm)
   return null;
 };
 
-/** What the toast says after a transaction is saved. */
+const REPEAT_PHRASES: Record<string, string> = {
+  daily: 'repeats daily',
+  business_daily: 'repeats on market days',
+  weekly: 'repeats weekly',
+  biweekly: 'repeats every 2 weeks',
+  monthly: 'repeats monthly',
+  quarterly: 'repeats quarterly',
+  yearly: 'repeats yearly',
+};
+
+/**
+ * What the toast says after a transaction is saved.
+ *
+ * Income switched to "Make it recurring" is a salary that repeats, not a
+ * subscription, and used to be told "Saved with subscription" (2026-11-23).
+ */
 export const saveConfirmationLabel = ({
   subscriptionEnabled,
   recordsRefund,
+  type,
+  billingInterval,
 }: {
   subscriptionEnabled: boolean;
   recordsRefund: boolean;
-}) =>
-  subscriptionEnabled ? 'Saved with subscription' : recordsRefund ? 'Saved with refund' : 'Saved';
+  type?: EntryForm['type'];
+  billingInterval?: string;
+}) => {
+  if (subscriptionEnabled && type === 'Income') {
+    const phrase = REPEAT_PHRASES[billingInterval ?? ''];
+    return phrase ? `Saved · ${phrase}` : 'Saved as recurring income';
+  }
+  return subscriptionEnabled
+    ? 'Saved with subscription'
+    : recordsRefund
+      ? 'Saved with refund'
+      : 'Saved';
+};
 
 /** A quick prompt, laid over a blank form, ready to review and save. */
 export const quickPromptForm = (

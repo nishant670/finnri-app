@@ -2,6 +2,7 @@ import {
   buildTransactionPayload,
   entryToComposerForm,
   saveNewTransaction,
+  stepIdempotencyKey,
   type TransactionSaveProgress,
 } from '@/lib/transaction-composer';
 import {
@@ -190,6 +191,18 @@ it('retries the failed follow-up without repeating a saved entry or EMI conversi
   expect(createEntry).toHaveBeenCalledTimes(1);
   expect(createCardEMIPlan).toHaveBeenCalledTimes(1);
   expect(createSubscription).toHaveBeenCalledTimes(2);
+  // Both sends carry one key, so a first one that did land is not made twice.
+  expect(jest.mocked(createSubscription).mock.calls.map((call) => call[2])).toEqual([
+    'attempt-1:recurring',
+    'attempt-1:recurring',
+  ]);
+});
+
+it('sends no recurring key when the save key leaves no room for one', async () => {
+  jest.mocked(createSubscription).mockResolvedValue({ id: 30 } as never);
+  expect(stepIdempotencyKey('k'.repeat(118), 'recurring')).toBe(`${'k'.repeat(118)}:recurring`);
+  expect(stepIdempotencyKey('k'.repeat(119), 'recurring')).toBeUndefined();
+  expect(stepIdempotencyKey(undefined, 'recurring')).toBeUndefined();
 });
 
 it('round-trips standalone payment details without an account or personal transaction', () => {
@@ -370,6 +383,7 @@ it('saves a repeating income as recurring income, untagged', async () => {
       account_id: 2,
       payment_mode: 'Bank Account',
       reminder_days: 0,
-    })
+    }),
+    'salary-1:recurring'
   );
 });

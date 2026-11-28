@@ -79,9 +79,18 @@ import {
 } from '@/lib/transaction-composer';
 import { haptics } from '@/lib/haptics';
 import { formToQuickPromptPayload } from '@/lib/quick-prompts';
-import { isParseAnswer, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, ParseApiError, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
-import { pickReceiptPhoto, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
+import { isParseAnswer, isParseBatch, looksLikeQuestion, describeParseFailure, describeReceiptScanFailure, ParseApiError, type ParseFailure, parseEntryDraft, parseReceiptDraft, type LedgerAnswer, type ParseResponse } from '@/lib/parse';
+import { pickReceiptPhoto, pickReceiptPhotos, takePendingReceiptPhoto, type ReceiptPhotoSource } from '@/lib/receipt-photo';
 import { ReceiptSourceSheet } from '@/components/transactions/ReceiptSourceSheet';
+import { MAX_BILLS_PER_BATCH } from '@/lib/bill-batch';
+import {
+  loadBillBatch,
+  putBillPhotos,
+  takeBillsSavedToast,
+  takeSingleBill,
+} from '@/lib/bill-batch-store';
+import { loadDayBatch, putDayBatch, takeDaySavedToast } from '@/lib/batch-store';
+import { deleteEntry } from '@/lib/entries';
 import {
   fetchSplitFriends,
   fetchSplitGroups,
@@ -106,9 +115,11 @@ import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
 import { describeReceiptBalanceUpdate } from '@/lib/receipt-balance';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import { requestMicAccess } from '@/lib/microphone-access';
+import { formatTime } from '@/lib/datetime';
 import {
   applyParsedDraftToForm,
   buildAiReview,
+  createBlankEntryForm,
   createDefaultEntryForm,
   creditActionForParseError,
   quickPromptEditorData,
@@ -171,6 +182,13 @@ const MIN_RECORDING_SECONDS = 0.8;
  */
 const RECORDING_OPTIONS = {
   ...RecordingPresets.HIGH_QUALITY,
+  // Speech quality (P105): mono AAC at ~32 kbps. A whole spoken day of 90 s
+  // is then ~360 KB, inside the free 512 KB voice limit that HIGH_QUALITY's
+  // 128 kbps stereo used up in ~32 s, and a quarter of the upload.
+  sampleRate: 22050,
+  numberOfChannels: 1,
+  bitRate: 32000,
+  web: { ...RecordingPresets.HIGH_QUALITY.web, bitsPerSecond: 32000 },
   isMeteringEnabled: true,
 };
 
@@ -181,6 +199,8 @@ const RECORDING_OPTIONS = {
  * harder to read rather than calmer.
  */
 const SAVE_TOAST_DWELL_MS = 2200;
+/** Long enough to reach Undo after saving a spoken day (P115). */
+const SAVE_TOAST_UNDO_DWELL_MS = 5000;
 /** How often a return to the foreground refreshes credits, notifications and gifts. */
 const FOREGROUND_REFRESH_INTERVAL_MS = 60_000;
 
@@ -287,16 +307,7 @@ export default function HomeScreen() {
    * timed — the day before: "Today" at 00:14 saved as yesterday at 23:53,
    * until the app was restarted.
    */
-  const createBlankForm = useCallback(
-    (): EntryForm => ({
-      ...createDefaultEntryForm(),
-      accountId: null,
-      account: '',
-      merchant: '',
-      notes: '',
-    }),
-    []
-  );
+  const createBlankForm = useCallback((): EntryForm => createBlankEntryForm(), []);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [form, setForm] = useState<EntryForm>(createDefaultEntryForm);
@@ -346,6 +357,10 @@ export default function HomeScreen() {
     scrollY.value = event.contentOffset.y;
   });
   const [saveConfirmation, setSaveConfirmation] = useState<string | null>(null);
+  /** Entries the save toast's Undo deletes (P115); empty when it has no Undo. */
+  const [saveUndoIds, setSaveUndoIds] = useState<number[]>([]);
+  /** Home's bill scan, for the focus effect above it to call. */
+  const scanReceiptRef = useRef<((uri: string) => Promise<void>) | null>(null);
   const [aiReview, setAiReview] = useState<AiReviewMetadata | null>(null);
   /**
    * The sheet is open on an empty draft while the parse is in flight. Two to
@@ -787,6 +802,21 @@ export default function HomeScreen() {
         resumeDraftAfterAccounts.current = false;
         setIsEditOpen(true);
       }
+      // Back from the bills screen (P95–P102): one bill is read by the scan
+      // below, as before; several were saved there and only need the toast.
+      const billsToast = takeBillsSavedToast();
+      if (billsToast) {
+        setSaveUndoIds([]);
+        setSaveConfirmation(billsToast);
+      }
+      // Back from a spoken day (P115): its toast can take the save back.
+      const dayToast = takeDaySavedToast();
+      if (dayToast) {
+        setSaveUndoIds(dayToast.undoIds);
+        setSaveConfirmation(dayToast.message);
+      }
+      const singleBill = takeSingleBill();
+      if (singleBill) void scanReceiptRef.current?.(singleBill);
       void fetchEntries();
       void fetchMonthSummary();
       void fetchAccountOptions();
@@ -1100,7 +1130,7 @@ export default function HomeScreen() {
         easing: TOAST_IN_EASING,
         useNativeDriver: true,
       }),
-      RNAnimated.delay(SAVE_TOAST_DWELL_MS),
+      RNAnimated.delay(saveUndoIds.length > 0 ? SAVE_TOAST_UNDO_DWELL_MS : SAVE_TOAST_DWELL_MS),
       RNAnimated.timing(saveConfirmationAnim, {
         toValue: 0,
         duration: motion.exitDuration('base'),
@@ -1111,10 +1141,38 @@ export default function HomeScreen() {
     animation.start(({ finished }) => {
       if (finished) {
         setSaveConfirmation(null);
+        setSaveUndoIds([]);
       }
     });
     return () => animation.stop();
+    // The Undo ids are set together with the message, never on their own:
+    // every setSaveConfirmation(message) sets them too, to [] when the toast
+    // has no Undo, so an earlier spoken day's ids never reach a later toast.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [motion, saveConfirmation, saveConfirmationAnim]);
+
+  /** Undo on a spoken day's toast: delete what was just saved (P115). */
+  const undoDaySave = useCallback(async () => {
+    const ids = saveUndoIds;
+    if (!token || ids.length === 0) return;
+    setSaveUndoIds([]);
+    setSaveConfirmation(null);
+    const results = await Promise.allSettled(ids.map((id) => deleteEntry(token, id)));
+    const failed = results.filter((result) => result.status === 'rejected').length;
+    notifyTransactionsChanged();
+    void fetchEntries();
+    void fetchMonthSummary();
+    if (failed > 0) {
+      void dialog.alert({
+        title: "Couldn't undo all of it",
+        message: `${failed} of ${ids.length} stayed saved. Delete ${failed === 1 ? 'it' : 'them'} from Transactions.`,
+        tone: 'error',
+      });
+      return;
+    }
+    haptics.removed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveUndoIds, token]);
 
   /**
    * The new-row highlight is a one-shot. Holding the id would re-run the
@@ -1283,6 +1341,9 @@ export default function HomeScreen() {
           setTransactions((current) =>
             current.filter((transaction) => transaction.id !== String(createdEntry.id))
           );
+          // A spoken day's Undo must not ride on this toast (it would delete
+          // that day's entries, not this one).
+          setSaveUndoIds([]);
           setSaveConfirmation('EMI plan created');
           setNewTransactionId(null);
         } else {
@@ -1291,10 +1352,13 @@ export default function HomeScreen() {
             createdTransaction,
             ...current.filter((transaction) => transaction.id !== createdTransaction.id),
           ]);
+          setSaveUndoIds([]);
           setSaveConfirmation(
             saveConfirmationLabel({
               subscriptionEnabled: formData.subscriptionEnabled,
               recordsRefund: modalMode === 'audio' && recordRefund && Boolean(refundReceived),
+              type: formData.type,
+              billingInterval: formData.subscriptionBillingInterval,
             })
           );
           setNewTransactionId(createdTransaction.id);
@@ -1415,8 +1479,12 @@ export default function HomeScreen() {
       const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
       const hintedAccount = accountForParsedDraft(data, accounts);
       setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
+      // The form was filled when the capture box opened; a draft with no time
+      // of its own is from now, when it was sent and read, not from then
+      // ("Cake" saved at 12:38 was stamped 12:31, 24 Nov retest).
+      const readAt = formatTime(new Date());
       setForm((prev) =>
-        applyParsedDraftToForm(prev, data, {
+        applyParsedDraftToForm(readAt ? { ...prev, time: readAt } : prev, data, {
           fallbackText,
           attachment,
           smartSorting,
@@ -1509,6 +1577,8 @@ export default function HomeScreen() {
     ]
   );
 
+  scanReceiptRef.current = scanReceipt;
+
   /** "Scan a bill" asks camera or gallery first; the chooser lives here, on Home. */
   const [isReceiptSourceOpen, setIsReceiptSourceOpen] = useState(false);
 
@@ -1527,9 +1597,21 @@ export default function HomeScreen() {
       setIsReceiptSourceOpen(false);
       // iOS will not present the picker while the chooser is still fading out.
       if (Platform.OS === 'ios') await new Promise((resolve) => setTimeout(resolve, 350));
-      const pick = await pickReceiptPhoto(source);
+      // From Home, a scan can take several bills (P95). From inside the entry
+      // sheet it fills the one entry that is open, so it stays a single photo.
+      const several = !isEditOpenRef.current;
+      const pick = several
+        ? await pickReceiptPhotos(source, MAX_BILLS_PER_BATCH)
+        : await pickReceiptPhoto(source).then((single) =>
+            single.status === 'picked' ? { status: 'picked' as const, uris: [single.uri] } : single
+          );
       if (pick.status === 'picked') {
-        void scanReceipt(pick.uri);
+        if (!several || (source === 'library' && pick.uris.length === 1)) {
+          void scanReceipt(pick.uris[0]);
+          return;
+        }
+        putBillPhotos({ uris: pick.uris, origin: source });
+        router.push('/bills');
         return;
       }
       if (pick.status === 'camera-denied') {
@@ -1554,7 +1636,7 @@ export default function HomeScreen() {
         });
       }
     },
-    [dialog, scanReceipt]
+    [dialog, router, scanReceipt]
   );
 
   // Android may stop Finnri while the camera is open on a phone short of
@@ -1563,10 +1645,29 @@ export default function HomeScreen() {
   useEffect(() => {
     if (Platform.OS !== 'android' || !token || checkedPendingReceipt.current) return;
     checkedPendingReceipt.current = true;
-    void takePendingReceiptPhoto().then((uri) => {
-      if (uri) void scanReceipt(uri);
+    const owner = useAuthStore.getState().user?.uuid;
+    void Promise.all([
+      takePendingReceiptPhoto(),
+      loadBillBatch(Date.now(), owner),
+      loadDayBatch(Date.now(), owner),
+    ]).then(([uri, batch, day]) => {
+      // A multi-bill scan was open (P95): the photo, if any, is its next bill,
+      // and the screen reopens where it was.
+      if (batch) {
+        if (uri && batch.phase === 'pick') putBillPhotos({ uris: [uri], origin: 'camera' });
+        router.push('/bills');
+        return;
+      }
+      if (uri) {
+        void scanReceipt(uri);
+        return;
+      }
+      // A spoken day was being checked when Android stopped Finnri — often
+      // while the person looked up an amount in another app. Its read is
+      // paid for, so it reopens rather than vanishing.
+      if (day) router.push('/batch');
     });
-  }, [scanReceipt, token]);
+  }, [router, scanReceipt, token]);
 
   const submitPrompt = useCallback(
     async (overrideText?: string) => {
@@ -1632,6 +1733,8 @@ export default function HomeScreen() {
           hintText: trimmed,
           audio,
           signal: controller.signal,
+          // This app can show a whole spoken day (P103).
+          multi: true,
         });
         void fetchCredits();
         // Cancelled as the answer landed: the person has already moved on, so
@@ -1658,7 +1761,23 @@ export default function HomeScreen() {
           return;
         }
 
-        const data: ParseResponse = result;
+        // Several transactions in one prompt (P103): the day tray takes them.
+        // A batch the reader trimmed to one is just that draft, in the sheet.
+        if (isParseBatch(result) && result.items.length > 1) {
+          setIsEditOpen(false);
+          setAiReview(null);
+          setPendingQuestion(null);
+          setInputText('');
+          setRecordedUri(null);
+          putDayBatch({ batch: result, inputSource: audioUri ? 'voice' : 'text' });
+          haptics.select();
+          router.push('/batch');
+          return;
+        }
+
+        const data: ParseResponse = isParseBatch(result)
+          ? { ...result.items[0], credits_charged: result.credits_charged, ai_request_id: result.ai_request_id }
+          : result;
         // A capture that was mistaken for a question needs the sheet it did not
         // get; opening it here costs one frame rather than a wrong destination.
         setPendingQuestion(null);
@@ -1702,6 +1821,7 @@ export default function HomeScreen() {
       inputText,
       isSubmitting,
       recordedUri,
+      router,
       showCreditParseError,
       token,
     ]
@@ -2006,7 +2126,12 @@ export default function HomeScreen() {
       </View>
 
       {saveConfirmation && (
-        <SaveConfirmationToast message={saveConfirmation} anim={saveConfirmationAnim} />
+        <SaveConfirmationToast
+          message={saveConfirmation}
+          anim={saveConfirmationAnim}
+          actionLabel={saveUndoIds.length > 0 ? 'Undo' : undefined}
+          onAction={saveUndoIds.length > 0 ? () => void undoDaySave() : undefined}
+        />
       )}
 
       <TransactionFormModal
@@ -2107,6 +2232,7 @@ export default function HomeScreen() {
       />
       <ReceiptSourceSheet
         visible={isReceiptSourceOpen}
+        multiple={!isEditOpen}
         onChoose={(source) => void chooseReceiptSource(source)}
         onClose={() => setIsReceiptSourceOpen(false)}
       />

@@ -11,7 +11,9 @@
     "web": "node ./scripts/expo-cli.js start --web --clear",
     "lint": "expo lint",
     "test": "jest",
-    "release-notes:publish": "jiti scripts/publish-release-notes.ts"
+    "release-notes:publish": "jiti scripts/publish-release-notes.ts",
+    "release-notes:check": "node scripts/check-release-notes.js",
+    "eas-build-pre-install": "node scripts/check-release-notes.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

@@ -15,6 +15,7 @@ import {
   formatBalance,
   formatBillListDate,
   formatMonthYear,
+  friendBalanceWhere,
   getFirstName,
   summaryKindDisplay,
   todayApiDate,
@@ -83,19 +84,18 @@ export function FriendDetailModal({
   // friend ids, so in a shared group somebody else runs this never matched and
   // the line lost the "in \"Home\"" that tells you where to go and settle it.
   //
-  // Named only when it is one group. With money open in two, naming the first
-  // put the whole total "in" a group that held a fraction of it.
-  const unsettledGroups = groups.filter((group) =>
-    (group.group.viewer_balances ?? []).some(
-      (entry) => entry.friend_id === friend.id && entry.net_balance !== 0
-    )
+  // Named only when the whole balance is in that one group. With money open
+  // in two, or outside any group too, naming one put the whole total "in" a
+  // group that held a fraction of it.
+  const where = friendBalanceWhere(
+    netBalance,
+    groups.map((group) => ({
+      name: group.group.name,
+      balance: (group.group.viewer_balances ?? [])
+        .filter((entry) => entry.friend_id === friend.id)
+        .reduce((sum, entry) => sum + entry.net_balance, 0),
+    }))
   );
-  const where =
-    unsettledGroups.length === 1
-      ? ` in "${unsettledGroups[0].group.name}"`
-      : unsettledGroups.length > 1
-        ? ` across ${unsettledGroups.length} groups`
-        : '';
   const balanceCopy =
     netBalance > 0
       ? `${friendFirstName} owes you ${formatBalance(netBalance)}${where}`
@@ -235,6 +235,7 @@ export function FriendDetailModal({
                       friendById={friendById}
                       divider={index > 0}
                       onPress={() => onOpenExpense(bill)}
+                      withFriendId={friend.id}
                     />
                   ))}
                 </View>

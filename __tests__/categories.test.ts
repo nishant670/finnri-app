@@ -23,6 +23,15 @@ describe('transaction categories', () => {
     expect(resolveCategory('Salary', 'Expense')).toBeNull();
   });
 
+  it('knows Health, its everyday names, and draws it with its own icon', () => {
+    expect(CATEGORIES).toContain('Health');
+    expect(resolveCategory('medicines', 'Expense')).toBe('Health');
+    expect(resolveCategory('Pharmacy', 'Expense')).toBe('Health');
+    expect(categoryVisual('Health', 'Expense').icon).toBe('medical-bag');
+    const icons = CATEGORIES.map((category) => categoryVisual(category, 'Expense').icon);
+    expect(new Set(icons).size).toBe(CATEGORIES.length);
+  });
+
   it('gives each income category its own visual', () => {
     const icons = INCOME_CATEGORIES.map((category) => categoryVisual(category, 'Income').icon);
     expect(new Set(icons).size).toBe(INCOME_CATEGORIES.length);

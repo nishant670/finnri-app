@@ -5,10 +5,12 @@ import { mixHex, withAlpha } from '@/constants/theme';
 import { useAudioLevel } from '@/hooks/use-audio-level';
 import { useMotion } from '@/hooks/use-motion';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
+import { haptics } from '@/lib/haptics';
 import { CAPTURE_HINTS, useSpeakLanguage } from '@/lib/speak-language';
+import { MAX_RECORDING_SECONDS, MAX_ITEMS_PER_PROMPT, RECORDING_WARN_SECONDS } from '@/lib/voice-batch';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import type { AudioRecorder } from 'expo-audio';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, TextInput, View } from 'react-native';
 import Animated, {
   cancelAnimation,
@@ -205,6 +207,31 @@ export function VoiceInputCard({
   const promptIndexRef = useRef(promptIndex);
   const micLongPressHandled = useRef(false);
   promptIndexRef.current = promptIndex;
+
+  // The recording clock (P104): a whole day may run to 1:30. At 1:20 the bar
+  // turns amber with one haptic; at 1:30 it stops and sends, as a tap would.
+  const [elapsed, setElapsed] = useState(0);
+  const autoStopped = useRef(false);
+  useEffect(() => {
+    if (!isRecording) {
+      setElapsed(0);
+      autoStopped.current = false;
+      return undefined;
+    }
+    const started = Date.now();
+    const timer = setInterval(() => setElapsed(Math.floor((Date.now() - started) / 1000)), 250);
+    return () => clearInterval(timer);
+  }, [isRecording]);
+  const nearEnd = isRecording && elapsed >= RECORDING_WARN_SECONDS;
+  useEffect(() => {
+    if (nearEnd) haptics.select();
+  }, [nearEnd]);
+  useEffect(() => {
+    if (!isRecording || elapsed < MAX_RECORDING_SECONDS || autoStopped.current) return;
+    autoStopped.current = true;
+    onMicPress();
+  }, [elapsed, isRecording, onMicPress]);
+  const clockLabel = `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, '0')}`;
 
   // One clock, running on the UI thread, restarted only when the state it is
   // paced by changes. Linear on purpose: an eased ring speeds up and slows down
@@ -512,7 +539,7 @@ export function VoiceInputCard({
           </ThemedText>
           <ThemedText tone="muted" style={styles.body}>
             {isRecording
-              ? 'Tap stop when you’re done. Finnri reads it straight away.'
+              ? `Say your whole day in one go. Several expenses are fine, up to ${MAX_ITEMS_PER_PROMPT}.`
               : 'Talk the way you normally would. Finnri sorts it out.'}
           </ThemedText>
           <Animated.Text
@@ -522,6 +549,32 @@ export function VoiceInputCard({
           </Animated.Text>
         </View>
       </View>
+
+      {isRecording ? (
+        <View style={styles.timer}>
+          <View style={styles.timerRow}>
+            <ThemedText style={[styles.timerText, { color: colors.text }]}>{clockLabel}</ThemedText>
+            <ThemedText style={[styles.timerText, nearEnd ? { color: colors.warning } : { color: colors.muted }]}>
+              {nearEnd ? `${Math.max(0, MAX_RECORDING_SECONDS - elapsed)} s left` : 'up to 1:30'}
+            </ThemedText>
+          </View>
+          <View
+            accessibilityRole="progressbar"
+            accessibilityLabel="Recording time"
+            accessibilityValue={{ min: 0, max: MAX_RECORDING_SECONDS, now: elapsed }}
+            style={[styles.timerTrack, { backgroundColor: colors.secondary }]}>
+            <View
+              style={[
+                styles.timerFill,
+                {
+                  width: `${Math.min(100, (elapsed / MAX_RECORDING_SECONDS) * 100)}%`,
+                  backgroundColor: nearEnd ? colors.warning : colors.accent,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      ) : null}
 
       {isRecording && onDiscardRecording ? (
         // While it records, the footer's other ways in are off anyway; its one
@@ -546,7 +599,7 @@ export function VoiceInputCard({
             <TextInput
               ref={textInputRef}
               accessibilityLabel="Type what you spent or earned"
-              placeholder="spent 250 on food via UPI"
+              placeholder="chai 20, auto 60, lunch 450 on card"
               placeholderTextColor={colors.muted}
               value={inputText}
               onChangeText={onChangeText}
@@ -669,6 +722,11 @@ export function VoiceInputCard({
 }
 
 const styles = StyleSheet.create({
+  timer: { paddingHorizontal: 20, paddingBottom: 14, gap: 6 },
+  timerRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  timerText: { fontSize: 13, lineHeight: 18, fontWeight: '600', fontVariant: ['tabular-nums'] },
+  timerTrack: { height: 6, borderRadius: 3, overflow: 'hidden' },
+  timerFill: { height: 6, borderRadius: 3 },
   // Not clipped: on a loud sentence the mic's rings travel past the card's
   // left edge, and cutting them off there reads as a rendering fault.
   card: {

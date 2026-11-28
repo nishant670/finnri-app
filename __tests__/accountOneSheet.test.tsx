@@ -44,6 +44,7 @@ describe('Add an account in one sheet (P21)', () => {
     jest.spyOn(accountsLib, 'fetchAccountProviders').mockResolvedValue(issuers);
     const ui = await render(<ManageAccountScreen />);
     expect(ui.getByText('What is it?')).toBeTruthy();
+    await fireEvent.press(ui.getByTestId('account-type-bank'));
     expect(ui.getByLabelText('Account name').props.value).toBe('Bank Account');
 
     await fireEvent.press(ui.getByTestId('account-type-credit_card'));
@@ -59,6 +60,7 @@ describe('Add an account in one sheet (P21)', () => {
 
   it('stops following the card once the name has been typed', async () => {
     const ui = await render(<ManageAccountScreen />);
+    await fireEvent.press(ui.getByTestId('account-type-bank'));
     await fireEvent.changeText(ui.getByLabelText('Account name'), 'Salary');
     await fireEvent.changeText(ui.getByLabelText('Last 4 digits'), '1234');
     await fireEvent.press(ui.getByTestId('account-type-wallet'));
@@ -104,9 +106,40 @@ describe('Add an account in one sheet (P21)', () => {
   it('will not save a blank name', async () => {
     const save = jest.spyOn(accountsLib, 'saveAccount');
     const ui = await render(<ManageAccountScreen />);
+    await fireEvent.press(ui.getByTestId('account-type-bank'));
     await fireEvent.changeText(ui.getByLabelText('Account name'), '   ');
     await fireEvent.press(ui.getByTestId('account-save'));
     expect(ui.getByText('Give this account a name.')).toBeTruthy();
     expect(save).not.toHaveBeenCalled();
+  });
+
+  // 24 Nov device pass: with Bank preselected, two cards were saved as banks.
+  it('asks what it is before showing any field, with nothing picked', async () => {
+    const ui = await render(<ManageAccountScreen />);
+    expect(ui.getByTestId('account-type-prompt')).toBeTruthy();
+    expect(ui.getByTestId('account-type-bank').props.accessibilityState).toMatchObject({
+      selected: false,
+    });
+    expect(ui.queryByLabelText('Account name')).toBeNull();
+    expect(ui.queryByTestId('account-save')).toBeNull();
+
+    await fireEvent.press(ui.getByTestId('account-type-credit_card'));
+    expect(ui.queryByTestId('account-type-prompt')).toBeNull();
+    expect(ui.getByText('Save card')).toBeTruthy();
+  });
+
+  it('keeps the type for Add another account', async () => {
+    jest
+      .spyOn(accountsLib, 'saveAccount')
+      .mockResolvedValue({ id: 7, type: 'credit_card', name: 'Card ••1234', color: '#8257E5' } as never);
+    const ui = await render(<ManageAccountScreen />);
+    await fireEvent.press(ui.getByTestId('account-type-credit_card'));
+    await fireEvent.press(ui.getByTestId('account-save'));
+    await fireEvent.press(await ui.findByText('Add another account'));
+
+    expect(ui.getByTestId('account-type-credit_card').props.accessibilityState).toMatchObject({
+      selected: true,
+    });
+    expect(ui.getByText('Save card')).toBeTruthy();
   });
 });

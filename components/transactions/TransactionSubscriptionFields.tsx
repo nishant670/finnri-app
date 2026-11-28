@@ -7,6 +7,7 @@ import { FormDisclosure } from '@/components/ui/FormDisclosure';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
 import { useScrollReveal } from '@/components/ui/RevealScrollView';
 import { formatMoney } from '@/lib/money';
+import { formatDueDateLabel } from '@/lib/subscription-form';
 import { inferNextSubscriptionDate } from '@/lib/subscription-schedule';
 import type { BillingInterval } from '@/lib/subscriptions';
 import type { EntryForm } from './TransactionFormModal';
@@ -299,7 +300,8 @@ export function TransactionSubscriptionFields({
                     style={{
                       color: form.subscriptionNextDueDate ? theme.text : theme.muted,
                     }}>
-                    {form.subscriptionNextDueDate || 'Choose date'}
+                    {/* Kept as YYYY-MM-DD for the API; read as "24 Dec 2026" (24 Nov retest). */}
+                    {form.subscriptionNextDueDate ? formatDueDateLabel(form.subscriptionNextDueDate) : 'Choose date'}
                   </ThemedText>
                 </View>
                 <MaterialCommunityIcons name="calendar-month-outline" size={20} color={accent} />

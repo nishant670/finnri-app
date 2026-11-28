@@ -5,9 +5,8 @@ import { StyleSheet, TextInput, View, type StyleProp, type ViewStyle } from 'rea
 import { ThemedText } from '@/components/themed-text';
 import { Button } from '@/components/ui/Button';
 import { PressableView } from '@/components/ui/PressableView';
-import { withAlpha } from '@/constants/theme';
 import { useThemeTokens } from '@/hooks/use-theme-tokens';
-import { Fonts, mixHex } from '@/constants/theme';
+import { Fonts, mixHex, withAlpha } from '@/constants/theme';
 import { getFriendlyErrorMessage } from '@/lib/api-error';
 import type { AccountSetupItem, SetupInlineField } from '@/lib/account-display';
 

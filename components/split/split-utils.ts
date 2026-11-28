@@ -127,6 +127,28 @@ export const formatMonthYear = (value: string) => {
   return date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 };
 
+/**
+ * Where a friend's outstanding balance sits, for the line on their page.
+ *
+ * A group is named only when the whole balance is in it. Aarav's page said
+ * "Aarav owes you ₹3,900 in "Goa Trip"" when ₹800 of that was a dinner split
+ * outside any group (2026-11-23): the one unsettled group was named and the
+ * rest credited to it. When money is open outside groups too, the line says
+ * the total is a total instead.
+ */
+export function friendBalanceWhere(
+  netBalance: number,
+  groupBalances: { name: string; balance: number }[]
+): string {
+  const open = groupBalances.filter((group) => Math.abs(group.balance) >= 0.005);
+  const inGroups = open.reduce((sum, group) => sum + group.balance, 0);
+  const outsideGroups = Math.abs(netBalance - inGroups) >= 0.005;
+  if (outsideGroups) return open.length > 0 ? ' in total' : '';
+  if (open.length === 1) return ` in "${open[0].name}"`;
+  if (open.length > 1) return ` across ${open.length} groups`;
+  return '';
+}
+
 export const getFirstName = (name: string) => name.trim().split(/\s+/)[0] || name;
 
 /**
@@ -278,6 +300,32 @@ export type BillViewerReading = {
   /** Positive means the reader lent on this bill; negative, borrowed. */
   net: number;
   people: { key: string; name: string; isViewer: boolean; paid: number; share: number }[];
+};
+
+/**
+ * What one bill leaves between the reader and one friend: positive when the
+ * friend owes the reader, negative when the reader owes the friend, 0 when a
+ * third person paid. A friend's page lists bills shared with others too, and
+ * read for the whole bill Aarav's row said "₹1,600 you lent" when ₹800 of it
+ * was Priya's (24 Nov retest).
+ */
+export const billNetWithFriend = (bill: SplitBill, friendId: number): number => {
+  const shares = bill.viewer_shares ?? [];
+  if (shares.length > 0) {
+    const self = shares.find((share) => share.is_viewer);
+    const friend = shares.find((share) => !share.is_viewer && share.friend_id === friendId);
+    if (!self || !friend) return 0;
+    if (self.paid > 0) return Math.max(0, friend.share - friend.paid);
+    if (friend.paid > 0) return -Math.max(0, self.share - self.paid);
+    return 0;
+  }
+  return bill.participants
+    .filter((participant) => participant.friend_id === friendId)
+    .reduce(
+      (sum, participant) =>
+        sum + (participant.direction === 'friend_owes_user' ? participant.share_amount : -participant.share_amount),
+      0
+    );
 };
 
 export const readBillForViewer = (

@@ -1,4 +1,5 @@
 import {
+  billNetWithFriend,
   buildGroupRoster,
   getGroupBalanceRows,
   getGroupTotals,
@@ -192,5 +193,45 @@ describe('group sheets from the reader’s side', () => {
     expect(totals.friendPaid).toBe(0);
     expect(totals.youLent).toBe(2352);
     expect(totals.youBorrowed).toBe(0);
+  });
+});
+
+describe("a friend's page reads each bill for that friend alone (24 Nov retest)", () => {
+  // Dinner 1,600 split three ways is 2,400; here the reader paid 2,400 and
+  // Aarav's and Priya's shares are 800 each.
+  const dinner = {
+    id: 9,
+    user_id: 1,
+    title: 'Dinner',
+    total_amount: 2400,
+    currency: 'INR',
+    date: '2026-11-24',
+    participants: [
+      { friend_id: 5, share_amount: 800, direction: 'friend_owes_user' },
+      { friend_id: 6, share_amount: 800, direction: 'friend_owes_user' },
+    ],
+  } as unknown as SplitBill;
+
+  it('says what that friend owes, not what the whole bill lent', () => {
+    expect(readBillForViewer(dinner, new Map(), 'You').net).toBe(1600);
+    expect(billNetWithFriend(dinner, 5)).toBe(800);
+    expect(billNetWithFriend(dinner, 6)).toBe(800);
+    expect(billNetWithFriend(dinner, 7)).toBe(0);
+  });
+
+  it('reads the served shares: the friend paid, a third person paid', () => {
+    const shares = (payer: 'viewer' | 'aarav' | 'priya') =>
+      ({
+        ...dinner,
+        viewer_shares: [
+          { slot: 'me', friend_id: 0, name: '', is_viewer: true, paid: payer === 'viewer' ? 2400 : 0, share: 800 },
+          { slot: '5', friend_id: 5, name: 'Aarav', is_viewer: false, paid: payer === 'aarav' ? 2400 : 0, share: 800 },
+          { slot: '6', friend_id: 6, name: 'Priya', is_viewer: false, paid: payer === 'priya' ? 2400 : 0, share: 800 },
+        ],
+      }) as unknown as SplitBill;
+    expect(billNetWithFriend(shares('viewer'), 5)).toBe(800);
+    expect(billNetWithFriend(shares('aarav'), 5)).toBe(-800);
+    // Priya paid: nothing on this bill is between the reader and Aarav.
+    expect(billNetWithFriend(shares('priya'), 5)).toBe(0);
   });
 });
