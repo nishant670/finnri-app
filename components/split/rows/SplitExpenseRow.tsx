@@ -1,5 +1,6 @@
 import { ListRow } from '@/components/ui/ListRow';
 import {
+  billNetWithFriend,
   formatBalance,
   getExpenseIconConfig,
   readBillForViewer,
@@ -21,18 +22,23 @@ export function SplitExpenseRow({
   friendById,
   divider,
   onPress,
+  withFriendId,
 }: {
   bill: SplitBill;
   currentUserName: string;
   friendById: Map<number, SplitFriend>;
   divider: boolean;
   onPress: () => void;
+  /** On a friend's page: show only what is between you and this friend. */
+  withFriendId?: number;
 }) {
   const theme = useThemeTokens().colors;
   // Read for whoever is holding the phone. Straight off `participants` this row
   // said "You paid ₹5,880 … you lent ₹2,352" to the member who had done
   // neither: both figures belonged to the man who entered the expense.
-  const { payerName, paidByYou, net } = readBillForViewer(bill, friendById, currentUserName);
+  const reading = readBillForViewer(bill, friendById, currentUserName);
+  const { payerName, paidByYou } = reading;
+  const net = withFriendId !== undefined ? billNetWithFriend(bill, withFriendId) : reading.net;
   const iconConfig = getExpenseIconConfig(bill.title);
 
   return (

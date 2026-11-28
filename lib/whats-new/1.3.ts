@@ -46,8 +46,8 @@ export const release1_3: WhatsNewRelease = {
     {
       kind: 'fix',
       title: 'A friend’s total, said honestly',
-      problem: 'A friend’s page could say they owed you everything “in Goa Trip”, even money from outside the group.',
-      fix: 'It now says “in total” or “across 2 groups” when that’s where the money is.',
+      problem: 'A friend’s page could say they owed you everything “in Goa Trip”, even money from outside the group, and a bill shared with others showed the whole amount you lent.',
+      fix: 'It now says “in total” or “across 2 groups” when that’s where the money is, and each bill shows just that friend’s share.',
     },
   ],
 };

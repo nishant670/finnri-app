@@ -750,6 +750,9 @@ export default function DayBatchScreen() {
   }
 
   const firstAttention = items.find((item) => itemNeedsAttention(item));
+  // Saved and folding away: say what was saved, not "0 to save · ₹0" counting
+  // down for the moment before the tray closes (24 Nov retest).
+  const doneSaving = !landing && summary.toSave === 0 && saved.current.count > 0;
   const splitByWay = oneMode === 'perWay' && ways.length > 1;
   const showSwitch = saveMode === 'one' || summary.toSave - incomeToSave.length >= 2;
   const credits = batch.credits_charged ?? 0;
@@ -816,17 +819,19 @@ export default function DayBatchScreen() {
           <ThemedText variant="caption" tone="muted">
             {landing
               ? 'So far'
-              : saveMode === 'one'
-                ? `${savingCount} to save`
-                : `${summary.toSave} to save`}
+              : doneSaving
+                ? `${saved.current.count} saved`
+                : saveMode === 'one'
+                  ? `${savingCount} to save`
+                  : `${summary.toSave} to save`}
           </ThemedText>
           <View style={styles.totalRow}>
             <ThemedText variant="amountHero" accessibilityLiveRegion="polite" style={trayStyles.total}>
-              {rupees(Math.round(saveMode === 'one' ? mergedOut : shownOut))}
+              {rupees(Math.round(doneSaving ? saved.current.out : saveMode === 'one' ? mergedOut : shownOut))}
             </ThemedText>
-            {summary.in > 0 ? (
+            {(doneSaving ? saved.current.in : summary.in) > 0 ? (
               <ThemedText variant="bodyStrong" tone="positive">
-                +{rupees(summary.in)} in
+                +{rupees(doneSaving ? saved.current.in : summary.in)} in
               </ThemedText>
             ) : null}
           </View>

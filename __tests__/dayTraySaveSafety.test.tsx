@@ -503,6 +503,15 @@ describe('spoken day tray: what was left open after ENG-13', () => {
     expect(ledger.posts).toHaveLength(0);
   });
 
+  it('after Save says what was saved, never "0 to save · ₹0" (24 Nov retest)', async () => {
+    const ui = await openTray(twoWays());
+    await pressSave(ui);
+    expect(ledger.total()).toBe(300);
+    expect(ui.queryByText('0 to save')).toBeNull();
+    expect(ui.getByText('3 saved')).toBeTruthy();
+    expect(ui.getByText('₹300')).toBeTruthy();
+  });
+
   it('One total leaves an expense with no amount in the tray', async () => {
     const ui = await openTray([...twoWays(), row('day-z', 'Parking', '')]);
     await switchToTotal(ui);

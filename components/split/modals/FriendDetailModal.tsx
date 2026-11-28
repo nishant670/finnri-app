@@ -235,6 +235,7 @@ export function FriendDetailModal({
                       friendById={friendById}
                       divider={index > 0}
                       onPress={() => onOpenExpense(bill)}
+                      withFriendId={friend.id}
                     />
                   ))}
                 </View>

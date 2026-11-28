@@ -115,6 +115,7 @@ import { getFriendlyErrorMessage, readApiError } from '@/lib/api-error';
 import { describeReceiptBalanceUpdate } from '@/lib/receipt-balance';
 import { clampDateToStatementCycle } from '@/lib/statement-composer';
 import { requestMicAccess } from '@/lib/microphone-access';
+import { formatTime } from '@/lib/datetime';
 import {
   applyParsedDraftToForm,
   buildAiReview,
@@ -1478,8 +1479,12 @@ export default function HomeScreen() {
       const splitDraft = resolveSplitDraft(data, splitFriends, splitGroups);
       const hintedAccount = accountForParsedDraft(data, accounts);
       setAiReview(buildAiReview(data, fallbackText, inputSource, splitDraft, smartSorting));
+      // The form was filled when the capture box opened; a draft with no time
+      // of its own is from now, when it was sent and read, not from then
+      // ("Cake" saved at 12:38 was stamped 12:31, 24 Nov retest).
+      const readAt = formatTime(new Date());
       setForm((prev) =>
-        applyParsedDraftToForm(prev, data, {
+        applyParsedDraftToForm(readAt ? { ...prev, time: readAt } : prev, data, {
           fallbackText,
           attachment,
           smartSorting,
